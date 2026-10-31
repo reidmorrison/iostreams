@@ -2,6 +2,21 @@ require_relative "test_helper"
 
 class TabularTest < Minitest::Test
   describe IOStreams::Tabular do
+    # Yields with the column restrictions enforced by `IOStreams.enforce_column_restrictions = true`, which is deprecated,
+    # and still applies to the column options, then restores the setting, which `IOStreams::Tabular::HeaderMapping`
+    # holds, as it was.
+    #
+    # Returns the result of the block.
+    def with_column_restrictions_enforced
+      enforced = IOStreams::Tabular::HeaderMapping.enforce_column_restrictions?
+      assert_deprecated(/IOStreams\.enforce_column_restrictions= is deprecated/) do
+        IOStreams.enforce_column_restrictions = true
+      end
+      yield
+    ensure
+      IOStreams::Tabular::HeaderMapping.enforce_column_restrictions = enforced
+    end
+
     let :format do
       :csv
     end
@@ -557,13 +572,12 @@ class TabularTest < Minitest::Test
       end
 
       it "applies the column restrictions without renaming the columns for cleanse: false, once they are enforced" do
-        IOStreams.enforce_column_restrictions = true
-        tabular = IOStreams::Tabular.new(format: :csv, allowed_columns: ["First Name"])
-        tabular.read_header("First Name,Age", cleanse: false)
+        with_column_restrictions_enforced do
+          tabular = IOStreams::Tabular.new(format: :csv, allowed_columns: ["First Name"])
+          tabular.read_header("First Name,Age", cleanse: false)
 
-        assert_equal ["First Name", "__rejected__Age"], tabular.header.columns
-      ensure
-        IOStreams.enforce_column_restrictions = false
+          assert_equal ["First Name", "__rejected__Age"], tabular.header.columns
+        end
       end
 
       it "returns nil for a blank line, or a format without a header row" do
@@ -623,31 +637,39 @@ class TabularTest < Minitest::Test
       end
 
       it "applies the column restrictions to the keys of each JSON record, renaming them as the header row is cleansed" do
-        IOStreams.enforce_column_restrictions = true
         line = %({"Name":"x","admin":true})
+        with_column_restrictions_enforced do
+          assert_equal [{"name" => "x"}], read_records(IOStreams::Tabular.new(format: :json, allowed_columns: ["name"]), line)
+          assert_equal [{"Name" => "x"}],
+                       read_records(IOStreams::Tabular.new(format: :json, allowed_columns: ["Name"], cleanse_header: false), line)
+        end
+      end
 
-        assert_equal [{"name" => "x"}], read_records(IOStreams::Tabular.new(format: :json, allowed_columns: ["name"]), line)
-        assert_equal [{"Name" => "x"}],
-                     read_records(IOStreams::Tabular.new(format: :json, allowed_columns: ["Name"], cleanse_header: false), line)
-      ensure
-        IOStreams.enforce_column_restrictions = false
+      it "applies the column restrictions as they were enforced when it was created, rather than as each record is read" do
+        line       = %({"Name":"x","admin":true})
+        unenforced = IOStreams::Tabular.new(format: :json, allowed_columns: ["name"])
+        enforced   = with_column_restrictions_enforced { IOStreams::Tabular.new(format: :json, allowed_columns: ["name"]) }
+
+        assert_equal [{"name" => "x"}], read_records(enforced, line)
+        with_column_restrictions_enforced do
+          assert_equal [{"Name" => "x", "admin" => true}], read_records(unenforced, line)
+        end
       end
     end
 
     describe "#restrict_columns" do
       it "applies the column restrictions to the columns supplied, renaming them as the header row read is cleansed" do
-        IOStreams.enforce_column_restrictions = true
-        tabular = IOStreams::Tabular.new(columns: ["First Name", "Age"], allowed_columns: ["first_name"])
-        tabular.restrict_columns
+        with_column_restrictions_enforced do
+          tabular = IOStreams::Tabular.new(columns: ["First Name", "Age"], allowed_columns: ["first_name"])
+          tabular.restrict_columns
 
-        assert_equal %w[first_name __rejected__Age], tabular.header.columns
+          assert_equal %w[first_name __rejected__Age], tabular.header.columns
 
-        tabular = IOStreams::Tabular.new(columns: ["First Name", "Age"], allowed_columns: ["First Name"], cleanse_header: false)
-        tabular.restrict_columns
+          tabular = IOStreams::Tabular.new(columns: ["First Name", "Age"], allowed_columns: ["First Name"], cleanse_header: false)
+          tabular.restrict_columns
 
-        assert_equal ["First Name", "__rejected__Age"], tabular.header.columns
-      ensure
-        IOStreams.enforce_column_restrictions = false
+          assert_equal ["First Name", "__rejected__Age"], tabular.header.columns
+        end
       end
 
       it "leaves the columns until the header row is read, and without restrictions" do
@@ -718,19 +740,22 @@ class TabularTest < Minitest::Test
         assert_empty IOStreams::Tabular::FORMAT_OPTION_NAMES - keywords
       end
 
-      it "names the deprecated options of a reader: those of the header that are not nil, and cleanse_header, even when it is nil" do
+      it "names the deprecated options of a reader: those of the header, and cleanse_header, even when they are nil" do
         options = {columns: %w[a], allowed_columns: nil, required_columns: %w[a], skip_unknown: false, cleanse_header: nil,
                    delimiter: "|", format: :csv}
 
-        assert_equal %i[columns required_columns skip_unknown cleanse_header], IOStreams::Tabular.deprecated_read_option_names(options)
-        assert_empty IOStreams::Tabular.deprecated_read_option_names(columns: nil, skip_unknown: nil, format: :csv)
+        assert_equal %i[columns allowed_columns required_columns skip_unknown cleanse_header],
+                     IOStreams::Tabular.deprecated_read_option_names(options)
+        assert_equal %i[columns skip_unknown], IOStreams::Tabular.deprecated_read_option_names(columns: nil, skip_unknown: nil, format: :csv)
+        assert_empty IOStreams::Tabular.deprecated_read_option_names(delimiter: "|", format: :csv)
       end
 
-      it "names the deprecated options of a writer: those of the header that are not nil, other than those that only apply when reading" do
+      it "names the deprecated options of a writer: those of the header, even when they are nil, other than those that only apply when reading" do
         options = {columns: %w[a], allowed_columns: %w[a], required_columns: %w[a], skip_unknown: true, format: :csv}
 
         assert_equal %i[columns], IOStreams::Tabular.deprecated_write_option_names(options)
-        assert_empty IOStreams::Tabular.deprecated_write_option_names(columns: nil)
+        assert_equal %i[columns], IOStreams::Tabular.deprecated_write_option_names(columns: nil)
+        assert_empty IOStreams::Tabular.deprecated_write_option_names(format: :csv)
       end
     end
 

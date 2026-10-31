@@ -1,6 +1,10 @@
+require "io_streams/builder/deprecations"
+
 module IOStreams
   # Build the streams that need to be applied to a path during reading or writing.
   class Builder
+    include Deprecations
+
     attr_accessor :file_name, :format_options
     attr_reader :streams, :options
 
@@ -11,10 +15,12 @@ module IOStreams
       @file_name     = file_name
       @streams       = nil
       @options       = nil
-      @format        = nil
+      @named_format  = nil
+      @set_format    = nil
       @format_option = nil
       @encoding      = nil
       @raw           = false
+      @temp_file     = false
       @schema        = nil
       @schema_source = nil
     end
@@ -61,6 +67,7 @@ module IOStreams
       raise_if_raw!("#option")
       add_option(stream, options)
       warn_deprecated_stream("option", stream)
+      warn_deprecated_options(stream, options)
       self
     end
 
@@ -75,6 +82,7 @@ module IOStreams
       raise_if_raw!("#stream") unless stream == :none
       add_stream(stream, options)
       warn_deprecated_stream("stream", stream)
+      warn_deprecated_options(stream, options)
       self
     end
 
@@ -132,9 +140,14 @@ module IOStreams
     end
 
     # Applies no streams, including an encoding set with #encoding, as `stream(:none)` does, for IOStreams itself.
-    def no_streams
-      @streams  = {}
-      @encoding = nil
+    #
+    # `temp_file: true` for the path of `IOStreams.temp_file`, which reads and writes its data as it is stored, while
+    # IOStreams v3.0 applies the streams that its file name implies, so that reading or writing it reports a deprecation
+    # warning while they would apply, see #warn_temp_file_streams.
+    def no_streams(temp_file: false)
+      @streams   = {}
+      @encoding  = nil
+      @temp_file = temp_file
       self
     end
 
@@ -148,6 +161,7 @@ module IOStreams
       raise_if_raw!("#option_or_stream") unless stream == :none
       streams || file_name.nil? ? add_stream(stream, options) : add_option(stream, options)
       warn_deprecated_stream("option_or_stream", stream)
+      warn_deprecated_options(stream, options)
       self
     end
 
@@ -160,12 +174,12 @@ module IOStreams
     end
 
     def reader(io_stream, &)
-      warn_encode_extension
+      warn_deprecated_streams
       execute(:reader, pipeline, io_stream, &)
     end
 
     def writer(io_stream, &)
-      warn_encode_extension
+      warn_deprecated_streams
       execute(:writer, pipeline, io_stream, &)
     end
 
@@ -181,21 +195,42 @@ module IOStreams
     def remove_from_pipeline(stream_name)
       @streams ||= build_pipeline
       @encoding  = nil if stream_name.to_sym == :encode
+      # The streams are now those that the application chose, see #warn_temp_file_streams.
+      @temp_file = false
       @streams.delete(stream_name.to_sym)
     end
 
     # Returns the tabular format if set, otherwise tries to autodetect the format if the file_name has been set
     # Returns [nil] if no format is set, or if it cannot be determined from the file_name
+    #
+    # The format that the file name names is kept once it is found, until a format is set, see #format=.
     def format
-      @format ||= file_name ? Tabular.format_from_file_name(file_name) : nil
+      @set_format || (@named_format ||= file_name ? Tabular.format_from_file_name(file_name) : nil)
     end
 
+    # Sets the tabular format, or nil to detect it from the file name again, see #format.
     def format=(format)
       unless format.nil? || IOStreams::Tabular.registered_formats.include?(format)
         raise(ArgumentError, "Invalid format: #{format.inspect}")
       end
 
-      @format = format
+      @set_format   = format
+      @named_format = nil
+    end
+
+    # Returns [true|false] whether a format was set, see #format=, rather than taken from the file name, see #format.
+    def format_set?
+      !@set_format.nil?
+    end
+
+    # Returns [Symbol|nil] the tabular format of the text that the stream closest to the application reads, when that
+    # stream decides it, such as `:csv` for a spreadsheet, whose rows it reads as CSV, see
+    # `IOStreams::Xlsx::Reader.text_format`, otherwise nil, for a stream whose data is the text, such as gzip. The encode
+    # stream converts that text, so it is the stream after it.
+    def text_format
+      stream = pipeline.each_key.find { |name| name != :encode }
+      klass  = stream && IOStreams.extensions[stream]&.reader_class
+      klass.text_format if klass.respond_to?(:text_format)
     end
 
     # Returns [String] the quote character within which field delimiters and newlines may be
@@ -208,6 +243,17 @@ module IOStreams
     # (e.g. `.format(:psv)`) overrides any extension auto-detected from the `file_name`.
     def quote_character
       format && IOStreams::Tabular.parser_class(format).quote_character
+    end
+
+    # Returns [Hash<Symbol, Array<Symbol>>] the settings of this stream that apply to what it writes, other than the
+    # options of each call: `streams:` the names of the streams of its pipeline, see #pipeline, which #stream, #option,
+    # #encoding and the file name set, and `tabular:` the names of those of its rows and records that were set: `:format`,
+    # when it was set, see #format=, rather than taken from the file name, and `:schema`, see #schema=.
+    def writer_settings
+      tabular = []
+      tabular << :format if format_set?
+      tabular << :schema unless schema.nil?
+      {streams: pipeline.keys, tabular: tabular}
     end
 
     private
@@ -239,37 +285,6 @@ module IOStreams
       else
         @streams[stream] = options.dup
       end
-    end
-
-    # Reports a deprecation warning for supplying `:none`, see #raw, or for setting the encode stream, see #encoding,
-    # which names the method that the application called.
-    def warn_deprecated_stream(method, stream)
-      case stream
-      when :none
-        Deprecation.warn("#{method}(:none) is deprecated, use #raw to read or write the data as it is stored, " \
-                         "or #file_name to read a file that is not named for its format")
-      when :encode
-        # Like any other stream set with #stream, stream(:encode, ...) stops the streams being taken from the file
-        # name, which #encoding keeps.
-        if method == "stream"
-          Deprecation.warn("stream(:encode, ...) is deprecated, use #encoding instead, which keeps the streams that " \
-                           "the file name implies, #raw to read or write the data as it is stored, or #file_name to " \
-                           "read a file that is not named for its format")
-        else
-          Deprecation.warn("#{method}(:encode, ...) is deprecated, use #encoding instead")
-        end
-      end
-    end
-
-    # A file name ending in `.encode` is deprecated, since file names do not name the encode stream, see #encoding.
-    # Once the encode stream is set, with #encoding or `option(:encode, ...)`, the file name adds nothing to it, so it
-    # is only reported when the file name is what applies the encode stream.
-    def warn_encode_extension
-      return if streams || @encoding || options&.key?(:encode)
-      return if file_name.nil? || !parse_extensions.include?(:encode)
-
-      Deprecation.warn("a file name ending in .encode is deprecated, since file names do not name the encode " \
-                       "stream, use #encoding instead")
     end
 
     def raise_if_raw!(method_name)
@@ -344,7 +359,26 @@ module IOStreams
     def open_stream(type, stream, io_stream, opts, &)
       klass = class_for_stream(type, stream)
       validate_options(type, stream, klass, opts)
-      klass.open(io_stream, **opts, &)
+      klass.open(io_stream, **taken_options(type, stream, klass, opts), &)
+    end
+
+    # Returns [Hash] the options of the stream that the class is opened with: all of them, unless the class takes any
+    # option, since it does not declare them, see #validate_options, while it answers those that it takes in IOStreams
+    # 3.0, as `IOStreams::Bzip2::Reader` does until v3.0, see #v3_class_option_names. It is then opened with those
+    # alone, and a warning is logged for each of the others, which it would ignore, see
+    # `IOStreams::Utils.warn_unknown_options`, naming the stream as it was set: one that the class of the other
+    # direction takes, which v3.0 accepts, and ignores, or one that neither takes, which v3.0 raises ArgumentError for.
+    def taken_options(type, stream, klass, opts)
+      known = v3_class_option_names(klass) if option_names(klass).nil?
+      return opts if known.nil?
+
+      unknown = opts.except(*known)
+      return opts if unknown.empty?
+
+      other       = IOStreams.extensions[stream].public_send(type == :reader ? :writer_class : :reader_class)
+      other_names = (v3_class_option_names(other) if other) || []
+      Utils.warn_unknown_options(unknown, stream, type, known, other_names)
+      opts.slice(*known)
     end
 
     # Options are strict: an option the stream does not accept raises instead of being ignored.

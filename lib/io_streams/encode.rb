@@ -7,6 +7,16 @@ module IOStreams
     autoload :Reader, "io_streams/encode/reader"
     autoload :Writer, "io_streams/encode/writer"
 
+    # What the application uses in place of the #encoding and #cleaner of the reader and writer of the encode stream,
+    # which v3.0 removes: the settings of the path, which return what was set in both versions, see
+    # `IOStreams::Reader.v3_stream_advice`.
+    V3_STREAM_ADVICE = {
+      encoding: "use the #encoding of the path instead, which returns the encoding that was set, such as \"UTF-8\", or " \
+                "Encoding.find(path.encoding) for its Encoding",
+      cleaner:  "use path.setting(:encode)[:cleaner] instead, which returns the cleaner that was set, such as :printable"
+    }.freeze
+    private_constant :V3_STREAM_ADVICE
+
     # Returns [Array<Symbol>] the names of the options of the encode stream, which its reader and writer both take.
     def self.option_names
       Reader.option_names | Writer.option_names

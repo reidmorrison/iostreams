@@ -145,12 +145,10 @@ module IOStreams
         end
 
         it "does not include credentials in the url" do
-          {
-            "sftp://jack:TOP-SECRET@example.org/a.csv?IdentityKey=TOP-SECRET" => "sftp://example.org/a.csv",
-            "https://jack:TOP-SECRET@example.org/a.csv?token=TOP-SECRET#x"    => "https://example.org/a.csv"
-          }.each_pair do |url, name|
-            assert_equal name, IOStreams.path(url).display_name
-          end
+          # The query of an SFTP url is deprecated, since its ssh options are ignored.
+          assert_equal "sftp://example.org/a.csv",
+                       assert_deprecated(/its query is ignored/) { IOStreams.path("sftp://jack:TOP-SECRET@example.org/a.csv?IdentityKey=TOP-SECRET") }.display_name
+          assert_equal "https://example.org/a.csv", IOStreams.path("https://jack:TOP-SECRET@example.org/a.csv?token=TOP-SECRET#x").display_name
         end
 
         it "does not include credentials supplied as arguments" do
@@ -193,9 +191,13 @@ module IOStreams
         end
 
         it "does not display credentials in the url" do
+          # The query of an SFTP url is deprecated, since its ssh options are ignored.
+          allowed = assert_deprecated(/its query is ignored/) do
+            IOStreams.path("sftp://jack:TOP-SECRET@example.org/a.csv?IdentityKey=TOP-SECRET")
+          end
           {
-            "sftp://jack:TOP-SECRET@example.org/a.csv?IdentityKey=TOP-SECRET" => "SFTP:sftp://example.org/a.csv ",
-            "https://jack:TOP-SECRET@example.org/a.csv?token=TOP-SECRET#x"    => "HTTP:https://example.org/a.csv "
+            allowed                                                        => "SFTP:sftp://example.org/a.csv ",
+            "https://jack:TOP-SECRET@example.org/a.csv?token=TOP-SECRET#x" => "HTTP:https://example.org/a.csv "
           }.each_pair do |url, name|
             str = IOStreams.path(url).inspect
 
@@ -229,8 +231,11 @@ module IOStreams
         end
 
         it "does not display options whose names suggest a secret" do
-          path = IOStreams.path("a/b/file.csv.pgp").option(:pgp, api_token: "TOP-SECRET", recipient: "a@b.org")
-          str  = path.inspect
+          # :pgp takes no api_token:, which v3.0 raises for when it is set.
+          path = assert_deprecated(/api_token: is deprecated for a :pgp stream/) do
+            IOStreams.path("a/b/file.csv.pgp").option(:pgp, api_token: "TOP-SECRET", recipient: "a@b.org")
+          end
+          str = path.inspect
 
           refute_includes str, "TOP-SECRET"
           assert_includes str, "a@b.org"

@@ -1,0 +1,291 @@
+require_relative "../test_helper"
+require "aws-sdk-s3"
+require "csv"
+require "socket"
+require "stringio"
+require "tmpdir"
+require_relative "../s3_stub"
+
+# The forms that the deprecation warnings of v2.2 for the stream that a reader or writer block receives recommend, in
+# place of the methods that the stream of v3.0 does not answer, give the same result in v2.2 and v3.0, and report no
+# deprecation warning.
+module Upgrade
+  class WarningsIOTest < Minitest::Test
+    # A minimal HTTP server, which serves the supplied body for every request.
+    class BodyServer
+      def initialize(body)
+        @body   = body
+        @server = TCPServer.new("127.0.0.1", 0)
+        @thread = Thread.new { serve }
+      end
+
+      def url(name)
+        "http://127.0.0.1:#{@server.addr[1]}/#{name}"
+      end
+
+      def shutdown
+        @thread.kill
+        @server.close
+      end
+
+      private
+
+      def serve
+        loop do
+          client = @server.accept
+          nil while (line = client.gets) && line != "\r\n"
+          client.write("HTTP/1.1 200 OK\r\nContent-Length: #{@body.bytesize}\r\nConnection: close\r\n\r\n#{@body}")
+          client.close
+        end
+      rescue IOError, SystemCallError
+        nil
+      end
+    end
+
+    describe "the forms that the deprecation warnings for the stream of a reader or writer block recommend" do
+      let :csv do
+        "name,zip\nJack,12345\nJill,23456\n"
+      end
+
+      let :pgp_writer do
+        {recipient: "receiver@example.org"}
+      end
+
+      let :pgp_reader do
+        {passphrase: "receiver_passphrase"}
+      end
+
+      # Returns [IOStreams::Path] the path of a file of the supplied name in the directory, which holds the CSV, written
+      # with the streams that its name implies.
+      def write_file(dir, name)
+        path = IOStreams.path(dir, name)
+        path = path.option(:pgp, **pgp_writer) if name.include?(".pgp")
+        path.write(csv)
+        IOStreams.path(dir, name)
+      end
+
+      def reader_path(dir, name)
+        path = IOStreams.path(dir, name)
+        name.include?(".pgp") ? path.option(:pgp, **pgp_reader) : path
+      end
+
+      describe "the methods of an IO that read" do
+        %w[people.csv.gz people.csv.zip people.csv.enc people.csv.pgp.gz].each do |name|
+          it "read #{name}" do
+            Dir.mktmpdir do |dir|
+              write_file(dir, name)
+              data = refute_deprecated do
+                reader_path(dir, name).reader do |io|
+                  [io.gets, io.readline, io.each_line.to_a, io.read, io.eof?]
+                end
+              end
+
+              assert_equal ["name,zip\n", "Jack,12345\n", ["Jill,23456\n"], "", true], data
+            end
+          end
+        end
+
+        it "read people.csv.bz2" do
+          Dir.mktmpdir do |dir|
+            write_file(dir, "people.csv.bz2")
+            data = refute_deprecated { reader_path(dir, "people.csv.bz2").reader { |io| [io.read(9), io.read, io.eof?] } }
+
+            assert_equal ["name,zip\n", "Jack,12345\nJill,23456\n", true], data
+          end
+        end
+
+        it "read a library that reads the stream, such as CSV" do
+          Dir.mktmpdir do |dir|
+            write_file(dir, "people.csv.gz")
+            rows = refute_deprecated { reader_path(dir, "people.csv.gz").reader { |io| CSV.new(io).to_a } }
+
+            assert_equal [%w[name zip], %w[Jack 12345], %w[Jill 23456]], rows
+          end
+        end
+      end
+
+      describe "opening the reader again, in place of #rewind" do
+        it "reads the data from the start" do
+          Dir.mktmpdir do |dir|
+            write_file(dir, "people.csv.gz")
+            path  = reader_path(dir, "people.csv.gz")
+            reads = refute_deprecated { [path.reader(&:gets), path.reader(&:read)] }
+
+            assert_equal ["name,zip\n", csv], reads
+          end
+        end
+      end
+
+      # A PGP read with `verify_first: true` yields the File that gpg decrypts the data into, in both versions, so v2.2
+      # reports no deprecation warning for its methods.
+      describe "a PGP read with verify_first: true" do
+        it "reads the File that gpg decrypts the data into" do
+          Dir.mktmpdir do |dir|
+            write_file(dir, "people.csv.pgp")
+            input  = StringIO.new(File.binread(File.join(dir, "people.csv.pgp")))
+            stream = IOStreams.stream(input).stream(:pgp, **pgp_reader, verify_first: true)
+            data   = refute_deprecated { stream.reader { |io| [io.class, io.read, io.rewind, io.read, io.size] } }
+
+            assert_equal [::File, csv, 0, csv, csv.bytesize], data
+          end
+        end
+      end
+
+      describe "copying the data into a local file first, where the stream must be a File" do
+        %w[people.csv.gz people.csv.zip people.csv.pgp.gz].each do |name|
+          it "reads #{name} from a local File" do
+            Dir.mktmpdir do |dir|
+              write_file(dir, name)
+              data = refute_deprecated do
+                IOStreams.temp_file("people", ".csv") do |temp|
+                  reader_path(dir, name).copy_to(temp)
+                  temp.reader { |io| [io.class, io.read, io.rewind, io.pos, io.read, io.size] }
+                end
+              end
+
+              assert_equal [::File, csv, 0, 0, csv, csv.bytesize], data
+            end
+          end
+        end
+      end
+
+      describe "the path of a local gzip file that a writer block writes" do
+        it "is the name of the file" do
+          Dir.mktmpdir do |dir|
+            name = File.join(dir, "people.csv.gz")
+            path = refute_deprecated { IOStreams.path(name).writer { |io| io.write(csv) && io.path } }
+
+            assert_equal name, path
+            assert_equal csv, IOStreams.path(name).read
+          end
+        end
+      end
+
+      describe "an S3 path" do
+        before do
+          S3Stub.install
+          IOStreams.path("s3://iostreams-upgrade/people.csv").write(csv)
+        end
+
+        after do
+          S3Stub.uninstall
+        end
+
+        it "reads the object with the methods of an IO that read" do
+          data = refute_deprecated do
+            IOStreams.path("s3://iostreams-upgrade/people.csv").reader { |io| [io.gets, io.read, io.eof?] }
+          end
+
+          assert_equal ["name,zip\n", "Jack,12345\nJill,23456\n", true], data
+        end
+
+        it "reads the object from a local File, once it is copied into one as it is stored" do
+          data = refute_deprecated do
+            IOStreams.temp_file("people", ".csv") do |temp|
+              IOStreams.path("s3://iostreams-upgrade/people.csv").copy_to(temp, convert: false)
+              temp.reader { |io| [io.class, io.read, io.rewind, io.read, io.size] }
+            end
+          end
+
+          assert_equal [::File, csv, 0, csv, csv.bytesize], data
+        end
+
+        it "writes the object with the methods of an IO that write" do
+          refute_deprecated do
+            IOStreams.path("s3://iostreams-upgrade/written.csv").writer do |io|
+              io.write("name,zip\n")
+              io << "Jack,12345\n"
+              io.puts("Jill,23456")
+              io.print("Jim,", "34567\n")
+              io.printf("%<name>s,%<zip>05d\n", name: "Joe", zip: 4567)
+              io.flush
+            end
+          end
+
+          assert_equal "#{csv}Jim,34567\nJoe,04567\n", IOStreams.path("s3://iostreams-upgrade/written.csv").read
+        end
+
+        it "writes the object from a local File, once it is written there and copied" do
+          name = refute_deprecated do
+            IOStreams.temp_file("people", ".csv") do |temp|
+              path = temp.writer { |io| io.write(csv) && io.path }
+              temp.copy_to(IOStreams.path("s3://iostreams-upgrade/copied.csv"), convert: false)
+              path
+            end
+          end
+
+          assert_kind_of String, name
+          assert_equal csv, IOStreams.path("s3://iostreams-upgrade/copied.csv").read
+        end
+      end
+
+      describe "an HTTP path" do
+        before do
+          @server = BodyServer.new(csv)
+        end
+
+        after do
+          @server.shutdown
+        end
+
+        it "reads the file with the methods of an IO that read" do
+          data = refute_deprecated { IOStreams.path(@server.url("people.csv")).reader { |io| [io.gets, io.read, io.eof?] } }
+
+          assert_equal ["name,zip\n", "Jack,12345\nJill,23456\n", true], data
+        end
+
+        it "reads the file from a local File, once it is copied into one" do
+          data = refute_deprecated do
+            IOStreams.temp_file("people", ".csv") do |temp|
+              IOStreams.path(@server.url("people.csv")).copy_to(temp)
+              temp.reader { |io| [io.class, io.read, io.rewind, io.read] }
+            end
+          end
+
+          assert_equal [::File, csv, 0, csv], data
+        end
+      end
+
+      describe "the settings of the path, in place of #encoding and #cleaner of the encode stream" do
+        it "return the encoding and the cleaner that were set" do
+          Dir.mktmpdir do |dir|
+            write_file(dir, "people.csv")
+            path   = IOStreams.path(dir, "people.csv").encoding("UTF-8", cleaner: :printable)
+            values = refute_deprecated do
+              [path.encoding, Encoding.find(path.encoding), path.setting(:encode)[:cleaner], path.reader(&:read)]
+            end
+
+            assert_equal ["UTF-8", Encoding::UTF_8, :printable, csv], values
+          end
+        end
+      end
+
+      describe "the methods of an IO that write, when writing PGP" do
+        it "write the data that is read" do
+          Dir.mktmpdir do |dir|
+            refute_deprecated do
+              IOStreams.path(dir, "people.csv.pgp").option(:pgp, **pgp_writer).writer do |io|
+                io.write("name,zip\n")
+                io << "Jack," << "12345\n"
+                io.print("Jill,")
+                io.printf("%d", 23_456)
+                io.puts
+              end
+            end
+
+            assert_equal csv, reader_path(dir, "people.csv.pgp").read
+          end
+        end
+
+        it "write to an IO supplied to IOStreams.stream" do
+          output = StringIO.new
+          refute_deprecated do
+            IOStreams.stream(output).stream(:pgp, **pgp_writer).writer { |io| io.write(csv) }
+          end
+
+          assert_equal csv, IOStreams.stream(StringIO.new(output.string)).stream(:pgp, **pgp_reader).read
+        end
+      end
+    end
+  end
+end

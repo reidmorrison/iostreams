@@ -3,12 +3,63 @@ require "fileutils"
 module IOStreams
   module Paths
     class File < IOStreams::Path
-      attr_accessor :create_path
+      # A pattern supplied to #each_child that is not a String, such as a Pathname, is deprecated.
+      PATTERN_DEPRECATION = "a pattern that is not a String is deprecated for #each_child and #children, since v3.0 " \
+                            "raises ArgumentError for it, supply a String instead, such as pattern.to_s".freeze
+      private_constant :PATTERN_DEPRECATION
+
+      # Moving a file onto an existing directory is deprecated, see #move_to.
+      MOVE_DEPRECATION = "#move_to onto an existing directory is deprecated, since v3.0 raises ArgumentError for it, " \
+                         "supply the file within the directory instead, such as " \
+                         "move_to(IOStreams.path(directory).join(path.basename))".freeze
+      private_constant :MOVE_DEPRECATION
+
+      attr_reader :create_path
 
       def initialize(file_name, create_path: true)
         @create_path = create_path
         super(file_name)
       end
+
+      # Sets whether writing the file creates its directory first, see #mkpath.
+      def create_path=(create_path)
+        warn_change("#create_path=")
+        @create_path = create_path
+      end
+
+      # Returns [String|nil] the deprecation warning for a name that IOStreams v3.0 reads as another file, see
+      # `IOStreams::Path.name_deprecation`, or nil for one that it reads the same way:
+      # - A name of `~`, or starting with `~/`, which is within a directory called `~` in the current directory, while
+      #   v3.0 reads it within the home directory. A name such as `~user/a.csv` or `~$Book1.xlsx` is the same on both.
+      # - A `file://` url, such as `file:///data/a.csv` or `file://~/a.csv`, which is a file name relative to the current
+      #   directory, within a directory called `file:`, while v3.0 reads it as the local file that it names, such as
+      #   `/data/a.csv`, or within the home directory.
+      def self.name_deprecation(name)
+        if file_url?(name)
+          "a file:// url is deprecated, since v3.0 reads it as the local file that it names, such as /data/a.csv for " \
+            "file:///data/a.csv, or a file within the home directory for file://~/a.csv, rather than as a file name " \
+            "relative to the current directory: supply the name of the file instead, such as /data/a.csv, or " \
+            "File.expand_path(\"~/a.csv\") for the home directory"
+        elsif name == "~" || name.start_with?("~/")
+          "a local file name of ~, or starting with ~/, is deprecated, since v3.0 reads it within the home directory, " \
+            "rather than within a directory called ~ in the current directory: expand it with File.expand_path for " \
+            "the home directory, or start it with ./~/ for the directory called ~"
+        end
+      end
+
+      # Returns [String|nil] the deprecation warning for a name that IOStreams v3.0 reads as another file, see
+      # .name_deprecation, which is in another directory, and so another allowed path.
+      def self.location_deprecation(name)
+        name_deprecation(name)
+      end
+
+      # Returns [true|false] whether the name is a `file://` url, in any case, as IOStreams v3.0 takes it, see
+      # .name_deprecation. Its first bytes are compared, so that a name that is not valid in its encoding, such as a
+      # Latin-1 name, can be checked too.
+      def self.file_url?(name)
+        name.include?("://") && name.byteslice(0, 7).b.casecmp?("file://")
+      end
+      private_class_method :file_url?
 
       # Yields Paths within the current path.
       #
@@ -88,19 +139,27 @@ module IOStreams
       # "**.rb"     "./main.rb"      false
       # "**.rb"     "lib/song.rb"    true
       # "*"         "dave/.profile"  true
+      #
+      # A pattern that is not a String, such as a Pathname, is deprecated, and reports a deprecation warning, see
+      # `IOStreams::Deprecation`.
       def each_child(pattern = "*", case_sensitive: false, directories: false, hidden: false)
         unless block_given?
           return to_enum(__method__, pattern,
                          case_sensitive: case_sensitive, directories: directories, hidden: hidden)
         end
 
+        Deprecation.warn(PATTERN_DEPRECATION) unless pattern.is_a?(String)
         authorize!
+
+        # A pattern that is a Pathname is taken by its #to_path, as `::File.join` takes it, which v2.1 joined the pattern
+        # with: `IOStreams::Utils::PathName.join` does not take it on JRuby, where it joins the names by their bytes, and
+        # the case-insensitive retry below matches and downcases the pattern as a String.
+        pattern = pattern.to_path if pattern.respond_to?(:to_path)
 
         flags = 0
         flags |= ::File::FNM_CASEFOLD unless case_sensitive
         flags |= ::File::FNM_DOTMATCH if hidden
 
-        # Dir.each_child("testdir") {|x| puts "Got #{x}" }
         full_pattern = Utils::PathName.join(path, pattern)
 
         results = Dir.glob(full_pattern, flags)
@@ -127,12 +186,16 @@ module IOStreams
       #
       # Notes:
       # - Can copy across buckets.
+      # - A target that is an existing directory, which the file is moved into, as `mv` does, returning the directory, is
+      #   deprecated, and reports a deprecation warning, see `IOStreams::Deprecation`: supply the file within it instead,
+      #   such as `move_to(IOStreams.path("/archive").join(path.basename))`.
       def move_to(target_path)
         target = IOStreams.new(target_path)
         return super(target) unless target.is_a?(self.class)
 
         authorize!
         target.authorize!
+        Deprecation.warn(MOVE_DEPRECATION) if ::File.directory?(target.path)
         target.mkpath
         # In case the file is being moved across partitions
         FileUtils.move(path, target.to_s)

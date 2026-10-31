@@ -9,6 +9,13 @@ module IOStreams
       @path      = path.frozen? ? path : path.dup.freeze
       @io_stream = nil
       @builder   = nil
+      @root_name = nil
+    end
+
+    # A copy of a root path is not a root path, see #root!, so that it can be changed.
+    def initialize_copy(source)
+      super
+      @root_name = nil
     end
 
     # Returns [IOStreams::Path] a new path with the elements joined to this path, created with the same arguments as
@@ -209,6 +216,30 @@ module IOStreams
       Utils.redact_options(options, sensitive_option_names)
     end
 
+    # Returns [String|nil] the deprecation warning for the supplied name or url of a path of this class, as the
+    # application supplies it to `IOStreams.path`, when IOStreams v3.0 reads it as another file or url, which says what
+    # to supply instead, so that it names the same one on both, or nil when v3.0 reads it the same way. A path class
+    # whose names v3.0 reads differently overrides it.
+    def self.name_deprecation(_name)
+      nil
+    end
+
+    # Returns [String|nil] the deprecation warning for the supplied name or url, see .name_deprecation, only when
+    # IOStreams v3.0 reads it as another location, which the allowed paths compare, see `IOStreams.add_allowed_path`,
+    # rather than only spelling its url another way. A path class whose names v3.0 reads as another location overrides
+    # it.
+    def self.location_deprecation(_name)
+      nil
+    end
+
+    # Returns [true|false] whether the url has no path, such as `sftp://host`, or `https://host?a=1`, which IOStreams
+    # v3.0 reads with the path `/`, see `IOStreams::Paths::SFTP.name_deprecation`. Its text is checked rather than
+    # parsed, so that a pattern with characters that a url cannot hold, such as braces, can be checked too.
+    def self.url_without_path?(url)
+      url.match?(%r{\A[a-z][a-z0-9+.-]*://[^/?#]*(?:[?#]|\z)}i)
+    end
+    private_class_method :url_without_path?
+
     # Shows the full name of the path, see #display_name, without any credentials, and the options of its streams
     # without the values of sensitive options, such as a passphrase, see `IOStreams.redact_stream_options`.
     def inspect
@@ -249,7 +280,8 @@ module IOStreams
     end
 
     # Raises [IOStreams::Errors::AccessDenied] when allowed paths have been added, see `IOStreams.add_allowed_path`,
-    # and this path is not within any of them.
+    # and this path is not within any of them, before #reader, #writer, `Stream#internal_reader` and
+    # `Stream#internal_writer` open it.
     def authorize!
       return if IOStreams.allowed_paths.empty? || (@permitted_path && @permitted_path == path)
 
@@ -314,6 +346,38 @@ module IOStreams
     def permit!
       @permitted_path = path
       self
+    end
+
+    # Makes this path the root path of the supplied name, which `IOStreams.add_root` adds, and the whole process shares,
+    # so that changing it in place reports a deprecation warning, see #warn_change. A copy of it is not a root path, see
+    # #initialize_copy.
+    # Returns self
+    def root!(name)
+      @root_name = name
+      self
+    end
+
+    # Returns [true|false] whether the streams of this path read a regular local file in v3.0: the file itself, or the
+    # temp file that it is downloaded into, as v2.2 reads, unless v3.0 reads it from another IO, see #v3_source, such as
+    # an S3 object, see `IOStreams::Stream#v3_reads_file?`.
+    def v3_reads_file?
+      v3_source.nil?
+    end
+
+    # Changing a root path in place, see #root!, such as with #stream, is deprecated, since it changes the root for the
+    # whole process. v3.0 keeps its own frozen copy of the root instead, so that changing a path no longer changes the
+    # root: the path that `IOStreams.add_root` returns is that copy, so changing it raises FrozenError, while a path
+    # supplied to `IOStreams.add_root` is not, and `IOStreams.root`, `IOStreams.roots` and `IOStreams.join` without
+    # elements return copies of it, so changing them changes only the copy. A copy of the root, or a path joined to it,
+    # can be changed in either version, which the warning names for the root that this path is.
+    def warn_change(method_name)
+      return unless @root_name
+
+      root, join = @root_name == :default ? ["", ""] : ["(#{@root_name.inspect})", ", root: #{@root_name.inspect}"]
+      Deprecation.warn("#{method_name} is deprecated on a root path, which the whole process shares, since v3.0 " \
+                       "keeps its own frozen copy of the root, and returns copies of it, so changing this path no " \
+                       "longer changes the root, change a copy of it instead, such as IOStreams.root#{root}.dup, or a " \
+                       "path joined to it, such as IOStreams.join(\"a.csv\"#{join})")
     end
 
     # Returns [Hash<Symbol:Hash>] the streams with the values of sensitive options replaced.

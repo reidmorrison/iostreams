@@ -173,10 +173,49 @@ module Paths
           end
         end
 
-        it "ignores ssh options in the url query string" do
-          path = new_path("sftp://example.org/path/file.txt?ProxyCommand=id", username: "jack", password: "secret")
+        it "ignores ssh options in the url query string, and reports a deprecation warning for them" do
+          line = __LINE__ + 2
+          path = assert_deprecated(%r{sftp_test\.rb:#{line}: warning: IOStreams: the SFTP url "sftp://example\.org/path/file\.txt" is deprecated, since its query is ignored, supply ssh options with ssh_options:, and percent-encode a '\?' in a name as '%3F'\n\z}) do
+            IOStreams.path("sftp://example.org/path/file.txt?ProxyCommand=id", username: "jack", password: "secret")
+          end
 
           assert_empty path.ssh_options
+        end
+
+        it "reports a deprecation warning for an empty query, and for a '?' that is not percent-encoded" do
+          assert_deprecated(/its query is ignored/) { new_path("sftp://example.org/path/file.txt?") }
+          path = assert_deprecated(/its query is ignored/) { new_path("sftp://example.org/path/a?.txt") }
+
+          assert_equal "/path/a", path.path
+          assert_equal "/path/a?.txt", refute_deprecated { new_path("sftp://example.org/path/a%3F.txt") }.path
+        end
+
+        it "reports a deprecation warning for a fragment, which an unencoded '#' starts, and still reads the name before it" do
+          path = assert_deprecated(%r{IOStreams: the SFTP url "sftp://example\.org/path/a" is deprecated, since it has a fragment, which a '#' starts, and which is not part of the name, percent-encode a '#' in a name as '%23'\n\z}) do
+            new_path("sftp://example.org/path/a#b.txt")
+          end
+
+          assert_equal "/path/a", path.path
+          assert_equal "/path/a#b.txt", refute_deprecated { new_path("sftp://example.org/path/a%23b.txt") }.path
+        end
+
+        it "reports a deprecation warning for a url without a host" do
+          assert_deprecated(%r{IOStreams: the SFTP url "sftp:///path/file\.txt" is deprecated, since it names no host, name one, such as 'sftp://example\.org/path/file\.txt'\n\z}) do
+            IOStreams.path("sftp:///path/file.txt")
+          end
+        end
+
+        it "reports no deprecation warning for a url that it can use, without its user name and password in a warning" do
+          refute_deprecated do
+            new_path("sftp://jack:secret@example.org:2222/path/file.txt")
+            new_path(url, username: "jack", password: "secret", ssh_options: {"IdentityFile" => "~/.ssh/id_rsa"})
+          end
+          _, warnings = deprecations_of { new_path("sftp://jack:TOP-SECRET@example.org/a.csv?IdentityKey=TOP-SECRET") }
+
+          assert_equal 1, warnings.size
+          assert_match(/its query is ignored/, warnings.first)
+          refute_includes warnings.first, "TOP-SECRET"
+          refute_includes warnings.first, "jack"
         end
       end
 

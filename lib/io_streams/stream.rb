@@ -12,7 +12,8 @@ module IOStreams
       default_format:     "set the format on the path with #format instead, when the path has none, such as " \
                           "path.format(:json) unless path.format",
       format_options:     "set a schema on the path with #schema instead, which gives the width of each field of a " \
-                          "fixed width file, such as schema(IOStreams::Schema.from_layout(**format_options))"
+                          "fixed width file, such as the schema that IOStreams::Schema.from_layout returns for the " \
+                          "layout, converted once and saved, since v3.0 removes from_layout"
     }.freeze
     private_constant :PATH_SETTINGS
 
@@ -53,7 +54,30 @@ module IOStreams
         encoding == Encoding::UTF_8
       end
 
-    attr_reader :io_stream
+    IO_STREAM_DEPRECATION = "#io_stream is deprecated, since v3.0 makes it private, keep the IO supplied to " \
+                            "IOStreams.stream instead".freeze
+    private_constant :IO_STREAM_DEPRECATION
+
+    # The deprecation warning of a method of the stream that a reader block receives, which the stream that v3.0
+    # supplies in its place does not answer, after the name of the method, with the name of the stream, and the methods
+    # that the stream of v3.0 answers, see #v3_deprecation.
+    V3_READER_DEPRECATION = "is deprecated on %<name>s that #reader yields, since in v3.0 it is a stream that only " \
+                            "reads, with %<methods>s: read it with those, open the reader again to read it from the " \
+                            "start, or copy the data into a local file first, such as with IOStreams.temp_file and " \
+                            "#copy_to, where it must be a File".freeze
+    private_constant :V3_READER_DEPRECATION
+
+    # The deprecation warning of a method of the stream that a writer block receives, see V3_READER_DEPRECATION.
+    V3_WRITER_DEPRECATION = "is deprecated on %<name>s that #writer yields, since in v3.0 it is a stream that only " \
+                            "writes, with %<methods>s: write it with those, or write a local file first, such as with " \
+                            "IOStreams.temp_file, and copy it with #copy_to, where it must be a File".freeze
+    private_constant :V3_WRITER_DEPRECATION
+
+    # The deprecation warning of a method of the stream that a reader or writer block receives, which v3.0 removes, and
+    # which the stream names the replacement of, after the name of the method, with the name of the stream, the method
+    # that yields it, and the replacement, see #v3_deprecation.
+    V3_REMOVED_DEPRECATION = "is deprecated on %s that %s yields, since v3.0 removes it, %s".freeze
+    private_constant :V3_REMOVED_DEPRECATION
 
     def initialize(io_stream)
       raise(ArgumentError, "io_stream cannot be nil") if io_stream.nil?
@@ -70,6 +94,13 @@ module IOStreams
       @builder = @builder&.dup
     end
 
+    # Deprecated: returns the IO, or other object, supplied to `IOStreams.stream`, which the caller already holds, or nil
+    # for a path. v3.0 makes it private. Reports a deprecation warning, see `IOStreams::Deprecation`.
+    def io_stream
+      Deprecation.warn(IO_STREAM_DEPRECATION)
+      supplied_io
+    end
+
     # Ignore the filename and use only the supplied streams.
     #
     # See #option to set an option for one of the streams included based on the file name extensions.
@@ -78,6 +109,7 @@ module IOStreams
     #
     # IOStreams.path("tempfile2527").stream(:zip).stream(:pgp, passphrase: "receiver_passphrase").read
     def stream(stream, **)
+      warn_change("#stream")
       builder.stream(stream, **)
       self
     end
@@ -93,6 +125,7 @@ module IOStreams
     #
     # IOStreams.path(output_file_name).option(:pgp, passphrase: "receiver_passphrase").read
     def option(stream, **)
+      warn_change("#option")
       builder.option(stream, **)
       self
     end
@@ -100,6 +133,7 @@ module IOStreams
     # Adds the options for the specified stream as an option,
     # but if streams have already been added it is instead added as a stream.
     def option_or_stream(stream, **)
+      warn_change("#option_or_stream")
       builder.option_or_stream(stream, **)
       self
     end
@@ -124,6 +158,7 @@ module IOStreams
     # Replaces `stream(:none)`, which is deprecated: it still works, and reports a deprecation warning, see
     # `IOStreams::Deprecation`.
     def raw
+      warn_change("#raw")
       builder.raw
       self
     end
@@ -162,6 +197,7 @@ module IOStreams
     def encoding(encoding = nil, **options)
       return builder.setting(:encode)&.[](:encoding) if encoding.nil? && options.empty?
 
+      warn_change("#encoding")
       builder.encoding(encoding, **options)
       self
     end
@@ -181,6 +217,7 @@ module IOStreams
     # If the stream pipeline has not yet been built it will be built from the file_name if present.
     # Note: Any options must be set _before_ calling this method.
     def remove_from_pipeline(stream_name)
+      warn_change("#remove_from_pipeline")
       builder.remove_from_pipeline(stream_name)
       self
     end
@@ -233,11 +270,18 @@ module IOStreams
     # Supplying options to the `:stream` mode, which ignores them, is deprecated, and reports a deprecation warning,
     # see `IOStreams::Deprecation`. So is supplying the settings of the file, such as `format:`, to the `:array` and
     # `:hash` modes, which are set on the path instead, such as with #format.
+    #
+    # The stream that the block of the `:stream` mode receives reports a deprecation warning for each of its methods that
+    # the application calls, and that the stream that v3.0 supplies in its place does not answer, such as `#rewind` of the
+    # `Zlib::GzipReader` of a `.gz` file, when deprecation warnings are on as it is opened, see #v3_deprecation.
     def reader(mode = :stream, **args, &)
       case mode
       when :stream
         warn_ignored_options(args.keys, "in the :stream mode")
-        stream_reader(&)
+        deprecation = v3_deprecation(:reader) if block_given?
+        return stream_reader(&) unless deprecation
+
+        stream_reader { |io| yield(Deprecation::Methods.deprecate(io, *deprecation)) }
       when :line
         line_reader(**args, &)
       when :array
@@ -256,7 +300,7 @@ module IOStreams
     #   this method will load the entire file into memory.
     # - Recommend using instead `#reader` to read a block into memory at a time.
     def read(*args)
-      reader { |stream| stream.read(*args) }
+      internal_reader { |stream| stream.read(*args) }
     end
 
     # Returns a Writer for writing to a file / stream
@@ -265,13 +309,21 @@ module IOStreams
     # such as `format:`, for the `:array` and `:hash` modes, see #reader, and the options that only apply when
     # reading, such as `allowed_columns:`, which a writer ignores. So are the options supplied when the stream is a
     # line, row or record writer that is already open, such as the one that `writer(:line)` yields, handed to
-    # `IOStreams.stream`, which writes with its own settings, and ignores them. Each reports a deprecation warning, see
+    # `IOStreams.stream`, which writes with its own settings, and ignores them, and the streams, encoding, format and
+    # schema set on such a stream, see #supplied_writer. Each reports a deprecation warning, see
     # `IOStreams::Deprecation`.
+    #
+    # The stream that the block of the `:stream` mode receives reports a deprecation warning for each of its methods that
+    # the application calls, and that the stream that v3.0 supplies in its place does not answer, such as `#fileno` of
+    # the IO of gpg's input when writing PGP, when deprecation warnings are on as it is opened, see #v3_deprecation.
     def writer(mode = :stream, **args, &)
       case mode
       when :stream
         warn_ignored_options(args.keys, "in the :stream mode")
-        stream_writer(&)
+        deprecation = v3_deprecation(:writer) if block_given?
+        return stream_writer(&) unless deprecation
+
+        stream_writer { |io| yield(Deprecation::Methods.deprecate(io, *deprecation)) }
       when :line
         line_writer(**args, &)
       when :array
@@ -290,7 +342,7 @@ module IOStreams
     #   since all the data for the file needs to be resident in memory before writing.
     # - Recommend using instead `#writer` to write a block of memory at a time.
     def write(data)
-      writer { |stream| stream.write(data) }
+      internal_writer { |stream| stream.write(data) }
     end
 
     # Copy from another stream, path, file_name or IO instance.
@@ -346,15 +398,15 @@ module IOStreams
           end
         else
           warn_ignored_options(args.keys, "when copying without a `mode:`")
-          stream.reader do |src|
-            writer { |target| copy_data(src, target) }
+          stream.internal_reader do |src|
+            internal_writer { |target| copy_data(src, target) }
           end
         end
       else
         warn_unconverted_copy_options(mode, args)
         stream = source.is_a?(Stream) ? source.dup : IOStreams.new(source)
-        stream.no_streams.reader do |src|
-          dup.no_streams.writer { |target| IO.copy_stream(src, target) }
+        stream.no_streams.internal_reader do |src|
+          dup.no_streams.internal_writer { |target| IO.copy_stream(src, target) }
         end
       end
     end
@@ -369,6 +421,7 @@ module IOStreams
       if file_name == :none
         builder.file_name
       else
+        warn_change("#file_name")
         builder.file_name = file_name
         self
       end
@@ -376,14 +429,20 @@ module IOStreams
 
     # Set the original file_name
     def file_name=(file_name)
+      warn_change("#file_name=")
       builder.file_name = file_name
     end
 
-    # Set/get the tabular format_options
+    # Set/get the tabular format
+    #
+    # A format other than `:csv` set on a spreadsheet, such as `format(:psv)` on an `.xlsx` path, is deprecated, since
+    # its rows are read as CSV, and reports a deprecation warning when its lines, rows or records are read, see
+    # `IOStreams::Builder#warn_text_format`.
     def format(format = :none)
       if format == :none
         builder.format
       else
+        warn_change("#format")
         builder.format = format
         self
       end
@@ -391,6 +450,7 @@ module IOStreams
 
     # Set the tabular format
     def format=(format)
+      warn_change("#format=")
       builder.format = format
     end
 
@@ -452,7 +512,8 @@ module IOStreams
       # Compared by identity, since a path compares itself to another path, see `IOStreams::Path#==`.
       return builder.schema if schema.equal?(:none)
 
-      self.schema = schema
+      warn_change("#schema")
+      builder.schema = schema
       self
     end
 
@@ -460,6 +521,7 @@ module IOStreams
     #
     # Raises ArgumentError when the schema is not a Hash, a String or a path, or is a Hash that is not a valid schema.
     def schema=(schema)
+      warn_change("#schema=")
       builder.schema = schema
     end
 
@@ -548,8 +610,9 @@ module IOStreams
     protected
 
     # Applies no streams, as `stream(:none)` does, for IOStreams itself, which never uses its own deprecated methods.
-    def no_streams
-      builder.no_streams
+    # `temp_file: true` for the path of `IOStreams.temp_file`, see `IOStreams::Builder#no_streams`.
+    def no_streams(temp_file: false)
+      builder.no_streams(temp_file: temp_file)
       self
     end
 
@@ -557,6 +620,28 @@ module IOStreams
     def reset_builder
       @builder = nil
       self
+    end
+
+    # Yields the stream that the block of the :stream mode of #reader receives, for IOStreams itself, such as #read or a
+    # copy, which calls its methods for itself, so that it reports no deprecation warning for them, see #v3_deprecation.
+    # It checks first that the stream may be read, as a path's #reader does, see #authorize!.
+    def internal_reader(&)
+      authorize!
+      stream_reader(&)
+    end
+
+    # Yields the stream that the block of the :stream mode of #writer receives, for IOStreams itself, see
+    # #internal_reader.
+    def internal_writer(&)
+      authorize!
+      stream_writer(&)
+    end
+
+    # Checks that the stream may be read or written, before #internal_reader or #internal_writer opens it: a path that
+    # is not within the allowed paths raises, see `IOStreams::Path#authorize!`, while a stream has nothing to check.
+    # They are defined here, rather than for a path, so that any stream may ask another for them, such as a copy from
+    # a path to a stream.
+    def authorize!
     end
 
     # Options supplied to a copy with `convert: false`, which ignores them, are deprecated, including `mode:`.
@@ -588,6 +673,80 @@ module IOStreams
       @builder ||= IOStreams::Builder.new
     end
 
+    # Returns the IO, or other object, supplied to `IOStreams.stream`, or nil for a path, for IOStreams itself, see
+    # #io_stream.
+    def supplied_io
+      @io_stream
+    end
+
+    # Called with the name of each method that changes this stream in place, such as "#stream", before it changes it,
+    # so that a subclass can report a deprecation warning when changing it is deprecated, see
+    # `IOStreams::Path#warn_change`. A stream reports none.
+    def warn_change(_method_name)
+      nil
+    end
+
+    # Returns [Array(Array<Symbol>, String)|nil] the methods that the stream that the block of the :stream mode of the
+    # supplied type receives answers in v3.0, and the deprecation warning of each of its other methods that the
+    # application calls, after the name of the method, which names the methods that it answers, when the stream that it
+    # receives in v2.2 answers others, see `IOStreams::Builder#v3_stream`, otherwise nil, so that #reader and #writer
+    # extend the stream with them, see `IOStreams::Deprecation::Methods`, and otherwise hand the block on unchanged.
+    # Known before the streams are opened, since the streams that v3.0 replaces are those of IOStreams itself, each of
+    # which yields one stream.
+    #
+    # Nil while deprecation warnings are off, see `Warning[:deprecated]`, so that the stream is then handed on as it is,
+    # without any of this work.
+    #
+    # A stream that names what replaces some of its methods, such as the encode stream, whose #encoding the #encoding of
+    # the path replaces, has a deprecation warning for each of them, see `IOStreams::Deprecation::Methods.deprecate`.
+    def v3_deprecation(type)
+      return unless Warning[:deprecated]
+
+      reading               = type == :reader
+      methods, name, advice = builder.v3_stream(type, reading ? v3_source : v3_target) { reading && v3_reads_file? }
+      return unless methods
+
+      template = reading ? V3_READER_DEPRECATION : V3_WRITER_DEPRECATION
+      # Kernel.format, since #format is the tabular format of this stream.
+      message  = Kernel.format(template, name: name, methods: method_list(methods))
+      return [methods, message] unless advice
+
+      messages = advice.transform_values { |use| Kernel.format(V3_REMOVED_DEPRECATION, name, "##{type}", use) }
+      [methods, messages.merge(nil => message)]
+    end
+
+    # Returns [String] the names of the methods, as a deprecation warning lists them, such as "#read, #gets and #eof?".
+    def method_list(methods)
+      names = methods.map { |name| "##{name}" }
+      names.size > 2 ? "#{names[0..-2].join(', ')} and #{names.last}" : names.join(" and ")
+    end
+
+    # Returns [Array(Array<Symbol>, String)|nil] the methods that the IO that the streams of this stream read in v3.0
+    # answers, and its name for a deprecation warning, when it is not the IO that they read in v2.2, see
+    # `IOStreams::Builder#v3_stream`, otherwise nil, as for the IO supplied to `IOStreams.stream`, which v3.0 reads too.
+    def v3_source
+      nil
+    end
+
+    # Returns [Array(Array<Symbol>, String)|nil] the methods that the IO that the streams of this stream write in v3.0
+    # answers, and its name for a deprecation warning, when it is not the IO that they write in v2.2, see #v3_source,
+    # otherwise nil, as for the IO supplied to `IOStreams.stream`, which v3.0 writes too.
+    def v3_target
+      nil
+    end
+
+    # Returns [true|false] whether the streams of this stream read a regular local file in v3.0: the IO supplied to
+    # `IOStreams.stream`, when it is an open File, or the File of a Tempfile, which gpg reads itself in v3.0, see
+    # `IOStreams::Pgp::Reader.v3_stream_methods`. Only asked by a stream that needs to know, since it checks the file,
+    # see `IOStreams::Builder#v3_stream`.
+    def v3_reads_file?
+      io = supplied_io
+      io = io.__getobj__ if defined?(::Delegator) && io.is_a?(::Delegator)
+      io.is_a?(::File) && !io.closed? && io.stat.file?
+    rescue IOError, SystemCallError
+      false
+    end
+
     # Raises ArgumentError for a mode that a copy does not convert with, see COPY_MODES, before the source or the target
     # is opened.
     def validate_copy_mode!(mode)
@@ -598,10 +757,15 @@ module IOStreams
     end
 
     def stream_reader(&)
-      builder.reader(io_stream, &)
+      builder.reader(supplied_io, &)
     end
 
+    # Yields the reader of the lines of this stream, which the readers of its rows and records read too.
+    #
+    # A format set with #format that is not that of the text of its streams, such as `:psv` for a spreadsheet, whose
+    # rows are read as CSV, reports a deprecation warning, see `IOStreams::Builder#warn_text_format`.
     def line_reader(embedded_within: :auto, **args)
+      builder.warn_text_format
       # `:auto` defers the decision to the resolved tabular format (e.g. CSV quotes with `"`),
       # while distinguishing "not supplied" from an explicit value such as `nil` (disable) or
       # `'"'` (force). Centralizing this in the builder keeps all format-based decisions there.
@@ -620,9 +784,13 @@ module IOStreams
     # Iterate over a file / stream returning each line as an array, one at a time.
     #
     # Supplying `embedded_within:` is deprecated, since the format of the file decides where its lines are split, and
-    # reports a deprecation warning, see `IOStreams::Deprecation`.
-    def row_reader(delimiter: nil, embedded_within: :auto, **args, &)
-      rows_reader(IOStreams::Row::Reader, delimiter, embedded_within, args, &)
+    # reports a deprecation warning, see `IOStreams::Deprecation`. So are the rows of a file whose rows are its records,
+    # such as JSON without a schema, see #warn_record_rows.
+    def row_reader(delimiter: nil, embedded_within: :auto, **args)
+      rows_reader(IOStreams::Row::Reader, delimiter, embedded_within, args) do |reader|
+        warn_record_rows(reader)
+        yield reader
+      end
     end
 
     # Iterate over a file / stream returning each line as a hash, one at a time.
@@ -641,6 +809,7 @@ module IOStreams
     def rows_reader(klass, delimiter, embedded_within, args)
       tabular = schema_tabular(args)
       warn_read_options(embedded_within, args)
+      warn_text_file_format(args)
       line_reader(delimiter: delimiter, embedded_within: embedded_within) do |io|
         yield klass.new(io, **tabular_options(tabular, args))
       end
@@ -668,11 +837,23 @@ module IOStreams
     # since v3.0 raises ArgumentError for each of them. Each one reports how to set it on the path instead, see
     # PATH_SETTINGS, apart from `format_options:` with a schema, which raises for a layout, see #schema_tabular, so that
     # the one that it accepts, nil or empty, has no effect, and is reported with the advice to remove it.
+    #
+    # When the streams read the rows in a format of their own, such as those of a spreadsheet as CSV, see
+    # `IOStreams::Builder#text_format`, the settings that choose the format, see #format_setting_names, report that
+    # format as the one to set on the path, since any other is deprecated there too, see
+    # `IOStreams::Builder#warn_text_format`. It is only looked for while deprecation warnings are on, see
+    # `IOStreams::Deprecation.on?`, since it builds the pipeline.
     def warn_path_settings(args)
-      (args.keys & path_setting_names).each do |name|
+      names        = args.keys & path_setting_names
+      format_names = format_setting_names
+      text_format  = builder.text_format if Deprecation.on? && names.intersect?(format_names)
+      names.each do |name|
         advice =
           if name == :format_options && !builder.schema.nil?
             "and has no effect with a schema, so remove it"
+          elsif text_format && format_names.include?(name)
+            "set format(#{text_format.inspect}) on the path instead, since the streams read the rows as " \
+              "#{text_format.inspect}, such as those of a spreadsheet"
           else
             PATH_SETTINGS.fetch(name)
           end
@@ -688,21 +869,29 @@ module IOStreams
       [*(IOStreams::Tabular::FORMAT_OPTION_NAMES - %i[schema]), :original_file_name]
     end
 
+    # Returns [Array<Symbol>] the names of the options of a call that choose the format of the file, in place of the
+    # format of its path: those that describe the file, see #path_setting_names, other than `format_options:`, which
+    # describes the fields of a fixed width file.
+    def format_setting_names
+      path_setting_names - %i[format_options]
+    end
+
     # The options that only apply when reading a header, see `IOStreams::Tabular::Header::READ_OPTION_NAMES`, are
     # deprecated when writing, which ignores them, even when they are nil, since v3.0 raises ArgumentError for them.
     def warn_read_only_options(args)
       names = args.keys & IOStreams::Tabular::Header::READ_OPTION_NAMES
       return if names.empty?
 
+      words  = Deprecation::Words.new(names)
       advice =
         if builder.schema.nil?
           "describe the columns that are written with #schema instead"
         else
-          "so remove #{names.size == 1 ? 'it' : 'them'}"
+          "so remove #{words.them}"
         end
-      Deprecation.warn("#{keywords(names)} #{names.size == 1 ? 'is' : 'are'} deprecated when writing, since " \
-                       "#{names.size == 1 ? 'it only applies' : 'they only apply'} when reading and " \
-                       "#{names.size == 1 ? 'is' : 'are'} ignored, #{advice}")
+      Deprecation.warn("#{words.keywords} #{words.are} deprecated when writing, since " \
+                       "#{words.one? ? 'it only applies' : 'they only apply'} when reading and #{words.are} ignored, " \
+                       "#{advice}")
     end
 
     # The column options of each call are deprecated, since a schema describes the columns of the file on its path, see
@@ -711,26 +900,53 @@ module IOStreams
     def warn_column_options(names)
       return if names.empty?
 
+      words  = Deprecation::Words.new(names)
       advice =
         if builder.schema.nil?
           "describe the columns of the file with #schema instead"
         else
-          "and #{names.size == 1 ? 'has' : 'have'} no effect with a schema, which describes the columns of the file, " \
-            "so remove #{names.size == 1 ? 'it' : 'them'}"
+          "and #{words.one? ? 'has' : 'have'} no effect with a schema, which describes the columns of the file, so " \
+            "remove #{words.them}"
         end
-      Deprecation.warn("#{keywords(names)} #{names.size == 1 ? 'is' : 'are'} deprecated, #{advice}")
+      Deprecation.warn("#{words.keywords} #{words.are} deprecated, #{advice}")
     end
 
     # Options that are ignored, such as those supplied to the `:stream` mode, are deprecated.
     def warn_ignored_options(names, where)
       return if names.empty?
 
-      Deprecation.warn("#{keywords(names)} #{names.size == 1 ? 'is' : 'are'} deprecated #{where}, which ignores " \
-                       "#{names.size == 1 ? 'it' : 'them'}, so remove #{names.size == 1 ? 'it' : 'them'}")
+      words = Deprecation::Words.new(names)
+      Deprecation.warn("#{words.keywords} #{words.are} deprecated #{where}, which ignores #{words.them}, so remove " \
+                       "#{words.them}")
     end
 
-    def keywords(names)
-      names.map { |name| "#{name}:" }.join(", ")
+    # The rows and records of a file named `.text` without a format, such as `ids.text`, are deprecated, since IOStreams
+    # v3.0 reads and writes them in its `:text` format, as the text of each line, see
+    # `IOStreams::Builder#text_file_format`, while this version reads them as CSV, or in the format of an extension
+    # before `.text`, which `#format` sets on both. A call that supplies a setting of the file that chooses the format,
+    # see #format_setting_names, such as `format:` or a file name that names it, which are deprecated themselves, see
+    # #warn_path_settings, is not reported.
+    def warn_text_file_format(args)
+      return if args.keys.intersect?(format_setting_names)
+
+      format = builder.text_file_format
+      return unless format
+
+      Deprecation.warn("the rows and records of a file named .text without #format are deprecated, since v3.0 reads " \
+                       "and writes them in its :text format, as the text of each line, rather than as " \
+                       "#{format.to_s.upcase}: set format(:#{format}) on the path")
+    end
+
+    # The rows of a file whose rows are its records, such as JSON without a schema, see
+    # `IOStreams::Row::Reader#record_rows?`, are deprecated, since IOStreams v3.0 reads them as Arrays, after a header
+    # row of the keys of the first record, while this version reads each record as a Hash, as `each(:hash)` does on both.
+    def warn_record_rows(reader)
+      return unless reader.record_rows?
+
+      Deprecation.warn("each(:array) and reader(:array) of a file whose rows are records, such as JSON without a " \
+                       "schema, are deprecated, since v3.0 yields each row as an Array, after a header row of the " \
+                       "keys of the first record, rather than each record as a Hash: read the records with " \
+                       "each(:hash), or set a schema")
     end
 
     def warn_embedded_within(embedded_within)
@@ -793,13 +1009,13 @@ module IOStreams
     end
 
     def stream_writer(&)
-      builder.writer(io_stream, &)
+      builder.writer(supplied_io, &)
     end
 
     def line_writer(**args, &block)
-      return supplied_writer(IOStreams::Line::Writer, args, &block) if io_stream.is_a?(IOStreams::Line::Writer)
+      return supplied_writer(IOStreams::Line::Writer, args, &block) if supplied_io.is_a?(IOStreams::Line::Writer)
 
-      writer do |io|
+      stream_writer do |io|
         IOStreams::Line::Writer.stream(io, **args, &block)
       end
     end
@@ -819,29 +1035,73 @@ module IOStreams
     # As with a reader, see #rows_reader, with a schema an option that the call cannot supply raises before a deprecation
     # warning is reported for any of its other options, see #warn_write_options.
     def rows_writer(klass, args, &block)
-      return supplied_writer(klass, args, &block) if io_stream.is_a?(klass)
+      return supplied_writer(klass, args, &block) if supplied_io.is_a?(klass)
 
       options = args.except(:delimiter)
       tabular = schema_tabular(options)
       warn_write_options(options)
-      line_writer(**args.slice(:delimiter)) do |io|
+      warn_text_file_format(options)
+      rows_line_writer(args.slice(:delimiter)) do |io|
         klass.stream(io, **tabular_options(tabular, options), &block)
       end
     end
 
+    # Yields the line writer that the rows or records of this stream are written to, in its format and by its schema,
+    # with the supplied options: a line writer supplied to `IOStreams.stream`, which writes them in its own lines, see
+    # #supplied_writer, otherwise one of this stream, see #line_writer.
+    def rows_line_writer(args, &)
+      return supplied_writer(IOStreams::Line::Writer, args, rows: true, &) if supplied_io.is_a?(IOStreams::Line::Writer)
+
+      line_writer(**args, &)
+    end
+
     # Yields this stream's IO, which is a writer of the supplied class that is already open, such as the one that
     # `writer(:line)` yields, handed to code that writes with `IOStreams.stream(io).writer(:line)`, which then writes into
-    # it. It writes with its own settings, so it ignores the options of the call, which are deprecated, since v3.0 raises
-    # ArgumentError for them: each that is not nil reports a deprecation warning.
-    def supplied_writer(klass, args)
-      names = args.compact.keys
-      unless names.empty?
-        Deprecation.warn("#{keywords(names)} #{names.size == 1 ? 'is' : 'are'} deprecated for the #{klass.name} " \
-                         "supplied to IOStreams.stream, which is already open and writes with its own settings, so " \
-                         "#{names.size == 1 ? 'it is' : 'they are'} ignored: set #{names.size == 1 ? 'it' : 'them'} " \
-                         "where that writer is opened instead, or remove #{names.size == 1 ? 'it' : 'them'}")
+    # it. It writes with its own settings, so it ignores the options of the call, the streams, options and encoding of
+    # this stream, and its format and schema, other than those of the rows or records that are written to a line writer
+    # (rows: true), which apply, see #rows_line_writer. Each is deprecated, since v3.0 raises ArgumentError for it, see
+    # #warn_supplied_writer_options and #warn_supplied_writer_settings.
+    def supplied_writer(klass, args, rows: false)
+      warn_supplied_writer_options(klass, args)
+      warn_supplied_writer_settings(klass, rows)
+      yield(supplied_io)
+    end
+
+    # Reports a deprecation warning for the options of a call that the supplied writer ignores, see #supplied_writer:
+    # each of them, even when it is nil, other than a nil `delimiter:`, the only option of a writer of v3.0, which
+    # accepts it, and raises ArgumentError for any other.
+    def warn_supplied_writer_options(klass, args)
+      names = args.reject { |name, value| name == :delimiter && value.nil? }.keys
+      return if names.empty?
+
+      words = Deprecation::Words.new(names)
+      warn_supplied_writer(klass, words.keywords, words)
+    end
+
+    # Reports a deprecation warning for the settings of this stream that the supplied writer ignores, see
+    # #supplied_writer, as the builder answers them, see `IOStreams::Builder#writer_settings`: the streams of its
+    # pipeline, and, unless the rows or records of this stream are written to it, which apply them, its format and
+    # schema.
+    def warn_supplied_writer_settings(klass, rows)
+      settings = builder.writer_settings
+      streams  = settings[:streams]
+      unless streams.empty?
+        words = Deprecation::Words.new(streams)
+        warn_supplied_writer(klass, "the #{words.one? ? 'stream' : 'streams'} #{streams.map(&:inspect).join(', ')} " \
+                                    "that #stream, #option, #encoding or #file_name set", words)
       end
-      yield(io_stream)
+      return if rows || settings[:tabular].empty?
+
+      names = settings[:tabular].map { |name| "##{name}" }
+      warn_supplied_writer(klass, names.join(" and "), Deprecation::Words.new(names))
+    end
+
+    # Reports that what the subject names, which the words are about, see `IOStreams::Deprecation::Words`, is deprecated
+    # for the supplied writer, which is already open, and ignores it.
+    def warn_supplied_writer(klass, subject, words)
+      Deprecation.warn("#{subject} #{words.are} deprecated for the #{klass.name} supplied to IOStreams.stream, which " \
+                       "is already open and writes with its own settings, so #{words.they_are} ignored: set " \
+                       "#{words.them} where that writer is opened instead, or remove #{words.them}")
     end
   end
 end

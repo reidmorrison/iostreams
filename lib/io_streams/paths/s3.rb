@@ -182,14 +182,55 @@ module IOStreams
           @client_options[:region]            = region if region
         end
 
-        @options = args
-        @options.merge!(uri.query.transform_keys(&:to_sym)) if uri.query
+        @options = uri.query ? args.merge(uri.query.transform_keys(&:to_sym)) : args
 
         super(key)
+        # Each child that #each_child yields is a new path too, so nothing is checked while deprecation warnings are off.
+        return unless Warning[:deprecated]
+
+        warn_unusable_url(uri)
+        warn_client_arguments(client, access_key_id: access_key_id, secret_access_key: secret_access_key, region: region)
+        warn_unusable_options(args.keys) unless args.empty?
+        warn_unusable_query(uri.query) if uri.query
+      end
+
+      # The S3 requests whose parameters IOStreams 3.0 takes as the options of a path, see .known_option_names.
+      OPTION_OPERATIONS = %i[get_object head_object put_object copy_object delete_object delete_objects list_objects_v2].freeze
+      private_constant :OPTION_OPERATIONS
+
+      # The parameters of the S3 requests that a path sets itself, such as `key`, which it overrides, and those of a
+      # listing that would change which keys it returns, or how, which IOStreams 3.0 does not take as the options of a
+      # path, see .known_option_names.
+      PATH_PARAMETERS = %i[
+        bucket key body response_target copy_source prefix continuation_token delimiter delete encoding_type start_after
+      ].freeze
+      private_constant :PATH_PARAMETERS
+
+      # Returns [Array<Symbol>] the options of a path that IOStreams 3.0 takes, which raises ArgumentError for any other
+      # when the path is created: the parameters of its S3 requests, see OPTION_OPERATIONS, as the AWS SDK names them,
+      # other than those that the path sets itself, see PATH_PARAMETERS. Load the AWS SDK first.
+      def self.known_option_names
+        @known_option_names ||=
+          (OPTION_OPERATIONS.flat_map { |operation| ::Aws::S3::Client.api.operation(operation).input.shape.member_names }.uniq -
+            PATH_PARAMETERS).freeze
       end
 
       def to_s
         Utils::PathName.join("s3://", bucket_name, path)
+      end
+
+      # Joining a name that starts with `/` to the bucket itself, see `IOStreams::Path#join`, gives the key that starts
+      # with `/`, such as `/exports/a.csv`, while IOStreams v3.0 joins it as a key within the bucket, `exports/a.csv`, as
+      # a name joined to the local directory `/` is within it. So it is deprecated, and reports a deprecation warning,
+      # see `IOStreams::Deprecation`.
+      def join(*elements)
+        joined = super
+        if path.empty? && joined.path.start_with?("/")
+          Deprecation.warn("joining a name that starts with / to an S3 bucket is deprecated, since v3.0 joins it as " \
+                           "a key within the bucket, such as exports/a.csv for /exports/a.csv: remove the leading /, " \
+                           "or name a key that starts with / in the url, such as s3://bucket//exports/a.csv")
+        end
+        joined
       end
 
       # Does not support relative file names since there is no concept of current working directory
@@ -367,6 +408,131 @@ module IOStreams
       end
 
       private
+
+      # Reports a deprecation warning for each part of the url that this path cannot use, which IOStreams 3.0 raises
+      # ArgumentError for when the path is created, so that a mistake in a configured url is reported wherever the
+      # code runs: a url without a bucket, a fragment, which an unencoded `#` starts, and which is not part of the key, a
+      # port, and a user name or password, which are ignored.
+      def warn_unusable_url(uri)
+        warn_url("it names no bucket, name one, such as 's3://bucket/#{path}'") if bucket_name.to_s.empty?
+        if uri.fragment
+          warn_url("it has a fragment, which a '#' starts, and which is not part of the key, percent-encode a '#' in a " \
+                   "key as '%23'")
+        end
+        if uri.port
+          warn_url("its port is ignored, supply the endpoint of another service that implements the S3 API with " \
+                   "client: {endpoint: \"https://host:port\"}")
+        end
+        return unless uri.user || uri.password
+
+        warn_url("its user name and password are ignored, supply the credentials with access_key_id: and " \
+                 "secret_access_key:")
+      end
+
+      # Reports that the S3 url of this path is deprecated, since IOStreams 3.0 raises ArgumentError for it, for the
+      # supplied reason.
+      def warn_url(reason)
+        Deprecation.warn("the S3 url #{warning_url} is deprecated, since #{reason}")
+      end
+
+      # Returns [String] the url of this path as a deprecation warning names it, quoted: its bucket and its key, without
+      # the parts of the url that the path cannot use, such as a user name, and with an empty bucket kept, unlike #to_s,
+      # such as `"s3:///a.csv"`.
+      def warning_url
+        Utils.display_text("s3://#{bucket_name}/#{path}").inspect
+      end
+
+      # Reports a deprecation warning for the region and credentials supplied with an `Aws::S3::Client`, which ignores
+      # them, since it has its own, and which IOStreams 3.0 raises ArgumentError for when the path is created.
+      def warn_client_arguments(client, **arguments)
+        return if client.nil? || client.is_a?(Hash)
+
+        names = arguments.compact.keys
+        return if names.empty?
+
+        words = Deprecation::Words.new(names)
+        Deprecation.warn("#{words.keywords} #{words.are} deprecated with an Aws::S3::Client as client:, which ignores " \
+                         "#{words.them}, since it has its own, supply #{words.them} to Aws::S3::Client.new instead, or " \
+                         "supply client: as a Hash of its options")
+      end
+
+      # Reports a deprecation warning for the options of this path that IOStreams 3.0 raises ArgumentError for when the
+      # path is created, see #unusable_option_names: one that the path sets itself, such as `key:`, which it overrides,
+      # and one that no S3 request takes, such as a misspelled one, which the AWS SDK raises for once the path is used.
+      def warn_unusable_options(names)
+        unusable_option_names(names).each_pair do |set_by_path, unusable|
+          words = Deprecation::Words.new(unusable)
+          warn_unusable("the S3 #{words.one? ? 'option' : 'options'} #{words.keywords}", words, set_by_path)
+        end
+      end
+
+      # Reports a deprecation warning for the names in the query of the url of this path that IOStreams 3.0 raises
+      # ArgumentError for when the path is created, as for an option, see #warn_unusable_options. A name without a
+      # value is more likely part of a key, such as the `?` of `s3://bucket/data/file?.csv`, so the warning then also
+      # says how to write a `?` in a key.
+      def warn_unusable_query(query)
+        unusable_option_names(query.keys.map(&:to_sym)).each_pair do |set_by_path, unusable|
+          names  = unusable.map(&:to_s)
+          words  = Deprecation::Words.new(names)
+          encode = ", and percent-encode a '?' in a key as '%3F'" if names.any? { |name| query[name].to_s.empty? }
+          warn_unusable("#{words.keywords} in the query of the S3 url #{warning_url}", words, set_by_path, encode)
+        end
+      end
+
+      # Returns [Hash<true|false, Array>] the supplied names of options that IOStreams 3.0 raises ArgumentError for: by
+      # whether the path sets them itself (true), see PATH_PARAMETERS, or no S3 request of a path takes them (false),
+      # see .known_option_names, without either when there are none.
+      def unusable_option_names(names)
+        set_by_path = names & PATH_PARAMETERS
+        {true => set_by_path, false => names - set_by_path - self.class.known_option_names}.reject { |_, list| list.empty? }
+      end
+
+      # Reports that the options, which the subject names, and the words are about, see `IOStreams::Deprecation::Words`,
+      # are deprecated, since the path sets them itself, or since no S3 request takes them, followed by the supplied
+      # advice.
+      def warn_unusable(subject, words, set_by_path, advice = nil)
+        them   = words.them
+        reason =
+          if set_by_path
+            "the path sets #{them} itself, and overrides #{them}, so remove #{them}"
+          else
+            "no S3 request takes #{them}, so correct or remove #{them}"
+          end
+        Deprecation.warn("#{subject} #{words.are} deprecated, since #{reason}#{advice}")
+      end
+
+      # Returns [Array(Array<Symbol>, String)|nil] the methods of the IO that v3.0 reads the object from, in place of the
+      # temp File that v2.2 downloads it into, and its name, see `IOStreams::Stream#v3_source`: v3.0 reads the object as
+      # the application reads it, with an IO that only reads, unless the `range` or `part_number` option chooses the
+      # bytes to read, which it still downloads into a temp file.
+      def v3_source
+        return if options.key?(:range) || options.key?(:part_number)
+
+        [IOStreams::Reader::V3_READ_METHODS, "the IO of an S3 path"]
+      end
+
+      # The methods of the IO that v3.0 uploads the object with, see #v3_target: those of an IO that write, and #flush.
+      V3_UPLOAD_METHODS = [*IOStreams::Writer::V3_WRITE_METHODS, :flush].freeze
+      private_constant :V3_UPLOAD_METHODS
+
+      # The options that describe the whole object, with which v3.0 still writes the object into a temp file first, as
+      # does a checksum of its data, such as `checksum_crc32`, see #v3_target.
+      V3_WHOLE_OBJECT_OPTIONS = %i[content_length content_md5 write_offset_bytes].freeze
+      private_constant :V3_WHOLE_OBJECT_OPTIONS
+
+      # Returns [Array(Array<Symbol>, String)|nil] the methods of the IO that v3.0 uploads the object with, in place of the
+      # temp File that v2.2 writes it into, and its name, see `IOStreams::Stream#v3_target`: v3.0 uploads the object as
+      # the application writes it, with an IO that only writes, unless an option describes the whole object, which it
+      # still writes into a temp file first. v3.0 writes the object with only the options that `put_object` takes, so
+      # only those decide, rather than one that only another request takes, such as `checksum_mode` when reading.
+      def v3_target
+        put_object   = ::Aws::S3::Client.api.operation(:put_object).input.shape
+        whole_object = options.each_key.any? do |name|
+          put_object.member?(name) &&
+            (V3_WHOLE_OBJECT_OPTIONS.include?(name) || (name.start_with?("checksum_") && name != :checksum_algorithm))
+        end
+        [V3_UPLOAD_METHODS, "the IO of an S3 path"] unless whole_object
+      end
 
       # Yields the bucket name and each object in the bucket whose key starts with the supplied prefix.
       def each_object(prefix)

@@ -1,5 +1,6 @@
 require_relative "../test_helper"
 require_relative "../s3_stub"
+require "digest"
 
 module Paths
   class S3Test < Minitest::Test
@@ -83,6 +84,58 @@ module Paths
         it "reads" do
           assert_equal raw, existing_path.read
         end
+
+        it "reports a deprecation warning for a method of the File that it reads, which v3.0 does not supply" do
+          line = __LINE__ + 4
+          data = existing_path.reader do |io|
+            first = io.read
+            assert_deprecated(/s3_test\.rb:#{line}: warning: IOStreams: #rewind is deprecated on the IO of an S3 path that #reader yields, since in v3\.0 it is a stream that only reads, with #read, #readpartial, #gets, #readline, #readlines, #each_line, #each, #eof\?, #eof and #closed\?: read it with those, open the reader again to read it from the start, or copy the data into a local file first, such as with IOStreams\.temp_file and #copy_to, where it must be a File\n\z/) do
+              io.rewind
+            end
+            assert_kind_of ::File, io
+            assert_kind_of String, assert_deprecated(/#path is deprecated on the IO of an S3 path/) { io.path }
+            assert_equal raw.bytesize, assert_deprecated(/#size is deprecated on the IO of an S3 path/) { io.size }
+            [first, io.read]
+          end
+
+          assert_equal [raw, raw], data
+        end
+
+        it "reports a deprecation warning for a method of the File that it reads as it is stored" do
+          path = root_path.join("test.csv.gz")
+          path.write(raw)
+          data = path.raw.reader do |io|
+            assert_deprecated(/#rewind is deprecated on the IO of an S3 path/) { io.rewind }
+            io.read
+          end
+
+          assert_equal raw, Zlib.gunzip(data)
+        end
+
+        it "reports a deprecation warning for a method of the stream of the object, or of PGP that reads it" do
+          gzipped = root_path.join("test.csv.gz")
+          gzipped.write(raw)
+          encrypted = root_path.join("test.csv.pgp").option(:pgp, recipient: "receiver@example.org")
+          encrypted.write(raw)
+
+          gzipped.reader { |io| assert_deprecated(/#rewind is deprecated on the :gz stream/) { io.rewind } }
+          root_path.join("test.csv.pgp").option(:pgp, passphrase: "receiver_passphrase").reader do |io|
+            assert_deprecated(/#fileno is deprecated on the :pgp stream that #reader yields/) { io.fileno }
+          end
+        end
+
+        it "reports none for the methods of an IO that read" do
+          data = refute_deprecated { existing_path.reader { |io| [io.gets, io.read, io.eof?] } }
+
+          assert_equal [raw.lines.first, raw.lines.drop(1).join, true], data
+        end
+
+        it "reports none with the range option, which v3.0 still reads from a temp File" do
+          path = IOStreams.path(existing_path.to_s, range: "bytes=0-4")
+          data = refute_deprecated { path.reader { |io| io.read && io.rewind && io.read } }
+
+          assert_kind_of String, data
+        end
       end
 
       describe "#size" do
@@ -99,6 +152,54 @@ module Paths
         it "writes" do
           assert_equal(raw.size, write_path.writer { |io| io.write(raw) })
           assert_predicate write_path, :exist?
+          assert_equal raw, write_path.read
+        end
+
+        it "reports a deprecation warning for a method of the File that it writes, which v3.0 does not supply" do
+          size = write_path.writer do |io|
+            io.write(raw)
+
+            assert_kind_of ::File, io
+            assert_kind_of String, assert_deprecated(/IOStreams: #path is deprecated on the IO of an S3 path that #writer yields, since in v3\.0 it is a stream that only writes, with #write, #<<, #print, #puts, #printf and #flush: write it with those, or write a local file first, such as with IOStreams\.temp_file, and copy it with #copy_to, where it must be a File\n\z/) { io.path }
+            assert_deprecated(/#size is deprecated on the IO of an S3 path that #writer yields/) { io.size }
+          end
+
+          assert_equal raw.bytesize, size
+          assert_equal raw, write_path.read
+        end
+
+        it "reports none for the methods of an IO that write, and #flush" do
+          refute_deprecated do
+            write_path.writer do |io|
+              io.write("a")
+              io << "b"
+              io.print("c")
+              io.printf("%d", 1)
+              io.puts
+              io.flush
+            end
+          end
+
+          assert_equal "abc1\n", write_path.read
+        end
+
+        it "reports none with an option that describes the whole object, which v3.0 still writes into a temp File" do
+          path = IOStreams.path(write_path.to_s, content_md5: Digest::MD5.base64digest(raw))
+          name = refute_deprecated { path.writer { |io| io.write(raw) && io.path } }
+
+          assert_kind_of String, name
+          assert_equal raw, write_path.read
+        end
+
+        it "reports a deprecation warning with a checksum option of a read, which v3.0 does not write the object with" do
+          # v3.0 writes the object with only the options that put_object takes, so it uploads the object as it is
+          # written. A client that does not check the parameters of its requests lets v2.2 write it with the option too.
+          path = IOStreams.path(write_path.to_s, client: {validate_params: false}, checksum_mode: "ENABLED")
+          path.writer do |io|
+            io.write(raw)
+            assert_deprecated(/#path is deprecated on the IO of an S3 path that #writer yields/) { io.path }
+          end
+
           assert_equal raw, write_path.read
         end
       end
@@ -270,6 +371,25 @@ module Paths
           source&.delete
           target&.delete
         end
+
+        it "hands IOStreams the File of the object as it is, when it copies it as stored to and from a local file" do
+          source = root_path.join("copy_test_source.txt")
+          target = root_path.join("copy_test_target.txt")
+          source.write("Hello World")
+          IOStreams::Deprecation::Methods.stub(:deprecate, ->(*) { flunk("The File reports deprecation warnings") }) do
+            IOStreams.temp_file("copy_test", ".txt") do |temp|
+              refute_deprecated do
+                source.copy_to(temp, convert: false)
+                temp.copy_to(target, convert: false)
+              end
+            end
+          end
+
+          assert_equal "Hello World", target.read
+        ensure
+          source&.delete
+          target&.delete
+        end
       end
 
       describe "#partial_files_visible?" do
@@ -292,6 +412,150 @@ module Paths
           }
         )
         client
+      end
+
+      describe "a url part or argument that the path cannot use, which v3.0 raises ArgumentError for" do
+        it "reports a deprecation warning for a fragment, which an unencoded '#' starts, and still reads the key before it" do
+          line = __LINE__ + 2
+          path = assert_deprecated(%r{s3_test\.rb:#{line}: warning: IOStreams: the S3 url "s3://bucket/a" is deprecated, since it has a fragment, which a '#' starts, and which is not part of the key, percent-encode a '#' in a key as '%23'\n\z}) do
+            IOStreams.path("s3://bucket/a#b.csv")
+          end
+
+          assert_equal "a", path.path
+          assert_equal "a#b.csv", refute_deprecated { IOStreams.path("s3://bucket/a%23b.csv") }.path
+        end
+
+        it "reports a deprecation warning for a port, which is ignored" do
+          path = assert_deprecated(%r{IOStreams: the S3 url "s3://bucket/a\.csv" is deprecated, since its port is ignored, supply the endpoint of another service that implements the S3 API with client: \{endpoint: "https://host:port"\}\n\z}) do
+            IOStreams.path("s3://bucket:9000/a.csv")
+          end
+
+          assert_equal "s3://bucket/a.csv", path.to_s
+        end
+
+        it "reports a deprecation warning for a user name or password, which are ignored, without them" do
+          path = assert_deprecated(%r{IOStreams: the S3 url "s3://bucket/a\.csv" is deprecated, since its user name and password are ignored, supply the credentials with access_key_id: and secret_access_key:\n\z}) do
+            IOStreams.path("s3://AKIA:TOP-SECRET@bucket/a.csv")
+          end
+
+          assert_equal "s3://bucket/a.csv", path.to_s
+          assert_deprecated(/its user name and password are ignored/) { IOStreams.path("s3://AKIA@bucket/a.csv") }
+        end
+
+        it "reports a deprecation warning for a url without a bucket" do
+          path = assert_deprecated(%r{IOStreams: the S3 url "s3:///a\.csv" is deprecated, since it names no bucket, name one, such as 's3://bucket/a\.csv'\n\z}) do
+            IOStreams.path("s3:///a.csv")
+          end
+
+          assert_equal "s3://a.csv", path.to_s
+        end
+
+        it "reports each part that the path cannot use" do
+          assert_deprecated(/has a fragment/, /its port is ignored/, /its user name and password are ignored/) do
+            IOStreams.path("s3://AKIA:TOP-SECRET@bucket:9000/a#b.csv")
+          end
+        end
+
+        it "reports a deprecation warning for the region and credentials supplied with an Aws::S3::Client, which ignores them" do
+          line = __LINE__ + 2
+          path = assert_deprecated(/s3_test\.rb:#{line}: warning: IOStreams: access_key_id:, secret_access_key:, region: are deprecated with an Aws::S3::Client as client:, which ignores them, since it has its own, supply them to Aws::S3::Client\.new instead, or supply client: as a Hash of its options\n\z/) do
+            IOStreams.path("s3://bucket/a.csv", client: client, access_key_id: "a", secret_access_key: "b", region: "eu-west-1")
+          end
+
+          assert_same client, path.client
+          assert_deprecated(/region: is deprecated with an Aws::S3::Client as client:, which ignores it/) do
+            IOStreams.path("s3://bucket/a.csv", client: client, region: "eu-west-1")
+          end
+        end
+
+        it "reports no deprecation warning for the region and credentials supplied with the options of a new client" do
+          path = refute_deprecated do
+            IOStreams.path("s3://bucket/a.csv", client: {stub_responses: true}, access_key_id: "a", secret_access_key: "b",
+                                                region: "eu-west-1")
+          end
+
+          assert_equal "eu-west-1", path.client.config.region
+        end
+
+        it "reports no deprecation warning for a url that the path can use" do
+          refute_deprecated do
+            IOStreams.path("s3://bucket/data/a%23b.csv", client: client)
+            IOStreams.path("s3://bucket", client: client)
+          end
+        end
+
+        it "checks nothing while deprecation warnings are off, since each child that #each_child yields is a new path" do
+          enabled = Warning[:deprecated]
+          Warning[:deprecated] = false
+          checked = ->(*) { flunk("checked while deprecation warnings are off") }
+          path    = IOStreams::Paths::S3.stub(:known_option_names, checked) do
+            IOStreams::Utils.stub(:display_text, checked) do
+              IOStreams.path("s3://bucket:9000/a?tagging=a#b.csv", client: client, acll: "public-read", region: "eu-west-1")
+            end
+          end
+
+          assert_equal "a", path.path
+          assert_equal({acll: "public-read", tagging: "a"}, path.options)
+        ensure
+          Warning[:deprecated] = enabled
+        end
+      end
+
+      describe "an option that no S3 request takes, or that the path sets itself, which v3.0 raises ArgumentError for" do
+        it "reports a deprecation warning for an option that no S3 request takes, and keeps it as before" do
+          line = __LINE__ + 2
+          path = assert_deprecated(/s3_test\.rb:#{line}: warning: IOStreams: the S3 option acll: is deprecated, since no S3 request takes it, so correct or remove it\n\z/) do
+            IOStreams.path("s3://bucket/a.csv", client: client, acll: "public-read")
+          end
+
+          assert_equal({acll: "public-read"}, path.options)
+        end
+
+        it "reports a deprecation warning for an option that the path sets itself, which it overrides" do
+          path = assert_deprecated(/IOStreams: the S3 options key:, bucket: are deprecated, since the path sets them itself, and overrides them, so remove them\n\z/) do
+            IOStreams.path("s3://bucket/a.csv", client: client, key: "b.csv", bucket: "other")
+          end
+
+          assert_equal "a.csv", path.path
+          assert_equal "bucket", path.bucket_name
+        end
+
+        it "reports a deprecation warning for an option named with a String, which the AWS SDK does not take" do
+          assert_deprecated(/IOStreams: the S3 option "acl" is deprecated, since no S3 request takes it/) do
+            IOStreams.path("s3://bucket/a.csv", client: client, **{"acl" => "public-read"})
+          end
+        end
+
+        it "reports a deprecation warning for a name in the query of the url that no S3 request takes" do
+          path = assert_deprecated(%r{IOStreams: "acll" in the query of the S3 url "s3://bucket/a\.csv" is deprecated, since no S3 request takes it, so correct or remove it\n\z}) do
+            IOStreams.path("s3://bucket/a.csv?acll=public-read", client: client)
+          end
+
+          assert_equal({acll: "public-read"}, path.options)
+          assert_deprecated(%r{"key" in the query of the S3 url "s3://bucket/a\.csv" is deprecated, since the path sets it itself}) do
+            IOStreams.path("s3://bucket/a.csv?key=b.csv", client: client)
+          end
+        end
+
+        it "says how to write a '?' in a key, for a name in the query without a value" do
+          path = assert_deprecated(%r{IOStreams: "\.csv" in the query of the S3 url "s3://bucket/data/file" is deprecated, since no S3 request takes it, so correct or remove it, and percent-encode a '\?' in a key as '%3F'\n\z}) do
+            IOStreams.path("s3://bucket/data/file?.csv", client: client)
+          end
+
+          assert_equal "data/file", path.path
+          assert_equal "data/file?.csv", refute_deprecated { IOStreams.path("s3://bucket/data/file%3F.csv", client: client) }.path
+        end
+
+        it "reports no deprecation warning for the options of S3 requests, as options or in the query of the url" do
+          path = refute_deprecated do
+            IOStreams.path("s3://bucket/a.csv?request_payer=requester", client: client, acl: "bucket-owner-full-control",
+                                                                         server_side_encryption: "AES256", max_keys: 5)
+          end
+
+          assert_equal({acl: "bucket-owner-full-control", server_side_encryption: "AES256", max_keys: 5, request_payer: "requester"},
+                       path.options)
+          refute_deprecated { IOStreams.path("s3://bucket/a.csv?", client: client) }
+        end
       end
 
       describe "#join" do

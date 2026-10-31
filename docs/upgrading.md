@@ -85,26 +85,63 @@ Each of these still works as before in v2.2, and reports a deprecation warning:
 | `stream(:encode, ...)` | `#encoding`, with the same options. Like any stream set with `#stream`, `stream(:encode, ...)` stops the streams being taken from the file name, while `#encoding` keeps them, so `IOStreams.path("data.csv.gz").encoding("BINARY")` reads the decompressed data. To read or write the data as it is stored, as `stream(:encode, encoding: "BINARY")` does for such a file name, use `#raw`, and to read a file that is not named for its format, set the file name that names its format with `#file_name`, then `#encoding` |
 | `embedded_within:` with `each(:array)` or `each(:hash)` | `#format`, since the format of the file decides where the lines of its rows and records are split, such as `format(:psv)` for values that are not quoted |
 | `#format_options`, and `format_options:` supplied to each call | `#schema`, which gives the `width` of each field of a fixed width file, see [Moving a layout to a schema](#moving-a-layout-to-a-schema) |
-| `columns:`, `allowed_columns:`, `required_columns:` and `skip_unknown:`, unless they are nil, and `cleanse_header:`, even when it is nil | `#schema`, which describes the columns of the file on its path, see [Moving the column options to a schema](#moving-the-column-options-to-a-schema) |
+| `columns:`, `allowed_columns:`, `required_columns:`, `skip_unknown:` and `cleanse_header:`, even when they are nil, since v3.0 raises `ArgumentError` for them whatever their value | `#schema`, which describes the columns of the file on its path, see [Moving the column options to a schema](#moving-the-column-options-to-a-schema) |
 
-`IOStreams.enforce_column_restrictions=` is not deprecated in v2.2, which still follows it, so keep setting it to
-true as [v2.1 recommends](#column-restrictions-on-uploaded-files) until the column options are replaced with a
-schema, to which it does not apply.
+`IOStreams.enforce_column_restrictions=` is deprecated too, see below, since it only applies to the column options.
+v2.2 still follows it, so keep setting it to true, as [v2.1 recommends](#column-restrictions-on-uploaded-files),
+until the column options are replaced with a schema, which applies to every input, and then remove it.
 
 v3.0 removes these, or raises `ArgumentError` for them, so in v2.2 each still works as before, and reports a
 deprecation warning:
 
 | Deprecated | Use instead |
 |------------|-------------|
-| `format:`, `file_name:`, `original_file_name:` or `default_format:` supplied to `#each`, `#reader`, `#writer` or a copy, such as `each(:hash, format: :json)`, even when they are nil | `#format`, which sets the format on the path, so that every reader and writer of the path uses it: `format(:json).each(:hash)`. A file name supplied to a call only chooses the format, when the path has none, and not the streams, as `#file_name` does, so set the format that it names instead, such as `format(:json)` for `file_name: "data.json"`. `default_format:` only applies when the path has no format, so set it only then: `path.format(:json) unless path.format` |
+| `format:`, `file_name:`, `original_file_name:` or `default_format:` supplied to `#each`, `#reader`, `#writer` or a copy, such as `each(:hash, format: :json)`, even when they are nil | `#format`, which sets the format on the path, so that every reader and writer of the path uses it: `format(:json).each(:hash)`. A file name supplied to a call only chooses the format, when the path has none, and not the streams, as `#file_name` does, so set the format that it names instead, such as `format(:json)` for `file_name: "data.json"`. `default_format:` only applies when the path has no format, so set it only then: `path.format(:json) unless path.format`. The rows of a spreadsheet are read as CSV, so set `format(:csv)` on its path |
 | `allowed_columns:`, `required_columns:` or `skip_unknown:` supplied to `#writer` or a copy, which ignores them, even when they are nil | A schema, which describes the columns that are written, such as with `fieldsMatch: "subset"` to skip the other keys of each record |
-| Options supplied to `#writer` when the stream is a line, row or record writer that is already open, such as the one that `writer(:line)` yields, handed to `IOStreams.stream`, which writes with its own settings, and ignores them | Set them where that writer is opened, or remove them |
+| Options supplied to `#writer` when the stream is a line, row or record writer that is already open, such as the one that `writer(:line)` yields, handed to `IOStreams.stream`, which writes with its own settings, and ignores them, even when they are nil, other than a nil `delimiter:`, and the streams, encoding, format and schema set on such a stream, other than the format and schema of the rows or records written to a line writer, which apply | Set them where that writer is opened, or remove them |
 | Options supplied to the `:stream` mode, the default of `#reader` and `#writer`, to a copy without a `mode:`, or to a copy with `convert: false`, including `mode:` | Remove them, since they are ignored |
 | The Zip writer's `zip_file_name`, even when it is nil | `entry_file_name` |
 | An option of `.bz2` that neither reading nor writing takes, which BZip2 ignores | Remove it |
+| An option that neither the reader nor the writer of a stream takes, such as a misspelled one, set with `#option`, `#stream` or `#option_or_stream`, also when the file name does not include the stream, such as `IOStreams.path("data.csv").option(:pgp, recipent: "partner@example.org")`, which is ignored | Correct or remove it, since v3.0 raises `ArgumentError` for it when it is set |
 | A file name ending in `.encode` | `#encoding`, which applies the encode stream whatever the file name, so the file need not be renamed |
 | `#path=` | `#join` or `#directory`, which return a new path without the streams, options, format and schema set on the path, which `#path=` keeps, so set them again, or `IOStreams.path` with the new name |
 | `#builder=` | `IOStreams.path`, to start again without the streams and options set with `#stream` or `#option` |
+| A url part or S3 argument that a path ignores, reported when the path is created: an S3 url with a fragment, which an unencoded `#` starts, a port, a user name or password, or without a bucket, an SFTP url with a query or a fragment, an SFTP or HTTP url without a host, and `region:`, `access_key_id:` or `secret_access_key:` with an `Aws::S3::Client` as `client:` | Percent-encode a `#` in a key or name as `%23`, and a `?` in an SFTP name as `%3F`; supply the endpoint of a service that implements the S3 API with `client: {endpoint: "https://host:port"}`, S3 credentials with `access_key_id:` and `secret_access_key:`, and SFTP ssh options with `ssh_options:`; name the bucket or host; and supply the region and credentials to `Aws::S3::Client.new`, or `client:` as a Hash of its options |
+| An option of an S3 path, or a name in the query of its url, that no S3 request takes, such as a misspelled one, or that the path sets itself, such as `key:` or `bucket:`, which it overrides, reported when the path is created | Correct or remove it, and percent-encode a `?` in a key as `%3F`. The options of the S3 requests that a path makes, such as `acl:`, are still accepted |
+| `IOStreams.enforce_column_restrictions=` and `IOStreams.enforce_column_restrictions?` | A schema, whose `fieldsMatch` and `constraints` apply to every input, including the keys of each JSON record, see [Moving the column options to a schema](#moving-the-column-options-to-a-schema). The setting only applies to the column options, so keep it until they are replaced with a schema, and then remove it |
+| The methods of a Struct, other than `reader_class` and `writer_class`, on the extension that `IOStreams.extensions` returns for a built-in extension, such as `IOStreams.extensions[:gz].to_a`, and the setters of every registered extension, such as `writer_class=`, also once it is no longer registered, such as the one that `IOStreams.deregister_extension` returns | `reader_class` and `writer_class`, which the format that v3.0 returns for a built-in extension, such as `IOStreams::Gzip`, answers too, and `IOStreams.register_extension` to change a registered extension, which v3.0 freezes |
+| `IOStreams.register_extension(:encode, ...)`, in any case | Register the reader and writer under another name, and apply them with `#stream`, and set the encoding of the text with `#encoding`, since v3.0 builds in the encode stream |
+| `IOStreams.deregister_extension(:encode)`, after which `#encoding` raises `ArgumentError` | Remove it: v3.0 applies the encode stream only where `#encoding` sets it, and does not deregister it |
+| `IOStreams.register_extension(:none, ...)`, in any case | Register the stream under another name, since v3.0 reserves `:none` |
+| A name that ends with a line break, such as `"xz\n"`, supplied to `IOStreams.register_extension` or `IOStreams.deregister_extension` | The name without the line break, since v3.0 raises `ArgumentError` for it |
+| A name that is not in lower case, such as `:XZ`, supplied to `IOStreams.register_extension` or `IOStreams.deregister_extension` | The name in lower case, such as `:xz`, as v3.0 registers it, which matches the file names that end in `.xz`, in any case, where `:XZ` matched none |
+| Ruby 3.2, reported once, as IOStreams is loaded, so only while deprecation warnings are on as it is loaded, such as with `RUBYOPT=-W:deprecated` | Ruby 3.3 or later, which v3.0 requires: it cannot be installed on Ruby 3.2 |
+| `#io_stream` | The IO that you supply to `IOStreams.stream`, which the stream reads and writes |
+| Changing a root path in place, such as `IOStreams.root.stream(:gz)` or `IOStreams.add_root(:default, "/data").option(...)`, which changes the root for the whole process. v3.0 keeps its own frozen copy of the root, so changing a path no longer changes the root: changing the path that `IOStreams.add_root` returns, which is that copy, raises `FrozenError`, a path supplied to it is not the root, and `IOStreams.root`, `IOStreams.roots` and `IOStreams.join` without elements return copies of it | A copy of the root, such as `IOStreams.root.dup.stream(:gz)`, or a path joined to it, such as `IOStreams.join("a.csv.gz").option(:gz, level: 9)`, which never has the streams, options, encoding, format or schema of the root, and for a named root, such as `:uploads`, `IOStreams.root(:uploads).dup` or `IOStreams.join("a.csv.gz", root: :uploads)` |
+| `#move_to` onto an existing directory, which moves the file into it, and returns the directory | The file within the directory, such as `path.move_to(IOStreams.path("/archive").join(path.basename))`, which returns the file |
+| A pattern supplied to `#each_child` or `#children` that is not a String, such as a `Pathname` | Its String, such as `pattern.to_s` |
+| A format other than `:csv` set on a spreadsheet, such as `format(:psv)` on an `.xlsx` path, or named by its file name, such as `report.psv.xlsx`, when its lines, rows or records are read. v3.0 raises `ArgumentError` for a format that is set, and reads the rows as CSV whatever the file name | `format(:csv)`, which reads the rows as CSV in both versions, or no format on a path whose file name names none, since a spreadsheet is read as CSV |
+| A method of the stream that a reader block receives for `.gz`, `.zip`, `.bz2` or `.enc`, or for PGP within another stream or from an IO that is not a local file, without `verify_first: true`, other than `#read`, `#readpartial`, `#gets`, `#readline`, `#readlines`, `#each_line`, `#each` and `#eof?`, such as `#rewind`, `#pos`, `#lineno` or `#map` of a `Zlib::GzipReader`. Only the calls that the application makes itself are reported, including through a `SimpleDelegator`, `DelegateClass` or `Forwardable` that wraps the stream | Those methods, or `each(:line)`. Open the reader again to read the data from the start. Where the stream must be a `File`, copy the data into a local file first, such as with `IOStreams.temp_file` and `#copy_to`, and read that file |
+| A method of the `File` that a reader block receives for an S3 or HTTP(S) path without streams, or read with `#raw`, other than those of an IO that read, such as `#rewind`, `#size` or `#path` | The same, copying the object into a local file with `copy_to(temp, convert: false)` |
+| A method of the IO that a writer block receives when writing PGP, other than `#write`, `#<<`, `#print`, `#puts`, `#printf` and `#flush`, such as `#fileno` | Those methods. Where it must be an IO, write a local file first, such as with `IOStreams.temp_file`, and copy it with `#copy_to` |
+| A method of the `File` that a writer block receives for an S3 path without streams, other than `#write`, `#<<`, `#print`, `#puts`, `#printf` and `#flush`, such as `#path` or `#size` | Those methods. Where it must be a `File`, write a local file first, such as with `IOStreams.temp_file`, and copy it to the S3 path with `#copy_to` |
+| `#encoding` or `#cleaner` of the stream that a reader or writer block receives when an encoding is set | The settings of the path: `path.encoding`, or `Encoding.find(path.encoding)` for an `Encoding`, and `path.setting(:encode)[:cleaner]` |
+
+v3.0 changes the result of these calls, so in v2.2 each still gives the result that it gave before, and reports a
+deprecation warning that names another way to write it, which gives the same result in v2.2 and v3.0:
+
+| Deprecated | Use instead |
+|------------|-------------|
+| `IOStreams::Pgp.export(email: nil)` without a `key_id:`, and `IOStreams::Pgp.set_trust` without an `email:` or `key_id:`, which raise `IOStreams::Pgp::Failure`, where v3.0 raises `ArgumentError` | The email or key id of the key |
+| The rows and records of a file named `.text`, such as `ids.text`, which are read and written as CSV, where v3.0 reads and writes them in its `:text` format, as the text of each line | `format(:csv)`, or the format of an extension before `.text`, such as `format(:json)` for `people.json.text` |
+| `each(:array)` and `reader(:array)` of JSON without a schema, which yield each record as a Hash, where v3.0 yields each row as an Array, after a header row of the keys of the first record | `each(:hash)` to read the records, or a schema, with which v2.2 reads the rows as v3.0 does |
+| An SFTP or HTTP(S) url without a path, such as `sftp://host` or `https://host?a=1`, to which v3.0 adds a `/`, which changes its `#to_s` and `#path`, and the directory that SFTP `#each_child` lists, from the login directory to `/` | The url with the `/`, such as `sftp://host/` or `https://host/?a=1` |
+| A name that starts with `/` joined to an S3 bucket, such as `IOStreams.path("s3://bucket").join("/exports/a.csv")`, which is the key `/exports/a.csv`, where v3.0 joins it as the key `exports/a.csv` | The name without the leading `/`, or for an object whose key starts with `/`, its url, such as `IOStreams.path("s3://bucket//exports/a.csv")` |
+| A local file name of `~`, or starting with `~/`, which is within a directory called `~` in the current directory, where v3.0 reads it within the home directory | `File.expand_path("~/data/a.csv")` for the home directory, or `./~/data/a.csv` for the directory called `~` |
+| A `file://` url, such as `file:///data/a.csv` or `file://~/a.csv`, which is a file name relative to the current directory, where v3.0 reads it as the local file that it names, such as `/data/a.csv`, or within the home directory | The name of the file, such as `/data/a.csv`, or `File.expand_path("~/a.csv")` for the home directory |
+| A `Pathname` supplied to `IOStreams.new`, `#copy_from`, `#copy_to` or `#move_to`, which read and write it as an IO, where v3.0 takes it as the name of a file, applying the streams of its file name, or to `IOStreams.stream`, which raises `ArgumentError` for it in v3.0 | `pathname.to_s` or `IOStreams.path(pathname)`, and `#raw` on the path to read or write the data as it is stored |
+| Reading or writing the path of `IOStreams.temp_file` when its extension names streams, such as `.csv.gz`, which reads and writes the data as it is stored, where v3.0 applies those streams | `#raw` on the path, to read and write the data as it is stored |
+| An option set for another extension of the format of the file, such as `option(:pgp, ...)` for a `.gpg` file, `option(:gz, ...)` for `.gzip`, or `option(:xlsx, ...)` for `.xlsm`, which is ignored, where v3.0 applies it | The option of the extension in the file name, such as `option(:gpg, ...)` |
 
 ### Moving a layout to a schema
 
@@ -143,11 +180,13 @@ path.format(:fixed).schema(
 )
 ~~~
 
-`IOStreams::Schema.from_layout` returns the schema of a layout as a Hash, to set with `#schema` or to save as a JSON
-file, such as `IOStreams::Schema.from_layout(layout: layout)`, with `truncate: false` too when the layout has it. The
-columns of the layout can have String keys, such as a layout read from JSON. A column after the column with
-`size: :remainder` is left out, since the layout never reads it. It is only for moving off a layout: v3.0 removes it,
-with `#format_options`, so keep the schema that it returns rather than call it each time.
+`IOStreams::Schema.from_layout` returns the schema of a layout as a Hash, such as
+`IOStreams::Schema.from_layout(layout: layout)`, with `truncate: false` too when the layout has it. The columns of the
+layout can have String keys, such as a layout read from JSON. A column after the column with `size: :remainder` is
+left out, since the layout never reads it. It is only for moving off a layout, since v3.0 removes it, with
+`#format_options`: convert each layout with it once, such as in a console, and save the schema that it returns, such
+as in a JSON file, or as a Hash in the code, which `#schema` then sets, rather than call it each time a file is read
+or written, which breaks once the application upgrades to v3.0. It reports no deprecation warning.
 
 The keys of the records read are the names of the fields, so a layout with Symbol keys, such as `key: :name`, reads
 Symbol keys, as does a schema whose field is named with that Symbol. A schema saved as a JSON file, or in a database
@@ -212,9 +251,9 @@ named as the column was cleansed. With `cleanse_header: false`, they are the col
 them as they are.
 
 With a schema, `columns:`, `allowed_columns:` and `required_columns:` raise `ArgumentError`, unless they are nil, and
-so does `cleanse_header:`, even when it is nil. `skip_unknown:` only applies to `allowed_columns:`, so it is accepted,
-and has no effect, so that code can supply the same options with and without a schema. The property of a schema
-that replaces each one:
+so does `cleanse_header:`, even when it is nil. `skip_unknown:` only applies to `allowed_columns:`, so it is accepted.
+A nil one, and `skip_unknown:`, have no effect with a schema, and report a deprecation warning, since v3.0 raises
+`ArgumentError` for them, so remove them. The property of a schema that replaces each one:
 
 | Option | With a schema |
 |--------|---------------|
@@ -350,7 +389,8 @@ has been checked against the files of the application, since it reads some of th
 
 v2.1 is a security release, and is backward compatible except for `IOStreams::Pgp.delete_keys`,
 described below. Most applications upgrade without any code changes. The changes that would break
-existing code are postponed to v3.0, and log a warning in v2.1. See [Coming in v3.0](#coming-in-v30).
+existing code are postponed to v3.0, see [Coming in v3.0](#coming-in-v30), which says which of them
+log a warning.
 
 ### Changes that may need code changes
 
@@ -495,44 +535,96 @@ IOStreams.enforce_column_restrictions = true
 ~~~
 
 See [Column restrictions apply to every input](#column-restrictions-apply-to-every-input) for what
-it changes.
+it changes. v2.2 deprecates this setting, with the column options that it applies to: a schema applies to every input
+instead, see [Moving the column options to a schema](#moving-the-column-options-to-a-schema).
 
 ## Coming in v3.0
 
-These changes are postponed to v3.0 since they could break existing code. Each one logs a warning
-in v2.1 and v2.2 via `IOStreams.logger` when it would change the result, so check your logs for them.
+These changes are postponed to v3.0 since they could break existing code. v2.1 and v2.2 log a warning
+via `IOStreams.logger` when the column restrictions or the BZip2 options would change the result, so
+check your logs for them, and v2.2 reports PGP `export` without an email or key id as deprecated.
 v3.0 makes many more changes, see its
 [upgrading guide](https://github.com/reidmorrison/iostreams/blob/main/docs/upgrading.md#upgrading-to-v30), and
-[Upgrading to v2.2](#upgrading-to-v22) for the deprecations that v2.2 reports to prepare for it.
+[Upgrading to v2.2](#upgrading-to-v22) for the deprecations that v2.2 reports to prepare for it. v3.0 also changes
+what the encode stream reads and writes, which v2.2 cannot report, see
+[What `#encoding` reads and writes in v3.0](#what-encoding-reads-and-writes-in-v30).
 
 ### Column restrictions apply to every input
 
-When reading records, `allowed_columns`, `required_columns` and `skip_unknown` will apply to every
-input. In v2.1 they are ignored for JSON and `:hash` input, when `columns:` is supplied, and with
-`cleanse_header: false`.
+v3.0 removes the column options of each call, `columns:`, `allowed_columns:`, `required_columns:`,
+`skip_unknown:` and `cleanse_header:`, and `IOStreams.enforce_column_restrictions=` with them, which
+v2.2 deprecates. A schema describes the columns of the file instead, and its `fieldsMatch` and
+`constraints` apply to every input: a header row, the columns of a file without one, and the keys of
+each JSON record. In v2.1 and v2.2 the column options are ignored for JSON and `:hash` input, when
+`columns:` is supplied, and with `cleanse_header: false`, unless `IOStreams.enforce_column_restrictions`
+is true, so renaming an upload from `.csv` to `.json` bypasses them.
 
-When either `allowed_columns` or `required_columns` is set, JSON keys will be cleansed the same way
-as a header row, for example `"Name"` becomes `"name"`. Unknown keys will be skipped, or raise
-`IOStreams::Errors::InvalidHeader` when `skip_unknown: false`, and a record that is missing a
-required column will raise `IOStreams::Errors::InvalidHeader`.
-
-To prepare: set `IOStreams.enforce_column_restrictions = true`, and check that the JSON files you
-read with these options have the expected keys. See [Header options](formats#header-options).
+To prepare: describe the columns with a schema, see
+[Moving the column options to a schema](#moving-the-column-options-to-a-schema), and check that it reads
+the files of the application as the column options did. Until then, keep
+`IOStreams.enforce_column_restrictions = true` where the column options restrict what an upload can set,
+since v2.2 still applies it, see [Header options](formats#header-options).
 
 ### BZip2 options are strict
 
-The BZip2 reader and writer ignore any option they do not accept, and log a warning. In v3.0 it will
-raise `ArgumentError`, like every other stream. They accept `autoclose`, `first_only` and `small` when
+The BZip2 reader and writer ignore any option they do not accept, and log a warning. In v3.0 an option
+that neither of them takes, such as a misspelled one, raises `ArgumentError` when it is set, like that of
+every other stream, while an option of the other direction, such as `block_size` when reading, is
+accepted, and ignored, as v2.1 and v2.2 do. They accept `autoclose`, `first_only` and `small` when
 reading, and `autoclose`, `block_size` and `work_factor` when writing.
 
-To prepare: remove the option, or use a separate path for reading and for writing. See
-[Reading and writing need separate options](streams#reading-and-writing-need-separate-options).
+To prepare: remove an option that neither of them takes, which v2.2 reports as deprecated when it is
+set, see [Deprecated, and what replaces it](#deprecated-and-what-replaces-it).
 
 ### PGP `export` without an email or key id
 
 `IOStreams::Pgp.export(email: nil)` without a `key_id:` raises `IOStreams::Pgp::Failure`, as it did
-before v2.1. In v3.0 it will raise `ArgumentError`. Calling it without either argument already raises
-`ArgumentError`.
+before v2.1, and so does `IOStreams::Pgp.set_trust` without an `email:` or `key_id:`, since gpg rejects
+the empty user id that it is asked for. In v3.0 they raise `ArgumentError`, so v2.2 reports them as
+deprecated. Calling `export` without either argument already raises `ArgumentError`.
+
+To prepare: supply the email or key id of the key, or rescue `ArgumentError` as well as
+`IOStreams::Pgp::Failure`.
+
+### What `#encoding` reads and writes in v3.0
+
+`#encoding` sets the encode stream with the same options, and the same results, as `option(:encode, ...)`,
+which it replaces. v3.0 changes what that stream reads and writes, so these results of `#encoding` change
+on upgrading, while the call stays the same, which v2.2 cannot report as deprecated. Each says what gives
+the same result in v2.2 and v3.0, where something does:
+
+- **`replace:` keeps the valid characters.** v2.2 takes the data read as binary, so `replace:` replaces
+  each byte that is not ASCII, even of a valid character: `encoding("UTF-8", replace: "")` reads
+  `José,\xFF` as `Jos,`, while v3.0 takes the data as text in the encoding, and only replaces what is not
+  valid in it, `José,`. So does `encoding("Windows-1252", replace: "")` for Windows-1252 text. To keep
+  only ASCII on both, use `encoding("US-ASCII", replace: "")`. To keep the valid UTF-8 characters on
+  both, read with `encoding("BINARY")`, and replace the others yourself, such as with
+  `line.force_encoding("UTF-8").scrub("")`.
+- **Text that is not valid in the encoding raises `IOStreams::Errors::InvalidEncoding`**, an
+  `Encoding::UndefinedConversionError`, on every read, naming its line. v2.2 raises `ArgumentError` for
+  lines, rows and records, and `Encoding::UndefinedConversionError` for `#read`, and a write raises
+  `Encoding::UndefinedConversionError` on both. To prepare, rescue
+  `ArgumentError, Encoding::UndefinedConversionError`.
+- **A byte order mark is removed** from the start of the data, so the first line, or the first value of
+  the first row, no longer starts with `"\uFEFF"`, which v2.2 keeps with `encoding("UTF-8")`. To get the
+  same on both, remove it yourself, such as with `line.delete_prefix("\uFEFF")`.
+- **`read(length)` returns whole characters**, at least one, so that a character is not split between
+  reads. v2.2 returns `length` bytes, which can end within a character, in the same String for each
+  read. To read the same bytes on both, read without `#encoding`, or with `encoding("BINARY")`.
+- **Text written to a `StringIO` keeps the encoding that is set.** v3.0 writes the bytes of the
+  encoding, such as of Windows-1252 for `IOStreams.stream(io).encoding("Windows-1252")`, while in v2.2 a
+  `StringIO` of a UTF-8 String, such as `StringIO.new`, converts them back to UTF-8. Supply a `StringIO`
+  of a binary String, `StringIO.new("".b)`, which holds the bytes of the encoding on both.
+- **`#read` of the whole file takes the data as text in the encoding**, as reading lines does. v2.2
+  converts it into the encoding instead: from binary for most files, so that `encoding("UTF-8").read`
+  raises `Encoding::UndefinedConversionError` for any character that is not ASCII, and from
+  `Encoding.default_external` for a `.gz` or `.enc` file, so that `encoding("Windows-1252").read` converts
+  UTF-8 text into Windows-1252, and raises for Windows-1252 text. To get the same on both, read the lines,
+  rows or records, or `#read` without `#encoding`, and call `force_encoding` on the String, such as
+  `read.force_encoding("Windows-1252")`.
+
+See the [upgrading guide](https://github.com/reidmorrison/iostreams/blob/main/docs/upgrading.md#text-and-encodings)
+of v3.0 for the other changes to text, such as reading it as UTF-8 by default.
 
 ## Upgrading to v2.0
 

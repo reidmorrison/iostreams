@@ -212,7 +212,8 @@ class SchemaTest < Minitest::Test
     describe ".from_layout" do
       let(:layout) { [{size: 10, key: :name}, {size: 2}, {size: 5, key: :zip, type: :integer}] }
 
-      # Returns [Array] the records that the layout reads from the data, or the rows with mode: :array.
+      # Returns [Array] the records that the layout reads from the data, or the rows with mode: :array, which are Hashes
+      # too. Only #format_options is reported, since v3.0 removes the layout.
       def layout_read(data, columns = layout, mode: :hash)
         records = []
         assert_deprecated(/#format_options is deprecated/) do

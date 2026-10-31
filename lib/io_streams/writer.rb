@@ -1,5 +1,8 @@
 module IOStreams
   class Writer
+    # Answers the names of the options that this writer takes in IOStreams 3.0, and those that it replaces.
+    extend Deprecation::OptionNames
+
     # Returns [Array<Symbol>] the names of the options this writer accepts,
     # or [nil] when the writer does not declare them.
     #
@@ -13,6 +16,24 @@ module IOStreams
     # so that `#inspect` on a path does not display them, see `IOStreams::Extension#redact_options`.
     def self.sensitive_option_names
       []
+    end
+
+    # The methods of an IO that write, which every stream that v3.0 supplies to a writer block answers, see
+    # .v3_stream_methods.
+    V3_WRITE_METHODS = %i[write << print puts printf].freeze
+
+    # Returns [Array<Symbol>|nil] the methods that the stream that v3.0 supplies to a writer block, in place of the one
+    # that this writer yields, answers, when it does not answer all of the methods of that one, otherwise nil, for a
+    # writer whose stream answers the same methods in both versions, see `IOStreams::Reader.v3_stream_methods`, whose
+    # parameters and block it takes too.
+    def self.v3_stream_methods(_options)
+      nil
+    end
+
+    # Returns [Hash<Symbol:String>|nil] what the application uses in place of each method of the stream that this writer
+    # yields that v3.0 removes, see `IOStreams::Reader.v3_stream_advice`.
+    def self.v3_stream_advice
+      nil
     end
 
     # When a Writer does not support streams, we copy the stream to a local temp file

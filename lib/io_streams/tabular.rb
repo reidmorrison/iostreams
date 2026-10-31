@@ -67,22 +67,27 @@ module IOStreams
     # `IOStreams::Stream#format` and `IOStreams::Stream#schema`.
     FORMAT_OPTION_NAMES = %i[format file_name schema format_options default_format].freeze
 
+    # The format of a file whose format is neither supplied nor named by its file name, see #initialize.
+    DEFAULT_FORMAT = :csv
+    private_constant :DEFAULT_FORMAT
+
     # Returns [Array<Symbol>] the names of the supplied options of a reader of rows or records, see
     # `IOStreams::Row::Reader`, that are deprecated, since a schema describes the columns of the file instead, see
-    # `IOStreams::Schema`: the options of the header that are not nil, see `IOStreams::Tabular::Header`, and the
-    # `cleanse_header` option of the reader, even when it is nil, which does not cleanse the header row.
+    # `IOStreams::Schema`: the options of the header, see `IOStreams::Tabular::Header`, and the `cleanse_header` option
+    # of the reader, even when they are nil, since IOStreams 3.0 raises ArgumentError for them, whatever their value.
     def self.deprecated_read_option_names(options)
-      names = options.compact.keys & Header::OPTION_NAMES
+      names = options.keys & Header::OPTION_NAMES
       names << :cleanse_header if options.key?(:cleanse_header)
       names
     end
 
     # Returns [Array<Symbol>] the names of the supplied options of a writer of rows or records, see
     # `IOStreams::Row::Writer`, that are deprecated, since a schema describes the columns of the file instead: the
-    # options of the header that are not nil, other than those that only apply when reading a header, see
-    # `IOStreams::Tabular::Header::READ_OPTION_NAMES`, which writing does not apply.
+    # options of the header, even when they are nil, as for a reader, see .deprecated_read_option_names, other than
+    # those that only apply when reading a header, see `IOStreams::Tabular::Header::READ_OPTION_NAMES`, which writing
+    # does not apply.
     def self.deprecated_write_option_names(options)
-      options.compact.keys & (Header::OPTION_NAMES - Header::READ_OPTION_NAMES)
+      options.keys & (Header::OPTION_NAMES - Header::READ_OPTION_NAMES)
     end
 
     attr_reader :format, :parser
@@ -162,8 +167,8 @@ module IOStreams
     #     .check_write_options. With a schema it raises ArgumentError, even when nil, since the fields of the schema name
     #     the keys of the records instead.
     #     Default: cleanses it.
-    def initialize(format: nil, file_name: nil, format_options: nil, default_format: :csv, schema: nil, decoded: nil,
-                   cleanse_header: CLEANSE_BY_DEFAULT, **args)
+    def initialize(format: nil, file_name: nil, format_options: nil, default_format: DEFAULT_FORMAT, schema: nil,
+                   decoded: nil, cleanse_header: CLEANSE_BY_DEFAULT, **args)
       if schema
         reject_schema_options(format_options, args)
         reject_header_cleansing(cleanse_header)
@@ -214,6 +219,14 @@ module IOStreams
     # fixed width, JSON, or a schema whose `header` is false.
     def rows_header?
       @mapping.rows_header?
+    end
+
+    # Returns [true|false] whether the rows read, see #read_row, are the records of the file, Hashes keyed by the names
+    # of their values, rather than Arrays: those of a format whose rows are records, see
+    # `IOStreams::Tabular::Parser::Base.keyed?`, such as JSON, without a schema. IOStreams v3.0 reads them as Arrays,
+    # after a header row of the keys of the first record, as this version does with a schema.
+    def record_rows?
+      @mapping.record_rows?
     end
 
     # Returns [Array<String|Symbol>] the columns of the rows of a file without a header row, which #read_row yields as
@@ -406,6 +419,23 @@ module IOStreams
     def self.format_from_file_name(file_name)
       file_name.to_s.split(".").reverse_each { |ext| return ext.to_sym if @formats.include?(ext.to_sym) }
       nil
+    end
+
+    # Returns [Symbol|nil] the format that this version reads and writes the rows and records of the file name in, when
+    # IOStreams v3.0 reads and writes them in its `:text` format instead, as the text of each line: when the last
+    # extension of the file name that names a format is `.text`, which this version does not register, so that it uses
+    # the format of an extension before it, see .format_from_file_name, or CSV, the default. Returns nil when v3.0 uses
+    # the same format, or when `:text` is registered.
+    #
+    # The extensions are those that v3.0 takes from the file name: those of its last name, after its first part,
+    # compared without case, so that `ids.TEXT` names `:text` too, while a file named `text` names no format.
+    def self.text_file_format(file_name)
+      return if @formats.include?(:text)
+
+      name       = Utils::PathName.basename(file_name.to_s).b.sub(/\A\.+/, "")
+      extensions = name.split(".").drop(1).map(&:downcase)
+      last       = extensions.reverse_each.find { |extension| extension == "text" || @formats.include?(extension.to_sym) }
+      format_from_file_name(file_name) || DEFAULT_FORMAT if last == "text"
     end
 
     # Returns the parser class for the registered format.

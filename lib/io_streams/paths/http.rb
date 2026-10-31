@@ -9,6 +9,16 @@ module IOStreams
       # The password, and the query `parameters`, which can hold an access key, see IOStreams::Path.redact_options.
       def self.sensitive_option_names = %i[password parameters]
 
+      # Returns [String|nil] the deprecation warning for an HTTP(S) url without a path, such as `https://host`, or
+      # `https://host?a=1`, which IOStreams v3.0 reads with the path `/`, as `https://host/?a=1`, see
+      # `IOStreams::Path.name_deprecation`.
+      def self.name_deprecation(url)
+        return unless url_without_path?(url)
+
+        "an HTTP url without a path, such as https://host or https://host?a=1, is deprecated, since v3.0 adds a / " \
+          "after the host, https://host/?a=1, which changes its #to_s and #path: supply the url with the /"
+      end
+
       # Stream to/from a remote file over http(s).
       #
       # Parameters:
@@ -76,6 +86,7 @@ module IOStreams
         @maximum_file_size   = maximum_file_size
         @url                 = parameters ? "#{url}?#{URI.encode_www_form(parameters)}" : url
         super(uri.path)
+        warn_url_without_host(uri)
       end
 
       # Does not support relative file names since there is no concept of current working directory
@@ -100,6 +111,27 @@ module IOStreams
       private
 
       attr_reader :allow_hosts, :maximum_file_size
+
+      # Reports a deprecation warning for a url without a host, such as `http:///a.csv`, which IOStreams 3.0 raises
+      # ArgumentError for when the path is created, so that a mistake in a configured url is reported wherever the
+      # code runs.
+      def warn_url_without_host(uri)
+        return unless uri.host.to_s.empty?
+
+        Deprecation.warn("the HTTP url #{display_name.inspect} is deprecated, since it names no host, name one, such " \
+                         "as 'https://example.org/a.csv'")
+      end
+
+      # The methods of the IO that v3.0 reads the response from, see #v3_source: those of an IO that read, and #close.
+      V3_SOURCE_METHODS = [*IOStreams::Reader::V3_READ_METHODS, :close].freeze
+      private_constant :V3_SOURCE_METHODS
+
+      # Returns [Array(Array<Symbol>, String)] the methods of the IO that v3.0 reads the response from, in place of the
+      # temp File that v2.2 downloads it into, and its name, see `IOStreams::Stream#v3_source`: v3.0 reads the response as
+      # the application reads it, with an IO that only reads.
+      def v3_source
+        [V3_SOURCE_METHODS, "the IO of an HTTP path"]
+      end
 
       # Read a file using an http get.
       #

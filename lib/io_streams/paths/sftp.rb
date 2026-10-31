@@ -39,6 +39,17 @@ module IOStreams
       # The password, and the private key supplied as the ssh option `IdentityKey`, see IOStreams::Path.redact_options.
       def self.sensitive_option_names = %i[password identity_key]
 
+      # Returns [String|nil] the deprecation warning for an SFTP url without a path, such as `sftp://host`, which
+      # IOStreams v3.0 reads as `sftp://host/`, the root directory, see `IOStreams::Path.name_deprecation`, while this
+      # version lists the login directory for it, see #each_child.
+      def self.name_deprecation(url)
+        return unless url_without_path?(url)
+
+        "an SFTP url without a path, such as sftp://host, is deprecated, since v3.0 reads it as sftp://host/, the " \
+          "root directory, which changes its #to_s and #path, and what #each_child lists: supply the url with the /, " \
+          "which v2.2 reads the same way"
+      end
+
       # Stream to a remote file over sftp.
       #
       # url: [String]
@@ -121,6 +132,7 @@ module IOStreams
         validate_username!
 
         super(uri.path)
+        warn_unusable_url(uri)
       end
 
       # Does not support relative file names since there is no concept of current working directory
@@ -201,6 +213,29 @@ module IOStreams
       # `.` and `..` are resolved the way the sftp server resolves them.
       def allowed_location
         "sftp://#{hostname.to_s.downcase}:#{port}#{normalize_path(path)}".chomp("/")
+      end
+
+      # Reports a deprecation warning for each part of the url that this path cannot use, which IOStreams 3.0 raises
+      # ArgumentError for when the path is created, so that a mistake in a configured url is reported wherever the
+      # code runs: a url without a host, a query, whose ssh options are ignored, and a fragment, which an unencoded `#`
+      # starts, and which is not part of the name. Each warning names the url without its user name, password, query or
+      # fragment, see #display_name.
+      def warn_unusable_url(uri)
+        warn_url("it names no host, name one, such as 'sftp://example.org#{path}'") if uri.hostname.to_s.empty?
+        if uri.query
+          warn_url("its query is ignored, supply ssh options with ssh_options:, and percent-encode a '?' in a name as " \
+                   "'%3F'")
+        end
+        return unless uri.fragment
+
+        warn_url("it has a fragment, which a '#' starts, and which is not part of the name, percent-encode a '#' in a " \
+                 "name as '%23'")
+      end
+
+      # Reports that the url of this path is deprecated, since IOStreams 3.0 raises ArgumentError for it, for the
+      # supplied reason.
+      def warn_url(reason)
+        Deprecation.warn("the SFTP url #{display_name.inspect} is deprecated, since #{reason}")
       end
 
       # Usernames are passed to the `sftp` executable, so reject values that it could treat as options.

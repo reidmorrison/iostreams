@@ -53,6 +53,9 @@ class RecordReaderTest < Minitest::Test
     end
 
     describe "allowed_columns" do
+      # IOStreams.enforce_column_restrictions= is deprecated, and still applies to the column options that it tests.
+      allow_deprecation(/IOStreams\.enforce_column_restrictions= is deprecated/)
+
       def read(input, **args)
         records = []
         IOStreams::Record::Reader.stream(StringIO.new(input), **args) { |io| io.each { |record| records << record } }
@@ -136,7 +139,7 @@ class RecordReaderTest < Minitest::Test
         original = IOStreams.logger
         IOStreams.logger = Logger.new(output, level: :warn)
         records = read(input, **args)
-        [records, output.string.lines.grep(/enforce_column_restrictions/).size]
+        [records, output.string.lines.grep(/are not applied to this input/).size]
       ensure
         IOStreams.logger = original
       end
@@ -145,7 +148,20 @@ class RecordReaderTest < Minitest::Test
       let(:json) { %({"Name":"x","admin":true}\n{"Name":"y","admin":false}\n) }
 
       it "is not enforced by default" do
-        refute_predicate IOStreams, :enforce_column_restrictions?
+        refute(assert_deprecated(/IOStreams\.enforce_column_restrictions\? is deprecated/) { IOStreams.enforce_column_restrictions? })
+      end
+
+      it "logs that the column options are deprecated, and that a schema applies to every input" do
+        output   = StringIO.new
+        original = IOStreams.logger
+        IOStreams.logger = Logger.new(output, level: :warn)
+        read(json, format: :json, allowed_columns: ["name"])
+
+        assert_includes output.string, "allowed_columns and required_columns are not applied to this input, but would " \
+                                       "change the records read. They are deprecated: describe the columns with " \
+                                       "#schema instead, which applies to every input."
+      ensure
+        IOStreams.logger = original
       end
 
       it "only accepts true or false" do

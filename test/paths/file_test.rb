@@ -1,4 +1,5 @@
 require_relative "../test_helper"
+require "pathname"
 
 module Paths
   class FileTest < Minitest::Test
@@ -79,6 +80,44 @@ module Paths
           actual   = root.each_child("**/*").first(100).collect(&:to_s)
 
           assert_equal expected.sort, actual.sort
+        end
+
+        it "reports a deprecation warning for a pattern that is not a String, and still finds its files" do
+          expected = [file_path.to_s, file_path2.to_s]
+          line     = __LINE__ + 2
+          actual   = assert_deprecated(/file_test\.rb:#{line}: warning: IOStreams: a pattern that is not a String is deprecated for #each_child and #children, since v3\.0 raises ArgumentError for it, supply a String instead, such as pattern\.to_s/) do
+            root.children(Pathname.new("**/*.txt")).collect(&:to_s)
+          end
+
+          assert_equal expected.sort, actual.sort
+        end
+
+        it "reports a deprecation warning for a pattern that is not a String when its enumerator is read" do
+          expected   = [file_path.to_s, file_path2.to_s]
+          enumerator = refute_deprecated { root.each_child(Pathname.new("**/*.txt")) }
+          actual     = assert_deprecated(/a pattern that is not a String is deprecated/) do
+            enumerator.first(100).collect(&:to_s)
+          end
+
+          assert_equal expected.sort, actual.sort
+        end
+
+        it "reports none for the String of a pattern" do
+          expected = [file_path.to_s, file_path2.to_s]
+          actual   = refute_deprecated { root.children(Pathname.new("**/*.txt").to_s).collect(&:to_s) }
+
+          assert_equal expected.sort, actual.sort
+        end
+
+        it "finds no files for a pattern that is a Pathname that matches none, rather than raising NoMethodError" do
+          file_path
+
+          # In upper case, so that the case-insensitive retry downcases it.
+          actual = assert_deprecated(/a pattern that is not a String is deprecated/) do
+            root.children(Pathname.new("**/*.CSV"))
+          end
+
+          assert_empty actual
         end
       end
 
@@ -190,6 +229,35 @@ module Paths
             ensure
               temp_file.directory.join("a").delete_all
             end
+          end
+        end
+
+        it "reports a deprecation warning for an existing directory, and still moves the file into it" do
+          Dir.mktmpdir do |dir|
+            archive = ::File.join(dir, "archive")
+            Dir.mkdir(archive)
+            source = IOStreams.path(dir, "a.csv")
+            source.write("Hello World")
+            line     = __LINE__ + 2
+            response = assert_deprecated(/file_test\.rb:#{line}: warning: IOStreams: #move_to onto an existing directory is deprecated, since v3\.0 raises ArgumentError for it, supply the file within the directory instead, such as move_to\(IOStreams\.path\(directory\)\.join\(path\.basename\)\)/) do
+              source.move_to(archive)
+            end
+
+            assert_equal archive, response.to_s
+            refute_predicate source, :exist?
+            assert_equal "Hello World", ::File.read(::File.join(archive, "a.csv"))
+          end
+        end
+
+        it "reports none for the file within the directory" do
+          Dir.mktmpdir do |dir|
+            archive = IOStreams.path(dir, "archive").mkdir
+            source  = IOStreams.path(dir, "a.csv")
+            source.write("Hello World")
+            response = refute_deprecated { source.move_to(archive.join(source.basename)) }
+
+            assert_equal ::File.join(archive.to_s, "a.csv"), response.to_s
+            assert_equal "Hello World", response.read
           end
         end
       end

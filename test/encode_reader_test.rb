@@ -26,6 +26,26 @@ class EncodeReaderTest < Minitest::Test
     end
   end
 
+  # Wraps an IO whose `#read` reads into the buffer supplied, but makes the buffer binary, as `Bzip2::FFI::Reader#read`
+  # does.
+  class BinaryBufferReader
+    def initialize(io)
+      @io = io
+    end
+
+    def read(size = nil, buffer = nil)
+      data = @io.read(size)
+      return data unless buffer
+
+      if data
+        buffer.replace(data.b)
+      else
+        buffer.clear
+        nil
+      end
+    end
+  end
+
   describe IOStreams::Encode::Reader do
     let :bad_data do
       [
@@ -144,6 +164,60 @@ class EncodeReaderTest < Minitest::Test
           end
 
           assert_equal valid_data, result
+        end
+      end
+
+      describe "the bytes of a read of a length" do
+        let(:latin) { "name\nJos\xE9\n".b }
+
+        # Returns [Array<String>] the chunks that reading the input in ISO-8859-1 returns, 4 bytes at a time.
+        def chunks(input, **)
+          chunks = []
+          IOStreams::Encode::Reader.stream(input, encoding: "ISO-8859-1", **) do |io|
+            while (chunk = io.read(4))
+              chunks << chunk
+            end
+          end
+          chunks
+        end
+
+        it "are text in its encoding, from a stream whose #read takes no buffer, as Zlib::GzipReader on JRuby" do
+          [OneArgReader, StrictReader].each do |reader|
+            chunks = chunks(reader.new(StringIO.new(latin)))
+
+            assert_equal "name\nJosé\n".encode("ISO-8859-1"), chunks.join, reader.name
+            assert_equal [Encoding::ISO_8859_1], chunks.map(&:encoding).uniq, reader.name
+          end
+        end
+
+        it "are text in its encoding, from a stream that makes the buffer binary, as Bzip2::FFI::Reader does" do
+          chunks = chunks(BinaryBufferReader.new(StringIO.new(latin)))
+
+          assert_equal "name\nJosé\n".encode("ISO-8859-1"), chunks.join
+          assert_equal [Encoding::ISO_8859_1], chunks.map(&:encoding).uniq
+        end
+
+        it "are still converted with replace:, which replaces each byte that is not ASCII" do
+          assert_equal "name\nJos?\n", chunks(OneArgReader.new(StringIO.new(latin)), replace: "?").join
+        end
+
+        it "are text in its encoding when the whole of the data is read too" do
+          [OneArgReader, BinaryBufferReader].each do |reader|
+            text = IOStreams::Encode::Reader.stream(reader.new(StringIO.new(latin)), encoding: "ISO-8859-1", &:read)
+
+            assert_equal "name\nJosé\n".encode("ISO-8859-1"), text, reader.name
+          end
+        end
+
+        it "leaves the String that the input stream returned as it is, which the stream can still hold" do
+          held  = latin.dup
+          input = Object.new
+          input.define_singleton_method(:read) { |_size = nil| held }
+
+          chunk = IOStreams::Encode::Reader.stream(input, encoding: "ISO-8859-1") { |io| io.read(4) }
+
+          assert_equal "name\nJosé\n".encode("ISO-8859-1"), chunk
+          assert_equal Encoding::BINARY, held.encoding
         end
       end
 

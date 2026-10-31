@@ -14,7 +14,66 @@ end
 require "yaml"
 require "minitest/autorun"
 require "minitest/mock"
-require "iostreams"
+
+# Collects the deprecation warnings that IOStreams reports, see `IOStreams::Deprecation`, while a test runs, rather than
+# writing them to `$stderr`, so that a test asserts each one that it expects with #assert_deprecated, and any other one
+# fails the test, see DeprecationCheck, so that IOStreams never uses its own deprecated methods and options, and every
+# test of one says so. Minitest turns deprecation warnings on.
+module DeprecationCollector
+  @mutex    = Mutex.new
+  @warnings = nil
+
+  # Starts collecting the warnings of a test.
+  def self.start
+    @mutex.synchronize { @warnings = [] }
+  end
+
+  # Returns [Array<String>] the warnings collected since .start, and stops collecting them.
+  def self.stop
+    @mutex.synchronize { @warnings.tap { @warnings = nil } }
+  end
+
+  # Returns [Array<String>] the warnings reported while the block ran, which are not collected for the test.
+  def self.collect
+    outer = @mutex.synchronize { @warnings.tap { @warnings = [] } }
+    yield
+    @mutex.synchronize { @warnings }
+  ensure
+    @mutex.synchronize { @warnings = outer }
+  end
+
+  # Returns [Array<String>] the warnings reported while the block ran, see .collect, with deprecation warnings turned on
+  # while it runs.
+  def self.collect_deprecations(&)
+    enabled = Warning[:deprecated]
+    Warning[:deprecated] = true
+    collect(&)
+  ensure
+    Warning[:deprecated] = enabled
+  end
+
+  # Returns [true|false] whether the warning was collected: one reported by IOStreams while a test runs, or while it
+  # is loaded, which `IOStreams::Deprecation` tells from the others, once it is loaded.
+  def self.add(message)
+    return false unless defined?(IOStreams::Deprecation) && IOStreams::Deprecation.warning?(message)
+
+    @mutex.synchronize { @warnings ? @warnings.push(message) && true : false }
+  end
+
+  # Collects the warnings of IOStreams, see .add, and writes any other one.
+  module Warn
+    def warn(message, *, **)
+      super unless DeprecationCollector.add(message)
+    end
+  end
+end
+Warning.extend(DeprecationCollector::Warn)
+
+# The IOStreams deprecation warnings reported as IOStreams is loaded, such as for a version of Ruby that IOStreams 3.0
+# does not support, see `IOStreams::Deprecation.warn_on_load`, which DeprecationTest asserts, rather than written to
+# `$stderr`. Any other warning is still written.
+IOSTREAMS_LOAD_WARNINGS = DeprecationCollector.collect_deprecations { require "iostreams" }.freeze
+
 require "amazing_print"
 require "symmetric-encryption"
 
@@ -51,49 +110,14 @@ root = File.expand_path(File.join(__dir__, "../tmp"))
 IOStreams.add_root(:default, File.join(root, "default"))
 IOStreams.add_root(:downloads, File.join(root, "downloads"))
 
-# Collects the deprecation warnings that IOStreams reports, see `IOStreams::Deprecation`, while a test runs, rather than
-# writing them to `$stderr`, so that a test asserts each one that it expects with #assert_deprecated, and any other one
-# fails the test, see DeprecationCheck, so that IOStreams never uses its own deprecated methods and options, and every
-# test of one says so. Minitest turns deprecation warnings on.
-module DeprecationCollector
-  @mutex    = Mutex.new
-  @warnings = nil
-
-  # Starts collecting the warnings of a test.
-  def self.start
-    @mutex.synchronize { @warnings = [] }
-  end
-
-  # Returns [Array<String>] the warnings collected since .start, and stops collecting them.
-  def self.stop
-    @mutex.synchronize { @warnings.tap { @warnings = nil } }
-  end
-
-  # Returns [Array<String>] the warnings reported while the block ran, which are not collected for the test.
-  def self.collect
-    outer = @mutex.synchronize { @warnings.tap { @warnings = [] } }
-    yield
-    @mutex.synchronize { @warnings }
-  ensure
-    @mutex.synchronize { @warnings = outer }
-  end
-
-  # Returns [true|false] whether the warning was collected: one reported by IOStreams while a test runs, which
-  # `IOStreams::Deprecation` tells from the others.
-  def self.add(message)
-    return false unless IOStreams::Deprecation.warning?(message)
-
-    @mutex.synchronize { @warnings ? @warnings.push(message) && true : false }
-  end
-
-  # Collects the warnings of IOStreams, see .add, and writes any other one.
-  module Warn
-    def warn(message, *, **)
-      super unless DeprecationCollector.add(message)
-    end
+# Removes what a test registered with IOStreams, which has no method to remove it, so that it does not outlast the test.
+# The test helper of main has the same methods, for its own registries, which test/upgrade calls.
+module TestRegistry
+  # Removes the named root path, see `IOStreams.add_root`.
+  def self.remove_root(name)
+    IOStreams.instance_variable_get(:@root_paths).delete(name)
   end
 end
-Warning.extend(DeprecationCollector::Warn)
 
 # Fails a test that caused an IOStreams deprecation warning that it did not assert with #assert_deprecated, or that its
 # class, such as a describe block, does not allow, see ClassMethods#allow_deprecation.

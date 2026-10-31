@@ -7,6 +7,12 @@ module IOStreams
         []
       end
 
+      # Returns [Symbol] the tabular format of the text that a workbook is read as: CSV, one line for each row of its
+      # worksheet, see #file.
+      def self.text_format
+        :csv
+      end
+
       # Convert a xlsx, or xlsm file into CSV format.
       def self.file(file_name, &block)
         # Stream into a temp file as csv
@@ -14,6 +20,12 @@ module IOStreams
           ::File.open(temp_file_name, "wb") { |io| new(file_name).each { |lines| io << lines.to_csv } }
           ::File.open(temp_file_name, "rb", &block)
         end
+      end
+
+      # Returns [Module] the stand-in for the writer of the files that this class reads, which IOStreams 3.0 adds, and
+      # IOStreams 2.2 does not have, which answers the options that it takes, see `IOStreams::Xlsx::V3Writer`.
+      def self.v3_writer
+        V3Writer
       end
 
       def initialize(file_name)

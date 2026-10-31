@@ -84,6 +84,12 @@ module IOStreams
         @requires_header ? header? : !@names_read
       end
 
+      # Returns [false] the rows read are Arrays, see `IOStreams::Tabular#record_rows?`, after a header row of the names
+      # of the fields of a file without one, such as JSON, see #rows_header?.
+      def record_rows?
+        false
+      end
+
       # Returns [Array<String|Symbol>] the names of the fields of a file without a header row, which are the columns of
       # its rows, see `IOStreams::Tabular#headerless_columns`.
       # Returns nil for a file with a header row.

@@ -87,42 +87,34 @@ module IOStreams
       raise(LoadError, "Please install the gem '#{gem_name}' to support #{stream_type}. #{e.message}")
     end
 
-    # Log a warning for options that a stream ignores, until they raise `ArgumentError` in v3.0, when reading
-    # (type: :reader) or writing (:writer).
+    # Log a warning for options that a stream ignores when reading (type: :reader) or writing (:writer): those that the
+    # class of the other direction takes, other_names, which v3.0 also accepts, and ignores, and the others, which v3.0
+    # raises `ArgumentError` for. A path supplies other_names, and the stream as it was set, see
+    # `IOStreams::Builder#taken_options`; without them, as when a class is opened directly, each option is one that
+    # v3.0 raises for, since its class takes only its own options.
     #
-    # Those that the stream does not take in the other direction either are deprecated, and also report a deprecation
-    # warning, see `IOStreams::Deprecation`. One option hash is shared by the reader and the writer of a stream, so v3.0
-    # accepts an option of the other direction, and ignores it, which the class registered for the other direction
-    # answers with its `known_option_names`, see `IOStreams.register_extension`.
-    def self.warn_unknown_options(unknown, stream, type, valid)
+    # Those of neither direction are deprecated, and report a deprecation warning when they are set, see
+    # `IOStreams::Builder#option`.
+    def self.warn_unknown_options(unknown, stream, type, valid, other_names = [])
       return if unknown.empty?
 
-      names = unknown.keys.map(&:inspect).join(", ")
+      other     = unknown.keys & other_names
+      neither   = unknown.keys - other
+      direction = type == :reader ? "reading" : "writing"
+      unless other.empty?
+        IOStreams.logger&.warn(
+          "Ignoring #{other.map(&:inspect).join(', ')} when #{direction} a #{stream.inspect} stream, since " \
+          "#{other.size == 1 ? 'it only applies' : 'they only apply'} when #{type == :reader ? 'writing' : 'reading'}."
+        )
+      end
+      return if neither.empty?
+
       IOStreams.logger&.warn(
-        "Ignoring unknown #{unknown.size == 1 ? 'option' : 'options'} #{names} when " \
-        "#{type == :reader ? 'reading' : 'writing'} a #{stream.inspect} stream. " \
-        "Valid options: #{valid.map(&:inspect).join(', ')}. In v3.0 this will raise ArgumentError."
+        "Ignoring unknown #{neither.size == 1 ? 'option' : 'options'} #{neither.map(&:inspect).join(', ')} when " \
+        "#{direction} a #{stream.inspect} stream. Valid options: #{valid.map(&:inspect).join(', ')}. " \
+        "In v3.0 this will raise ArgumentError."
       )
-      warn_deprecated_options(unknown.keys - other_option_names(stream, type), stream)
     end
-
-    # Reports that the options, which the stream ignores in both directions, are deprecated.
-    def self.warn_deprecated_options(names, stream)
-      return if names.empty?
-
-      keywords = names.map { |name| "#{name}:" }.join(", ")
-      Deprecation.warn("#{keywords} #{names.size == 1 ? 'is' : 'are'} deprecated for a #{stream.inspect} stream, " \
-                       "which ignores #{names.size == 1 ? 'it' : 'them'}, so remove #{names.size == 1 ? 'it' : 'them'}")
-    end
-    private_class_method :warn_deprecated_options
-
-    # Returns [Array<Symbol>] the options that the class registered for the stream in the other direction takes, or
-    # none when it does not answer them.
-    def self.other_option_names(stream, type)
-      other = IOStreams.extensions[stream]&.public_send(type == :reader ? :writer_class : :reader_class)
-      other.respond_to?(:known_option_names) ? other.known_option_names : []
-    end
-    private_class_method :other_option_names
 
     # Returns [String] the string as UTF-8 text that can be displayed or logged, such as the name of a file, which is not
     # always valid UTF-8, since a file system stores the bytes that a program gave it: a binary string is read as UTF-8,
@@ -507,7 +499,7 @@ module IOStreams
     end
 
     class URI
-      attr_reader :scheme, :hostname, :path, :user, :password, :port, :query
+      attr_reader :scheme, :hostname, :path, :user, :password, :port, :query, :fragment
 
       def initialize(url)
         url       = url.gsub(" ", "%20")
@@ -518,6 +510,7 @@ module IOStreams
         @user     = uri.user
         @password = uri.password
         @port     = uri.port
+        @fragment = uri.fragment
         return unless uri.query
 
         @query = {}

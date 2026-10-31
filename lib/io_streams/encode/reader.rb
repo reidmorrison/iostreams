@@ -5,6 +5,23 @@ module IOStreams
         %i[encoding cleaner replace]
       end
 
+      # The methods that the stream that v3.0 supplies to a reader block for the encoding answers: those of an IO that
+      # read, and #input_stream, see .v3_stream_methods.
+      V3_METHODS = [*V3_READ_METHODS, :input_stream].freeze
+      private_constant :V3_METHODS
+
+      # Returns [Array<Symbol>] the methods that the stream that v3.0 supplies to a reader block for the encoding answers,
+      # in place of this reader, see `IOStreams::Reader.v3_stream_methods`. It has no #encoding or #cleaner, which the
+      # settings of the path replace, see .v3_stream_advice.
+      def self.v3_stream_methods(_options)
+        V3_METHODS
+      end
+
+      # Returns [Hash<Symbol:String>] what replaces #encoding and #cleaner, see `IOStreams::Reader.v3_stream_advice`.
+      def self.v3_stream_advice
+        V3_STREAM_ADVICE
+      end
+
       attr_reader :encoding, :cleaner
 
       NOT_PRINTABLE = /[^[:print:]|\r\n]/
@@ -84,9 +101,13 @@ module IOStreams
           return
         end
 
+        block = text(block, size) if text_bytes?(block)
         block = block.encode(@encoding, **@encoding_options) unless block.encoding == @encoding
         block = @cleaner.call(block, @replace) if @cleaner
-        outbuf ? outbuf.replace(block) : block
+        return outbuf.replace(block) if outbuf
+
+        # A copy of the buffer that it reads into, which the next read writes over, so that the caller keeps the data.
+        block.equal?(@read_cache_buffer) ? block.dup : block
       end
 
       def self.extract_cleaner(cleaner)
@@ -101,6 +122,29 @@ module IOStreams
         when Proc
           cleaner
         end
+      end
+
+      private
+
+      # Returns [true|false] whether the binary data that a read returned can hold the bytes of text in the encoding,
+      # rather than text to convert into it, see #text. Without `replace:` it reads into a buffer of the encoding, whose
+      # bytes are then the text, as `IO#read` keeps the encoding of the buffer that it is supplied for a read of a length.
+      # A stream that returns the bytes as binary instead, since its `#read` takes no buffer, as `Zlib::GzipReader` on
+      # JRuby, or makes the buffer binary, as `Bzip2::FFI::Reader` does, holds the same text, as does a read of the whole
+      # of the data, which `IO#read` returns as binary, and converting it from binary would reject each character that is
+      # not ASCII. With `replace:` it is converted from binary, replacing each character that is not ASCII, as before.
+      def text_bytes?(block)
+        @replace.nil? && block.encoding == Encoding::BINARY
+      end
+
+      # Returns [String] the bytes of the binary data as text in the encoding, in a String of its own, rather than the
+      # String that the input stream returned, which it can still hold, such as a buffer that it reuses. Those of a read
+      # of a length are taken as they are, as `IO#read` reads them into a buffer of the encoding, since a character can
+      # be split between two reads. The whole of the data is taken only when it is valid in the encoding; otherwise the
+      # data itself is returned, which is converted from binary, raising for each character that is not ASCII, as before.
+      def text(block, size)
+        text = ::String.new(block, encoding: @encoding)
+        size.nil? && !text.valid_encoding? ? block : text
       end
     end
   end

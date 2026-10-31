@@ -176,7 +176,9 @@ module IOStreams
     # schema reads the files of the application before it replaces the layout. See "Moving a layout to a schema" in
     # docs/upgrading.md for each difference.
     #
-    # Unlike `IOStreams::Stream#format_options`, it reports no deprecation warning, since it replaces the layout.
+    # Unlike `IOStreams::Stream#format_options`, it reports no deprecation warning, since it replaces the layout, and
+    # Rocket Job 7.1 calls it. IOStreams 3.0 removes it, with the layout, so convert each layout with it once, and save
+    # the schema that it returns, rather than call it each time.
     #
     # Parameters:
     #   format_options:
