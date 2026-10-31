@@ -223,10 +223,12 @@ class SliceWriterTest < Minitest::Test
         error = assert_raises(ArgumentError) do
           IOStreams.stream(StringIO.new).schema(schema).writer(:slice) { |io| io << typed << other }
         end
+        # Ruby 3.4 shows a Hash as `{fields: [...]}`, earlier versions as `{:fields=>[...]}`.
+        shown = {fields: [{name: "wait", type: "duration"}]}.inspect
+
         assert_equal "Every slice written is of the same file as the first: a slice with the header row nil, format " \
                      ":hash, blank_rows #{other.blank_rows?} and schema #{other.schema&.to_h.inspect} cannot follow one " \
-                     "with the header row nil, format :hash, blank_rows true and schema " \
-                     "{fields: [{name: \"wait\", type: \"duration\"}]}", error.message
+                     "with the header row nil, format :hash, blank_rows true and schema #{shown}", error.message
       end
     end
 

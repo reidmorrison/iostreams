@@ -616,19 +616,24 @@ class PostgresqlCursorTest < Minitest::Test
           assert_equal (jdbc ? Time.utc(2000, 1, 1, 17) : "17:00:00+02"), record["closes"]
         end
 
-        it "reads an interval of its slices as a duration, also once a store keeps its seconds, as BSON does" do
-          relation = model.select(:id, :wait)
-          slices   = []
-          IOStreams.stream(relation).each(:slice, size: 5) { |slice| slices << slice }
-          hash     = slices.first.to_h
-          # BSON keeps an ActiveSupport::Duration as its number of seconds.
-          stored   = IOStreams.slice(hash.merge("rows" => hash["rows"].map { |id, wait| [id, wait.to_i] }))
-          records  = []
-          IOStreams.stream(stored).schema(IOStreams.stream(relation).infer_schema).each(:hash) { |record| records << record }
+        it "reads an interval of its slices as a duration, by the schema that they carry, also once a store keeps its seconds" do
+          slices = []
+          IOStreams.stream(model.select(:id, :wait)).each(:slice, size: 5) { |slice| slices << slice }
+          hash = slices.first.to_h
 
-          assert_predicate stored, :typed?
-          assert_instance_of ActiveSupport::Duration, records.first["wait"]
-          assert_equal({months: 1, days: 1, hours: 2}, records.first["wait"].parts)
+          # A slice holds a duration as ISO 8601, which keeps its months and days apart from its seconds.
+          assert_equal "P1M1DT2H", hash["rows"].first.last
+          # A store that keeps a duration as its number of seconds, as BSON keeps an ActiveSupport::Duration.
+          seconds = hash.merge("rows" => hash["rows"].map { |id, wait| [id, ActiveSupport::Duration.parse(wait).to_i] })
+          [hash, seconds].each do |stored|
+            slice   = IOStreams.slice(stored)
+            records = []
+            IOStreams.stream(slice).each(:hash) { |record| records << record }
+
+            assert_predicate slice, :typed?
+            assert_instance_of ActiveSupport::Duration, records.first["wait"]
+            assert_equal({months: 1, days: 1, hours: 2}, records.first["wait"].parts)
+          end
         end
 
         it "keeps the values that pg casts of columns that Active Record casts as they are, but whose types it knows" do
