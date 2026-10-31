@@ -36,6 +36,13 @@ module IOStreams
   # itself, such as a fixed width file, has a schema too, which lays it out, and the contract meets it by the names of
   # its fields, see `IOStreams::Schema::ContractColumns`.
   class Contract
+    # The names in Ruby of the properties of a contract that its class declares, see .fields_match.
+    DSL_PROPERTIES = {fieldsMatch: "fields_match", keyType: "key_type", extraColumns: "extra_columns"}.freeze
+
+    # A name of a method in Ruby, which an accessor of a field must be.
+    ACCESSOR = /\A[[:lower:]_][[:word:]]*\z/
+    private_constant :DSL_PROPERTIES, :ACCESSOR
+
     class << self
       # Returns [Class] a new contract whose fields are the supplied Frictionless Table Schema, as `Struct.new` returns a
       # new class, when called on `IOStreams::Contract` itself, see `IOStreams::Schema` for its properties. A block is
@@ -98,6 +105,7 @@ module IOStreams
         end
 
         add_field(field_descriptor(name, type, required, properties))
+        @accessors = (@accessors || {}).merge(name => accessor)
         accessor
       end
 
@@ -143,6 +151,53 @@ module IOStreams
         schema.to_h
       end
 
+      # Returns [String] the Ruby of a class that declares this contract, see .field, for a person to review and commit,
+      # such as of a contract that `IOStreams::Schema#to_contract` drafted:
+      #
+      #   puts IOStreams.path("samples/orders.csv").infer_schema(sample: 1_000).to_dsl("Order")
+      #   # class Order < IOStreams::Contract
+      #   #   fields_match "subset"
+      #   #
+      #   #   field :id,         :integer
+      #   #   field :amount,     :number, decimals: 2
+      #   #   field :ordered_at, :datetime, name: "Ordered At"
+      #   # end
+      #
+      # The name of each field in Ruby is its name in its schema when that is a Ruby name, otherwise the name once
+      # cleansed, as a header row is, with `name:` the name in its schema, see .accessor_of. The properties that only
+      # describe the contract to people, or are those of another tool, are comments.
+      #
+      # Parameters:
+      #   class_name: [String]
+      #     The name of the class.
+      #     Default: the name of this class, or "Contract" for one without a name.
+      def to_dsl(class_name = name || "Contract")
+        lines = ["class #{class_name} < IOStreams::Contract"]
+        to_h.except(:fields).each { |property, value| lines << "  #{dsl_property(property, value)}" }
+        lines << "" if lines.size > 1
+        rows = fields.zip(accessors).map { |field, accessor| [":#{accessor}", ":#{field.type}", dsl_options(field, accessor)] }
+        width = rows.map { |row| row[0].size }.max.to_i + 1
+        types = rows.map { |row| row[1].size }.max.to_i + 1
+        rows.each do |accessor, type, options|
+          type = "#{"#{type},".ljust(types)} #{options}" unless options.empty?
+          lines << "  field #{"#{accessor},".ljust(width)} #{type}".rstrip
+        end
+        lines << "end"
+        "#{lines.join("\n")}\n"
+      end
+
+      # Returns [Array<Symbol>] the name in Ruby of each field, in order: the accessor that .field declared it with, or
+      # for a field of a contract built from a Hash, see .accessor_of.
+      def accessors
+        used = {}
+        fields.map do |field|
+          accessor = (@accessors || {})[field.name] || accessor_of(field.name)
+          accessor = :"#{accessor}_#{used.size}" while used.key?(accessor)
+          used[accessor] = true
+          accessor
+        end
+      end
+
       # Returns [String] the name of the class, or for a contract built from a Hash, its schema.
       def inspect
         name || "#<IOStreams::Contract #{@schema ? to_h.inspect : '{}'}>"
@@ -166,6 +221,43 @@ module IOStreams
       def inherited(subclass)
         super
         subclass.send(:descriptor=, @descriptor) if @descriptor
+        subclass.instance_variable_set(:@accessors, @accessors.dup) if @accessors
+      end
+
+      # Returns [Symbol] the name in Ruby of a field of the supplied name in its schema: the name itself when it is a name
+      # of a method in Ruby, such as `ordered_at`, otherwise the name once cleansed, as a header row is, see
+      # `IOStreams::Tabular::Header.cleanse_column`, such as `ordered_at` for `Ordered At`, starting with `field_` when it
+      # would start with a digit, or is empty.
+      def accessor_of(name)
+        text = name.to_s
+        return text.to_sym if ACCESSOR.match?(text)
+
+        cleansed = IOStreams::Tabular::Header.cleanse_column(text)
+        cleansed = "field_#{cleansed}" unless ACCESSOR.match?(cleansed)
+        cleansed.to_sym
+      end
+
+      # Returns [String] the line of the class that declares a property of the contract, see #to_dsl.
+      def dsl_property(property, value)
+        method = DSL_PROPERTIES[property]
+        method ? "#{method} #{value.inspect}" : "# #{property}: #{value.inspect}"
+      end
+
+      # Returns [String] the options of `field` that declare the supplied field, see #to_dsl.
+      def dsl_options(field, accessor)
+        properties = field.to_h.except(:name, :type)
+        options    = []
+        options << "required: true" if properties.dig(:constraints, :required)
+        constraints = properties.delete(:constraints)&.except(:required)
+        properties[:constraints] = constraints unless constraints.nil? || constraints.empty?
+        properties.each { |property, value| options << "#{ruby_name(property)}: #{value.inspect}" }
+        options << "name: #{field.name.inspect}" unless field.name.to_s == accessor.to_s && field.name.is_a?(String)
+        options.join(", ")
+      end
+
+      # Returns [String] the name in Ruby of a property of a field, such as `true_values` for `trueValues`, see .field.
+      def ruby_name(property)
+        property.to_s.gsub(/([a-z])([A-Z])/) { "#{Regexp.last_match(1)}_#{Regexp.last_match(2).downcase}" }
       end
 
       # Sets the properties and fields of the contract, checking them as a schema, see #schema.

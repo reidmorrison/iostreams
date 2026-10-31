@@ -159,6 +159,44 @@ class ContractTest < Minitest::Test
       end
     end
 
+    describe ".to_dsl" do
+      it "writes the Ruby of a class that declares the contract, which builds the same contract" do
+        assert_equal(<<~RUBY, Order.to_dsl("Order"))
+          class Order < IOStreams::Contract
+            fields_match "partial"
+
+            field :id,         :integer,  required: true
+            field :amount,     :number,   decimals: 2
+            field :ordered_at, :datetime, aliases: ["created_at"], name: "Ordered At"
+            field :zip,        :string
+          end
+        RUBY
+        copy = Class.new(IOStreams::Contract) { class_eval(Order.to_dsl("Copy").lines[1..-2].join, __FILE__, __LINE__) }
+
+        assert_equal Order.to_h, copy.to_h
+      end
+
+      it "names a field of a contract built from a Hash as Ruby can, keeping its name, and comments other properties" do
+        contract = IOStreams::Contract.new(
+          title:  "Orders",
+          fields: [{name: "Ordered At", type: "datetime"}, {name: "1st"}, {name: "Ordered-At"}, {name: :zip},
+                   {name: "paid", type: "boolean", trueValues: ["Y"], constraints: {required: true}}]
+        )
+
+        assert_equal(<<~RUBY, contract.to_dsl)
+          class Contract < IOStreams::Contract
+            # title: "Orders"
+
+            field :ordered_at,   :datetime, name: "Ordered At"
+            field :field_1st,    :any,      name: "1st"
+            field :ordered_at_2, :any,      name: "Ordered-At"
+            field :zip,          :any,      name: :zip
+            field :paid,         :boolean,  required: true, true_values: ["Y"]
+          end
+        RUBY
+      end
+    end
+
     describe "IOStreams::Contract itself" do
       it "has no fields" do
         assert_raises(ArgumentError) { IOStreams::Contract.schema }

@@ -704,11 +704,39 @@ module IOStreams
     # Raises `IOStreams::Errors::InvalidHeader` for two columns of a header row that are the same key once cleansed, such
     # as `Amount ($)` and `Amount (€)`, since a schema cannot hold both.
     #
+    # With `sample:`, it drafts the types of a source that reports none, such as CSV, from a sample of its values, as a
+    # tool to run once, whose draft a person reviews, and saves as a contract, see `IOStreams::Schema#to_contract`, or as
+    # the schema of the file, never as a step of reading, see `IOStreams::Schema::Inference`:
+    # - It reads the first `sample:` records, or every record with `sample: :all`, and the fields are the keys of every
+    #   record that it reads, such as those of JSON records, which can vary from record to record.
+    # - It drafts `integer`, `number` with the most decimals seen, `boolean`, `date`, `datetime` and `time` from ISO 8601
+    #   text, and `date` with a `format` from US dates, such as `10/25/2026`. Text with a leading zero, such as `01234`,
+    #   stays `string`, and a column without a value is `any`, for a person to decide.
+    # - It sets `fieldsMatch: "subset"`, so that the draft needs these columns, and ignores columns added later, and
+    #   marks a field `required` only where the source declares it, such as a `NOT NULL` column of a query.
+    # - For a source that declares types, such as Parquet or a query, it returns that schema, drafting only the type of a
+    #   field of type `any`, such as a JSON column of a query, from its values, so it reads no rows without one.
+    #
+    # Raises ArgumentError for a `sample:` that is neither a positive Integer nor `:all`, which it checks first, or with a
+    # schema set with #schema, which already gives the types.
+    #
     # Example:
     #   IOStreams.path("orders.csv").infer_schema.to_h
     #   # => {fields: [{name: "id", type: "string"}, {name: "amount", type: "string"}, {name: "ordered_at", type: "string"}]}
-    def infer_schema
-      tabular_settings.file_schema || declared_schema
+    #
+    #   IOStreams.path("samples/orders.csv").infer_schema(sample: 1_000).to_h
+    #   # => {fieldsMatch: "subset", fields: [{name: "id", type: "integer"}, {name: "amount", type: "number", decimals: 2},
+    #   #                                     {name: "ordered_at", type: "datetime"}]}
+    def infer_schema(sample: nil)
+      return tabular_settings.file_schema || declared_schema if sample.nil?
+
+      IOStreams::Schema::Inference.check_sample(sample)
+      if tabular_settings.schema
+        raise(ArgumentError, "sample: drafts the types of a source that reports none, so it cannot be supplied with a " \
+                             "schema, which already gives them: call #infer_schema without it")
+      end
+
+      draft_schema(sample)
     end
 
     # Freezes this stream, so that the methods that set its streams, options, file name, format and schema raise
@@ -1251,6 +1279,48 @@ module IOStreams
       return tabular.declared_schema(first_row(tabular)) if tabular.lines?
 
       reading_ahead { open_rows_reader(tabular, nil, nil, &:declared_schema) }
+    end
+
+    # Returns [IOStreams::Schema] the schema that the source declares, see #declared_schema, with `fieldsMatch: "subset"`,
+    # and the type of each field that it does not declare drafted from the values of the first `sample` records that
+    # it reads, see `IOStreams::Schema::Inference`: every field of a source of text, such as CSV, or of values that each
+    # have their own type, such as JSON, whose header row, or keys, it reads with them, so that it reads the source once,
+    # and the fields of type "any" of a source that declares types, such as Parquet, which reads no record without one.
+    def draft_schema(sample)
+      tabular = self.tabular(contract: false)
+      return draft_typed_schema(tabular, sample) if tabular.field_names? || !tabular.lines?
+
+      tabular.check_records
+      inference = IOStreams::Schema::Inference.new
+      read_sample(tabular, sample) { |record| inference << record }
+      names = tabular.declared_schema(tabular.header.row).fields.map(&:name)
+      IOStreams::Schema.new(fieldsMatch: "subset", fields: inference.fields(names | inference.names))
+    end
+
+    # Returns [IOStreams::Schema] the schema that a source of typed columns declares, such as Parquet or a query, with
+    # `fieldsMatch: "subset"`, drafting the type of each of its fields of type "any" from the values of the sample, see
+    # #draft_schema.
+    def draft_typed_schema(tabular, sample)
+      declared = declared_schema
+      drafted  = declared.fields.select { |field| field.type == "any" }.map(&:name)
+      inference = IOStreams::Schema::Inference.new
+      read_sample(tabular, sample) { |record| inference << record } unless drafted.empty?
+      drafts = inference.fields(drafted).to_h { |field| [field[:name], field] }
+      fields = declared.fields.map { |field| drafts.fetch(field.name) { field.to_h } }
+      IOStreams::Schema.new(fieldsMatch: "subset", fields: fields)
+    end
+
+    # Yields each of the first records of the sample, see `IOStreams::Schema::Inference.size`, read by the supplied
+    # tabular, without a contract, skipping blank rows.
+    def read_sample(tabular, sample)
+      size = IOStreams::Schema::Inference.size(sample)
+      open_rows_reader(tabular, nil, nil) do |io|
+        IOStreams::Record::Reader.new(io, tabular: tabular, skip_blanks: true).each_with_index do |record, index|
+          break if index >= size
+
+          yield record
+        end
+      end
     end
 
     # Returns [Array|nil] the first row that the rows of the supplied tabular start with, the header row as read, or the

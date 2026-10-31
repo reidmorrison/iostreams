@@ -188,6 +188,66 @@ end
 The contract is code: it changes in a pull request, together with the code that relies on it. Where the source is, its
 format, and its schema when it needs one, stay in configuration.
 
+## Drafting a contract
+
+Ask a sample of the source for its types once, in development, review the draft, and save it with the program's code
+as its contract. IOStreams never guesses types while it reads, since a guess would change with the data: one file of a
+feed holds `007`, and the next `7`.
+
+`#infer_schema` without arguments returns the schema that the source declares, see
+[The schema of a source](formats#the-schema-of-a-source), which for CSV is a `string` field for each column.
+`#infer_schema(sample: 1_000)` drafts the types of a source that reports none, such as CSV, from the values of its first
+1,000 records:
+
+~~~ruby
+draft = IOStreams.path("samples/orders.csv").infer_schema(sample: 1_000)
+draft.to_h
+# {fieldsMatch: "subset", fields: [
+#   {name: "id",         type: "integer"},
+#   {name: "amount",     type: "number", decimals: 2},
+#   {name: "ordered_at", type: "datetime"},
+#   {name: "zip",        type: "string"}
+# ]}
+
+File.write("config/contracts/orders.json", JSON.pretty_generate(draft.to_contract.to_h))
+~~~
+
+* It reads the first `sample:` records, or every record with `sample: :all`. Any other value, such as `0`, a negative
+  number or a string, raises `ArgumentError`, as does `sample:` with a schema set with `#schema`, which already gives
+  the types.
+* It drafts `integer`, `number` with the most decimals seen, `boolean`, and `date`, `datetime` and `time` from ISO 8601
+  text. Anything else is `string`, and text with a leading zero, such as `01234` or `007`, stays `string`. A column
+  with no value in the sample is `any`, for a person to decide.
+* It recognizes US dates, such as `10/25/2026`, and records their format on the field, as `format: "%m/%d/%Y"`. A day
+  above 12 settles whether the month or the day is first. When every sampled date could be either, it drafts month
+  first, and says so in the field's `description`, for the reviewer.
+* For JSON, whose keys can vary from record to record, the fields are the keys of every record of the sample.
+* It sets `fieldsMatch: "subset"`, so that the draft needs these columns, and ignores columns added later, and marks a
+  field `required` only where the source declares it, such as a `NOT NULL` column of a query, since a sample cannot
+  prove that a value is always there.
+* For a source that declares its types, such as Parquet or a query, it returns that schema, drafting only the type of a
+  field of type `any`, such as a JSON column of a query, from its values.
+
+The draft is a schema: `#to_contract` returns its contract, without the `format` of a date, which describes how one file
+writes its text, and so stays in the schema of that file. `#to_dsl` writes the class of the contract instead, for a
+person to review and commit:
+
+~~~ruby
+puts IOStreams.path("samples/orders.csv").infer_schema(sample: 1_000).to_dsl("Order")
+# class Order < IOStreams::Contract
+#   fields_match "subset"
+#
+#   field :id,         :integer
+#   field :amount,     :number,   decimals: 2
+#   field :ordered_at, :datetime
+#   field :zip,        :string
+# end
+~~~
+
+The name of each field in Ruby is its name when that is a name of a method in Ruby, otherwise the name cleansed as a
+header row is, with `name:` its name in the schema, such as `field :ordered_at, :datetime, name: "Ordered At"`. A
+contract writes its own class the same way with `Order.to_dsl`.
+
 ## A source that cannot describe itself
 
 A fixed width file, or a CSV file without a header row, declares no names or positions. So configuration gives it a

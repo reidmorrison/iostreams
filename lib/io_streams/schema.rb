@@ -91,6 +91,7 @@ module IOStreams
     autoload :Constraints, "io_streams/schema/constraints"
     autoload :ContractColumns, "io_streams/schema/contract_columns"
     autoload :Field,       "io_streams/schema/field"
+    autoload :Inference,   "io_streams/schema/inference"
     autoload :JsonNumber,  "io_streams/schema/json_number"
     autoload :Keys,        "io_streams/schema/keys"
     autoload :Source,      "io_streams/schema/source"
@@ -297,6 +298,13 @@ module IOStreams
       descriptor = to_h.except(*LAYOUT_PROPERTIES.map(&:to_sym))
       descriptor[:fields] = fields.reject(&:skip?).map(&:to_contract_h)
       IOStreams::Contract.new(descriptor)
+    end
+
+    # Returns [String] the Ruby of a class that declares the contract of this schema, see #to_contract, for a person to
+    # review and commit, such as of a schema that `IOStreams::Stream#infer_schema` drafted, see
+    # `IOStreams::Contract.to_dsl`.
+    def to_dsl(class_name = "Contract")
+      to_contract.to_dsl(class_name)
     end
 
     # Returns [IOStreams::Schema::Field] the field that the supplied column of a header row, or key of a record, names:

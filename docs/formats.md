@@ -422,6 +422,9 @@ S3, is first copied whole to a temporary file, as reading it does. Of an IO supp
 only the start, and then returns the IO to where it was, so that its rows are still read, unless the IO cannot seek,
 such as a pipe, which it has then read past.
 
+`#infer_schema(sample: 1_000)` drafts the types of a source that reports none, such as CSV, from a sample of its values,
+for a person to review and save, see [Drafting a contract](contracts#drafting-a-contract).
+
 `#infer_schema` returns an `IOStreams::Schema`, an object rather than a Hash, so that a program reads a schema without
 knowing the keys of its Hash or their defaults. `#fields` returns its fields, each of which answers `#name`, `#type`,
 `#aliases` and `#to_h`, `#fields_match` says how the columns must match them, `"exact"` unless the schema says

@@ -123,8 +123,8 @@ class InferSchemaTest < Minitest::Test
         assert_raises(ArgumentError) { text("a\n", "orders.text").infer_schema }
       end
 
-      it "raises ArgumentError for an argument, which it does not take" do
-        assert_raises(ArgumentError) { text("id\n1\n", "orders.csv").infer_schema(sample: 10) }
+      it "raises ArgumentError for an argument that it does not take" do
+        assert_raises(ArgumentError) { text("id\n1\n", "orders.csv").infer_schema(rows: 10) }
       end
 
       describe "Parquet" do
