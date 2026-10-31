@@ -441,6 +441,42 @@ module IOStreams
         ::ActiveSupport::Duration.build(value)
       end
 
+      # Returns the value of this field in a form that JSON keeps exactly, which #load turns back into it, so that a slice
+      # of typed values is the same once a job queue or store has held it as JSON or BSON, see `IOStreams::Slice#to_h`:
+      # a number as the text of its digits, without rounding them, such as "12.50" for a field with 2 decimals, or a
+      # Float, which JSON keeps, apart from NaN and the infinities, which are text, a date, a datetime and a duration in
+      # ISO 8601, a datetime with as many digits of its fraction of a second as it needs and its offset, a time of day as
+      # its clock with its offset, such as "09:30:00.250-04:00", and any other value as it is.
+      def dump(value)
+        return value if value.nil?
+
+        case type
+        when "number" then number_dump(value)
+        when "date" then value.is_a?(Date) ? value.iso8601 : value
+        when "datetime" then value.is_a?(Time) || value.is_a?(DateTime) ? self.class.any_text(value) : value
+        when "time" then value.is_a?(Time) ? clock_dump(value) : value
+        when "duration" then value.respond_to?(:iso8601) ? value.iso8601 : value
+        else value
+        end
+      end
+
+      # Returns the value of this field from the form that #dump gives it, in ISO 8601 whatever the `format` of the field,
+      # or from any other form that a store returned it in, see #restore.
+      #
+      # Raises `IOStreams::Errors::InvalidValue` as #restore does.
+      def load(value)
+        return restore(value) unless value.is_a?(String)
+
+        case type
+        when "date" then DATE.match?(value) ? cast_date_text(value) : cast(value)
+        when "datetime" then DATETIME.match?(value) ? iso_time(value) : cast(value)
+        when "time" then TIME.match?(value) ? iso_time("2000-01-01T#{value}") : cast(value)
+        else restore(value)
+        end
+      rescue ArgumentError
+        invalid(value)
+      end
+
       # Returns [Numeric] the number, of the type of this field, see #cast, rounded to its decimals as its text is
       # written, see #render: a BigDecimal half up, which is an Integer with no decimals, and a Float as Ruby's `format`
       # rounds it, to the nearest of its binary value, so that a format that holds the number itself, such as Parquet,
@@ -862,6 +898,35 @@ module IOStreams
         parts[:offset] ? time : time.utc
       rescue ArgumentError
         invalid(text)
+      end
+
+      # Returns [String|Float|Integer] the number in a form that JSON keeps exactly, see #dump: the digits of a BigDecimal,
+      # with the decimals of the field when it has fewer, never rounded, a finite Float as it is, and NaN and the
+      # infinities as their text.
+      def number_dump(value)
+        return number_text(value) if value.is_a?(Float) ? !value.finite? : (bigdecimal?(value) && !value.finite?)
+        return value unless bigdecimal?(value)
+
+        whole, fraction = value.to_s("F").split(".")
+        fraction        = fraction.to_s.sub(/0+\z/, "").ljust(@decimals || 0, "0")
+        fraction.empty? ? whole : "#{whole}.#{fraction}"
+      end
+
+      # Returns [String] the time of day of its clock with its offset from UTC, see #dump.
+      def clock_dump(time)
+        digits = self.class.fraction_digits(time)
+        clock  = digits.zero? ? time.strftime("%H:%M:%S") : time.strftime("%H:%M:%S.%#{digits}N")
+        "#{clock}#{time.utc? ? 'Z' : time.strftime('%:z')}"
+      end
+
+      # Returns [Time] the time of ISO 8601 text, in UTC without an offset, see #load.
+      def iso_time(text)
+        Time.iso8601(OFFSET.match?(text) ? text : "#{text}Z")
+      end
+
+      # Returns [Date] the date of ISO 8601 text, see #load.
+      def cast_date_text(text)
+        Date.new(*text.split("-").map { |part| Integer(part, 10) })
       end
 
       def number_text(value)

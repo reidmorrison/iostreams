@@ -86,6 +86,20 @@ class ParquetTest < Minitest::Test
       ENV["TZ"] = original
     end
 
+    it "reads slices that carry the schema of the file, whose values JSON keeps exactly" do
+      path = IOStreams.path(dir, "people.parquet")
+      path.schema(schema).writer(:hash) { |io| records.each { |record| io << record } }
+
+      slices = []
+      IOStreams.path(dir, "people.parquet").each(:slice, size: 10) { |slice| slices << slice }
+      stored = IOStreams.slice(JSON.parse(JSON.generate(slices.first.to_h)))
+      read   = []
+      IOStreams.stream(stored).each(:hash) { |record| read << record }
+
+      assert_equal IOStreams.path(dir, "people.parquet").infer_schema, slices.first.schema
+      assert_equal expected, read
+    end
+
     describe "a file that cannot be read" do
       it "raises Corrupt for a file that is not Parquet" do
         File.write(path.to_s, "id,name\n1,Jack\n")

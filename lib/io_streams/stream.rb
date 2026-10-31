@@ -1232,8 +1232,18 @@ module IOStreams
       IOStreams::Slice::Reader.check(size: size, validate: validate, resume_at: resume_at)
       tabular = self.tabular(reading: true)
       open_slice_rows(tabular, delimiter, buffer_size) do |rows|
-        yield IOStreams::Slice::Reader.new(rows, tabular: tabular, size: size, validate: validate, resume_at: resume_at)
+        yield IOStreams::Slice::Reader.new(rows, tabular: tabular, size: size, validate: validate, resume_at: resume_at,
+                                                 schema: slice_schema(rows))
       end
+    end
+
+    # Returns [IOStreams::Schema|nil] the schema that the source of the supplied rows declares, which each slice of them
+    # carries, see `IOStreams::Slice#schema`, since its values are typed: that of a format whose rows are not lines, such
+    # as Parquet, which its reader declares, see `IOStreams::Slice::Rows#declared_schema`, or nil for the lines of a file
+    # of text, such as CSV, which are parsed where they are read. A source of typed rows overrides it, such as a query,
+    # see `IOStreams::Query::Stream#slice_schema`.
+    def slice_schema(rows)
+      rows.declared_schema if rows.respond_to?(:declared_schema)
     end
 
     # Yields [#each] the rows of the format of the tabular, see #open_rows_reader, which a slice reader reads, see

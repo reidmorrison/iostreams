@@ -902,7 +902,7 @@ class SliceTargetStreamTest < Minitest::Test
         # A store that does not keep the type of a value, as BSON holds a Date as a Time, and a duration as its seconds.
         stored = hash.merge("rows" => [{"name" => "Jack", "on" => Time.utc(2026, 1, 2), "wait" => 300}])
 
-        assert_equal({"typed" => true, "blank_rows" => false}, hash.slice("typed", "blank_rows"))
+        assert_equal({"schema" => schema, "blank_rows" => false}, hash.slice("schema", "blank_rows"))
         records = read(IOStreams.slice(stored), schema)
 
         assert_equal [{"name" => "Jack", "on" => Date.new(2026, 1, 2), "wait" => ActiveSupport::Duration.parse("PT5M")}],
@@ -922,7 +922,7 @@ class SliceTargetStreamTest < Minitest::Test
         schema = {"fields" => [{"name" => "wait", "type" => "duration"}]}
 
         [Float::INFINITY, Float::NAN, Date.new(2026, 1, 2)].each do |value|
-          slice = IOStreams::Slice.new([{"wait" => value}], format: :hash, typed: true)
+          slice = IOStreams::Slice.new([{"wait" => value}], format: :hash, schema: schema)
 
           assert_raises(IOStreams::Errors::InvalidValue) { read(slice, schema) }
         end
@@ -934,7 +934,7 @@ class SliceTargetStreamTest < Minitest::Test
         end
         let(:stored) do
           IOStreams::Slice.new([{"name" => "Jack", "on" => Time.utc(2026, 1, 2), "wait" => 300}], format: :hash,
-                                                                                                 typed: true, blank_rows: false)
+                                                                                                 schema: schema, blank_rows: false)
         end
 
         it "are written to a file by writer(:slice)" do
@@ -953,8 +953,8 @@ class SliceTargetStreamTest < Minitest::Test
       end
 
       it "are still matched to the fields of the schema by their keys" do
-        slice  = IOStreams::Slice.new([{"Full Name" => "Jack", "age" => "21"}], format: :hash, typed: true)
         schema = {"fields" => [{"name" => "name", "aliases" => ["Full Name"]}, {"name" => "age", "type" => "integer"}]}
+        slice  = IOStreams::Slice.new([{"Full Name" => "Jack", "age" => "21"}], format: :hash, schema: schema)
 
         assert_equal [{"name" => "Jack", "age" => 21}], read(slice, schema)
         assert_raises(IOStreams::Errors::InvalidHeader) { read(slice, schema.merge("fieldsMatch" => "exact", "fields" => [{"name" => "name"}])) }
@@ -970,8 +970,10 @@ class SliceTargetStreamTest < Minitest::Test
         refute_predicate slice, :header?
         assert_equal [{"from" => 1, "to" => 100}, {"from" => 101, "to" => 200}], read(slice, in_order)
         assert_raises(ArgumentError) { read(slice, in_order.merge("fieldsMatch" => "equal")) }
-        error = assert_raises(ArgumentError) { IOStreams.stream(slice).each(:hash) { nil } }
-        assert_match(/set one, whose fields name them/, error.message)
+        records = []
+        IOStreams.stream(slice).each(:hash) { |record| records << record }
+        # The slice carries the schema that its rows were written by, which names their columns.
+        assert_equal [{"first_id" => 1, "last_id" => 100}, {"first_id" => 101, "last_id" => 200}], records
       end
 
       it "are converted by the schema when the slice is not typed, such as a slice built of values" do

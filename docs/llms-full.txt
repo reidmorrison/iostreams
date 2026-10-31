@@ -4813,31 +4813,29 @@ Every row of a query is a record, so a row whose every value is null or empty is
 
 `each(:slice)` yields the rows of a query in slices, as for a file, such as to hand them to other threads or jobs, see
 [Background jobs](background_jobs). A slice of a query holds the values of its rows as the query cast them, such as an
-`ActiveSupport::TimeWithZone` or a `BigDecimal`, rather than text, in the `:array` format. Each of its rows is a
-record, also where the slice is parsed, so a row of nulls is not read as a blank row. Read its rows with the schema of
-the query, so that each value is read as its type:
+`ActiveSupport::TimeWithZone` or a `BigDecimal`, rather than text, in the `:array` format, and carries the schema of the
+columns, see [Keeping the types of the columns](#keeping-the-types-of-the-columns), so that wherever it is read, each
+value is read as its type, without the job knowing the schema. Each of its rows is a record, also where the slice is
+parsed, so a row of nulls is not read as a blank row:
 
 ~~~ruby
 relation = Order.where(paid: true).select(:id, :amount, :created_at)
-schema   = IOStreams.stream(relation).infer_schema
 
 IOStreams.stream(relation).each(:slice, size: 1_000) do |slice|
-  queue << slice
+  queue << slice.to_h
 end
 
-# Elsewhere, such as in another thread:
-IOStreams.stream(queue.pop).schema(schema).each(:hash) do |order|
+# Elsewhere, such as in a job:
+IOStreams.stream(IOStreams.slice(queue.pop)).each(:hash) do |order|
   p order
 end
 ~~~
 
-Since `slice.to_h` holds the values themselves, a store of slices must keep them. JSON holds a time as text: the
-`to_json` of ActiveSupport writes it to the millisecond, while `JSON.generate` writes the text of `Time#to_s`, without
-its fraction of a second, which a `datetime` field does not read. BSON keeps a time to the millisecond. So the times of
-a stored slice are read back to the millisecond at best, rather than to the microsecond that a database can hold.
-A slice of a query holds `"typed" => true`, unless the stream has a schema of its own, so that a value that a store
-keeps in another form is read back as its type: a duration, which BSON keeps as its number of seconds, is a duration
-again.
+`slice.to_h` holds the schema, and each value in a form that JSON keeps exactly, such as a number as its digits,
+`"12.50"`, and a time in ISO 8601 with its fraction of a second and offset, so that every job queue and store keeps them,
+and `IOStreams.slice` turns them back into their types. The schema adds about one row's worth of bytes to each slice,
+well under 1% of a slice of 1,000 rows. A value that a store keeps in another form is still read back as its type: a
+duration, which BSON keeps as its number of seconds, is a duration again.
 
 ## One query or batches
 
@@ -5424,9 +5422,10 @@ slice.to_h
 * The rows and records that a program writes to a [store of slices](#a-store-of-slices) in the `:array` or `:hash`
   mode are each a record, also when every value is blank, so their slice holds `"blank_rows" => false`. With a schema,
   in the `:array` or `:hash` format, they are the values of its fields themselves, such as Integers and Dates, so
-  their slice also holds `"typed" => true`. `IOStreams.stream(slice)` then matches their keys to the schema and hands
-  the job each value in the type of its field, also when the queue changed its form: a duration that BSON keeps as its
-  seconds is a duration again, and a Date that BSON returns as a Time is a Date. To replace the rows of a slice with
+  their slice also carries the schema, `"schema"`, with each value in a form that JSON keeps exactly, as does a slice
+  of a query or a Parquet file. `IOStreams.stream(slice)` then reads them by that schema, without the job knowing it,
+  and hands the job each value in the type of its field, also when the queue changed its form: a duration that BSON
+  keeps as its seconds is a duration again, and a Date that BSON returns as a Time is a Date. To replace the rows of a slice with
   others in the same form, `slice.with_rows(rows)` returns a new slice that keeps everything else that the slice says.
 
 ### Choosing the size of a slice
@@ -5921,7 +5920,8 @@ schema   = IOStreams.stream(relation).infer_schema
 IOStreams.stream(store).copy_from(relation, mode: :hash)
 ~~~
 
-The jobs read each slice with the schema of the query, so that each value is read back as its type:
+The slices are lines of CSV, so the jobs read each one with the schema of the query, so that each value is read back as
+its type:
 
 ~~~ruby
 IOStreams.stream(slice).schema(schema).each(:hash) do |order|

@@ -91,12 +91,26 @@ module IOStreams
       # row. Without a schema, nothing then names the columns of such a slice of a format with a header row, such as CSV,
       # so that its records cannot be read, see `IOStreams::Tabular#check_records`, while its rows can.
       #
-      # The values of rows that are those of the fields, see `IOStreams::Slice#typed?`, such as those written to a store
-      # of slices in the `:hash` mode, are matched to the fields of the schema by their keys or header row, and restored
-      # to the types of the fields from the forms that the store returned them in, see
-      # `IOStreams::Schema::Field#restore`.
+      # The rows of a slice with a schema, see `IOStreams::Slice#schema`, such as of a query, a Parquet file, or written
+      # to a store of slices in the `:hash` mode, are read by that schema, as a query is read by the schema of its
+      # columns: matched to its fields by their keys or header row, and restored to the types of the fields from the
+      # forms that the store returned them in, see `IOStreams::Schema::Field#restore`. A schema or a contract set on the
+      # stream reads them instead, still restoring each value from the form that the store returned it in.
       def tabular(**)
-        super(blank_rows: io_stream.blank_rows?, headerless: !io_stream.header?, typed: io_stream.typed?, **)
+        super(default_schema: io_stream.schema, blank_rows: io_stream.blank_rows?, headerless: !io_stream.header?,
+              typed: io_stream.typed?, **)
+      end
+
+      # Returns [IOStreams::Schema] the schema of the values of the rows of the slice, see `IOStreams::Slice#schema`,
+      # otherwise that which its header row declares, see `IOStreams::Stream#declared_schema`.
+      def declared_schema
+        io_stream.schema || super
+      end
+
+      # Returns [IOStreams::Schema|nil] the schema of the values of the rows of the slice, which each slice of them
+      # carries, see `IOStreams::Stream#slice_schema`.
+      def slice_schema(_rows)
+        io_stream.schema
       end
 
       # Yields [NumberedRows] the rows of the slice, after its header row, when it carries one, with the line of the file

@@ -21,6 +21,13 @@ module IOStreams
       def each
         @rows.each { |row| yield(row, nil) }
       end
+
+      # Returns [IOStreams::Schema|nil] the schema that the rows declare, when their reader declares one, such as that of
+      # a Parquet file, see `IOStreams::Parquet::Reader#declared_schema`, which the slices of them carry, see
+      # `IOStreams::Slice#schema`, or nil.
+      def declared_schema
+        @rows.declared_schema if @rows.respond_to?(:declared_schema)
+      end
     end
   end
 end

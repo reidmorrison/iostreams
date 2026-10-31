@@ -163,7 +163,7 @@ module IOStreams
       # Returns [String] what describes how the rows of the slice are read, see #check_same_file.
       def described(slice)
         "with the header row #{slice.header.inspect}, format #{slice.format.inspect}, blank_rows " \
-          "#{slice.blank_rows?} and typed #{slice.typed?}"
+          "#{slice.blank_rows?} and schema #{slice.schema&.to_h.inspect}"
       end
     end
   end

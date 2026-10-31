@@ -72,6 +72,13 @@ module IOStreams
         "query"
       end
 
+      # Returns [IOStreams::Schema] the schema of the columns of the query, see #declared_schema, which each slice of its
+      # rows carries, since they hold the values that Active Record cast, see `IOStreams::Slice#schema`, whatever schema
+      # or contract the stream reads them by.
+      def slice_schema(_rows)
+        declared_schema
+      end
+
       # Returns [:array] the format of the rows of a query: Arrays of their values, see `IOStreams::Stream#text_format`.
       def text_format
         :array
