@@ -206,9 +206,32 @@ module IOStreams
         @aliases      = check_values("aliases", descriptor["aliases"], [].freeze, empty: true)
         @constraints  = Constraints.new(descriptor["constraints"], @name,
                                         allow_blank: check_flag("allowBlank", descriptor["allowBlank"]))
+        @properties   = properties_of(descriptor)
         require_bigdecimal if @type == "number" && !@float
         require_duration if @type == "duration"
         freeze
+      end
+
+      # Returns [Hash] the properties of the field as they were given, with Symbol keys, also within its `constraints`,
+      # whether they were given as Strings or Symbols, such as `{name: "amount", type: "number", decimals: 2}`. A new
+      # Hash each time, see `IOStreams::Schema#to_h`.
+      def to_h
+        Utils.deep_copy(@properties)
+      end
+
+      # Returns [true|false] whether the other is a field of the same properties, see #to_h.
+      def ==(other)
+        other.instance_of?(self.class) && to_h == other.to_h
+      end
+      alias eql? ==
+
+      def hash
+        to_h.hash
+      end
+
+      # Returns [String] the class and the properties of the field, see #to_h, rather than every instance variable.
+      def inspect
+        "#<#{self.class.name} #{to_h.inspect}>"
       end
 
       # Returns [Time] the time of the DateTime, at its offset from UTC.
@@ -442,6 +465,14 @@ module IOStreams
       # time is written in UTC with a format without a zone, so that it reads back as the same time.
       def datetime_text(time)
         (@utc ? time.getutc : time).strftime(@format)
+      end
+
+      # Returns [Hash] a frozen copy of the properties, with Symbol keys, also within `constraints`, see #to_h.
+      def properties_of(descriptor)
+        properties  = descriptor.transform_keys(&:to_sym)
+        constraints = properties[:constraints]
+        properties[:constraints] = constraints.transform_keys(&:to_sym) if constraints.is_a?(::Hash)
+        Utils.frozen_copy(properties)
       end
 
       def check_type

@@ -74,6 +74,18 @@ module IOStreams
   # no effect, as are the properties of other tools, whose names include a `:`, such as `"mytool:owner"`. Any other
   # property raises `ArgumentError`, including those of Frictionless that IOStreams does not support yet, such as
   # `primaryKey`, so that a schema never appears to apply a rule that it does not.
+  #
+  # A schema is an object, which `IOStreams::Stream#infer_schema` returns, and `IOStreams::Stream#schema` takes, as
+  # well as a Hash or the path of a JSON file. Its public methods are .new, .read, #fields, #fields_match, #to_h,
+  # #==, and those of its fields, see `IOStreams::Schema::Field`, so that a program reads a schema without knowing the
+  # keys of its Hash or their defaults:
+  #
+  #   schema = IOStreams.path("orders.parquet").infer_schema
+  #   schema.fields_match                   # => "exact"
+  #   schema.fields.map(&:name)             # => ["id", "amount", "ordered_at"]
+  #   File.write("orders.json", JSON.pretty_generate(schema.to_h))
+  #
+  # Its other methods are used by the readers and writers of IOStreams, which can change them.
   class Schema
     autoload :Columns,     "io_streams/schema/columns"
     autoload :Constraints, "io_streams/schema/constraints"
@@ -193,7 +205,30 @@ module IOStreams
       @loose        = build_loose { |name| self.class.match_key(name) }
       @cleansed     = build_loose { |name| self.class.match_key(self.class.cleansed(name)) }
       @decimals     = @fields.any?(&:decimal?)
+      @properties   = Utils.frozen_copy(descriptor.except("fields").transform_keys(&:to_sym))
       freeze
+    end
+
+    # Returns [Hash] the schema as a Frictionless Table Schema, as it was given: its properties, then its fields, each
+    # as `IOStreams::Schema::Field#to_h` returns it, with Symbol keys, whether they were given as Strings or Symbols.
+    # A new Hash each time, which the caller can change, such as to save it as JSON, or to set a changed copy:
+    #
+    #   IOStreams.path("orders.parquet").infer_schema.to_h
+    #   # => {fields: [{name: "id", type: "integer", constraints: {required: true}},
+    #   #              {name: "amount", type: "number", decimals: 2}]}
+    def to_h
+      Utils.deep_copy(@properties).merge(fields: fields.map(&:to_h))
+    end
+
+    # Returns [true|false] whether the other is a schema of the same properties and fields, see #to_h.
+    def ==(other) = other.instance_of?(self.class) && to_h == other.to_h
+    alias eql? ==
+
+    def hash = to_h.hash
+
+    # Returns [String] the class and the schema as a Hash, see #to_h, rather than every instance variable.
+    def inspect
+      "#<#{self.class.name} #{to_h.inspect}>"
     end
 
     # Returns [true|false] whether a field is a number that keeps every digit, see `IOStreams::Schema::Field#decimal?`,

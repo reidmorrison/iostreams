@@ -209,6 +209,62 @@ class SchemaTest < Minitest::Test
       end
     end
 
+    describe "#to_h" do
+      it "returns the schema as it was given, with Symbol keys, its properties before its fields" do
+        schema = IOStreams::Schema.new(
+          "fields"      => [{"name" => "id", "type" => "integer", "constraints" => {"required" => true}},
+                            {name: :zip, aliases: ["Zip Code"], "tool:x" => {"a" => 1}}],
+          "fieldsMatch" => "subset",
+          "title"       => "Orders"
+        )
+
+        assert_equal(
+          {fieldsMatch: "subset", title: "Orders",
+           fields: [{name: "id", type: "integer", constraints: {required: true}},
+                    {name: :zip, aliases: ["Zip Code"], "tool:x": {"a" => 1}}]},
+          schema.to_h
+        )
+      end
+
+      it "returns a new Hash each time, which can be changed without changing the schema" do
+        schema = IOStreams::Schema.new(fields: [{name: "id", type: "integer"}])
+        hash   = schema.to_h
+        hash[:fields].first[:type] = "string"
+        hash[:fields] << {name: "name"}
+
+        assert_equal({fields: [{name: "id", type: "integer"}]}, schema.to_h)
+        refute_predicate hash, :frozen?
+      end
+
+      it "makes a schema that is equal to itself" do
+        schema = IOStreams::Schema.new(fields: [{name: "id", type: "number", decimals: 2}], fieldsMatch: "partial")
+
+        assert_equal schema, IOStreams::Schema.new(schema.to_h)
+        assert_equal schema, IOStreams::Schema.new(JSON.parse(JSON.generate(schema.to_h)))
+      end
+    end
+
+    describe "#==" do
+      it "compares the properties and the fields" do
+        schema = IOStreams::Schema.new("fields" => [{"name" => "id", "type" => "integer"}])
+
+        assert_equal schema, IOStreams::Schema.new(fields: [{name: "id", type: "integer"}])
+        assert_equal schema.hash, IOStreams::Schema.new(fields: [{name: "id", type: "integer"}]).hash
+        assert schema.eql?(IOStreams::Schema.new(fields: [{name: "id", type: "integer"}]))
+        refute_equal schema, IOStreams::Schema.new(fields: [{name: "id"}])
+        refute_equal schema, IOStreams::Schema.new(fields: [{name: :id, type: "integer"}])
+        refute_equal schema, IOStreams::Schema.new(fields: [{name: "id", type: "integer"}], fieldsMatch: "subset")
+        refute_equal schema, schema.to_h
+      end
+    end
+
+    describe "#inspect" do
+      it "shows the schema as a Hash" do
+        assert_equal '#<IOStreams::Schema {fields: [{name: "id", type: "integer"}]}>',
+                     IOStreams::Schema.new(fields: [{name: "id", type: "integer"}]).inspect
+      end
+    end
+
     describe ".read" do
       it "reads the schema from a JSON file" do
         Dir.mktmpdir do |dir|
@@ -635,6 +691,20 @@ class SchemaTest < Minitest::Test
       # The ways that the JSON format writes a value: with the coder of the json gem, when it uses one, see
       # `IOStreams::Tabular::Parser::Json.coder`, and without one.
       let(:json_writers) { [IOStreams::Tabular::Parser::Json.coder, nil].uniq }
+
+      describe "#to_h" do
+        it "returns the properties as they were given, with Symbol keys, also within its constraints" do
+          field = field("type" => "number", "decimals" => 2, "constraints" => {"required" => true}, "title" => "Amount")
+
+          assert_equal({name: "value", type: "number", decimals: 2, constraints: {required: true}, title: "Amount"}, field.to_h)
+        end
+
+        it "compares fields by their properties" do
+          assert_equal field(type: "integer"), field("type" => "integer")
+          refute_equal field(type: "integer"), field(type: "string")
+          assert_equal '#<IOStreams::Schema::Field {name: "value", type: "integer"}>', field(type: "integer").inspect
+        end
+      end
 
       describe "string" do
         let(:string) { field(type: "string") }
