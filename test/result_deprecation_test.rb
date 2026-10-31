@@ -108,9 +108,11 @@ class ResultDeprecationTest < Minitest::Test
 
       it "does not report a spreadsheet, whose rows v3.0 reads as CSV whatever its name" do
         FileUtils.cp(File.join(__dir__, "files", "spreadsheet.xlsx"), File.join(@dir, "report.text.xlsx"))
+        # A type for each column, without which reading the rows of a spreadsheet is deprecated itself.
+        schema = {fields: [{name: "first column", type: "string"}, {name: "second column", type: "string"}, {name: "third column", type: "string"}]}
 
-        rows = refute_deprecated { read_all(IOStreams.path(@dir, "report.text.xlsx"), :array) }
-        assert_equal read_all(IOStreams.path(__dir__, "files", "spreadsheet.xlsx"), :array), rows
+        rows = refute_deprecated { read_all(IOStreams.path(@dir, "report.text.xlsx").schema(schema), :array) }
+        assert_equal read_all(IOStreams.path(__dir__, "files", "spreadsheet.xlsx").schema(schema), :array), rows
       end
 
       it "does not report a call that supplies the format, which is deprecated itself" do
@@ -188,6 +190,54 @@ class ResultDeprecationTest < Minitest::Test
               assert_equal([%w[a=1 b=2]], refute_deprecated { read_all(stream, :array) })
             end
           end
+        end
+      end
+    end
+
+    describe "the rows and records of a spreadsheet read without a type for each column" do
+      let(:path) { IOStreams.path(__dir__, "upgrade", "files", "cells.xlsx") }
+      let(:typed) do
+        {
+          fields: [
+            {name: "id", type: "integer"},
+            {name: "amount", type: "number"},
+            {name: "zip", type: "string"},
+            {name: "ok", type: "boolean"},
+            {name: "note", type: "string"}
+          ]
+        }
+      end
+      let(:cells_pattern) { /the rows and records of a spreadsheet read without a type for each column are deprecated, since v3\.0 reads the value of each cell as Excel typed it, such as the Float 1001\.0, a Date or true, rather than its text, such as "1001\.0": give each column that is read a type with #schema/ }
+
+      it "reads the text of each cell, and reports that v3.0 reads its value" do
+        rows = [%w[id amount zip ok note], %w[1001.0 12.5 01234 true x], %w[7.0 3.0 00501 false]]
+
+        assert_equal rows, assert_deprecated(cells_pattern) { read_all(path, :array) }
+        assert_equal({"id" => "1001.0", "amount" => "12.5", "zip" => "01234", "ok" => "true", "note" => "x"},
+                     assert_deprecated(cells_pattern) { read_all(path, :hash) }.first)
+        assert_deprecated(cells_pattern) do
+          IOStreams.stream(StringIO.new).format(:csv).copy_from(path, mode: :hash)
+        end
+      end
+
+      it "reports a field without a type, and the columns that a schema keeps without one" do
+        untyped = {fields: [*typed[:fields].first(4), {name: "note"}]}
+        kept    = {fields: typed[:fields].first(4), fieldsMatch: "subset", extraColumns: "keep"}
+
+        assert_equal "x", assert_deprecated(cells_pattern) { read_all(path.dup.schema(untyped), :hash) }.first["note"]
+        assert_equal "x", assert_deprecated(cells_pattern) { read_all(path.dup.schema(kept), :hash) }.first["note"]
+      end
+
+      it "does not report a type for each column, a field that is skipped, its lines, or its data" do
+        skipped = {fields: [*typed[:fields].first(4), {name: "note", skip: true}]}
+
+        refute_deprecated do
+          assert_equal({"id" => 1001, "amount" => BigDecimal("12.5"), "zip" => "01234", "ok" => true, "note" => "x"},
+                       read_all(path.dup.schema(typed), :hash).first)
+          assert_equal({"id" => 1001, "amount" => BigDecimal("12.5"), "zip" => "01234", "ok" => true},
+                       read_all(path.dup.schema(skipped), :hash).first)
+          assert_equal "id,amount,zip,ok,note", read_all(path, :line).first
+          assert_includes path.read, "01234"
         end
       end
     end

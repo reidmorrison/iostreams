@@ -417,6 +417,13 @@ module IOStreams
       @keep_extra
     end
 
+    # Returns [true|false] whether reading converts the value of every column that it reads to the type of its field,
+    # rather than read it as it is: no field of type "any", apart from one that it skips, which reading leaves out, and no
+    # columns kept that the schema does not list, see `extraColumns` above.
+    def types_every_column?
+      !keep_extra? && fields.none? { |field| field.type == "any" && !field.skip? }
+    end
+
     private
 
     # Returns [true|false] whether every field must be one of the columns.

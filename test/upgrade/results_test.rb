@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require_relative "../test_helper"
+require "bigdecimal"
 require "pathname"
 require "tmpdir"
 require "zlib"
@@ -86,6 +87,32 @@ class UpgradeResultsTest < Minitest::Test
 
         assert_equal [%w[name age], ["Jack", 21], ["Jill", 22]], rows
         assert_instance_of IOStreams::Row::HeaderRow, rows.first
+      end
+    end
+
+    # `each(:array)`, `each(:hash)` and a copy of the rows and records of a spreadsheet yield the value of each cell as
+    # Excel typed it in 3.0, such as the Float `1001.0`, rather than its text, such as `"1001.0"`.
+    describe "the cells of a spreadsheet read with a type for each column" do
+      let(:path) do
+        IOStreams.path(__dir__, "files", "cells.xlsx").schema(
+          fields: [
+            {name: "id", type: "integer"},
+            {name: "amount", type: "number"},
+            {name: "zip", type: "string"},
+            {name: "ok", type: "boolean"},
+            {name: "note", type: "string"}
+          ]
+        )
+      end
+
+      it "are the values of the types of the fields" do
+        records = [
+          {"id" => 1001, "amount" => BigDecimal("12.5"), "zip" => "01234", "ok" => true, "note" => "x"},
+          {"id" => 7, "amount" => BigDecimal("3"), "zip" => "00501", "ok" => false, "note" => nil}
+        ]
+
+        assert_equal records, read_all(path, :hash)
+        assert_equal [%w[id amount zip ok note], *records.map(&:values)], read_all(path, :array)
       end
     end
 

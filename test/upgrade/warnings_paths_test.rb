@@ -22,6 +22,12 @@ module Upgrade
         ]
       end
 
+      # A type for each column, with which the rows of a spreadsheet are the same in v2.2, which reads the text of each
+      # cell, and v3.0, which reads the value of each cell as Excel typed it.
+      let :spreadsheet_schema do
+        {fields: [{name: "first column", type: "string"}, {name: "second column", type: "string"}, {name: "third column", type: "string"}]}
+      end
+
       describe "the IO supplied to IOStreams.stream, in place of #io_stream" do
         it "is the IO that the stream reads" do
           io    = StringIO.new("name\nJack\n")
@@ -126,7 +132,7 @@ module Upgrade
         it "reads its rows as CSV with format(:csv)" do
           rows = refute_deprecated do
             rows = []
-            IOStreams.path(spreadsheet).format(:csv).each(:array) { |row| rows << row }
+            IOStreams.path(spreadsheet).format(:csv).schema(spreadsheet_schema).each(:array) { |row| rows << row }
             rows
           end
 
@@ -137,13 +143,13 @@ module Upgrade
           rows, records = refute_deprecated do
             rows    = []
             records = []
-            IOStreams.path(spreadsheet).each(:array) { |row| rows << row }
-            IOStreams.path(spreadsheet).each(:hash) { |record| records << record }
+            IOStreams.path(spreadsheet).schema(spreadsheet_schema).each(:array) { |row| rows << row }
+            IOStreams.path(spreadsheet).schema(spreadsheet_schema).each(:hash) { |record| records << record }
             [rows, records]
           end
 
           assert_equal spreadsheet_rows, rows
-          assert_equal [{"first_column" => "data 1", "second_column" => "data 2", "third_column" => "more data"}], records
+          assert_equal [{"first column" => "data 1", "second column" => "data 2", "third column" => "more data"}], records
         end
 
         it "reads its lines as the CSV of each row with format(:csv)" do
@@ -162,7 +168,7 @@ module Upgrade
             FileUtils.cp(spreadsheet, name)
             rows = refute_deprecated do
               rows = []
-              IOStreams.path(name).format(:csv).each(:array) { |row| rows << row }
+              IOStreams.path(name).format(:csv).schema(spreadsheet_schema).each(:array) { |row| rows << row }
               rows
             end
 
