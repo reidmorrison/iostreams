@@ -154,29 +154,33 @@ followed to the same scheme, host and port, so that it cannot send the data to a
 For stronger guarantees, send these requests through an egress proxy, or a network policy, that blocks private,
 loopback and link-local addresses.
 
-## Uploaded tabular files
+## Uploaded CSV, JSON and Excel files {#uploaded-tabular-files}
 
 A file uploaded by a user can have any columns, and since the format is usually taken from the file name, renaming an
 upload from `.csv` to `.json` changes how it is read. Describe the columns that the application accepts with a
-[schema](formats#schema) on the path, which checks the columns of every file it reads, whatever its format:
+[contract](contracts), which checks the columns of every file it reads, whatever its format:
 
 ~~~ruby
-schema = {
+class ContactUpload < IOStreams::Contract
   # Skip any other columns, rather than raising for them.
-  fieldsMatch: "subset",
-  fields:      [
-    {name: "email", constraints: {required: true}},
-    {name: "name"}
-  ]
-}
-IOStreams.path(upload_path).schema(schema).each(:hash) do |contact|
-  p contact
+  fields_match "subset"
+
+  field :email, :string, required: true
+  field :name,  :string
+end
+
+IOStreams.path(upload_path).as(ContactUpload).each(:hash) do |contact|
+  Contact.create!(contact)
 end
 ~~~
 
-The records that are read only hold the fields of the schema, so an upload cannot set any other column. A file
-without a required field raises `IOStreams::Errors::InvalidHeader`. See [fieldsMatch](formats#fieldsmatch) and
-[Required fields](formats#required-fields).
+The records that are read only hold the fields of the contract, so an upload cannot set any other column. A file
+without a required field raises `IOStreams::Errors::InvalidHeader` before the first record, and a value that is not of
+the type of its field raises `IOStreams::Errors::InvalidValue`, naming its line. To show the user every problem at
+once, check the columns in the request that accepts the upload with `#contract_errors`, and list each invalid row with
+`on_invalid:`, see [Checking a source](contracts#checking-a-source-before-the-work-starts) and
+[Report invalid rows](contracts#report-invalid-rows-and-carry-on). See also [fieldsMatch](schemas#fieldsmatch) and
+[Required fields](schemas#required-fields).
 
 ## PGP
 

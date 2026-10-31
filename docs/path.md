@@ -1102,10 +1102,10 @@ exports / "2026" / "daily.csv.gz"
 
 The new path has the arguments of the path, such as its S3 client and options, its SFTP credentials and ssh options,
 or its `create_path:`. It takes its streams from its own file name, rather than keeping those set on the path with
-`#stream`, `#option`, `#encoding`, `#format` or `#schema`, which describe the file that the path names. `#directory`
-returns the directory of the path the same way. Without any elements, `#join` returns a copy of the path that keeps
-them all. `IOStreams.path` with several elements joins their names into a new path, so it does not keep the arguments
-of a path among them: join a name to the path with `#join` instead.
+`#stream`, `#option`, `#encoding`, `#format`, `#schema` or `#as`, which describe the file that the path names, or how it
+is read. `#directory` returns the directory of the path the same way. Without any elements, `#join` returns a copy of
+the path that keeps them all. `IOStreams.path` with several elements joins their names into a new path, so it does
+not keep the arguments of a path among them: join a name to the path with `#join` instead.
 
 Joining never accesses the store, and never resolves anything:
 

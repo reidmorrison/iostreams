@@ -38,6 +38,8 @@ IOStreams.path("s3://my-bucket/people.json.gz.pgp").
   change when a partner sends `.csv.pgp` instead of `.xlsx`.
 * **The same code wherever the file is stored**, so a path held in configuration can be a local file in development,
   and on S3 or SFTP in production.
+* **The same typed records from any source**: declare the fields that the code needs once, as a contract, and CSV,
+  JSON, Excel, Parquet or a database query yield the same records, with each value of its type.
 * **Constant memory**: files are read and written a block at a time, so a 10 GB file needs about as much memory as a
   10 KB one.
 * **Strict options**: a misspelled option raises `ArgumentError` when it is set, wherever the code runs.
@@ -63,9 +65,10 @@ See the [CHANGELOG](CHANGELOG.md) for the release history and notable changes.
 
 ## Upgrading
 
-v3.0 is a major release: text is read as UTF-8, a schema describes the columns of tabular files, and many options are
-now checked strictly. See [Upgrading IOStreams](https://iostreams.reidmorrison.com/upgrading) for the changes that may
-need updates to your application, and the security settings to review.
+v3.0 is a major release: text is read as UTF-8, a schema describes the columns of tabular files, the rows of a
+spreadsheet are the typed values of its cells, and many options are now checked strictly. See
+[Upgrading IOStreams](https://iostreams.reidmorrison.com/upgrading) for the changes that may need updates to your
+application, and the security settings to review.
 
 ## Project Status
 

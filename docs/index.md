@@ -68,6 +68,14 @@ single background job can process files from many senders, in many formats, with
 Local disk, AWS S3, S3 compatible stores, Google Cloud Storage, SFTP and HTTP(S) share the same `IOStreams.path` interface, and the
 same operations, such as `#each_child`, `#exist?`, `#delete` and `#move_to`, behave the same way on each of them.
 
+### The same records, from any source
+
+Every value of a CSV file is text, JSON has numbers but no dates, and a spreadsheet has types of its own. Declare the
+fields that your code needs, and the type of each one, in a [contract](contracts), and every source yields the same
+records: CSV, JSON, Excel, Parquet, or an Active Record query. A file without a column that the contract needs raises
+before the first record, and a value that is not valid names its line. So when a feed moves from CSV to Parquet, only
+its path in configuration changes, not the code that processes it.
+
 ### Constant memory, even for huge files
 
 Everything is read and written a block at a time, so a 10 GB compressed file uses about as much memory as a 10 KB
@@ -104,21 +112,26 @@ end
 The same code reads `s3://my-bucket/people.csv.gz` or `sftp://sftp.example.org/people.csv.gz` instead: only the name
 changes. See [Paths](path) for the gems and credentials of each store.
 
-Describe the columns of the file with a [schema](formats#schema), so that each value is read as its type:
+Name the fields that your code needs, and the type of each one, in a [contract](contracts), so that each value is read
+as its type:
 
 ~~~ruby
-people = IOStreams.path("people.csv.gz").schema(
-  fields: [
-    {name: "name", type: "string"},
-    {name: "born", type: "date"}
-  ]
-)
-people.each(:hash) do |person|
-  p person
+class Person < IOStreams::Contract
+  field :name, :string
+  field :born, :date
 end
-# {"name" => "Jack", "born" => #<Date: 1990-02-01 ((2447924j,0s,0n),+0s,2299161j)>}
-# {"name" => "Jill", "born" => #<Date: 1992-07-14 ((2448818j,0s,0n),+0s,2299161j)>}
+
+people = IOStreams.path("people.csv.gz").as(Person)
+people.each(:record) do |person|
+  puts "#{person.name} was born on #{person.born.strftime('%B %-d, %Y')}"
+end
+# Jack was born on February 1, 1990
+# Jill was born on July 14, 1992
 ~~~
+
+`each(:record)` yields a `Person` for each record, whose `born` is a `Date`, and `each(:hash)` yields the same values
+in a Hash. The same contract reads the same records from a JSON file, a spreadsheet, a Parquet file or a database
+query.
 
 Convert it to another format by copying it to a path whose name says so:
 
@@ -138,14 +151,20 @@ IOStreams.path("s3://my-bucket/exports/people.json.gz.pgp").
   copy_from(people, mode: :hash)
 ~~~
 
-Write an Excel spreadsheet from records. A Parquet file is written the same way, with a schema that gives the type of
-each column, see [Parquet files](formats#parquet-files):
+Write an Excel spreadsheet from records:
 
 ~~~ruby
 IOStreams.path("report.xlsx").writer(:hash) do |io|
   io << {"name" => "Jack", "total" => 12}
   io << {"name" => "Jill", "total" => 20}
 end
+~~~
+
+A Parquet file records the type of each of its columns, so a copy into one takes them from the contract of its
+source, see [Parquet files](formats#parquet-files):
+
+~~~ruby
+IOStreams.path("people.parquet").copy_from(people, mode: :hash)
 ~~~
 
 Rescue a missing file the same way wherever it is stored, so that the path can come from configuration:
@@ -170,14 +189,18 @@ end
   through, a block at a time. In order, they are the **pipeline** of the path: reading `people.csv.gz.pgp` decrypts the
   data and then decompresses it, and writing it compresses the data and then encrypts it. See
   [Streams from the file name](streams#streams-from-the-file-name).
-* The **tabular format** of the file, such as `.csv`, `.json` or `.xlsx`, says how its rows and records are stored.
-  See [Tabular formats](formats).
+* The **format** of the file, such as `.csv`, `.json` or `.xlsx`, says how its rows and records are stored. See
+  [File formats](formats).
 * The **mode** says what your code reads or writes: blocks of bytes (`:stream`), lines of text (`:line`), **rows**,
   each an Array of the values of a line (`:array`), or **records**, each a Hash of those values by column name
-  (`:hash`). For a CSV file, the names of the columns come from its **header row**, its first line. See
-  [Reading and writing](streams).
-* A **schema** names the columns of a file, gives the type of each one, such as a `Date`, and says which columns a
-  file can have. See [Schema](formats#schema).
+  (`:hash`), or an object of a contract (`:record`). For a CSV file, the names of the columns come from its **header
+  row**, its first line. See [Reading and writing](streams).
+* A **contract** names the fields that your code needs, and the type of each one, such as a `Date`, so that every
+  source yields the same records. It is a Ruby class, and lives with the code that relies on it. See
+  [Contracts](contracts).
+* A **schema** describes the columns of one file, with the same fields and types, for a file that cannot describe
+  itself, such as a fixed width file or a CSV file without a header row. Like the path, it is usually held in
+  configuration. See [Schemas](schemas).
 
 ## Common tasks
 
@@ -231,14 +254,36 @@ IOStreams.path("people.csv.pgp").
   read
 ~~~
 
-**Read numbers and dates as their types, and skip the other columns**, see [Schema](formats#schema):
+**Read the columns that your code needs as their types, and ignore the others**, see [Contracts](contracts):
 
 ~~~ruby
-IOStreams.path("people.csv").
-  schema(fieldsMatch: "partial", fields: [{name: "born", type: "date"}]).
-  each(:hash) do |record|
-    p record
-  end
+class Person < IOStreams::Contract
+  fields_match "subset"
+
+  field :name, :string
+  field :born, :date
+end
+
+IOStreams.path("people.csv").as(Person).each(:record) do |person|
+  p person.born
+end
+~~~
+
+**Draft a contract from a sample of a file**, to review and save with the code, see
+[Drafting a contract](contracts#drafting-a-contract):
+
+~~~ruby
+puts IOStreams.path("people.csv").infer_schema(sample: 1_000).to_dsl("Person")
+~~~
+
+**Report every invalid row of an upload, and process the rest**, see
+[Report invalid rows](contracts#report-invalid-rows-and-carry-on):
+
+~~~ruby
+problems = []
+IOStreams.path("upload.csv").as(Person).each(:record, on_invalid: ->(row) { problems << row }) do |person|
+  p person
+end
 ~~~
 
 **Read a Windows-1252 file as UTF-8**, see [Character encoding](streams#character-encoding):
@@ -303,7 +348,7 @@ IOStreams.add_allowed_path("/var/my_app/uploads")
 | [SFTP](path#sftp-sftp) | `sftp://host/path`, `sftp://host/~/path` within the login directory |
 | [HTTP and HTTPS](path#http-http-https) | `https://host/path`, read with GET and written with PUT |
 
-| Tabular format | Extension | Read | Write |
+| File format | Extension | Read | Write |
 |----------------|-----------|------|-------|
 | [CSV](formats#csv-and-psv-files) | `.csv` | yes | yes |
 | [Pipe separated values](formats#csv-and-psv-files) | `.psv` | yes | yes |
@@ -345,6 +390,7 @@ gems of the features that your application uses:
 | Symmetric Encryption | `symmetric-encryption` |
 | Parquet | `parquet`, which is not available on JRuby |
 | [Active Record queries](queries) | `activerecord` 7.2 or later, and the driver of the database: `pg`, `mysql2` or `sqlite3` |
+| The `duration` fields of a contract or schema | `activesupport`, which Rails includes |
 
 When a gem is missing, the feature that needs it raises `LoadError`, naming the gem to install.
 
@@ -352,7 +398,9 @@ When a gem is missing, the feature that needs it raises `LoadError`, naming the 
 
 * The [tutorial](tutorial) walks through reading and writing files, step by step.
 * [Reading and writing](streams): lines, rows, records and text encodings.
-* [Tabular formats](formats): CSV, JSON, Excel, fixed width and Parquet files, and schemas.
+* [File formats](formats): CSV, JSON, Excel, fixed width and Parquet files.
+* [Contracts](contracts): the typed records that your code needs, read the same way from any source.
+* [Schemas](schemas): describing the columns of a file, and the types and properties of fields.
 * [Compression and encryption](extensions): gzip, zip, bzip2, Zstandard, PGP and Symmetric Encryption.
 * [Paths](path): local files, S3, Google Cloud Storage (experimental), SFTP and HTTP, and the operations on a path.
 * [Copying and moving](copy_files): copying files between stores, and converting them on the way.

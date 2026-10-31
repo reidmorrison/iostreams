@@ -165,7 +165,7 @@ class AsTest < Minitest::Test
       it "raises for a contract supplied to a call, which is set on the path" do
         error = assert_raises(ArgumentError) { text("id\n1\n").each(:hash, contract: Order) { nil } }
 
-        assert_includes error.message, "path.as(Orders::CONTRACT)"
+        assert_includes error.message, "path.as(Order)"
       end
 
       it "converts nothing in the :line mode, which reads the lines as they are stored" do

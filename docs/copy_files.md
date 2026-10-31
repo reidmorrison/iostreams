@@ -17,7 +17,7 @@ file name, so a copy can also convert the file:
 
 * from one storage location to another, such as from SFTP to S3;
 * from one compression or encryption to another, such as from `.gz` to `.pgp`;
-* from one tabular format to another, such as from CSV to JSON or Parquet.
+* from one format to another, such as from CSV to JSON or Parquet.
 
 ## Copying a file
 
@@ -75,7 +75,7 @@ A copy as stored takes no other options, so any other option raises `ArgumentErr
 ## Converting rows and records
 
 With a mode, a copy reads the source, and writes the target, a line, a row or a record at a time, so that it converts
-the tabular format too. Copy a CSV file into JSON, parsing and rendering each record:
+the format too. Copy a CSV file into JSON, parsing and rendering each record:
 
 ~~~ruby
 IOStreams.path("target_file.json").copy_from("source_file.csv", mode: :hash)
@@ -102,7 +102,7 @@ source, such as an empty line or a line of only commas, is skipped, see [Blank r
 ## Choosing the columns
 
 The other options of a copy are used to write the target, and the source is read with the settings of its own path,
-so describe each file on its own path: its format, encoding and [schema](formats#schema). To choose the columns that
+so describe each file on its own path: its format, encoding and [schema](schemas). To choose the columns that
 are written, and their order, set a schema on the target, whose fields are the columns written:
 
 ~~~ruby
@@ -138,13 +138,12 @@ number with its decimals:
 
 ~~~ruby
 # The source's contract gives the Parquet columns their types.
-contract = IOStreams::Contract.new(
-  fields: [
-    {name: "id", type: "integer"},
-    {name: "amount", type: "number", decimals: 2}
-  ]
-)
-source = IOStreams.path("orders.csv").as(contract)
+class Order < IOStreams::Contract
+  field :id,     :integer
+  field :amount, :number, decimals: 2
+end
+
+source = IOStreams.path("orders.csv").as(Order)
 IOStreams.path("orders.parquet").copy_from(source, mode: :hash)
 
 # A typed source gives them its own.

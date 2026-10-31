@@ -50,8 +50,9 @@ nav:
     items:
       - { page: streams.html,    label: Reading and writing }
       - { page: path.html,       label: Paths }
-      - { page: formats.html,    label: Tabular formats }
+      - { page: formats.html,    label: File formats }
       - { page: contracts.html,  label: Contracts }
+      - { page: schemas.html,    label: Schemas }
       - { page: extensions.html, label: Compression and encryption }
       - { page: copy_files.html, label: Copying and moving }
       - { page: queries.html,    label: Exporting queries }

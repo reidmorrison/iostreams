@@ -25,8 +25,8 @@ reads or writes:
 | `:record` | Records of a [contract](contracts), such as an `Order` with `order.amount`, set with `#as` | `each(:record) { \|order\| }` | `writer(:record) { \|io\| io << order }` |
 | `:slice` | Slices: up to `size` rows as they are in the file, with its header row | `each(:slice, size: 100) { \|slice\| }` | `writer(:slice) { \|io\| io << slice }` |
 
-The tabular format of the file, such as CSV or JSON, says how rows and records are read from lines and written as
-lines, see [Tabular formats](formats). The extensions of the file name also say how the file is compressed or
+The format of the file, such as CSV or JSON, says how rows and records are read from lines and written as lines, see
+[File formats](formats). The extensions of the file name also say how the file is compressed or
 encrypted, which IOStreams applies as the data is read or written, see
 [Streams from the file name](#streams-from-the-file-name).
 
@@ -107,7 +107,7 @@ end
 ~~~
 
 * The header row is the first row that is not blank, with or without `skip_blanks`.
-* A blank row is not checked against a [schema](formats#schema), so it does not raise for a field that is required, as
+* A blank row is not checked against a [schema](schemas), so it does not raise for a field that is required, as
   a row with other values does.
 * Only the values that are read count: the fields of a fixed width line, not its filler, and of a Parquet file read
   with a schema that skips columns, only the columns of its fields.
@@ -119,7 +119,7 @@ end
 
 ### Values that are not valid
 
-A value that is not of the type of its field, of a [schema](formats#schema) or a [contract](contracts), such as `N/A`
+A value that is not of the type of its field, of a [schema](schemas) or a [contract](contracts), such as `N/A`
 for a number, raises `IOStreams::Errors::InvalidValue`, which names its field, its value, the record that it is in,
 counting from 1 without the header row, and the line of the file that the record starts on, when the source has lines:
 
@@ -132,7 +132,8 @@ so that support staff find the row without the code that reads it adding them. T
 line numbers of their file, see [Slices](#slices).
 
 Supply `on_invalid:` to `each(:array)`, `each(:hash)` or `each(:record)`, or their `#reader`, to hand each bad row to a
-handler instead, and carry on with the next row, such as to list every bad row of an upload:
+handler instead, and carry on with the next row, such as to list every bad row of an upload, here read through the
+contract `Order`, see [Contracts](contracts):
 
 ~~~ruby
 problems = []
@@ -187,7 +188,7 @@ end
   the first record of JSON without a schema in the `:array` mode, whose keys are the columns of every row, so it is
   read for them, and raises when it is not valid JSON, as reading every row would: give the file a schema, or read it
   in the `:hash` or `:slice` mode.
-* The header row is still read, and matched to the [schema](formats#schema), and `each(:array)` yields it first.
+* The header row is still read, and matched to the [schema](schemas), and `each(:array)` yields it first.
 * A query is read again from its start, so give the relation an order, such as `order(:id)`, so that its rows come back
   in the same order each time. Without one, a database may return them in another order, so that the rows skipped are
   not those that were processed. `in_batches` reads each batch in the order of its primary key.
@@ -337,9 +338,10 @@ IOStreams.path("example.csv").reader(:line) do |io|
 end
 ~~~
 
-For an Excel spreadsheet, `.xlsx`, the lines are those of the CSV text that its rows are read as, so their numbers are
-not the rows of the sheet, since a cell that holds line breaks takes a line for each. That is why the slices of a
-spreadsheet hold no line numbers, see [Find a row in the file](background_jobs#find-a-row-in-the-file).
+For an Excel spreadsheet, `.xlsx`, the lines are those of its CSV text, so their numbers are not the rows of the
+sheet, since a cell that holds line breaks takes a line for each. Its rows, records and slices are read from the cells
+of the sheet rather than from lines, so they hold no line numbers, see
+[Find a row in the file](background_jobs#find-a-row-in-the-file).
 
 Other notes:
 
@@ -485,8 +487,9 @@ any code, including `#copy_from` and `#copy_to`.
 | The path or url, and `#file_name` | The path | Where the file is, and the extensions that name its streams and format |
 | `#stream` and `#option` | The path | How the file is compressed or encrypted |
 | `#encoding` | The path | The encoding of the text of the file |
-| `#format` | The path | The tabular format of the file, such as `:json` |
+| `#format` | The path | The format of the rows of the file, such as `:json` |
 | `#schema` | The path | The fields of the file and their types, which columns it can have and must have, the position of each fixed width field, and whether it has a header row |
+| `#as` | The path | The [contract](contracts) that the code reads and writes the records by: the fields that it needs and their types, whatever the file |
 | The mode, such as `:hash` | Each call | Whether the code reads or writes blocks, lines, rows or records |
 | `delimiter:` and `buffer_size:` | Each call | How lines are split or ended, and how much is read at a time |
 | `embedded_within:` | Each call, in the `:line` mode | Whether the code reads the physical lines, or the logical lines of a quoted format |
@@ -494,7 +497,7 @@ any code, including `#copy_from` and `#copy_to`.
 IOStreams checks where each setting is supplied:
 
 * A setting of the path supplied to a call, such as `each(:hash, format: :json)`, raises `ArgumentError`, as do
-  `file_name:` and `schema:`.
+  `file_name:`, `schema:` and `contract:`.
 * An option that only applies when reading, such as `buffer_size:`, raises `ArgumentError` when it is supplied to
   `#writer`, rather than being ignored.
 * Any other option that the mode does not take, such as a misspelled `delimitr:`, raises `ArgumentError` before the
@@ -672,7 +675,7 @@ stream, so open it in binary mode, such as `File.open(name, "wb")`.
 A line, row or record writer that is already open, such as the one that `writer(:hash)` yields, can be handed to code
 that calls `IOStreams.stream(io).writer(:hash)` itself, or `IOStreams.stream(io).copy_from(source, mode: :hash)`, which
 then writes into it. Since the open writer writes with its own settings, options, streams or an encoding supplied to
-that call raise `ArgumentError`, and a copy into a row or record writer does not give it the schema of the rows of an
-Active Record query. A row, record or slice writer is only written in its own mode, such as `:hash` for the one that
-`writer(:hash)` yields, so any other mode raises `ArgumentError`. A line writer takes text, as an IO does, so it is
-written in any mode.
+that call raise `ArgumentError`, and a copy into a row or record writer gives it neither the contract nor the types
+of its source, see [Choosing the columns](copy_files#choosing-the-columns). A row, record or slice writer is only
+written in its own mode, such as `:hash` for the one that `writer(:hash)` yields, so any other mode raises
+`ArgumentError`. A line writer takes text, as an IO does, so it is written in any mode.
