@@ -272,8 +272,10 @@ class SchemaTest < Minitest::Test
 
     describe "#inspect" do
       it "shows the schema as a Hash" do
-        assert_equal '#<IOStreams::Schema {fields: [{name: "id", type: "integer"}]}>',
-                     IOStreams::Schema.new(fields: [{name: "id", type: "integer"}]).inspect
+        hash = {fields: [{name: "id", type: "integer"}]}
+
+        # Ruby 3.4 shows a Hash as `{fields: [...]}`, earlier versions as `{:fields=>[...]}`.
+        assert_equal "#<IOStreams::Schema #{hash.inspect}>", IOStreams::Schema.new(hash).inspect
       end
     end
 
@@ -714,7 +716,9 @@ class SchemaTest < Minitest::Test
         it "compares fields by their properties" do
           assert_equal field(type: "integer"), field("type" => "integer")
           refute_equal field(type: "integer"), field(type: "string")
-          assert_equal '#<IOStreams::Schema::Field {name: "value", type: "integer"}>', field(type: "integer").inspect
+          hash = {name: "value", type: "integer"}
+
+          assert_equal "#<IOStreams::Schema::Field #{hash.inspect}>", field(type: "integer").inspect
         end
       end
 

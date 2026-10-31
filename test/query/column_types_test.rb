@@ -361,7 +361,7 @@ class ColumnTypesTest < Minitest::Test
           path = IOStreams.path(dir, "purchases.parquet")
           path.copy_from(relation, mode: :hash)
           records = []
-          path.schema(IOStreams.stream(relation).schema).each(:hash) { |record| records << record }
+          path.schema(IOStreams.stream(relation).infer_schema).each(:hash) { |record| records << record }
 
           assert_equal [{"quantity" => 10**19, "units" => 123_456_789_012_345_678}], records
         end

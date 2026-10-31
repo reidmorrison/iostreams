@@ -205,7 +205,7 @@ class QueryStreamTest < Minitest::Test
 
           assert_equal [2, 1], slices.map(&:size)
           assert_equal %w[id name], slices.first.header
-          assert_equal [{"id" => slices.last[0].first, "name" => "c"}], each(IOStreams.stream(slices.last).schema(IOStreams.stream(orders.select(:id, :name)).schema))
+          assert_equal [{"id" => slices.last[0].first, "name" => "c"}], each(IOStreams.stream(slices.last).schema(IOStreams.stream(orders.select(:id, :name)).infer_schema))
         end
 
         it "reads a row whose every value is null or empty text, which is a record, not a blank line" do
@@ -654,7 +654,7 @@ class QueryStreamTest < Minitest::Test
             path = IOStreams.path(dir, "orders.parquet")
             path.copy_from(orders.select(:name, :amount, :shipped_on, :paid_at, :paid, :weight), mode: :hash)
             records = []
-            path.schema(IOStreams.stream(orders.select(:name, :amount, :shipped_on, :paid_at, :paid, :weight)).schema)
+            path.schema(IOStreams.stream(orders.select(:name, :amount, :shipped_on, :paid_at, :paid, :weight)).infer_schema)
             path.each(:hash) { |record| records << record }
 
             assert_equal(%w[a b c], records.map { |record| record["name"] })

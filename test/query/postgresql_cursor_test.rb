@@ -624,7 +624,7 @@ class PostgresqlCursorTest < Minitest::Test
           # BSON keeps an ActiveSupport::Duration as its number of seconds.
           stored   = IOStreams.slice(hash.merge("rows" => hash["rows"].map { |id, wait| [id, wait.to_i] }))
           records  = []
-          IOStreams.stream(stored).schema(IOStreams.stream(relation).schema).each(:hash) { |record| records << record }
+          IOStreams.stream(stored).schema(IOStreams.stream(relation).infer_schema).each(:hash) { |record| records << record }
 
           assert_predicate stored, :typed?
           assert_instance_of ActiveSupport::Duration, records.first["wait"]
@@ -665,7 +665,7 @@ class PostgresqlCursorTest < Minitest::Test
           Dir.mktmpdir do |dir|
             path = IOStreams.path(dir, "types.parquet")
             path.copy_from(relation, mode: :hash)
-            record = each(path.schema(IOStreams.stream(relation).schema)).first
+            record = each(path.schema(IOStreams.stream(relation).infer_schema)).first
 
             assert_equal Time.utc(2000, 1, 1, 4, 15), record["opens"]
             assert_equal({months: 1, days: 1, hours: 2}, record["wait"].parts)
