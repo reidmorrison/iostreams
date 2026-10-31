@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require_relative "../test_helper"
+require_relative "helper"
 require "bigdecimal"
 
 # The readers and writers of rows and records with a schema, see IOStreams::Stream#schema, and the copies between a
@@ -8,12 +9,7 @@ require "bigdecimal"
 # `test/upgrade/` in CLAUDE.md.
 class UpgradeSchemaRowsTest < Minitest::Test
   describe "rows and records" do
-    # Returns [Array] the rows or records that the stream yields.
-    def read(stream, mode = :array)
-      rows = []
-      stream.each(mode) { |row| rows << row }
-      rows
-    end
+    include UpgradeHelper
 
     def stream(text)
       IOStreams.stream(StringIO.new(text))
@@ -21,7 +17,7 @@ class UpgradeSchemaRowsTest < Minitest::Test
 
     describe "IOStreams::Row::Reader" do
       it "yields the names of the fields of the header row read with a schema as an IOStreams::Row::HeaderRow" do
-        rows = read(stream("Zip,Name\n1,Jack\n").schema(fields: [{name: "name"}, {name: "zip"}], fieldsMatch: "equal"))
+        rows = read(stream("Zip,Name\n1,Jack\n").schema(fields: [{name: "name"}, {name: "zip"}], fieldsMatch: "equal"), :array)
 
         assert_equal [%w[name zip], %w[Jack 1]], rows
         assert_instance_of IOStreams::Row::HeaderRow, rows.first
@@ -33,7 +29,7 @@ class UpgradeSchemaRowsTest < Minitest::Test
 
         # Returns [Array] the rows read from the fixed width text.
         def read_fixed(text)
-          read(stream(text).format(:fixed).schema(fixed))
+          read(stream(text).format(:fixed).schema(fixed), :array)
         end
 
         it "yields the names of the fields as an IOStreams::Row::HeaderRow, before the first row" do
@@ -216,7 +212,7 @@ class UpgradeSchemaRowsTest < Minitest::Test
           path.writer(:array) { |io| io << [1, "J\xE9".b] }
 
           assert_equal "id|name\n1|J\xE9\n".b, File.binread(path.to_s)
-          assert_equal [%w[id name], [1, "J\xE9".b]], read(path)
+          assert_equal [%w[id name], [1, "J\xE9".b]], read(path, :array)
 
           # Binary text that is UTF-8 is still taken as UTF-8, which the encoding set on the stream encodes.
           latin = IOStreams.path(dir, "people.csv").encoding("ISO-8859-1").schema(fields: [{name: "name"}])
@@ -317,16 +313,6 @@ class UpgradeSchemaRowsTest < Minitest::Test
     end
 
     describe "copying" do
-      let(:dir) { Dir.mktmpdir("iostreams") }
-
-      after do
-        FileUtils.rm_rf(dir)
-      end
-
-      def path(name)
-        IOStreams.path(dir, name)
-      end
-
       let(:people) { {fields: [{name: "name"}, {name: "age", type: "integer"}]} }
 
       it "copies a file without a schema into a file with one, skipping its blank rows, and taking its text as UTF-8" do
@@ -336,8 +322,8 @@ class UpgradeSchemaRowsTest < Minitest::Test
 
         # The bytes written are compared, since #read returns them as binary text in IOStreams 2.2, and as UTF-8 in 3.0,
         # see "Text is read as UTF-8" in docs/upgrading.md of IOStreams 3.0.
-        assert_equal "name,age\nJack,21\nJosé,22\n".b, ::File.binread(path("out.csv").to_s)
-        assert_equal %({"name":"Jack","age":21}\n{"name":"José","age":22}\n).b, ::File.binread(path("out.json").to_s)
+        assert_equal "name,age\nJack,21\nJosé,22\n".b, stored("out.csv")
+        assert_equal %({"name":"Jack","age":21}\n{"name":"José","age":22}\n).b, stored("out.json")
       end
 
       it "copies a file with a schema into a file without one, skipping its blank rows" do

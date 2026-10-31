@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require_relative "../test_helper"
+require_relative "helper"
 require "zip"
 require "zlib"
 
@@ -9,36 +10,10 @@ require "zlib"
 # that the docs/upgrading.md of IOStreams 3.0 documents, see `test/upgrade/` in CLAUDE.md.
 class UpgradeStreamsTest < Minitest::Test
   describe IOStreams::Stream do
-    let(:dir) { Dir.mktmpdir("iostreams") }
+    include UpgradeHelper
 
     # Latin-1 text, as ISO-8859-1 stores it.
     let(:latin) { "name\nJos\xE9\n".b }
-
-    after do
-      FileUtils.rm_rf(dir)
-    end
-
-    # Returns [IOStreams::Path] the path of the file within the temporary directory.
-    def path(name)
-      IOStreams.path(dir, name)
-    end
-
-    # Writes the bytes to the file within the temporary directory, as they are.
-    def store(name, data)
-      ::File.binwrite(::File.join(dir, name), data)
-    end
-
-    # Returns [String] the bytes of the file within the temporary directory.
-    def stored(name)
-      ::File.binread(::File.join(dir, name))
-    end
-
-    # Returns [Array] the lines, rows or records that the stream yields.
-    def read(stream, mode = :line)
-      rows = []
-      stream.each(mode) { |row| rows << row }
-      rows
-    end
 
     describe "#raw" do
       it "reads the data as it is stored, without the streams of the file name" do
@@ -67,23 +42,27 @@ class UpgradeStreamsTest < Minitest::Test
       end
 
       it "applies no streams, neither those of the file name nor those set before it" do
-        assert_empty path("data.csv.gz").raw.pipeline
-        assert_empty path("data.csv").stream(:gz).raw.pipeline
-        assert_empty path("data.csv").encoding("ISO-8859-1").raw.pipeline
+        assert_empty IOStreams.path("data.csv.gz").raw.pipeline
+        assert_empty IOStreams.path("data.csv").stream(:gz).raw.pipeline
+        assert_empty IOStreams.path("data.csv").encoding("ISO-8859-1").raw.pipeline
       end
 
       it "is what #raw? returns" do
-        refute_predicate path("data.csv.gz"), :raw?
-        assert_predicate path("data.csv.gz").raw, :raw?
+        refute_predicate IOStreams.path("data.csv.gz"), :raw?
+        assert_predicate IOStreams.path("data.csv.gz").raw, :raw?
       end
 
       it "raises for a stream, option or encoding set after it, since the data is as it is stored" do
-        raw = path("data.csv.gz").raw
+        raw = IOStreams.path("data.csv.gz").raw
 
-        assert_raises(ArgumentError) { raw.stream(:gz) }
-        assert_raises(ArgumentError) { raw.option(:gz) }
-        assert_raises(ArgumentError) { raw.option_or_stream(:gz) }
-        assert_raises(ArgumentError) { raw.encoding("UTF-8") }
+        error = assert_raises(ArgumentError) { raw.stream(:gz) }
+        assert_match(/\ACannot call #stream after #raw/, error.message)
+        error = assert_raises(ArgumentError) { raw.option(:gz) }
+        assert_match(/\ACannot call #option after #raw/, error.message)
+        error = assert_raises(ArgumentError) { raw.option_or_stream(:gz) }
+        assert_match(/\ACannot call #option_or_stream after #raw/, error.message)
+        error = assert_raises(ArgumentError) { raw.encoding("UTF-8") }
+        assert_match(/\ACannot call #encoding after #raw/, error.message)
         assert_predicate raw, :raw?
       end
     end
@@ -156,10 +135,10 @@ class UpgradeStreamsTest < Minitest::Test
       end
 
       it "returns the encoding that was set, or nil, and merges the options of each call with those already set" do
-        assert_nil path("people.csv").encoding
-        assert_equal "ISO-8859-1", path("people.csv").encoding("ISO-8859-1").encoding
+        assert_nil IOStreams.path("people.csv").encoding
+        assert_equal "ISO-8859-1", IOStreams.path("people.csv").encoding("ISO-8859-1").encoding
 
-        merged = path("people.csv").encoding("ISO-8859-1").encoding(replace: "?")
+        merged = IOStreams.path("people.csv").encoding("ISO-8859-1").encoding(replace: "?")
 
         assert_equal "ISO-8859-1", merged.encoding
         assert_equal({encode: {encoding: "ISO-8859-1", replace: "?"}}, merged.pipeline)
@@ -172,9 +151,12 @@ class UpgradeStreamsTest < Minitest::Test
       end
 
       it "raises when it is set, for an option or a value that the encode stream does not take" do
-        assert_raises(ArgumentError) { path("people.csv").encoding("UTF-8", replacement: "?") }
-        assert_raises(ArgumentError) { path("people.csv").encoding("NO-SUCH-ENCODING") }
-        assert_raises(ArgumentError) { path("people.csv").encoding("UTF-8", cleaner: "printable") }
+        error = assert_raises(ArgumentError) { IOStreams.path("people.csv").encoding("UTF-8", replacement: "?") }
+        assert_match(/option :replacement\b/, error.message)
+        error = assert_raises(ArgumentError) { IOStreams.path("people.csv").encoding("NO-SUCH-ENCODING") }
+        assert_match(/NO-SUCH-ENCODING/, error.message)
+        error = assert_raises(ArgumentError) { IOStreams.path("people.csv").encoding("UTF-8", cleaner: "printable") }
+        assert_match(/\AInvalid cleaner "printable"/, error.message)
       end
 
       it "raises Encoding::UndefinedConversionError for text that is not valid in it, when it reads the whole file" do

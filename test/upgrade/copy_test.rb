@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require_relative "../test_helper"
+require_relative "helper"
 require "zlib"
 
 # The copies of #copy_from and #copy_to: with a mode: that converts the lines, rows or records, without one, which
@@ -8,23 +9,9 @@ require "zlib"
 # fail, which IOStreams 2.2 makes as IOStreams 3.0 does, see `test/upgrade/` in CLAUDE.md.
 class UpgradeCopyTest < Minitest::Test
   describe IOStreams::Stream do
-    let(:dir) { Dir.mktmpdir("iostreams") }
+    include UpgradeHelper
 
     let(:csv) { "name,age\nJack,21\nJill,22\n" }
-
-    after do
-      FileUtils.rm_rf(dir)
-    end
-
-    # Returns [IOStreams::Path] the path of the file within the temporary directory.
-    def path(name)
-      IOStreams.path(dir, name)
-    end
-
-    # Returns [String] the bytes of the file within the temporary directory.
-    def stored(name)
-      ::File.binread(::File.join(dir, name))
-    end
 
     describe "#copy_from" do
       before do
@@ -133,8 +120,10 @@ class UpgradeCopyTest < Minitest::Test
       end
 
       it "leaves a target that it did not write as it was, for a mode that a copy does not convert with" do
-        assert_raises(ArgumentError) { path("target.csv").copy_from(path("people.csv"), mode: :stream) }
-        assert_raises(ArgumentError) { path("people.csv").copy_to(path("target.csv"), mode: :stream) }
+        error = assert_raises(ArgumentError) { path("target.csv").copy_from(path("people.csv"), mode: :stream) }
+        assert_match(/\AInvalid mode: :stream/, error.message)
+        error = assert_raises(ArgumentError) { path("people.csv").copy_to(path("target.csv"), mode: :stream) }
+        assert_match(/\AInvalid mode: :stream/, error.message)
 
         assert_equal "old\n", path("target.csv").read
       end
@@ -146,7 +135,9 @@ class UpgradeCopyTest < Minitest::Test
         assert_equal "old\n", path("target.csv").read
       end
 
-      it "leaves no part of a local file that it fails to write part way" do
+      # Opening a local file to write it replaces what it held, so a copy that fails after it has opened its target
+      # cannot keep the old content, unlike the failures above, which happen before the target is opened.
+      it "removes a local target that it fails to write part way, rather than leave part of the copy" do
         path("ids.csv").write("id\n1\nabc\n")
         target = path("target.csv").schema(fields: [{name: "id", type: "integer"}])
 

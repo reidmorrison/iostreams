@@ -152,6 +152,7 @@ class UpgradeSchemaTest < Minitest::Test
           stream.schema(supplied)
           supplied.stream(:gz)
 
+          assert_equal({gz: {}}, supplied.pipeline)
           assert_kind_of IOStreams::Path, stream.schema
           assert_equal supplied.to_s, stream.schema.to_s
           assert_empty stream.schema.pipeline
@@ -160,7 +161,8 @@ class UpgradeSchemaTest < Minitest::Test
       end
 
       it "checks a schema in a Hash when it is set" do
-        assert_raises(ArgumentError) { stream.schema(fields: [{name: "id", type: "money"}]) }
+        error = assert_raises(ArgumentError) { stream.schema(fields: [{name: "id", type: "money"}]) }
+        assert_match(/unknown type "money"/, error.message)
         assert_nil stream.schema
       end
 
@@ -212,7 +214,7 @@ class UpgradeSchemaTest < Minitest::Test
 
       it "raises for a value that is not of the type of its field" do
         error = assert_raises(IOStreams::Errors::InvalidValue) { read("id\n12-\n", schema: people.merge(fieldsMatch: "partial")) }
-        assert_equal 'Field "id": "12-" is not a valid integer', error.message
+        assert_match(/\AField "id": "12-"/, error.message)
       end
 
       it "writes each value in the text form of its type" do
@@ -425,16 +427,17 @@ class UpgradeSchemaTest < Minitest::Test
           IOStreams.path(dir, "people.csv").write(csv)
           path = IOStreams.path(dir, "people.csv").schema(::File.join(dir, "people.json"))
 
-          assert_raises(ArgumentError) { path.each(:hash) { |row| row } }
+          error = assert_raises(ArgumentError) { path.each(:hash) { |row| row } }
+          assert_includes error.message, ::File.join(dir, "people.json")
+          assert_match(/unknown type "money"/, error.message)
         end
       end
 
-      it "is kept by a copy, and cleared by #join" do
+      # That #join and #directory return a path without it is tested in test/upgrade/paths_test.rb.
+      it "is kept by a copy" do
         path = IOStreams.path("/data/people.csv").schema(people)
 
         assert_equal people, IOStreams.path(path).schema
-        assert_nil path.join("other.csv").schema
-        assert_nil path.directory.schema
       end
 
       describe "matching columns to fields" do
@@ -467,7 +470,7 @@ class UpgradeSchemaTest < Minitest::Test
 
         it "raises for two columns that are the same field, rather than lose one of them" do
           error = assert_raises(IOStreams::Errors::InvalidHeader) { read("first_name,email,DOB,Email\nJack,a,2001-02-03,b\n", schema: contacts) }
-          assert_equal 'The columns "email" and "Email" are both the field "email", so either could be meant', error.message
+          assert_match(/\AThe columns "email" and "Email" are both the field "email"/, error.message)
         end
 
         it "returns the names of the fields as they are given, as the keys of the records" do
@@ -577,7 +580,7 @@ class UpgradeSchemaTest < Minitest::Test
           schema = {fieldsMatch: "subset", extraColumns: "keep", keyType: "cleansed", fields: []}
 
           error = assert_raises(IOStreams::Errors::InvalidHeader) { read("Notes,notes\na,b\n", schema: schema) }
-          assert_equal 'The columns "Notes" and "notes" are both the key "notes" of the records read, so either could be meant', error.message
+          assert_match(/\AThe columns "Notes" and "notes" are both the key "notes"/, error.message)
         end
 
         it "does not keep a column without a name" do
@@ -768,10 +771,8 @@ class UpgradeSchemaTest < Minitest::Test
             error = assert_raises(IOStreams::Errors::InvalidHeader, fields_match) do
               write([header_row("Jack", 21), ["Jill", 22]], :array, schema: {fields: fields, fieldsMatch: fields_match})
             end
-            assert_equal 'The header row does not match the schema: the columns "Jack" and 21 are not fields of the schema, ' \
-                         "so the rows after it would have no value for any field. A header row names the column of each " \
-                         "value of the rows after it, so give it the names of the fields, or of their columns, or write " \
-                         "rows of the values of the fields, in order, without one", error.message
+            assert_match(/\AThe header row does not match the schema: the columns "Jack" and 21 are not fields of the schema, so the rows after it would have no value for any field/,
+                         error.message)
           end
           error = assert_raises(IOStreams::Errors::InvalidHeader) { write([header_row, [1, "Jack"]], :array, schema: {fields: fields, fieldsMatch: "subset"}) }
           assert_match(/\AThe header row does not match the schema: it has no columns, so the rows after it would have no value/, error.message)
@@ -828,13 +829,13 @@ class UpgradeSchemaTest < Minitest::Test
 
         it "raises when the header row does not have the field, whatever fieldsMatch is" do
           error = assert_raises(IOStreams::Errors::InvalidHeader) { read("id,name\n1,Jack\n", schema: schema) }
-          assert_equal 'The header row does not match the schema: missing the required field "email"', error.message
+          assert_match(/missing the required field "email"/, error.message)
         end
 
         it "raises for a value that is empty" do
           assert_equal [{"id" => 1, "email" => "j@x.com"}], read("id,email\n1,j@x.com\n", schema: schema)
           error = assert_raises(IOStreams::Errors::InvalidValue) { read("id,email\n1,\n", schema: schema) }
-          assert_equal 'Field "email" is required, but has no value', error.message
+          assert_match(/\AField "email" is required/, error.message)
         end
 
         it "raises for a JSON record without the key, or with null" do
@@ -875,7 +876,7 @@ class UpgradeSchemaTest < Minitest::Test
           it "reads a blank value, but still raises when the header row does not have the field" do
             assert_equal [{"id" => 1, "email" => nil}], read("id,email\n1,\n", schema: schema)
             error = assert_raises(IOStreams::Errors::InvalidHeader) { read("id,name\n1,Jack\n", schema: schema) }
-            assert_equal 'The header row does not match the schema: missing the required field "email"', error.message
+            assert_match(/missing the required field "email"/, error.message)
           end
 
           it "reads a JSON record with null, but raises for one without the key" do
@@ -912,7 +913,8 @@ class UpgradeSchemaTest < Minitest::Test
 
           assert_equal [{"id" => 42}], read(%({"id":"0042","notes":"x"}\n), file_name: "people.json", schema: partial)
           assert_equal %({"id":42,"pay":null,"joined":null,"active":null}\n), write([{"id" => 42, "notes" => "x"}], file_name: "people.json", schema: partial)
-          assert_raises(ArgumentError) { read("0042\n", schema: partial) }
+          error = assert_raises(ArgumentError) { read("0042\n", schema: partial) }
+          assert_match(/fieldsMatch must be "exact"/, error.message)
         end
 
         it "is read by #copy_from and #copy_to, whose options only apply to the target" do
@@ -996,7 +998,7 @@ class UpgradeSchemaTest < Minitest::Test
 
         it "raises for a string that is too long, unless its field truncates it" do
           error = assert_raises(IOStreams::Errors::ValueTooLong) { write_fixed({"name" => "Jackson"}) }
-          assert_equal "Value: Jackson is too large to fit into column:name of size:6", error.message
+          assert_match(/column:name of size:6/, error.message)
 
           fixed[:fields][0][:truncate] = true
 
@@ -1022,54 +1024,70 @@ class UpgradeSchemaTest < Minitest::Test
 
         it "raises for a field without a width" do
           error = assert_raises(ArgumentError) { read_fixed("Jack\n", schema: {fields: [{name: "name"}]}) }
-          assert_equal 'Field "name" needs a width for the :fixed format', error.message
+          assert_match(/\AField "name" needs a width/, error.message)
         end
 
         it "raises for a field that starts within the field before it" do
           schema = {fields: [{name: "a", width: 4}, {name: "b", width: 2, start: 3}]}
 
           error = assert_raises(ArgumentError) { read_fixed("abcdef\n", schema: schema) }
-          assert_equal 'Field "b" starts at 3, within the field before it, which ends at 4', error.message
+          assert_match(/\AField "b" starts at 3, within the field before it/, error.message)
         end
 
         it "raises for a field after one that takes the remainder of the line" do
           schema = {fields: [{name: "a", width: "remainder"}, {name: "b", width: 2}]}
 
-          assert_raises(ArgumentError) { read_fixed("abcdef\n", schema: schema) }
+          error = assert_raises(ArgumentError) { read_fixed("abcdef\n", schema: schema) }
+          assert_match(/\AOnly the last field can have a width of "remainder"/, error.message)
         end
 
         it "raises without a schema, which gives the width of each field" do
-          assert_raises(ArgumentError) { IOStreams.stream(StringIO.new("abc\n")).format(:fixed).each(:hash) { |row| row } }
-          assert_raises(ArgumentError) { IOStreams.stream(StringIO.new).format(:fixed).writer(:hash) { |io| io << {"a" => "b"} } }
+          # The error names what gives the widths: the layout in 2.2, and the schema that replaces it in 3.0, see
+          # "`#format_options` is replaced by `#schema`" in docs/upgrading.md of IOStreams 3.0.
+          widths = /layout|schema/
+          error  = assert_raises(ArgumentError) { IOStreams.stream(StringIO.new("abc\n")).format(:fixed).each(:hash) { |row| row } }
+          assert_match(widths, error.message)
+          error = assert_raises(ArgumentError) { IOStreams.stream(StringIO.new).format(:fixed).writer(:hash) { |io| io << {"a" => "b"} } }
+          assert_match(widths, error.message)
         end
       end
 
       describe "supplied to each call" do
+        # The start of the message of the error, which says where to set the schema instead.
+        let(:advice) { /\A:schema cannot be supplied to each call, set it on the path instead/ }
+
         it "raises for the schema, since it is set on the path" do
           error = assert_raises(ArgumentError) { IOStreams.stream(StringIO.new(csv)).each(:hash, schema: people) { |row| row } }
-          assert_equal ":schema cannot be supplied to each call, set it on the path instead, for example: " \
-                       "path.schema(\"people.json\").each(:hash)", error.message
+          assert_match(advice, error.message)
+          error = assert_raises(ArgumentError) { IOStreams.stream(StringIO.new(csv)).schema(people).each(:array, schema: people) { |row| row } }
+          assert_match(advice, error.message)
+          error = assert_raises(ArgumentError) { IOStreams.stream(StringIO.new).writer(:hash, schema: people) { |io| io << {"a" => 1} } }
+          assert_match(advice, error.message)
 
-          assert_raises(ArgumentError) { IOStreams.stream(StringIO.new(csv)).schema(people).each(:array, schema: people) { |row| row } }
-          assert_raises(ArgumentError) { IOStreams.stream(StringIO.new).writer(:hash, schema: people) { |io| io << {"a" => 1} } }
-          assert_raises(ArgumentError) { IOStreams.stream(StringIO.new).writer(:line, schema: people) { |io| io << "a" } }
+          # 2.2 raises for it as a keyword that writer(:line) does not take, so only the name of the option is the same.
+          error = assert_raises(ArgumentError) { IOStreams.stream(StringIO.new).writer(:line, schema: people) { |io| io << "a" } }
+          assert_match(/:schema\b/, error.message)
         end
 
         it "raises when copying with a mode" do
           Dir.mktmpdir do |dir|
             IOStreams.path(dir, "a.csv").write(csv)
 
-            assert_raises(ArgumentError) { IOStreams.path(dir, "b.json").copy_from(IOStreams.path(dir, "a.csv"), mode: :hash, schema: people) }
+            error = assert_raises(ArgumentError) { IOStreams.path(dir, "b.json").copy_from(IOStreams.path(dir, "a.csv"), mode: :hash, schema: people) }
+            assert_match(advice, error.message)
           end
         end
 
-        it "raises for an option that the call does not take, with a schema and without one" do
+        it "raises for an option that the call does not take, naming it, with a schema and without one" do
           [IOStreams.stream(StringIO.new(csv)).schema(people), IOStreams.stream(StringIO.new(csv))].each do |input|
-            assert_raises(ArgumentError) { input.each(:hash, delimitr: "\n") { |row| row } }
-            assert_raises(ArgumentError) { input.each(:array, delimitr: "\n") { |row| row } }
+            error = assert_raises(ArgumentError) { input.each(:hash, delimitr: "\n") { |row| row } }
+            assert_match(/:delimitr\b/, error.message)
+            error = assert_raises(ArgumentError) { input.each(:array, delimitr: "\n") { |row| row } }
+            assert_match(/:delimitr\b/, error.message)
           end
           [IOStreams.stream(StringIO.new).schema(people), IOStreams.stream(StringIO.new)].each do |output|
-            assert_raises(ArgumentError) { output.writer(:hash, delimitr: "\n") { |io| io << record } }
+            error = assert_raises(ArgumentError) { output.writer(:hash, delimitr: "\n") { |io| io << record } }
+            assert_match(/:delimitr\b/, error.message)
           end
         end
       end

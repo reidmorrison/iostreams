@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require_relative "../test_helper"
+require_relative "helper"
 
 # The names and options of paths: #display_name, IOStreams.redact_path_options and IOStreams.redact_stream_options,
 # which hide their credentials, and #join and #directory, which return a new path, rather than change one in place,
@@ -99,11 +100,7 @@ class UpgradePathsTest < Minitest::Test
     end
 
     describe "#join and #directory" do
-      let(:dir) { Dir.mktmpdir("iostreams") }
-
-      after do
-        FileUtils.rm_rf(dir)
-      end
+      include UpgradeHelper
 
       it "return a new path, and leave the path that they are called on as it is" do
         root = IOStreams.path(dir)
@@ -126,11 +123,12 @@ class UpgradePathsTest < Minitest::Test
         assert_nil path.schema
         assert_equal({gz: {}}, IOStreams.path(dir, "a.csv.gz").option(:gz, level: 9).join("b.csv.gz").pipeline)
 
-        directory = IOStreams.path(dir, "people.csv").stream(:gz).format(:json).encoding("ISO-8859-1").directory
+        directory = IOStreams.path(dir, "people.csv").stream(:gz).format(:json).encoding("ISO-8859-1").schema(fields: [{name: "name"}]).directory
 
         assert_empty directory.pipeline
         assert_nil directory.format
         assert_nil directory.encoding
+        assert_nil directory.schema
       end
 
       it "read and write the file of the new path" do

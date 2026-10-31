@@ -1,34 +1,14 @@
 # frozen_string_literal: true
 
 require_relative "../test_helper"
+require_relative "helper"
 require "zlib"
 
 # The format of the rows and records of a file, set on its path with #format or #file_name, rather than for each call,
 # which IOStreams 2.2 reads and writes as IOStreams 3.0 does, see `test/upgrade/` in CLAUDE.md.
 class UpgradeFormatsTest < Minitest::Test
   describe IOStreams::Stream do
-    let(:dir) { Dir.mktmpdir("iostreams") }
-
-    after do
-      FileUtils.rm_rf(dir)
-    end
-
-    # Returns [IOStreams::Path] the path of the file within the temporary directory.
-    def path(name)
-      IOStreams.path(dir, name)
-    end
-
-    # Writes the text to the file within the temporary directory, as it is.
-    def store(name, text)
-      ::File.binwrite(::File.join(dir, name), text)
-    end
-
-    # Returns [Array] the rows, records or lines that the stream yields.
-    def read(stream, mode = :hash, **)
-      rows = []
-      stream.each(mode, **) { |row| rows << row }
-      rows
-    end
+    include UpgradeHelper
 
     describe "#format" do
       it "returns the format that the file name names, or nil" do
@@ -45,7 +25,7 @@ class UpgradeFormatsTest < Minitest::Test
         path("people.txt").format(:json).writer(:hash) { |io| io << {"name" => "Jack"} }
 
         assert_equal %({"name":"Jack"}\n), path("people.txt").read
-        assert_equal [{"name" => "Jack"}], read(path("people.txt").format(:json))
+        assert_equal [{"name" => "Jack"}], read(path("people.txt").format(:json), :hash)
 
         path("people.json").format(:csv).writer(:array) do |io|
           io << ["name"]
@@ -61,7 +41,7 @@ class UpgradeFormatsTest < Minitest::Test
         IOStreams.stream(io).format(:json).writer(:hash) { |writer| writer << {"name" => "Jack"} }
 
         assert_equal %({"name":"Jack"}\n), io.string
-        assert_equal [{"name" => "Jack"}], read(IOStreams.stream(StringIO.new(io.string)).format(:json))
+        assert_equal [{"name" => "Jack"}], read(IOStreams.stream(StringIO.new(io.string)).format(:json), :hash)
       end
 
       it "is set with #format=" do
@@ -70,7 +50,7 @@ class UpgradeFormatsTest < Minitest::Test
         people.format = :json
 
         assert_equal :json, people.format
-        assert_equal [{"name" => "Jack"}], read(people)
+        assert_equal [{"name" => "Jack"}], read(people, :hash)
       end
 
       it "is set only when the path has none, in place of a default format" do
@@ -80,21 +60,22 @@ class UpgradeFormatsTest < Minitest::Test
         [path("people.csv"), path("people.txt")].each do |people|
           people.format(:json) unless people.format
 
-          assert_equal [{"name" => "Jack"}], read(people), people.to_s
+          assert_equal [{"name" => "Jack"}], read(people, :hash), people.to_s
         end
       end
 
       it "copies between files in the formats set on their paths" do
-        path("in.txt").format(:csv).write("name\nJack\n")
+        path("in.txt").format(:csv).write("name,age\nJack,21\n")
         path("out.txt").format(:json).copy_from(path("in.txt").format(:csv), mode: :hash)
         path("in.txt").format(:csv).copy_to(path("out.dat").format(:psv), mode: :array)
 
-        assert_equal %({"name":"Jack"}\n), path("out.txt").read
-        assert_equal "name\nJack\n", path("out.dat").read
+        assert_equal %({"name":"Jack","age":"21"}\n), path("out.txt").read
+        assert_equal "name|age\nJack|21\n", path("out.dat").read
       end
 
       it "raises for a format that it does not know" do
-        assert_raises(ArgumentError) { path("people.txt").format(:yaml) }
+        error = assert_raises(ArgumentError) { IOStreams.path("people.txt").format(:yaml) }
+        assert_match(/\AInvalid format: :yaml/, error.message)
       end
     end
 
@@ -105,8 +86,8 @@ class UpgradeFormatsTest < Minitest::Test
 
         assert_equal :json, people.format
         assert_equal({gz: {}}, people.pipeline)
-        assert_equal [{"name" => "Jack"}], read(people)
-        assert_equal [{"name" => "Jack"}], read(IOStreams.stream(StringIO.new(%({"name":"Jack"}\n))).file_name("people.json"))
+        assert_equal [{"name" => "Jack"}], read(people, :hash)
+        assert_equal [{"name" => "Jack"}], read(IOStreams.stream(StringIO.new(%({"name":"Jack"}\n))).file_name("people.json"), :hash)
       end
     end
 
@@ -114,7 +95,7 @@ class UpgradeFormatsTest < Minitest::Test
       it "reads the rows and records of values that are not quoted, whatever the file name" do
         store("people.csv", %(name|note\nJack|5" tall, "Jacky"\n))
 
-        assert_equal [{"name" => "Jack", "note" => %(5" tall, "Jacky")}], read(path("people.csv").format(:psv))
+        assert_equal [{"name" => "Jack", "note" => %(5" tall, "Jacky")}], read(path("people.csv").format(:psv), :hash)
         assert_equal [%w[name note], ["Jack", %(5" tall, "Jacky")]], read(path("people.csv").format(:psv), :array)
       end
 
