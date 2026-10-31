@@ -1791,14 +1791,16 @@ v2.2 and v3.0. Each still works, and gives the same result, as before. They are,
   or S3 argument that a path ignores; a pattern of `#each_child` that is not a String; a `Pathname` supplied to
   `IOStreams.new`, `#copy_from`, `#copy_to` or `#move_to`, which v3.0 takes as the name of a file, applying the
   streams of its file name, rather than as an IO, or to `IOStreams.stream`, which raises `ArgumentError` for it in
-  v3.0; a local file name of `~`, or starting with `~/`; and a local `#move_to` onto an existing directory.
+  v3.0; a local file name of `~`, or starting with `~/`; a `file://` url; and a local `#move_to` onto an existing
+  directory.
 * [S3](#s3), [SFTP](#sftp) and [HTTP](#http): the methods of the `File` that the block of an S3 or HTTP(S) path
   without streams receives, other than those of an IO that read or write; an S3 option that no S3 request takes, or
   that the path sets itself, such as `key:`; a name that starts with `/` joined to an S3 bucket; and an SFTP or
   HTTP(S) url without a path.
 * [Extending IOStreams](#extending-iostreams): the methods of a Struct on a built-in extension of
-  `IOStreams.extensions`, other than `reader_class` and `writer_class`, and the setters of a registered extension;
-  registering `:encode` or `:none`; and deregistering `:encode`.
+  `IOStreams.extensions`, other than `reader_class` and `writer_class`, and the setters of a registered extension,
+  also once it is no longer registered; registering `:encode` or `:none`; deregistering `:encode`; and a name of an
+  extension that ends with a line break, or is not in lower case.
 
 v2.2 does not report `IOStreams::Schema.from_layout`, which v3.0 removes with `#format_options`, see
 [Moving a layout to a schema](#moving-a-layout-to-a-schema).
