@@ -113,7 +113,11 @@ module Paths
           file_path
 
           # In upper case, so that the case-insensitive retry downcases it.
-          assert_empty root.children(Pathname.new("**/*.CSV"))
+          actual = assert_deprecated(/a pattern that is not a String is deprecated/) do
+            root.children(Pathname.new("**/*.CSV"))
+          end
+
+          assert_empty actual
         end
       end
 

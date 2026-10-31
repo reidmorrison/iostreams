@@ -51,7 +51,7 @@ module IOStreams
     #
     # Returns nil.
     def self.warn(message)
-      return unless Warning[:deprecated]
+      return unless on?
 
       report(message, application_location)
     end
@@ -62,7 +62,7 @@ module IOStreams
     #
     # Returns nil.
     def self.warn_on_load(message)
-      return unless Warning[:deprecated]
+      return unless on?
 
       report(message, loading_location)
     end
@@ -71,6 +71,13 @@ module IOStreams
     # .warn, so that an application, or its tests, can tell the deprecation warnings of IOStreams from the others.
     def self.warning?(message)
       WARNING.match?(message)
+    end
+
+    # Returns [true|false] whether deprecation warnings are on, see `Warning[:deprecated]`, so that .warn reports them,
+    # for a caller to find out whether something is deprecated only while they are, where finding it out costs more
+    # than the call to .warn.
+    def self.on?
+      Warning[:deprecated]
     end
 
     # Returns [Thread::Backtrace::Location|nil] the line of the application that used this library, or nil when the

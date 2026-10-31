@@ -11,7 +11,7 @@ module IOStreams
       @file_name     = file_name
       @streams       = nil
       @options       = nil
-      @format        = nil
+      @named_format  = nil
       @set_format    = nil
       @format_option = nil
       @encoding      = nil
@@ -190,19 +190,20 @@ module IOStreams
 
     # Returns the tabular format if set, otherwise tries to autodetect the format if the file_name has been set
     # Returns [nil] if no format is set, or if it cannot be determined from the file_name
+    #
+    # The format that the file name names is kept once it is found, until a format is set, see #format=.
     def format
-      @format ||= file_name ? Tabular.format_from_file_name(file_name) : nil
+      @set_format || (@named_format ||= file_name ? Tabular.format_from_file_name(file_name) : nil)
     end
 
-    # Sets the tabular format, or nil to detect it from the file name, see #format. Unlike the format detected, which
-    # #format keeps once it is detected, the one set is also kept on its own, see #warn_text_format.
+    # Sets the tabular format, or nil to detect it from the file name again, see #format.
     def format=(format)
       unless format.nil? || IOStreams::Tabular.registered_formats.include?(format)
         raise(ArgumentError, "Invalid format: #{format.inspect}")
       end
 
-      @format     = format
-      @set_format = format
+      @set_format   = format
+      @named_format = nil
     end
 
     # Returns [true|false] whether a format was set, see #format=, rather than taken from the file name, see #format.
@@ -228,8 +229,13 @@ module IOStreams
     # So is reading them in the format that the file name names, such as `:psv` for `report.psv.xlsx`, without a format
     # set, since v3.0 reads them in the format of the text whatever the file name, so that `format(:csv)` reads them
     # the same in both versions.
+    #
+    # Neither is looked for while deprecation warnings are off, see `IOStreams::Deprecation.on?`, since finding the
+    # format of the text would build the pipeline once more for each read.
     def warn_text_format
-      format = @set_format || self.format
+      return unless Deprecation.on?
+
+      format = self.format
       return if format.nil?
 
       text_format = self.text_format

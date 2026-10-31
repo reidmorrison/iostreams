@@ -713,11 +713,23 @@ module IOStreams
     # since v3.0 raises ArgumentError for each of them. Each one reports how to set it on the path instead, see
     # PATH_SETTINGS, apart from `format_options:` with a schema, which raises for a layout, see #schema_tabular, so that
     # the one that it accepts, nil or empty, has no effect, and is reported with the advice to remove it.
+    #
+    # When the streams read the rows in a format of their own, such as those of a spreadsheet as CSV, see
+    # `IOStreams::Builder#text_format`, the settings that choose the format, see #format_setting_names, report that
+    # format as the one to set on the path, since any other is deprecated there too, see
+    # `IOStreams::Builder#warn_text_format`. It is only looked for while deprecation warnings are on, see
+    # `IOStreams::Deprecation.on?`, since it builds the pipeline.
     def warn_path_settings(args)
-      (args.keys & path_setting_names).each do |name|
+      names        = args.keys & path_setting_names
+      format_names = format_setting_names
+      text_format  = builder.text_format if Deprecation.on? && names.intersect?(format_names)
+      names.each do |name|
         advice =
           if name == :format_options && !builder.schema.nil?
             "and has no effect with a schema, so remove it"
+          elsif text_format && format_names.include?(name)
+            "set format(#{text_format.inspect}) on the path instead, since the streams read the rows as " \
+              "#{text_format.inspect}, such as those of a spreadsheet"
           else
             PATH_SETTINGS.fetch(name)
           end
@@ -731,6 +743,13 @@ module IOStreams
     # #tabular_options, which the option of the call replaces.
     def path_setting_names
       [*(IOStreams::Tabular::FORMAT_OPTION_NAMES - %i[schema]), :original_file_name]
+    end
+
+    # Returns [Array<Symbol>] the names of the options of a call that choose the format of the file, in place of the
+    # format of its path: those that describe the file, see #path_setting_names, other than `format_options:`, which
+    # describes the fields of a fixed width file.
+    def format_setting_names
+      path_setting_names - %i[format_options]
     end
 
     # The options that only apply when reading a header, see `IOStreams::Tabular::Header::READ_OPTION_NAMES`, are

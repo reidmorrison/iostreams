@@ -110,6 +110,15 @@ root = File.expand_path(File.join(__dir__, "../tmp"))
 IOStreams.add_root(:default, File.join(root, "default"))
 IOStreams.add_root(:downloads, File.join(root, "downloads"))
 
+# Removes what a test registered with IOStreams, which has no method to remove it, so that it does not outlast the test.
+# The test helper of main has the same methods, for its own registries, which test/upgrade calls.
+module TestRegistry
+  # Removes the named root path, see `IOStreams.add_root`.
+  def self.remove_root(name)
+    IOStreams.instance_variable_get(:@root_paths).delete(name)
+  end
+end
+
 # Fails a test that caused an IOStreams deprecation warning that it did not assert with #assert_deprecated, or that its
 # class, such as a describe block, does not allow, see ClassMethods#allow_deprecation.
 module DeprecationCheck

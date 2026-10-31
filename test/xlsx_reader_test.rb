@@ -148,5 +148,48 @@ class XlsxReaderTest
         end
       end
     end
+
+    describe "a format supplied to each call for a spreadsheet, whose rows are read as CSV" do
+      # Each setting of a call that chooses the format, with a value that chooses PSV.
+      {
+        format:             :psv,
+        file_name:          "report.psv",
+        original_file_name: "report.psv",
+        default_format:     :psv
+      }.each_pair do |name, value|
+        it "reports a deprecation warning for #{name}: that says to set format(:csv) on the path, which still applies" do
+          line = __LINE__ + 3
+          rows = assert_deprecated(/xlsx_reader_test\.rb:#{line}: warning: IOStreams: #{name}: is deprecated for each call, set format\(:csv\) on the path instead, since the streams read the rows as :csv, such as those of a spreadsheet\n\z/) do
+            rows = []
+            IOStreams.path(file_name).each(:array, name => value) { |row| rows << row }
+            rows
+          end
+
+          assert_equal xlsx_contents.map { |row| [row.join(",")] }, rows
+        end
+      end
+
+      it "looks for the format of the text that the streams read only while deprecation warnings are on" do
+        asked       = 0
+        text_format = lambda do
+          asked += 1
+          :csv
+        end
+        rows    = []
+        enabled = Warning[:deprecated]
+        begin
+          Warning[:deprecated] = false
+          IOStreams::Xlsx::Reader.stub(:text_format, text_format) do
+            IOStreams.path(file_name).format(:psv).each(:array) { |row| rows << row }
+            IOStreams.path(file_name).each(:array, default_format: :psv) { |row| rows << row }
+          end
+        ensure
+          Warning[:deprecated] = enabled
+        end
+
+        assert_equal 0, asked
+        assert_equal xlsx_contents.map { |row| [row.join(",")] } * 2, rows
+      end
+    end
   end
 end

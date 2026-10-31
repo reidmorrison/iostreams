@@ -276,15 +276,17 @@ module IOStreams
   # Add a named root path
   #
   # Returns [IOStreams::Path] the root path, which the whole process shares, see `IOStreams.join`. Changing it in place,
-  # such as with `#stream` or `#option`, whether through this path, `IOStreams.root`, `IOStreams.roots`, or
-  # `IOStreams.join` without elements, is deprecated, since v3.0 freezes it, and reports a deprecation warning: change a
-  # copy of it instead, such as `IOStreams.root.dup`, or a path joined to it, such as `IOStreams.join("a.csv")`.
+  # such as with `#stream` or `#option`, whether through this path, a path supplied as the root, `IOStreams.root`,
+  # `IOStreams.roots`, or `IOStreams.join` without elements, is deprecated, and reports a deprecation warning, since v3.0
+  # keeps its own frozen copy of the root, which this method returns, and the others return copies of it, so that
+  # changing them no longer changes the root: change a copy of it instead, such as `IOStreams.root(:uploads).dup`, or a
+  # path joined to it, such as `IOStreams.join("a.csv", root: :uploads)`.
   def self.add_root(root, *elements, **args)
     raise(ArgumentError, "Invalid characters in root name #{root.inspect}") unless root.to_s =~ /\A\w+\Z/
 
     path = path(*elements, **args)
     # The path class of a scheme registered with `IOStreams.register_scheme` need not be an `IOStreams::Path`.
-    path.send(:root!) if path.is_a?(Path)
+    path.send(:root!, root.to_sym) if path.is_a?(Path)
     @root_paths[root.to_sym] = path
   end
 

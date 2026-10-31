@@ -169,7 +169,7 @@ module IOStreams
           end
 
           after do
-            IOStreams.instance_variable_get(:@root_paths).delete(:deprecated_root)
+            TestRegistry.remove_root(:deprecated_root)
           end
 
           # Each method that changes a path in place, how the test calls it, and the method that reads the change back.
@@ -191,11 +191,23 @@ module IOStreams
             it "reports a deprecation warning for #{name} on the path that it returns, which still changes the root" do
               root = IOStreams.add_root(:deprecated_root, "/tmp/iostreams/data.csv.gz")
               # The warning names the line of the lambda, which calls the method.
-              assert_deprecated(/io_streams_test\.rb:\d+: warning: IOStreams: #{Regexp.escape(name)} is deprecated on a root path, which the whole process shares, since v3\.0 freezes it, change a copy of it instead, such as IOStreams\.root\.dup, or a path joined to it, such as IOStreams\.join\("a\.csv"\)/) do
+              assert_deprecated(/io_streams_test\.rb:\d+: warning: IOStreams: #{Regexp.escape(name)} is deprecated on a root path, which the whole process shares, since v3\.0 keeps its own frozen copy of the root, and returns copies of it, so changing this path no longer changes the root, change a copy of it instead, such as IOStreams\.root\(:deprecated_root\)\.dup, or a path joined to it, such as IOStreams\.join\("a\.csv", root: :deprecated_root\)\n\z/) do
                 change.call(root, schema)
               end
 
               assert_equal expected, IOStreams.root(:deprecated_root).public_send(reader)
+            end
+          end
+
+          it "names the copy of the default root, and a path joined to it, without the name of the root" do
+            default = IOStreams.root
+            begin
+              root = IOStreams.add_root(:default, "/tmp/iostreams")
+              assert_deprecated(/change a copy of it instead, such as IOStreams\.root\.dup, or a path joined to it, such as IOStreams\.join\("a\.csv"\)\n\z/) do
+                root.stream(:gz)
+              end
+            ensure
+              IOStreams.add_root(:default, default)
             end
           end
 

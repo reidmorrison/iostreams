@@ -44,6 +44,10 @@ module Upgrade
       end
 
       describe "a copy of a root path, or a path joined to it, in place of changing the root" do
+        after do
+          TestRegistry.remove_root(:upgrade_warnings_paths)
+        end
+
         it "changes the copy of a root path, which reads and writes the file of the root, and not the root" do
           Dir.mktmpdir do |dir|
             IOStreams.add_root(:upgrade_warnings_paths, File.join(dir, "data.csv"))

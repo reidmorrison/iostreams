@@ -130,6 +130,29 @@ class BuilderTest < Minitest::Test
         assert_equal :csv, streams.format
       end
 
+      it "detects the format from the file name again once the format set is removed" do
+        streams        = IOStreams::Builder.new("abc.json")
+        streams.format = :csv
+        streams.format = nil
+
+        assert_equal :json, streams.format
+        refute_predicate streams, :format_set?
+      end
+
+      it "keeps the format detected until a format is set, as before" do
+        streams           = IOStreams::Builder.new("abc.json")
+        detected          = streams.format
+        streams.file_name = "abc.psv"
+
+        assert_equal :json, detected
+        assert_equal :json, streams.format
+
+        streams.format = :csv
+        streams.format = nil
+
+        assert_equal :psv, streams.format
+      end
+
       it "validates bad format" do
         assert_raises ArgumentError do
           streams.format = :blah
