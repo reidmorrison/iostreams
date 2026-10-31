@@ -143,8 +143,8 @@ IOStreams raises these classes itself:
   * `IOStreams::Errors::DelimiterNotFound`: no line delimiter was found within the maximum line length.
   * `IOStreams::Errors::InvalidValue`: a value is not of the type of its field in the schema, or a field that is
     required has no value, see [Schema](formats#schema), or a time of day that a query reads is outside a day, or an
-    interval that it reads is infinite, see [Times of day](queries#times-of-day). A value read names the record that it
-    is in and the line that the record starts on, such as `..., in record 6 on line 7`, which its `#record_number` and
+    interval that it reads is infinite, see [Times of day](queries#times-of-day), which name the column. A value that a
+    reader of rows or records converts names the record that it is in and the line that the record starts on, such as `..., in record 6 on line 7`, which its `#record_number` and
     `#line_number` hold, with its `#field`, `#value` and `#reason`, see
     [Values that are not valid](streams#values-that-are-not-valid). `on_invalid:` hands each bad row to a handler
     instead, as an `IOStreams::InvalidRow`.

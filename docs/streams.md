@@ -149,9 +149,14 @@ end
 
 * The handler receives an `IOStreams::InvalidRow`: its `#line_number`, `#record_number`, the `#row` as it was read,
   such as its line of text, and `#errors`, an `IOStreams::Errors::InvalidValue` for each field whose value is not
-  valid. The valid rows still reach the block.
+  valid. The valid rows still reach the block. A file read by both a schema of its own and a contract lists the
+  errors of the fields of its schema, and, once they are valid, those of the contract.
 * Problems with the columns, such as a missing column that a schema requires, still raise before the first row; see
   [Checking a source before the work starts](contracts#checking-a-source-before-the-work-starts) to list them first.
+* A row whose values do not fit the columns, rather than a value that is not valid, still raises where it is, such as
+  a row with a value after the last column (`IOStreams::Errors::InvalidHeader`), a fixed width line of another length
+  (`IOStreams::Errors::InvalidLineLength`), or, with a schema, a JSON record without a key that the schema requires.
+* `each(:slice, validate: true)` raises the first `IOStreams::Errors::InvalidValue`, naming its record and line too.
 * `on_invalid:` only applies when reading, so `#writer` and `#copy_from` raise `ArgumentError` for it, and so does a
   handler that cannot be called, before the file is opened.
 

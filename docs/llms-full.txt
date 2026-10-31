@@ -877,9 +877,14 @@ end
 
 * The handler receives an `IOStreams::InvalidRow`: its `#line_number`, `#record_number`, the `#row` as it was read,
   such as its line of text, and `#errors`, an `IOStreams::Errors::InvalidValue` for each field whose value is not
-  valid. The valid rows still reach the block.
+  valid. The valid rows still reach the block. A file read by both a schema of its own and a contract lists the
+  errors of the fields of its schema, and, once they are valid, those of the contract.
 * Problems with the columns, such as a missing column that a schema requires, still raise before the first row; see
   [Checking a source before the work starts](contracts#checking-a-source-before-the-work-starts) to list them first.
+* A row whose values do not fit the columns, rather than a value that is not valid, still raises where it is, such as
+  a row with a value after the last column (`IOStreams::Errors::InvalidHeader`), a fixed width line of another length
+  (`IOStreams::Errors::InvalidLineLength`), or, with a schema, a JSON record without a key that the schema requires.
+* `each(:slice, validate: true)` raises the first `IOStreams::Errors::InvalidValue`, naming its record and line too.
 * `on_invalid:` only applies when reading, so `#writer` and `#copy_from` raise `ArgumentError` for it, and so does a
   handler that cannot be called, before the file is opened.
 
@@ -3872,7 +3877,8 @@ end
 
 The handler receives an `IOStreams::InvalidRow` with an error for each field of the row whose value is not valid, see
 [Values that are not valid](streams#values-that-are-not-valid). Problems with the columns still raise before the first
-row; `#contract_errors` lists those up front.
+row; `#contract_errors` lists those up front. A row whose values do not fit the columns, such as one with a value after
+the last column, still raises where it is.
 
 ## Checking a source before the work starts
 
@@ -6226,8 +6232,8 @@ IOStreams raises these classes itself:
   * `IOStreams::Errors::DelimiterNotFound`: no line delimiter was found within the maximum line length.
   * `IOStreams::Errors::InvalidValue`: a value is not of the type of its field in the schema, or a field that is
     required has no value, see [Schema](formats#schema), or a time of day that a query reads is outside a day, or an
-    interval that it reads is infinite, see [Times of day](queries#times-of-day). A value read names the record that it
-    is in and the line that the record starts on, such as `..., in record 6 on line 7`, which its `#record_number` and
+    interval that it reads is infinite, see [Times of day](queries#times-of-day), which name the column. A value that a
+    reader of rows or records converts names the record that it is in and the line that the record starts on, such as `..., in record 6 on line 7`, which its `#record_number` and
     `#line_number` hold, with its `#field`, `#value` and `#reason`, see
     [Values that are not valid](streams#values-that-are-not-valid). `on_invalid:` hands each bad row to a handler
     instead, as an `IOStreams::InvalidRow`.
@@ -9623,6 +9629,9 @@ for each one.
 - Reading rows or records keeps a newline within a quoted CSV value in its row when CSV is the default format, such as
   for `data.txt`, a stream without a file name, or a spreadsheet, where the lines were split at the newline, which
   raised `CSV::MalformedCSVError`.
+- The message of an `IOStreams::Errors::InvalidValue` that a reader of rows or records raises ends with the record and
+  the line, such as `..., in record 6 on line 7`. `#reason` returns the message without them, for code that compares
+  the whole message.
 
 ## Upgrading to v2.2
 

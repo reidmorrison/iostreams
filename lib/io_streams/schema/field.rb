@@ -414,8 +414,9 @@ module IOStreams
         end
 
         if value.is_a?(String)
+          text  = value
           value = value.strip
-          return @constraints.no_value if value.empty?
+          return @constraints.no_value(text) if value.empty?
         end
 
         cast_value(value)

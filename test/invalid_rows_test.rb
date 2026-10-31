@@ -51,6 +51,13 @@ class InvalidRowsTest < Minitest::Test
         assert_equal 'Field "id" is required, but has no value, in record 4 on line 6', error.message
       end
 
+      it "names the record and line of a value that each(:slice, validate: true) checks" do
+        stream = IOStreams.stream(StringIO.new(CSV)).file_name("orders.csv").as(Order)
+        error  = assert_raises(IOStreams::Errors::InvalidValue) { stream.each(:slice, size: 1, validate: true) { nil } }
+
+        assert_equal [2, 3], [error.record_number, error.line_number]
+      end
+
       it "names the record of a source without lines" do
         rows  = [%w[id amount], [1, "x"]]
         slice = IOStreams::Slice.new(rows.drop(1), header: rows.first, format: :array)
@@ -117,6 +124,26 @@ class InvalidRowsTest < Minitest::Test
           each(:array, on_invalid: ->(_row) {}) { |row| rows << row }
 
         assert_equal [%w[id amount ordered_at], [2, nil, nil]], rows
+      end
+
+      it "takes a fixed width line, skips blank rows, resumes at a record, and is an option of #reader too" do
+        schema   = {fields: [{name: "id", type: "integer", width: 3}, {name: "amount", type: "number", width: 4}]}
+        problems = []
+        ids      = []
+        fixed    = IOStreams.stream(StringIO.new("001  12\nabc 1.5\n\n003 2.5\n")).file_name("orders.fixed").schema(schema).as(Order)
+        fixed.reader(:hash, on_invalid: ->(row) { problems << row }, skip_blanks: true, resume_at: 2) do |reader|
+          reader.each { |order| ids << order["id"] }
+        end
+
+        assert_equal [3], ids
+        assert_equal([[2, 2, "abc 1.5"]], problems.map { |row| [row.record_number, row.line_number, row.row] })
+      end
+
+      it "holds the blank value of a field that is required, as it was read" do
+        problems = []
+        orders("id,amount,ordered_at\n  ,1,\n").each(:hash, on_invalid: ->(row) { problems << row }) { nil }
+
+        assert_equal ["  "], problems.first.errors.map(&:value)
       end
 
       it "is a read option, which writers and copies raise for" do

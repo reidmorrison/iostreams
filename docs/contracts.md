@@ -98,7 +98,8 @@ end
 
 The handler receives an `IOStreams::InvalidRow` with an error for each field of the row whose value is not valid, see
 [Values that are not valid](streams#values-that-are-not-valid). Problems with the columns still raise before the first
-row; `#contract_errors` lists those up front.
+row; `#contract_errors` lists those up front. A row whose values do not fit the columns, such as one with a value after
+the last column, still raises where it is.
 
 ## Checking a source before the work starts
 

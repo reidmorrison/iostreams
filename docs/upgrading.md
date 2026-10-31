@@ -1746,6 +1746,9 @@ for each one.
 - Reading rows or records keeps a newline within a quoted CSV value in its row when CSV is the default format, such as
   for `data.txt`, a stream without a file name, or a spreadsheet, where the lines were split at the newline, which
   raised `CSV::MalformedCSVError`.
+- The message of an `IOStreams::Errors::InvalidValue` that a reader of rows or records raises ends with the record and
+  the line, such as `..., in record 6 on line 7`. `#reason` returns the message without them, for code that compares
+  the whole message.
 
 ## Upgrading to v2.2
 

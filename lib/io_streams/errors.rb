@@ -88,8 +88,8 @@ module IOStreams
         @reason || self.class.name
       end
 
-      # Sets the record that the value is in, and the line that it starts on, unless they are already set, such as by
-      # the reader of a slice, which knows the numbers of its file.
+      # Sets the record that the value is in, and the line that it starts on, unless they are already set, so that an
+      # error keeps where it was first found.
       #
       # Returns [IOStreams::Errors::InvalidValue] itself.
       def at(line_number: nil, record_number: nil)

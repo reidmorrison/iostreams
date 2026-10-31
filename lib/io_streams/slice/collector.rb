@@ -142,7 +142,7 @@ module IOStreams
           number         = record_number.equal?(NEXT_RECORD) ? @record_number + 1 : record_number
           @record_number = number if number
           @count        += 1
-          @tabular.validate_line(text) if @validate
+          validate(text, line_number, number) if @validate
           @slice ||= Slice.new(header: header, format: @tabular.format, blank_rows: @tabular.blank_rows?,
                                typed: @tabular.typed?)
           @slice.add(text, line_number: line_number, record_number: number)
@@ -174,6 +174,14 @@ module IOStreams
       end
 
       private
+
+      # Parses the supplied line of a row, see `IOStreams::Tabular#validate_line`, raising an
+      # `IOStreams::Errors::InvalidValue` that names the record that it is in and the line that it starts on.
+      def validate(line, line_number, record_number)
+        @tabular.validate_line(line)
+      rescue IOStreams::Errors::InvalidValue => e
+        raise e.at(line_number: line_number, record_number: record_number)
+      end
 
       # Counts a record before `resume_at`, see #initialize, which it skips without parsing it, nor checking its keys: a
       # line is a record once the tabular no longer expects the header row, see `IOStreams::Tabular#header?`.

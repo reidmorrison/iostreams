@@ -53,17 +53,19 @@ module IOStreams
       end
 
       # Returns nil, the value of a field that has none, unless each value of the field must be present, see
-      # #value_required?, which raises `IOStreams::Errors::InvalidValue`.
-      def no_value
+      # #value_required?, which raises `IOStreams::Errors::InvalidValue`, holding the value as it was read, such as nil or
+      # blank text, see `IOStreams::Errors::InvalidValue#value`.
+      def no_value(value = nil)
         return unless value_required?
 
-        raise(IOStreams::Errors::InvalidValue.new("Field #{@name.inspect} is required, but has no value", field: @name))
+        message = "Field #{@name.inspect} is required, but has no value"
+        raise(IOStreams::Errors::InvalidValue.new(message, field: @name, value: value))
       end
 
       # Returns [String] the empty text of a field whose type keeps it as its value, such as a string, unless the field is
       # required, which raises `IOStreams::Errors::InvalidValue`, since Frictionless treats empty text as no value.
       def no_text(text)
-        no_value
+        no_value(text)
         text
       end
 
