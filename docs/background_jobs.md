@@ -50,7 +50,7 @@ CSV file, and describes them, so that any worker can parse them on its own:
   worker reads its rows correctly without knowing how, or where, the file was read.
 * **A slice is plain data.** It turns into a Hash of Strings, Arrays and Integers, which JSON, a job queue or a database
   stores as it is, and back into a slice where the worker runs.
-* **A file is checked before any work starts.** Its header row is matched to the [schema](schemas) before the
+* **A file is checked before any work starts.** Its header row is matched to the [contract](contracts) before the
   first slice is handed on, so a file with the wrong columns raises before any job is enqueued.
 * **Each row keeps its place in the file.** A slice holds the line and record number of each of its rows, so a job can
   report the line of a row that fails, and a job that resumes knows where it stopped.
@@ -62,7 +62,7 @@ CSV file, and describes them, so that any worker can parse them on its own:
 | Read a file or query in slices | `each(:slice, size: 500)` | Yields slices of the rows, as they are, after checking the header row |
 | Write rows into slices | `IOStreams.stream(store)` | Writes the lines, rows or records that your code writes, or copies, to your store, in slices |
 | Send a slice elsewhere | `slice.to_h`, `IOStreams.slice(hash)` | Turns a slice into plain data and back |
-| Parse a slice | `IOStreams.stream(slice)` | Reads the rows of a slice as the rows of its file, by a schema |
+| Parse a slice | `IOStreams.stream(slice)` | Reads the rows of a slice as the rows of its file, by a contract |
 | Resume at a record | `each(:slice, size: 500, resume_at: cursor)` | Reads the slices from the record of the cursor on, see [One job that resumes](#one-job-that-resumes) |
 | Write slices to a file | `writer(:slice)` | Writes slices to one file, after their header row, without parsing them when it can |
 
@@ -74,7 +74,7 @@ that `slice.to_h` returns, which the job of the slice turns back into a slice wi
 ~~~ruby
 class ImportPeopleJob < ApplicationJob
   def perform(url)
-    IOStreams.path(url).schema(People::SCHEMA).each(:slice, size: 500) do |slice|
+    IOStreams.path(url).as(PersonContract).each(:slice, size: 500) do |slice|
       ImportPeopleSliceJob.perform_later(slice.to_h)
     end
   end
@@ -83,27 +83,35 @@ end
 class ImportPeopleSliceJob < ApplicationJob
   def perform(rows)
     slice = IOStreams.slice(rows)
-    IOStreams.stream(slice).schema(People::SCHEMA).each(:hash) do |person|
+    IOStreams.stream(slice).as(PersonContract).each(:hash) do |person|
       Person.upsert(person) if person
     end
   end
 end
 ~~~
 
-where `People::SCHEMA` is the [schema](schemas) of the file, a Hash that each process reads once:
+where `PersonContract` is the [contract](contracts) of the records, the fields that the jobs need and their types,
+named so that it does not clash with the model `Person`:
 
 ~~~ruby
-module People
-  SCHEMA = JSON.parse(File.read(Rails.root.join("config/schemas/people.json"))).freeze
+class PersonContract < IOStreams::Contract
+  fields_match "subset"
+
+  field :name, :string, required: true
+  field :age,  :integer
 end
 ~~~
 
 * The url is configuration, so the same jobs read a local file in development and an S3 object, compressed or
-  encrypted, in production, see [Paths](path).
-* `each(:slice)` checks the header row of the file against the schema before it yields the first slice, so a file
+  encrypted, in production, see [Paths](path). A CSV file, JSON, a spreadsheet or Parquet names its own columns, while
+  a file that cannot, such as fixed width, also needs a [schema](schemas), set with `#schema` beside `#as`, see
+  [A source that cannot describe itself](contracts#a-source-that-cannot-describe-itself).
+* `each(:slice)` checks the header row of the file against the contract before it yields the first slice, so a file
   whose columns do not match raises `IOStreams::Errors::InvalidHeader` before any job is enqueued.
 * Each record is a Hash of its fields, with each value read as its type, such as an Integer or a Date, as `each(:hash)`
-  reads the file itself. A blank row is read as `nil`, which is why the job skips it.
+  reads the file itself, and `each(:record)` yields a `PersonContract` instead, see
+  [Records of a contract](contracts#records-of-a-contract). A blank row is read as `nil`, which is why the job skips
+  it.
 * `ActiveJob.perform_all_later` enqueues many jobs at once, such as the jobs of 100 slices, for a backend that enqueues
   them together.
 
@@ -122,17 +130,16 @@ slice.to_h
   `ArgumentError` for a Hash that does not describe a slice.
 * The header row travels with every slice, so each job reads its rows by the columns of their own file, even when the
   files that feed the same job have their columns in different orders.
-* The rows and records that a program writes to a [store of slices](#a-store-of-slices) in the `:array` or `:hash`
-  mode are each a record, also when every value is blank, so their slice holds `"blank_rows" => false`. With a schema,
-  in the `:array` or `:hash` format, they are the values of its fields themselves, such as Integers and Dates, so
-  their slice also carries the schema, `"schema"`, with each value in a form that JSON keeps exactly, as does a slice
+* The rows and records that a program writes to a [store of slices](#a-store-of-slices) in the `:array` or `:hash` mode
+  are each a record, also when every value is blank, so their slice holds `"blank_rows" => false`. With a contract or
+  schema, in the `:array` or `:hash` format, they are the values of its fields themselves, such as Integers and Dates,
+  so their slice also carries the schema, `"schema"`, with each value in a form that JSON keeps exactly, as does a slice
   of a query or a Parquet file. `IOStreams.stream(slice)` then reads them by that schema, without the job knowing it,
   and hands the job each value in the type of its field, also when a store of the slice itself, rather than of its
-  `#to_h`, changed its form: a duration that BSON keeps as its seconds is a duration again, and a Date that BSON
-  returns as a Time is a Date. A value of a field of type `any`, such as a computed column of a query, is held as
-  JSON holds it, a time, a date or a BigDecimal as its text, which comes back as text. To replace the rows of a slice
-  with others in the same form, `slice.with_rows(rows)` returns a new slice that keeps everything else that the slice
-  says.
+  `#to_h`, changed its form: a duration that BSON keeps as its seconds is a duration again, and a Date that BSON returns
+  as a Time is a Date. A value of a field of type `any`, such as a computed column of a query, is held as JSON holds it,
+  a time, a date or a BigDecimal as its text, which comes back as text. To replace the rows of a slice with others in
+  the same form, `slice.with_rows(rows)` returns a new slice that keeps everything else that the slice says.
 
 ### Choosing the size of a slice
 
@@ -174,7 +181,7 @@ end
 
 ~~~ruby
 import = Import.create!(url: url)
-IOStreams.stream(ImportSlices.new(import)).schema(People::SCHEMA).copy_from(url, mode: :line)
+IOStreams.stream(ImportSlices.new(import)).as(PersonContract).copy_from(url, mode: :line)
 
 import.import_slices.ids.each do |id|
   ImportPeopleSliceJob.perform_later(id)
@@ -187,7 +194,7 @@ The job of each slice then reads it from the table:
 class ImportPeopleSliceJob < ApplicationJob
   def perform(id)
     slice = IOStreams.slice(ImportSlice.find(id).rows)
-    IOStreams.stream(slice).schema(People::SCHEMA).each(:hash) do |person|
+    IOStreams.stream(slice).as(PersonContract).each(:hash) do |person|
       Person.upsert(person) if person
     end
   end
@@ -263,20 +270,19 @@ class ResultSlices
 end
 
 class ImportPeopleSliceJob < ApplicationJob
-  REPORT_SCHEMA = {
-    "fields" => [
-      {"name" => "name"},
-      {"name" => "status"}
-    ]
-  }.freeze
+  # The columns of the results.
+  class Report < IOStreams::Contract
+    field :name,   :string
+    field :status, :string
+  end
 
   def perform(id)
     import_slice = ImportSlice.find(id)
     slice        = IOStreams.slice(import_slice.rows)
-    results      = IOStreams.stream(ResultSlices.new(import_slice)).schema(REPORT_SCHEMA)
+    results      = IOStreams.stream(ResultSlices.new(import_slice)).as(Report)
 
     results.writer(:hash) do |io|
-      IOStreams.stream(slice).schema(People::SCHEMA).each(:hash) do |person|
+      IOStreams.stream(slice).as(PersonContract).each(:hash) do |person|
         io << {"name" => person["name"], "status" => import(person)} if person
       end
     end
@@ -291,7 +297,7 @@ the order of the input:
 class ImportFinishedJob < ApplicationJob
   def perform(import_id)
     import = Import.find(import_id)
-    report = IOStreams.path(import.report_url).schema(ImportPeopleSliceJob::REPORT_SCHEMA)
+    report = IOStreams.path(import.report_url).as(ImportPeopleSliceJob::Report)
     report.writer(:slice) do |io|
       ResultSlice.where(import_id: import.id).order(:number, :id).each do |result|
         io << IOStreams.slice(result.rows)
@@ -356,9 +362,9 @@ class ImportPeopleJob < ApplicationJob
 
   def perform(url)
     step :import do |step|
-      IOStreams.path(url).schema(People::SCHEMA).each(:slice, size: 100, resume_at: step.cursor) do |slice|
+      IOStreams.path(url).as(PersonContract).each(:slice, size: 100, resume_at: step.cursor) do |slice|
         Person.transaction do
-          IOStreams.stream(slice).schema(People::SCHEMA).each(:hash) do |person|
+          IOStreams.stream(slice).as(PersonContract).each(:hash) do |person|
             Person.upsert(person) if person
           end
         end
@@ -389,14 +395,14 @@ class ImportPeopleJob
 
   def build_enumerator(url, cursor:)
     Enumerator.new do |yielder|
-      IOStreams.path(url).schema(People::SCHEMA).each(:slice, size: 100, resume_at: cursor) do |slice|
+      IOStreams.path(url).as(PersonContract).each(:slice, size: 100, resume_at: cursor) do |slice|
         yielder << [slice, slice.record_number]
       end
     end
   end
 
   def each_iteration(slice, _url)
-    IOStreams.stream(slice).schema(People::SCHEMA).each(:hash) do |person|
+    IOStreams.stream(slice).as(PersonContract).each(:hash) do |person|
       Person.upsert(person) if person
     end
   end
@@ -417,7 +423,7 @@ class ImportPeopleJob < ApplicationJob
 
   def build_enumerator(url, cursor:)
     slices = Enumerator.new do |yielder|
-      IOStreams.path(url).schema(People::SCHEMA).each(:slice, size: 100, resume_at: cursor) do |slice|
+      IOStreams.path(url).as(PersonContract).each(:slice, size: 100, resume_at: cursor) do |slice|
         yielder << [slice, slice.record_number_at(-1) + 1]
       end
     end
@@ -425,7 +431,7 @@ class ImportPeopleJob < ApplicationJob
   end
 
   def each_iteration(slice, _url)
-    IOStreams.stream(slice).schema(People::SCHEMA).each(:hash) do |person|
+    IOStreams.stream(slice).as(PersonContract).each(:hash) do |person|
       Person.upsert(person) if person
     end
   end
@@ -459,7 +465,7 @@ end
 A spreadsheet has no lines: read as `:text`, each row is the CSV text of a row of the sheet, without a line number, its
 header row too, and a value that holds a comma or a quote is quoted, see [Text](formats#text), so this job would send an
 invitation to the header row, and to quoted addresses. Read the email addresses of a spreadsheet as its records
-instead, by a schema that names their column, see [One job per slice](#background-jobs).
+instead, by a contract that names their column, see [One job per slice](#background-jobs).
 
 ## Failures
 
@@ -467,13 +473,22 @@ Decide what should happen when the file, or a job, fails part way through.
 
 ### Check the file before handing it on
 
-A file whose header row does not match the schema raises before the first slice. A value that is not valid, such as
-`abc` in an integer field, is normally found by the job that parses its row, after the slices before it have been
-handed on. To find such rows before any slice is handed on, parse each row while the file is read, with
-`validate: true`:
+A file whose header row does not match the contract raises before the first slice. To tell the user who uploads a
+file about its columns before any job starts, ask `#contract_errors` in the web request that accepts it, which reads
+only the header row, see [Checking a source before the work starts](contracts#checking-a-source-before-the-work-starts):
 
 ~~~ruby
-IOStreams.path(url).schema(People::SCHEMA).each(:slice, size: 500, validate: true) do |slice|
+errors = IOStreams.path(url).as(PersonContract).contract_errors
+# => [] when the columns meet the contract, otherwise an IOStreams::Errors::InvalidHeader for each problem
+~~~
+
+A value that is not valid, such as `abc` in an integer field, is normally found by the job that parses its row, after
+the slices before it have been handed on. The job can hand each such row to a handler, and carry on with the rest,
+with `on_invalid:`, see [Values that are not valid](streams#values-that-are-not-valid). To find such rows before any
+slice is handed on, parse each row while the file is read, with `validate: true`:
+
+~~~ruby
+IOStreams.path(url).as(PersonContract).each(:slice, size: 500, validate: true) do |slice|
   ImportPeopleSliceJob.perform_later(slice.to_h)
 end
 ~~~
@@ -510,7 +525,7 @@ failure, such as of its own code:
 def perform(rows)
   slice = IOStreams.slice(rows)
   index = 0
-  IOStreams.stream(slice).schema(People::SCHEMA).each(:hash) do |person|
+  IOStreams.stream(slice).as(PersonContract).each(:hash) do |person|
     Person.upsert(person) if person
     index += 1
   end
@@ -553,7 +568,7 @@ To process again only the rows from the one that failed, such as once its data i
 record number of that row, which the job reported, see [Find a row in the file](#find-a-row-in-the-file):
 
 ~~~ruby
-IOStreams.stream(slice).schema(People::SCHEMA).each(:hash, resume_at: failed_record_number) do |person|
+IOStreams.stream(slice).as(PersonContract).each(:hash, resume_at: failed_record_number) do |person|
   Person.upsert(person) if person
 end
 ~~~
@@ -584,18 +599,18 @@ class PeopleSlices
 end
 ~~~
 
-`IOStreams.stream(store)` returns a stream that writes to the store in slices, in its format and by its schema, as it
-would write a file. Copy a file to it:
+`IOStreams.stream(store)` returns a stream that writes to the store in slices, in its format and by its contract or
+schema, as it would write a file. Copy a file to it:
 
 ~~~ruby
 store = PeopleSlices.new(upload.id)
-IOStreams.stream(store).schema(schema).copy_from("people.csv.gz", mode: :line)
+IOStreams.stream(store).as(PersonContract).copy_from("people.csv.gz", mode: :line)
 ~~~
 
 Or write records to it:
 
 ~~~ruby
-IOStreams.stream(store).schema(schema).writer(:hash) do |io|
+IOStreams.stream(store).as(PersonContract).writer(:hash) do |io|
   io << {"name" => "Jack", "age" => 21}
   io << {"name" => "Jill", "age" => 22}
 end
@@ -603,7 +618,7 @@ end
 
 * **What arrives at the store.** The records are written as lines of the format, CSV unless another is set with
   `#format`, so the slices hold text that any job queue or database stores as it is. The header row is matched to the
-  schema before the first slice is written, and each slice carries it, exactly as `each(:slice)` gives them.
+  contract before the first slice is written, and each slice carries it, exactly as `each(:slice)` gives them.
 * **Lines that are not CSV.** A copy of the lines of a file keeps the format of the file, so read a file of lines in the
   `:text` format, see [A file of lines](#a-file-of-lines), to store its lines as they are:
   `IOStreams.stream(store).copy_from(IOStreams.path(url).format(:text), mode: :line)`. A copy stores each row as its
@@ -657,28 +672,27 @@ Slices also share the work of one process between threads. The producer reads th
 a queue, and the workers take slices off the queue and read their records:
 
 ~~~ruby
-schema = JSON.parse(IOStreams.path("people.json").read)
-queue  = Thread::Queue.new
+queue = Thread::Queue.new
 
 workers = 4.times.map do
   Thread.new do
     while (slice = queue.pop)
-      IOStreams.stream(slice).schema(schema).each(:hash) do |person|
+      IOStreams.stream(slice).as(PersonContract).each(:hash) do |person|
         Person.create!(person) if person
       end
     end
   end
 end
 
-IOStreams.path("people.csv.gz").schema(schema).each(:slice, size: 500) do |slice|
+IOStreams.path("people.csv.gz").as(PersonContract).each(:slice, size: 500) do |slice|
   queue << slice
 end
 queue.close
 workers.each(&:join)
 ~~~
 
-* The schema is read once, and its Hash is given to the stream of each slice. A path to the schema file would work
-  too, but each slice would read the file again.
+* A schema held in a file, such as that of a fixed width file, is read again by the stream of each slice that it is
+  set on as a path, so read it once, and set its Hash on each one.
 * A blank row is read as `nil`, which the worker skips.
 * `Thread::Queue#pop` returns nil once the queue is closed and empty, which ends each worker's loop.
 

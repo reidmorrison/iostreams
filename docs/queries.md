@@ -109,8 +109,26 @@ IOStreams.stream(Order.where(paid: true)).each(:hash) do |order|
 end
 ~~~
 
-The keys of each record are the names of the columns, as Strings. `each(:array)` yields a header row of the names of
-the columns, and then the values of each row:
+The keys of each record are the names of the columns, as Strings. Read it through a [contract](contracts) instead,
+and the same code that reads a CSV upload or a Parquet file reads the query, as the records that the code needs:
+
+~~~ruby
+class OrderContract < IOStreams::Contract
+  field :id,     :integer
+  field :amount, :number, decimals: 2
+end
+
+IOStreams.stream(Order.where(paid: true).select(:id, :amount)).as(OrderContract).each(:record) do |order|
+  puts "#{order.id}: #{order.amount}"
+end
+~~~
+
+The contract is named so that it does not clash with the model `Order`. It meets the types of the columns before the
+first row, so a column whose type can never be that of its field, such as a boolean for `amount`, raises
+`IOStreams::Errors::IncompatibleType` before any row is read, see
+[Types that never fit](contracts#types-that-never-fit).
+
+`each(:array)` yields a header row of the names of the columns, and then the values of each row:
 
 ~~~ruby
 IOStreams.stream(Order.select(:id, :amount)).each(:array) do |row|
@@ -297,42 +315,48 @@ A Parquet file needs the type of every column, so a column of `any`, or a number
   `TO_BASE64(image) AS image_base64` on MySQL.
 * A number without decimals, such as a sum on PostgreSQL, needs its `decimals`.
 
-To give a column a type, set the schema of the query. It replaces the schema of every column, so start from the one
-that `#infer_schema` returns, and change the fields that need it:
+To give a column a type, read the query through a [contract](contracts), which a copy hands to a target with neither
+a contract nor a schema of its own. Its fields replace the types of every column, so give each column a field:
 
 ~~~ruby
-report = Order.select(:id, :amount, "SUM(amount) OVER (ORDER BY id) AS running_total")
-stream = IOStreams.stream(report)
-fields = stream.infer_schema.to_h[:fields].map do |field|
-  field[:name] == "running_total" ? field.merge(type: "number", decimals: 2) : field
+class RunningTotal < IOStreams::Contract
+  field :id,            :integer
+  field :amount,        :number, decimals: 2
+  field :running_total, :number, decimals: 2
 end
 
-IOStreams.path("orders.parquet").copy_from(stream.schema(fields: fields), mode: :hash)
+report = Order.select(:id, :amount, "SUM(amount) OVER (ORDER BY id) AS running_total")
+IOStreams.path("orders.parquet").copy_from(IOStreams.stream(report).as(RunningTotal), mode: :hash)
 ~~~
 
-The rows are then read by that schema, so a value that is not of the type of its field raises
-`IOStreams::Errors::InvalidValue`, such as a JSON array for an `object`.
+To start from the types of the columns, write the class that the query declares with
+`puts IOStreams.stream(report).infer_schema.to_dsl("RunningTotal")`, or with `infer_schema(sample: 1_000)`, which
+drafts the type of a column of type `any` from its values, see [Drafting a contract](contracts#drafting-a-contract).
+
+The rows are then read by the contract, so a value that is not of the type of its field raises
+`IOStreams::Errors::InvalidValue`, such as a JSON array for an `object`. A schema of the query, set with `#schema`,
+does the same, and also describes columns that a contract cannot, such as by their position.
 
 A schema with `header: false` matches its fields to the columns of the query by their position, rather than their
 names, so its fields can give them other names. A copy gives that schema to a target without one, `header: false`
 included, so a CSV file is then written without a header row, unless the target has a schema of its own.
 
-### A schema of the target
+### A contract of the target {#a-schema-of-the-target}
 
-A target with a schema of its own writes by that schema instead, for example to write only some of the columns, or to
-give them other names with `aliases`. Its fields are then all that the target knows of the columns, so give each one
-its type, such as the decimals of a number, which Parquet needs, and `fieldsMatch: "subset"`, which skips the other
+A target with a contract or schema of its own writes by it instead, for example to write only some of the columns, or
+to give them other names with `aliases`. Its fields are then all that the target knows of the columns, so give each
+one its type, such as the decimals of a number, which Parquet needs, and `fields_match "subset"`, which skips the other
 columns of the query, since the default, `"exact"`, raises `IOStreams::Errors::InvalidHeader` for them:
 
 ~~~ruby
-target = IOStreams.path("orders.csv").schema(
-  fieldsMatch: "subset",
-  fields:      [
-    {name: "order_id", aliases: ["id"], type: "integer"},
-    {name: "total", aliases: ["amount"], type: "number", decimals: 2}
-  ]
-)
-target.copy_from(Order.where(paid: true), mode: :hash)
+class OrderExport < IOStreams::Contract
+  fields_match "subset"
+
+  field :order_id, :integer, aliases: ["id"]
+  field :total,    :number,  decimals: 2, aliases: ["amount"]
+end
+
+IOStreams.path("orders.csv").as(OrderExport).copy_from(Order.where(paid: true), mode: :hash)
 ~~~
 
 This also names the columns of the file otherwise without losing the types of the attributes, which naming them with
