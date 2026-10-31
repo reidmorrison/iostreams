@@ -21,11 +21,6 @@ module IOStreams
                                  "field of a fixed width file".freeze
     private_constant :FORMAT_OPTIONS_DEPRECATION
 
-    # The options of a call that choose the format of the file, in place of the format of its path, see
-    # #warn_text_file_format.
-    TEXT_FORMAT_SETTINGS = %i[format file_name original_file_name default_format].freeze
-    private_constant :TEXT_FORMAT_SETTINGS
-
     # The modes that a copy converts the data with, see #copy_from. Without a mode it copies the bytes.
     COPY_MODES = %i[line array hash].freeze
     private_constant :COPY_MODES
@@ -928,10 +923,11 @@ module IOStreams
     # The rows and records of a file named `.text` without a format, such as `ids.text`, are deprecated, since IOStreams
     # v3.0 reads and writes them in its `:text` format, as the text of each line, see
     # `IOStreams::Builder#text_file_format`, while this version reads them as CSV, or in the format of an extension
-    # before `.text`, which `#format` sets on both. A call that supplies the format, or a file name that names it, which
-    # is deprecated itself, see #warn_path_settings, is not reported.
+    # before `.text`, which `#format` sets on both. A call that supplies a setting of the file that chooses the format,
+    # see #format_setting_names, such as `format:` or a file name that names it, which are deprecated themselves, see
+    # #warn_path_settings, is not reported.
     def warn_text_file_format(args)
-      return if args.keys.intersect?(TEXT_FORMAT_SETTINGS)
+      return if args.keys.intersect?(format_setting_names)
 
       format = builder.text_file_format
       return unless format

@@ -64,4 +64,5 @@ module IOStreams
     autoload :Writer, "io_streams/zip/writer"
   end
 end
+require "io_streams/paths"
 require "io_streams/io_streams"

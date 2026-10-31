@@ -222,9 +222,9 @@ module IOStreams
     end
 
     # Returns [true|false] whether the rows read, see #read_row, are the records of the file, Hashes keyed by the names
-    # of their values, rather than Arrays: those of a format without a header row, such as JSON, without a schema.
-    # IOStreams v3.0 reads them as Arrays, after a header row of the keys of the first record, as this version does
-    # with a schema.
+    # of their values, rather than Arrays: those of a format whose rows are records, see
+    # `IOStreams::Tabular::Parser::Base.keyed?`, such as JSON, without a schema. IOStreams v3.0 reads them as Arrays,
+    # after a header row of the keys of the first record, as this version does with a schema.
     def record_rows?
       @mapping.record_rows?
     end

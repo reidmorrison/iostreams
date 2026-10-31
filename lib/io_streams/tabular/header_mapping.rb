@@ -68,10 +68,13 @@ module IOStreams
       end
 
       # Returns [true|false] whether the rows read are the records of the file, see `IOStreams::Tabular#record_rows?`:
-      # those of a format without a header row, such as JSON, whose parser reads each line into a record, keyed by the
-      # names of its values, see #read_row.
+      # those of a format whose parser reads each line into a record, keyed by the names of its values, such as JSON, as
+      # its class says, see `IOStreams::Tabular::Parser::Base.keyed?`. A format that an application registers need not
+      # have a parser of that class, see `IOStreams::Tabular.register_format`, so one whose class does not say reads
+      # rows, as the class does by default.
       def record_rows?
-        !@parser.requires_header?
+        klass = @parser.class
+        klass.respond_to?(:keyed?) && klass.keyed?
       end
 
       # Returns [nil] only the fields of a schema are the columns of a file without a header row, see

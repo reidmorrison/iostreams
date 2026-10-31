@@ -44,8 +44,9 @@ module IOStreams
   # IOStreams.path('blah.zip').stream(:zip).stream(:pgp, passphrase: 'receiver_passphrase').read
   # IOStreams.path('blah.zip').stream(:zip).encoding('BINARY').read
   #
-  # A name that IOStreams v3.0 reads as another file or url, such as a local name starting with `~/`, or an SFTP or
-  # HTTP url without a path, is deprecated, and reports a deprecation warning, see `IOStreams::Path.name_deprecation`.
+  # A name that IOStreams v3.0 reads as another file or url, such as a local name starting with `~/`, a `file://` url, or
+  # an SFTP or HTTP url without a path, is deprecated, and reports a deprecation warning, see
+  # `IOStreams::Path.name_deprecation`.
   def self.path(*elements, **args)
     build_path(elements, args, :name_deprecation)
   end
@@ -62,7 +63,7 @@ module IOStreams
   #   IOStreams.redact_path_options("sftp://example.org/a.csv", username: "jack", password: "secret")
   #   # => {username: "jack", password: "[FILTERED]"}
   def self.redact_path_options(url, options)
-    klass = path_class(url.to_s)
+    klass = Paths.path_class(url.to_s)
     return klass.redact_options(options) if klass.respond_to?(:redact_options)
 
     options.to_h { |name, _value| [name, Utils::FILTERED] }
@@ -84,33 +85,19 @@ module IOStreams
     Utils.redact_streams(streams) { |name| @extensions[name.to_s.to_sym] }
   end
 
-  # Returns [Class] the path class of the scheme of the supplied path or url, such as `IOStreams::Paths::SFTP`.
-  def self.path_class(path)
-    scheme(path.include?("://") ? Utils::URI.new(path).scheme : nil)
-  end
-  private_class_method :path_class
-
   # Returns [IOStreams::Path] the path of the supplied elements, joined into one name or url, created with the supplied
-  # arguments, see .path, reporting the deprecation warning, if any, that the class method of its path class with the
-  # supplied name gives for the name, see `IOStreams::Path.name_deprecation`, as the application supplied it.
+  # arguments by the path class of its scheme, see `IOStreams::Paths.build`, reporting the deprecation warning, if any,
+  # that the supplied class method of that class gives for the name, see `IOStreams::Path.name_deprecation`, as the
+  # application supplied it.
   def self.build_path(elements, args, deprecation)
     return elements.first if (elements.size == 1) && args.empty? && elements.first.is_a?(IOStreams::Path)
 
-    name  = Utils::PathName.join(*elements.collect(&:to_s))
-    klass = path_class(name)
-    path  = args.empty? ? klass.new(name) : klass.new(name, **args)
-    warn_deprecated_name(klass, deprecation, name)
+    name = Utils::PathName.join(*elements.collect(&:to_s))
+    path = Paths.build(name, **args)
+    warn_deprecated_name(path.class, deprecation, name)
     path
   end
   private_class_method :build_path
-
-  # Returns [IOStreams::Path] the path of the supplied name or url, as .path does, without reporting a deprecation
-  # warning for the name, for IOStreams itself, which derives it from the name that the application supplied, such as
-  # the directory that a pattern is matched within, see `IOStreams::Paths::Matcher`.
-  def self.path_of(name)
-    path_class(name).new(name)
-  end
-  private_class_method :path_of
 
   # Reports the deprecation warning that the supplied class method of the path class gives for a name or url that the
   # application supplied, if any: `:name_deprecation` when IOStreams v3.0 reads it as another file or url, or
@@ -126,7 +113,7 @@ module IOStreams
   # is not a valid url, such as one with braces, is matched within the directory before its first pattern character,
   # which the warnings do not apply to, see `IOStreams::Paths::Matcher`.
   def self.warn_deprecated_pattern(pattern)
-    klass = path_class(pattern)
+    klass = Paths.path_class(pattern)
   rescue ArgumentError, ::URI::Error
     nil
   else

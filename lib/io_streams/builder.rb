@@ -1,7 +1,8 @@
+require "io_streams/builder/deprecations"
+
 module IOStreams
   # Build the streams that need to be applied to a path during reading or writing.
   class Builder
-    autoload :Deprecations, "io_streams/builder/deprecations"
     include Deprecations
 
     attr_accessor :file_name, :format_options

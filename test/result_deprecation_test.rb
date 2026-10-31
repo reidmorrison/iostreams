@@ -150,6 +150,46 @@ class ResultDeprecationTest < Minitest::Test
           assert_equal [%w[name], %w[Jack]], read_all(IOStreams.path(@dir, "people.csv"), :array)
         end
       end
+
+      describe "of a registered format without a header row" do
+        # Registers the parser for the format while the block runs.
+        def with_format(format, parser)
+          IOStreams::Tabular.register_format(format, parser)
+          yield IOStreams.stream(StringIO.new("a=1;b=2\n")).format(format)
+        ensure
+          IOStreams::Tabular.deregister_format(format)
+        end
+
+        it "reports one whose rows are records, as the class of its parser says" do
+          parser = Class.new(IOStreams::Tabular::Parser::Base) do
+            def self.keyed? = true
+            def parse(line) = line.split(";").to_h { |pair| pair.split("=") }
+            def requires_header? = false
+          end
+
+          with_format(:iostreams_pairs, parser) do |stream|
+            assert_equal [{"a" => "1", "b" => "2"}], assert_deprecated(records_pattern) { read_all(stream, :array) }
+          end
+        end
+
+        it "does not report one whose rows are Arrays, or whose parser does not say, as one that is not a Base need not" do
+          rows = Class.new(IOStreams::Tabular::Parser::Base) do
+            def parse(line) = line.split(";")
+            def requires_header? = false
+          end
+          unsaid = Class.new do
+            def self.quote_character = nil
+            def parse(line) = line.split(";")
+            def requires_header? = false
+          end
+
+          [rows, unsaid].each do |parser|
+            with_format(:iostreams_values, parser) do |stream|
+              assert_equal([%w[a=1 b=2]], refute_deprecated { read_all(stream, :array) })
+            end
+          end
+        end
+      end
     end
 
     describe "an SFTP or HTTP url without a path" do
@@ -216,6 +256,34 @@ class ResultDeprecationTest < Minitest::Test
           assert_equal "~user/a.csv", IOStreams.path("~user/a.csv").to_s
           assert_equal "~$Book1.xlsx", IOStreams.path("~$Book1.xlsx").to_s
           assert_equal File.join(@dir, "~/a.csv"), IOStreams.path(@dir).join("~/a.csv").to_s
+        end
+      end
+
+      it "is not reported by a matcher, which other gems create themselves, such as Rocket Job" do
+        assert_equal("~/data", refute_deprecated { IOStreams::Paths::Matcher.new(nil, "~/data/*.csv").path.to_s })
+      end
+    end
+
+    describe "a file:// url" do
+      let(:pattern) { %r{a file:// url is deprecated, since v3.0 reads it as the local file that it names} }
+
+      it "is a file name relative to the current directory, and is reported, since v3.0 reads the file that it names" do
+        assert_equal "file://~/data/a.csv", assert_deprecated(pattern) { IOStreams.path("file://~/data/a.csv").to_s }
+        assert_equal "file://~", assert_deprecated(pattern) { IOStreams.new("file://~").to_s }
+        assert_predicate assert_deprecated(pattern) { IOStreams.path("file:///data/a.csv") }, :relative?
+        assert_equal "FILE://localhost/a.csv", assert_deprecated(pattern) { IOStreams.path("FILE://localhost/a.csv").to_s }
+        assert assert_deprecated(pattern) { IOStreams.allowed_path?("file:///data") }
+        children = []
+        assert_deprecated(pattern) { IOStreams.each_child("file:///iostreams-missing-directory/*.csv") { |child| children << child } }
+        assert_empty children
+      end
+
+      it "does not report the name of the file, a name that does not start with file://, or a matcher" do
+        refute_deprecated do
+          assert_equal "/data/a.csv", IOStreams.path("/data/a.csv").to_s
+          assert_equal "file:~/a.csv", IOStreams.path("file:~/a.csv").to_s
+          assert_equal "data/file://a.csv", IOStreams.path("data/file://a.csv").to_s
+          assert_equal "file:///data", IOStreams::Paths::Matcher.new(nil, "file:///data/*.csv").path.to_s
         end
       end
     end

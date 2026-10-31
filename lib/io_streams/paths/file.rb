@@ -27,22 +27,39 @@ module IOStreams
         @create_path = create_path
       end
 
-      # Returns [String|nil] the deprecation warning for a name of `~`, or starting with `~/`, which is within a
-      # directory called `~` in the current directory, while IOStreams v3.0 reads it within the home directory, see
-      # `IOStreams::Path.name_deprecation`. A name such as `~user/a.csv` or `~$Book1.xlsx` is the same on both.
+      # Returns [String|nil] the deprecation warning for a name that IOStreams v3.0 reads as another file, see
+      # `IOStreams::Path.name_deprecation`, or nil for one that it reads the same way:
+      # - A name of `~`, or starting with `~/`, which is within a directory called `~` in the current directory, while
+      #   v3.0 reads it within the home directory. A name such as `~user/a.csv` or `~$Book1.xlsx` is the same on both.
+      # - A `file://` url, such as `file:///data/a.csv` or `file://~/a.csv`, which is a file name relative to the current
+      #   directory, within a directory called `file:`, while v3.0 reads it as the local file that it names, such as
+      #   `/data/a.csv`, or within the home directory.
       def self.name_deprecation(name)
-        return unless name == "~" || name.start_with?("~/")
-
-        "a local file name of ~, or starting with ~/, is deprecated, since v3.0 reads it within the home directory, " \
-          "rather than within a directory called ~ in the current directory: expand it with File.expand_path for the " \
-          "home directory, or start it with ./~/ for the directory called ~"
+        if file_url?(name)
+          "a file:// url is deprecated, since v3.0 reads it as the local file that it names, such as /data/a.csv for " \
+            "file:///data/a.csv, or a file within the home directory for file://~/a.csv, rather than as a file name " \
+            "relative to the current directory: supply the name of the file instead, such as /data/a.csv, or " \
+            "File.expand_path(\"~/a.csv\") for the home directory"
+        elsif name == "~" || name.start_with?("~/")
+          "a local file name of ~, or starting with ~/, is deprecated, since v3.0 reads it within the home directory, " \
+            "rather than within a directory called ~ in the current directory: expand it with File.expand_path for " \
+            "the home directory, or start it with ./~/ for the directory called ~"
+        end
       end
 
-      # Returns [String|nil] the deprecation warning for a name of `~`, or starting with `~/`, see .name_deprecation,
-      # which IOStreams v3.0 reads as another directory, and so another allowed path.
+      # Returns [String|nil] the deprecation warning for a name that IOStreams v3.0 reads as another file, see
+      # .name_deprecation, which is in another directory, and so another allowed path.
       def self.location_deprecation(name)
         name_deprecation(name)
       end
+
+      # Returns [true|false] whether the name is a `file://` url, in any case, as IOStreams v3.0 takes it, see
+      # .name_deprecation. Its first bytes are compared, so that a name that is not valid in its encoding, such as a
+      # Latin-1 name, can be checked too.
+      def self.file_url?(name)
+        name.include?("://") && name.byteslice(0, 7).b.casecmp?("file://")
+      end
+      private_class_method :file_url?
 
       # Yields Paths within the current path.
       #
