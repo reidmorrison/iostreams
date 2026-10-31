@@ -267,10 +267,11 @@ module IOStreams
       # Returns [Array] the columns of a header row written, or the keys of a record written, see #match_written and
       # #write_plan, with each one that is binary text, whose bytes are UTF-8 that is not ASCII, as that UTF-8 text, so
       # that it is the field that it names, as a writer with a schema in IOStreams 2.2 takes it. A Symbol whose name is
-      # such text, such as a binary key turned into a Symbol, is that UTF-8 Symbol, as JSON writes it. The labels
-      # written are the application's own names for the fields, which it can hold as binary, such as the columns of a
-      # file read with `encoding("BINARY")` that it copies, whereas the columns of a file read with an encoding are in
-      # that encoding, so they are compared as they are, see #match.
+      # such text, such as a binary key turned into a Symbol, is the UTF-8 text of its name, as JSON writes it, rather
+      # than a Symbol of that text, which JRuby returns as the same binary Symbol, since it keeps one Symbol for the same
+      # bytes. The labels written are the application's own names for the fields, which it can hold as binary, such as
+      # the columns of a file read with `encoding("BINARY")` that it copies, whereas the columns of a file read with an
+      # encoding are in that encoding, so they are compared as they are, see #match.
       #
       # Any other label is compared as it is, see `IOStreams::Schema#field_for`, including binary text that is not valid
       # UTF-8, which is not checked, as the bytes of the values written are not: it is a column or key that is not a
@@ -284,7 +285,7 @@ module IOStreams
           utf8 = text.dup.force_encoding(::Encoding::UTF_8)
           next label unless utf8.valid_encoding?
 
-          label.is_a?(Symbol) ? utf8.to_sym : utf8
+          utf8
         end
       end
 
