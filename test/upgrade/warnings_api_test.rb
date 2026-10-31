@@ -120,6 +120,28 @@ class UpgradeWarningsApiTest < Minitest::Test
       end
     end
 
+    describe "an extension registered in lower case, in place of a name that is not, or that ends with a line break" do
+      before do
+        IOStreams.register_extension(:upgrade_upcase, UpcaseStream::Reader, UpcaseStream::Writer)
+      end
+
+      after do
+        IOStreams.deregister_extension(:upgrade_upcase)
+      end
+
+      it "applies its stream to the file names that end in it, in any case" do
+        %w[data.txt.upgrade_upcase data.txt.UPGRADE_UPCASE].each do |name|
+          IOStreams.path(dir, name).write("hello")
+
+          assert_equal "HELLO", File.read(File.join(dir, name)), name
+
+          File.write(File.join(dir, name), "world")
+
+          assert_equal "WORLD", IOStreams.path(dir, name).read, name
+        end
+      end
+    end
+
     describe "a stream registered under another name, in place of registering :encode or :none" do
       before do
         IOStreams.register_extension(:upgrade_upcase, UpcaseStream::Reader, UpcaseStream::Writer)

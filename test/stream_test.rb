@@ -1345,8 +1345,9 @@ class StreamTest < Minitest::Test
       end
 
       it "reports a deprecation warning for enforce_column_restrictions =, which v2.1 recommends, and still applies it" do
-        json = %({"Name":"x","admin":true}\n)
-        line = __LINE__ + 2
+        enforced = IOStreams::Tabular::HeaderMapping.enforce_column_restrictions?
+        json     = %({"Name":"x","admin":true}\n)
+        line     = __LINE__ + 2
         assert_deprecated(/stream_test\.rb:#{line}: warning: IOStreams: IOStreams\.enforce_column_restrictions= is deprecated, since it only applies to the column options, such as allowed_columns:, which are deprecated: describe the columns of the file with #schema instead, whose fieldsMatch and constraints apply to every input, and then remove it\n\z/) do
           IOStreams.enforce_column_restrictions = true
         end
@@ -1358,7 +1359,8 @@ class StreamTest < Minitest::Test
 
         assert_equal [{"name" => "x"}], records
       ensure
-        assert_deprecated(/enforce_column_restrictions= is deprecated/) { IOStreams.enforce_column_restrictions = false }
+        # Restores the setting, which IOStreams::Tabular::HeaderMapping holds, without a deprecation warning.
+        IOStreams::Tabular::HeaderMapping.enforce_column_restrictions = enforced
       end
 
       it "reports a deprecation warning for enforce_column_restrictions?, and returns the setting" do
@@ -1371,6 +1373,7 @@ class StreamTest < Minitest::Test
       end
 
       it "reports no deprecation warning for enforce_column_restrictions when IOStreams::Tabular applies the setting" do
+        enforced = IOStreams::Tabular::HeaderMapping.enforce_column_restrictions?
         assert_deprecated(/enforce_column_restrictions= is deprecated/) { IOStreams.enforce_column_restrictions = true }
         tabular = IOStreams::Tabular.new(format: :json, allowed_columns: ["name"])
         records = []
@@ -1380,7 +1383,8 @@ class StreamTest < Minitest::Test
 
         assert_equal [{"name" => "x"}], records
       ensure
-        assert_deprecated(/enforce_column_restrictions= is deprecated/) { IOStreams.enforce_column_restrictions = false }
+        # Restores the setting, which IOStreams::Tabular::HeaderMapping holds, without a deprecation warning.
+        IOStreams::Tabular::HeaderMapping.enforce_column_restrictions = enforced
       end
     end
 

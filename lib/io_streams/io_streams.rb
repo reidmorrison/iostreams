@@ -395,12 +395,13 @@ module IOStreams
   # Deprecated: it only applies to the column options, which are deprecated, see `IOStreams::Stream#each`, and which
   # v3.0 removes, with this setting. Describe the columns of the file with `IOStreams::Stream#schema` instead, whose
   # `fieldsMatch` and `constraints` apply to every input. It still applies to the column options, and reports a
-  # deprecation warning, see `IOStreams::Deprecation`, so keep it until they are replaced with a schema.
+  # deprecation warning, see `IOStreams::Deprecation`, so keep it until they are replaced with a schema. The setting
+  # is held by `IOStreams::Tabular::HeaderMapping`, which applies it, and reads it without a deprecation warning.
   def self.enforce_column_restrictions=(enforce)
     raise(ArgumentError, "enforce_column_restrictions must be true or false") unless [true, false].include?(enforce)
 
     Deprecation.warn("IOStreams.enforce_column_restrictions= #{ENFORCE_COLUMN_RESTRICTIONS_DEPRECATION}")
-    @enforce_column_restrictions = enforce
+    Tabular::HeaderMapping.enforce_column_restrictions = enforce
   end
 
   # Returns [true|false] whether column restrictions apply to every input, see `IOStreams.enforce_column_restrictions=`.
@@ -409,15 +410,8 @@ module IOStreams
   # `IOStreams::Deprecation`.
   def self.enforce_column_restrictions?
     Deprecation.warn("IOStreams.enforce_column_restrictions? #{ENFORCE_COLUMN_RESTRICTIONS_DEPRECATION}")
-    @enforce_column_restrictions
+    Tabular::HeaderMapping.enforce_column_restrictions?
   end
-
-  # Returns [true|false] whether column restrictions apply to every input, see `IOStreams.enforce_column_restrictions=`,
-  # for IOStreams itself, which never uses its own deprecated methods, see `IOStreams::Tabular::HeaderMapping`.
-  def self.column_restrictions_enforced?
-    @enforce_column_restrictions
-  end
-  private_class_method :column_restrictions_enforced?
 
   # Why `IOStreams.enforce_column_restrictions=` and `IOStreams.enforce_column_restrictions?` are deprecated, and what
   # to use instead.
@@ -426,8 +420,6 @@ module IOStreams
     "describe the columns of the file with #schema instead, whose fieldsMatch and constraints apply to every input, " \
     "and then remove it".freeze
   private_constant :ENFORCE_COLUMN_RESTRICTIONS_DEPRECATION
-
-  @enforce_column_restrictions = false
 
   # Returns [Logger] the logger used by IOStreams for debug logging.
   #
@@ -451,8 +443,9 @@ module IOStreams
   # Returns [IOStreams::Extension] the extension registered, whose setters, such as `writer_class=`, are deprecated,
   # see `IOStreams::Extension::Deprecations`.
   #
-  # Registering `:encode` or `:none`, in any case, is deprecated, see RESERVED_EXTENSIONS. It still registers the
-  # extension, and reports a deprecation warning, see `IOStreams::Deprecation`.
+  # Registering `:encode` or `:none`, in any case, is deprecated, see RESERVED_EXTENSIONS, as is a name that IOStreams
+  # 3.0 does not register as it is, see .extension_name_deprecation: one that ends with a line break, or that is not in
+  # lower case. It still registers the extension, and reports a deprecation warning, see `IOStreams::Deprecation`.
   #
   # Example:
   #   # MyXls::Reader and MyXls::Writer must implement .open
@@ -460,8 +453,8 @@ module IOStreams
   def self.register_extension(extension, reader_class, writer_class)
     raise(ArgumentError, "Invalid extension #{extension.inspect}") unless extension.nil? || extension.to_s =~ /\A\w+\Z/
 
-    if (advice = RESERVED_EXTENSIONS[extension.to_s.downcase.to_sym])
-      Deprecation.warn("IOStreams.register_extension(#{extension.inspect}, ...) is deprecated, since #{advice}")
+    if (reason = extension_name_deprecation(extension, RESERVED_EXTENSIONS))
+      Deprecation.warn("IOStreams.register_extension(#{extension.inspect}, ...) is deprecated, since #{reason}")
     end
     @extensions[extension&.to_sym] = Extension.registered(reader_class, writer_class)
   end
@@ -488,22 +481,50 @@ module IOStreams
   #
   # Returns [IOStreams::Extension] the extension removed, or nil if the extension was not registered
   #
-  # Deregistering `:encode` is deprecated, since the encode stream is built in, which IOStreams 3.0 does not
-  # deregister. It still removes it, so that `#encoding` then raises ArgumentError, and reports a deprecation warning,
-  # see `IOStreams::Deprecation`.
+  # Deregistering `:encode`, in any case, is deprecated, since the encode stream is built in, which IOStreams 3.0 does
+  # not deregister, see BUILT_IN_STREAMS. It still removes it, so that `#encoding` then raises ArgumentError. So is a
+  # name that IOStreams 3.0 does not deregister as it is, see .extension_name_deprecation: one that ends with a line
+  # break, or that is not in lower case. Each reports a deprecation warning, see `IOStreams::Deprecation`.
   #
   # Example:
   #   deregister_extension(:xls)
   def self.deregister_extension(extension)
     raise(ArgumentError, "Invalid extension #{extension.inspect}") unless extension.to_s =~ /\A\w+\Z/
 
-    if extension.to_sym == :encode
-      Deprecation.warn("IOStreams.deregister_extension(#{extension.inspect}) is deprecated, since the encode stream is " \
-                       "built in, which IOStreams 3.0 does not deregister, so remove it: IOStreams 3.0 applies the " \
-                       "encode stream only where #encoding sets it")
+    if (reason = extension_name_deprecation(extension, BUILT_IN_STREAMS))
+      Deprecation.warn("IOStreams.deregister_extension(#{extension.inspect}) is deprecated, since #{reason}")
     end
     @extensions.delete(extension.to_sym)
   end
+
+  # The streams that IOStreams 3.0 builds in, rather than registers, so that deregistering one of them, in any case,
+  # which it does not deregister, is deprecated, see .deregister_extension, with why, and what to do instead.
+  BUILT_IN_STREAMS = {
+    encode: "the encode stream is built in, which IOStreams 3.0 does not deregister, so remove it: IOStreams 3.0 " \
+            "applies the encode stream only where #encoding sets it"
+  }.freeze
+  private_constant :BUILT_IN_STREAMS
+
+  # Returns [String|nil] why the name of an extension, as the application supplied it to .register_extension or
+  # .deregister_extension, is deprecated, or nil when IOStreams 3.0 takes it as it is:
+  # - A name that ends with a line break, such as `"xz\n"`, which the check of the name accepts, while IOStreams 3.0
+  #   raises ArgumentError for it.
+  # - A name of the supplied reasons, in any case, such as RESERVED_EXTENSIONS, with the reason that it gives.
+  # - A name that is not in lower case, such as `:XZ`, since IOStreams 3.0 registers and deregisters it in lower case,
+  #   as `:xz`, which matches the file names that end in `.xz` in any case, as their extensions are compared.
+  def self.extension_name_deprecation(extension, reasons)
+    name  = extension.to_s
+    lower = name.downcase
+    if name.end_with?("\n")
+      "IOStreams 3.0 raises ArgumentError for a name that ends with a line break, remove the line break"
+    elsif reasons.key?(lower.to_sym)
+      reasons[lower.to_sym]
+    elsif name != lower
+      "IOStreams 3.0 takes the name of an extension in lower case, as #{lower.to_sym.inspect}, which matches the file " \
+        "names that end in .#{lower}, in any case, use #{lower.to_sym.inspect} instead"
+    end
+  end
+  private_class_method :extension_name_deprecation
 
   # Returns [Hash<Symbol, IOStreams::Extension>] the extension registered for each file extension, see
   # .register_extension.
@@ -576,7 +597,8 @@ module IOStreams
     #
     # - The setters of a registered extension, such as `writer_class=`, and `[]=`, change the extension registered for
     #   the whole process, since `IOStreams.extensions` returns a copy of the registry that shares its extensions, which
-    #   IOStreams 3.0 freezes.
+    #   IOStreams 3.0 freezes. They still report one once it is no longer registered, such as one that
+    #   `IOStreams.deregister_extension` returned, see #setter_deprecation, since IOStreams 3.0 raises for them there too.
     # - For an extension that IOStreams builds in, such as `:gz`, IOStreams 3.0 returns the format that it registers,
     #   such as `IOStreams::Gzip`, rather than a Struct, see `IOStreams.extensions`. The format answers `reader_class`
     #   and `writer_class`, but none of the other methods of a Struct, such as #to_a, nor those of `Enumerable`, which
@@ -594,11 +616,7 @@ module IOStreams
 
       SETTERS.each do |name|
         define_method(name) do |*args|
-          if @registered
-            Deprecation.warn("##{name} on an extension of IOStreams.extensions is deprecated, since it changes the " \
-                             "registered extension for the whole process, which IOStreams 3.0 does not allow, use " \
-                             "IOStreams.register_extension to change it instead")
-          end
+          Deprecation.warn("##{name} #{setter_deprecation}") if @registered
           super(*args)
         end
       end
@@ -635,6 +653,22 @@ module IOStreams
       def registered!(built_in)
         @registered = true
         @built_in   = built_in
+      end
+
+      # Returns [String] why a setter of this extension, which was registered, see .registered, is deprecated, after the
+      # name of the setter: while it is registered, that the setter changes the extension registered for the whole
+      # process, and once it is not, such as after `IOStreams.deregister_extension` removed it, or another extension was
+      # registered in its place, that IOStreams 3.0 does not allow it either, since it freezes the extension that it
+      # registers, and returns the format of one that it builds in, such as `IOStreams::Gzip`, which has no setters.
+      def setter_deprecation
+        if IOStreams.extensions.each_value.any? { |extension| extension.equal?(self) }
+          "on an extension of IOStreams.extensions is deprecated, since it changes the registered extension for the " \
+            "whole process, which IOStreams 3.0 does not allow, use IOStreams.register_extension to change it instead"
+        else
+          "on an extension that is no longer registered, such as one that IOStreams.deregister_extension returned, is " \
+            "deprecated, since IOStreams 3.0 does not allow it on an extension that it registered, supply the classes " \
+            "to IOStreams.register_extension instead"
+        end
       end
     end
     prepend Deprecations
@@ -682,9 +716,10 @@ module IOStreams
   #
   # Called once, as IOStreams is loaded, so that the warning names the line of the application that loaded it, such as
   # its `Bundler.require`, see `IOStreams::Deprecation.warn_on_load`. It is only reported while deprecation warnings
-  # are on as IOStreams is loaded, such as with `RUBYOPT=-W:deprecated`.
+  # are on as IOStreams is loaded, such as with `RUBYOPT=-W:deprecated`, and RubyGems, which compares the versions, is
+  # loaded, which it is unless Ruby runs with `--disable-gems`.
   def self.warn_unsupported_ruby(version = RUBY_VERSION)
-    return unless (version.split(".").first(2).map(&:to_i) <=> [3, 3]).negative?
+    return unless defined?(::Gem::Version) && ::Gem::Version.new(version) < ::Gem::Version.new("3.3")
 
     Deprecation.warn_on_load("Ruby #{version} is deprecated, since IOStreams 3.0 requires Ruby 3.3 or later, so " \
                              "upgrade Ruby")

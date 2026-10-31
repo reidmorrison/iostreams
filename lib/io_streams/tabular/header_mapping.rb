@@ -10,6 +10,25 @@ module IOStreams
     # held the code of its reading and writing methods, see `IOStreams::Row::Reader` and the others, so that a file
     # without a schema is read and written as before.
     class HeaderMapping < Mapping
+      class << self
+        # Sets whether the column restrictions, the `allowed_columns`, `required_columns` and `skip_unknown` options of
+        # the header, apply to every input: also to the columns supplied, to a header row read with
+        # `cleanse_header: false`, and to the keys of each record of a format without a header row, such as JSON, see
+        # #restrict_header and #restrict, rather than only to a header row that is read and cleansed. Each mapping reads
+        # it once, when it is created, see #initialize.
+        #
+        # The application sets it with `IOStreams.enforce_column_restrictions=`, which is deprecated, and reports a
+        # deprecation warning. The mapping, which applies the setting, holds it, so that IOStreams reads it without one.
+        attr_writer :enforce_column_restrictions
+
+        # Returns [true|false] whether the column restrictions apply to every input, see .enforce_column_restrictions=.
+        def enforce_column_restrictions?
+          @enforce_column_restrictions
+        end
+      end
+
+      @enforce_column_restrictions = false
+
       # Parameters:
       #   cleanse: [true|false]
       #     Whether to cleanse the header row read, see `IOStreams::Tabular::Header#cleanse!`, as the `cleanse_header`
@@ -27,6 +46,9 @@ module IOStreams
         # Whether a reader of records has logged that the column restrictions would change what it reads, which it
         # logs once, see #warn_restriction.
         @warned   = false
+        # Whether the column restrictions apply to every input, read once, rather than for each record, see
+        # .enforce_column_restrictions?.
+        @enforced = HeaderMapping.enforce_column_restrictions?
       end
 
       # Returns [true|false] whether a header is still required in order to parse or render the current format.
@@ -131,8 +153,8 @@ module IOStreams
 
       # Yields [Hash] the record of the line of a file of records, see #record_parse, or nil for a blank line, unless the
       # line is the header row, while it is expected, see #header?, which it reads instead, see #read_header. The column
-      # restrictions are applied to the keys of each record of a format without a header row, such as JSON, when
-      # `IOStreams.enforce_column_restrictions?`, see #restrict.
+      # restrictions are applied to the keys of each record of a format without a header row, such as JSON, when they
+      # are enforced, see .enforce_column_restrictions? and #restrict.
       def read_record_line(line)
         if header?
           read_header(line)
@@ -243,10 +265,10 @@ module IOStreams
       end
 
       # Apply the allowed and required columns to supplied columns, or to a header row read with
-      # `cleanse_header: false`, renaming them when `cleanse`. Unless `IOStreams.enforce_column_restrictions?`, only warn
-      # when they would change the columns.
+      # `cleanse_header: false`, renaming them when `cleanse`. Unless they are enforced, see
+      # .enforce_column_restrictions?, only warn when they would change the columns.
       def restrict_header(cleanse)
-        return header.cleanse!(rename: cleanse) if IOStreams.send(:column_restrictions_enforced?)
+        return header.cleanse!(rename: cleanse) if @enforced
         return if @warned
 
         columns = header.columns
@@ -264,11 +286,11 @@ module IOStreams
       end
 
       # Formats such as JSON have no header row, so apply the allowed and required columns to each record's keys,
-      # renaming them when the header row read is cleansed, see #initialize. Unless
-      # `IOStreams.enforce_column_restrictions?`, only warn when they would change the record.
+      # renaming them when the header row read is cleansed, see #initialize. Unless they are enforced, see
+      # .enforce_column_restrictions?, only warn when they would change the record.
       def restrict(record)
         return record unless record.is_a?(Hash) && restricted? && header.columns.nil?
-        return header.restrict_hash(record, rename: @cleanse) if IOStreams.send(:column_restrictions_enforced?)
+        return header.restrict_hash(record, rename: @cleanse) if @enforced
         return record if @warned
 
         warn_restriction if changed_by_restriction? { header.restrict_hash(record, rename: @cleanse) != record }
