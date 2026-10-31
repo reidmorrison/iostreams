@@ -3832,6 +3832,12 @@ an `IOStreams::Errors::InvalidHeader` for each problem of the columns, such as t
 does not have, and an `IOStreams::Errors::IncompatibleType` for each column whose declared type never fits its field.
 Each raises `ArgumentError` when no contract is set.
 
+* With a schema of the file, set with `#schema`, the header row, or the keys of the first JSON record, must match that
+  schema first, as reading checks them, and the contract then meets the fields that the file has.
+* An empty source has no columns, so it meets no contract that needs one, while reading it yields no records.
+* Of an IO supplied to `IOStreams.stream`, such as an upload, they read only the start, and then return the IO to where
+  it was, so that its rows are still read, unless the IO cannot seek, such as a pipe, which they have then read past.
+
 ### Types that never fit
 
 A source that declares the type of each column, such as a Parquet file, a query or the schema of a file, meets the
@@ -3840,9 +3846,10 @@ its field raises `IOStreams::Errors::IncompatibleType`, which is not an `Invalid
 
 | The source declares | The field's type that takes it |
 |---------------------|--------------------------------|
-| `string`, or `any` | every type, since text is parsed, and each value of type `any` is checked as it is read; a `string` field takes neither an `object` nor an `array` |
+| `string`, or `any` | every type, since text is parsed, and each value of type `any` is checked as it is read |
 | `integer` or `number` | `integer`, `number`, `string` or `any`, where an `integer` field raises for a value with a fraction |
 | `datetime` | `datetime`, `date`, `time`, `string` or `any` |
+| `object` or `array` | its own or `any`, since a `string` field takes neither |
 | any other type | its own, `string` or `any` |
 
 Text, such as that of a CSV file, and JSON, each of whose values has its own type, declare no types that could raise,

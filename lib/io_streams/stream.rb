@@ -634,14 +634,23 @@ module IOStreams
     # fields of the contract and its `fieldsMatch`, and the types that a source declares, such as a Parquet file or a
     # query, against the types of the fields. It checks no value, which reading checks.
     #
+    #
+    # With a schema of the file, set with #schema, the header row of a file with one, or the keys of the first JSON
+    # record, must match that schema first, as reading checks them, and the contract then meets the fields that the file
+    # has. An empty source has no columns, so it meets no contract that needs one, while reading it yields no records.
+    # Of an IO supplied to `IOStreams.stream`, it reads only the start, and then returns the IO to where it was, when the
+    # IO can seek, so that its rows are still read, while an IO that cannot, such as a pipe, has then been read past
+    # them; a path opens its file again to read it.
+    #
     # Raises as reading would: `IOStreams::Errors::InvalidHeader`, naming each column that is missing, and
     # `IOStreams::Errors::IncompatibleType` for a column whose declared type can never be that of its field. Raises
     # ArgumentError when no contract is set.
     def validate_contract! # rubocop:disable Naming/PredicateMethod -- raises, returning true as the docs show
-      schema               = contract_schema!
-      labels, types, keyed = contract_source
-      schema.columns(every_field: true).check_meeting(labels, keyed: keyed)
-      schema.check_types(types) if types
+      schema = contract_schema!
+      source = contract_source
+      source.file_columns&.check_meeting(source.file_row, keyed: source.file_keyed)
+      schema.columns(every_field: true).check_meeting(source.labels, keyed: source.keyed)
+      schema.check_types(source.types) if source.types
       true
     end
 
@@ -654,14 +663,18 @@ module IOStreams
     # #validate_contract!, not raised, or an empty Array when it meets it, such as to list every problem of an upload at
     # once: an `IOStreams::Errors::InvalidHeader` for each problem of its columns, such as the required fields that it
     # does not have, and an `IOStreams::Errors::IncompatibleType` for each column whose declared type can never be that
-    # of its field.
+    # of its field. With a schema of the file whose header row, or first JSON record, does not match it, only those
+    # problems, since the contract meets the columns that the schema reads.
     #
     # Raises ArgumentError when no contract is set.
     def contract_errors
-      schema               = contract_schema!
-      labels, types, keyed = contract_source
-      errors               = schema.columns(every_field: true).meeting_errors(labels, keyed: keyed)
-      types ? errors + schema.type_errors(types) : errors
+      schema = contract_schema!
+      source = contract_source
+      errors = source.file_columns&.meeting_errors(source.file_row, keyed: source.file_keyed) || []
+      return errors unless errors.empty?
+
+      errors = schema.columns(every_field: true).meeting_errors(source.labels, keyed: source.keyed)
+      source.types ? errors + schema.type_errors(source.types) : errors
     end
 
     # Returns [IOStreams::Schema] the schema that the rows and records of this stream are read by: the schema set with
@@ -1116,7 +1129,7 @@ module IOStreams
     def row_reader(delimiter: nil, buffer_size: nil, skip_blanks: false, resume_at: nil, **args)
       reject_unknown_options!(:array, IOStreams::Row::Reader, args)
       IOStreams::Row::Reader.check(skip_blanks: skip_blanks, resume_at: resume_at)
-      tabular = self.tabular
+      tabular = self.tabular(reading: true)
       open_rows_reader(tabular, delimiter, buffer_size) do |io|
         yield IOStreams::Row::Reader.new(io, tabular: tabular, skip_blanks: skip_blanks, resume_at: resume_at)
       end
@@ -1127,7 +1140,7 @@ module IOStreams
     # The lines are split where the format that parses them expects, see #row_reader.
     def record_reader(delimiter: nil, buffer_size: nil, skip_blanks: false, resume_at: nil, **args)
       reject_unknown_options!(:hash, IOStreams::Record::Reader, args)
-      tabular = self.tabular
+      tabular = self.tabular(reading: true)
       IOStreams::Record::Reader.check(tabular: tabular, skip_blanks: skip_blanks, resume_at: resume_at)
       open_rows_reader(tabular, delimiter, buffer_size) do |io|
         yield IOStreams::Record::Reader.new(io, tabular: tabular, skip_blanks: skip_blanks, resume_at: resume_at)
@@ -1142,7 +1155,7 @@ module IOStreams
     def slice_reader(size:, validate: false, resume_at: nil, delimiter: nil, buffer_size: nil, **args)
       reject_unknown_options!(:slice, IOStreams::Slice::Reader, args)
       IOStreams::Slice::Reader.check(size: size, validate: validate, resume_at: resume_at)
-      tabular = self.tabular
+      tabular = self.tabular(reading: true)
       open_slice_rows(tabular, delimiter, buffer_size) do |rows|
         yield IOStreams::Slice::Reader.new(rows, tabular: tabular, size: size, validate: validate, resume_at: resume_at)
       end
@@ -1174,7 +1187,7 @@ module IOStreams
         reject_line_options!(tabular, delimiter: delimiter, buffer_size: buffer_size)
         return stream_reader do |io|
           tabular.read_rows(io) do |rows|
-            tabular.check_declared_types(rows.declared_schema)
+            tabular.check_declared_types { rows.declared_schema }
             yield rows
           end
         end
@@ -1272,25 +1285,47 @@ module IOStreams
       nil
     end
 
-    # Returns [Array] the columns of the source as a contract meets them, see #contract_errors: the names of the columns
-    # as the source holds them, the schema that declares their types, or nil when they are text or each value has its own
-    # type, and whether they are the keys of the records of a format of keyed records, such as JSON:
-    # - The keys of the fields of a schema set with #schema, which reads the file before the contract meets it.
+    # The columns of a source as a contract meets them, see #contract_source: the names of the columns as the source
+    # holds them, the schema that declares their types, or nil when they are text or each value has its own type, and
+    # whether they are the keys of the records of a format of keyed records, such as JSON, which are matched in any
+    # order; and, with a schema set, the columns of the file matched to that schema, the header row or keys of the first
+    # record that they must meet first, and whether they are keys.
+    ContractSource = Struct.new(:labels, :types, :keyed, :file_columns, :file_row, :file_keyed)
+    private_constant :ContractSource
+
+    # Returns [ContractSource] the columns of the source as a contract meets them, see #contract_errors:
+    # - With a schema set with #schema, which reads the file before the contract meets it, see #file_schema_source.
     # - The columns of a source that declares their types, such as a Parquet file or a query, see #declared_schema.
     # - The header row as read of any other file, or the keys of its first record, see #first_row.
     def contract_source
-      if (schema = tabular_settings.file_schema)
-        return [schema.columns.field_keys, schema, false]
-      end
-
       tabular = self.tabular(contract: false)
+      schema  = tabular_settings.file_schema
+      return file_schema_source(schema, tabular) if schema
+
       if tabular.lines? && !tabular.field_names?
         tabular.check_records
-        return [first_row(tabular) || [], nil, tabular.parser.class.keyed?]
+        return ContractSource.new(first_row(tabular) || [], nil, tabular.keyed?)
       end
 
       declared = declared_schema
-      [declared.fields.map(&:name), declared, false]
+      ContractSource.new(declared.fields.map(&:name), declared, tabular.keyed?)
+    end
+
+    # Returns [ContractSource] the columns of a source read by a schema set with #schema: the header row of a file with
+    # one, or the keys of the first record of a format of keyed records, such as JSON, must match the schema, as reading
+    # checks them, and the contract then meets the keys of the fields that the file has, see
+    # `IOStreams::Schema::ContractColumns`, or of every field of a file whose schema lays it out, such as fixed width, or
+    # whose records supply their own keys, by the types of the schema.
+    def file_schema_source(schema, tabular)
+      return ContractSource.new(schema.columns.field_keys, schema, false) unless tabular.lines?
+
+      keyed = tabular.keyed?
+      return ContractSource.new(schema.columns.field_keys, schema, false) unless keyed || tabular.requires_header?
+
+      row     = first_row(self.tabular(contract: false, schema: false)) || []
+      columns = schema.columns(every_field: true)
+      labels  = keyed ? columns.field_keys : columns.meeting_names(row)
+      ContractSource.new(labels, schema, false, columns, row, keyed)
     end
 
     # Returns [IOStreams::Schema] the schema of the contract set with #as.

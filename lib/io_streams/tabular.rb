@@ -391,12 +391,19 @@ module IOStreams
       @mapping.read_header(line)
     end
 
-    # Raises `IOStreams::Errors::IncompatibleType` for a column of the supplied schema that a source declares when it is
-    # opened, such as a Parquet file, whose type can never be that of its field of the contract that its rows are read
-    # through, without a schema, see `IOStreams::Schema#check_types`. A schema of the file reads its rows instead, which
-    # the contract met when it was set, see `IOStreams::Tabular::Settings#tabular`.
-    def check_declared_types(declared)
-      @contract.check_types(declared) if @contract && @file_schema.nil?
+    # Raises `IOStreams::Errors::IncompatibleType` for a column of the schema that the block returns, which a source
+    # declares when it is opened, such as a Parquet file, whose type can never be that of its field of the contract that
+    # its rows are read through, without a schema, see `IOStreams::Schema#check_types`. The block is called only then,
+    # so that a source read without a contract does not build its schema. A schema of the file reads its rows instead,
+    # which the contract met when it was set, see `IOStreams::Tabular::Settings#tabular`.
+    def check_declared_types
+      @contract.check_types(yield) if @contract && @file_schema.nil?
+    end
+
+    # Returns [true|false] whether the records of the format supply their own keys, such as JSON or Parquet, so that
+    # their columns are matched by key, in any order, rather than by position, see `IOStreams::Tabular::Parser::Base.keyed?`.
+    def keyed?
+      parser.class.keyed?
     end
 
     # Returns [IOStreams::Schema] the schema that the file declares by the supplied first row that its rows start with,

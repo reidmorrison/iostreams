@@ -111,11 +111,21 @@ module IOStreams
       # a record of a format whose records supply their own keys, do not match the fields, see #check_meeting, not
       # raised, see `IOStreams::Stream#contract_errors`.
       def meeting_errors(labels, keyed:)
-        noun = keyed ? "key" : "column"
-        found, unknown, _positions = find_fields(keyed ? labels : named(labels), noun)
-        @schema.column_errors(found, unknown, ordered: !keyed, noun: noun)
+        noun   = keyed ? "key" : "column"
+        labels = named(labels) unless keyed
+        found, unknown, positions = find_fields(labels, noun)
+        @schema.column_errors(found, unknown, ordered: !keyed, noun: noun) + extra_column_errors(labels, positions, noun)
       rescue IOStreams::Errors::InvalidHeader => e
         [e]
+      end
+
+      # Returns [Array<String|Symbol>] the keys of the records that the supplied header row reads, see #found_names, or
+      # an empty Array when it does not match the fields, see #meeting_errors.
+      def meeting_names(labels)
+        match(labels)
+        found_names
+      rescue IOStreams::Errors::InvalidHeader
+        []
       end
 
       # Returns [Array<String|Symbol>] the key of each field whose values the rows and records read have, in the order of
@@ -424,6 +434,15 @@ module IOStreams
           extra << [index, key]
         end
         extra.freeze
+      end
+
+      # Returns [Array<IOStreams::Errors::InvalidHeader>] the columns that the schema keeps besides its fields, see
+      # #extra_columns, that are the same key, not raised.
+      def extra_column_errors(labels, positions, noun)
+        extra_columns(labels, positions, noun)
+        []
+      rescue IOStreams::Errors::InvalidHeader => e
+        [e]
       end
 
       # Returns [true|false] whether the label is the name or key of the field itself, see #find_fields.

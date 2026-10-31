@@ -179,21 +179,33 @@ module IOStreams
       #
       #   contract: [true|false]
       #     Whether the rows are read through the contract, when one is set, see #contract=, rather than as the source
-      #     declares them, see `IOStreams::Stream#infer_schema`. A contract meets the types that a schema of the file, or
-      #     the default schema, declares, which raises `IOStreams::Errors::IncompatibleType` for a column whose type can
-      #     never be that of its field, see `IOStreams::Schema#check_types`.
+      #     declares them, see `IOStreams::Stream#infer_schema`.
       #     Default: true
+      #
+      #   schema: [true|false]
+      #     Whether the rows are read by the schema set, see #schema=, rather than as the format reads them without one,
+      #     such as to read the header row of a file as it is, see `IOStreams::Stream#validate_contract!`.
+      #     Default: true
+      #
+      #   reading: [true|false]
+      #     Whether the rows are read, when the contract meets the types that a schema of the file, or the default schema,
+      #     declares, which raises `IOStreams::Errors::IncompatibleType` for a column whose type can never be that of its
+      #     field, see `IOStreams::Schema#check_types`. The types are those of the values read, so a writer, which
+      #     converts each value that it writes, does not check them.
+      #     Default: false
       #
       #   The other options are those that the source of the rows supplies, see
       #   `IOStreams::Tabular::SOURCE_OPTION_NAMES`.
-      def tabular(file_name:, text_format:, default_schema: nil, contract: true, **)
+      def tabular(file_name:, text_format:, default_schema: nil, contract: true, schema: true, reading: false, **)
         format             = rows_format(file_name, text_format)
         row_format_options = (format && @row_options&.[](format.to_sym)) || {}
+        file               = (file_schema if schema)
         meets              = (@contract if contract)
-        schema             = file_schema || (default_schema unless meets)
-        meets.schema.check_types(file_schema || default_schema) if meets && (file_schema || default_schema)
-        IOStreams::Tabular.new(file_name: file_name, format: format, schema: schema, contract: meets&.schema,
-                               row_format_options: row_format_options, text_format: text_format, **)
+        declared           = file || default_schema
+        meets.schema.check_types(declared) if reading && meets && declared
+        IOStreams::Tabular.new(file_name: file_name, format: format, schema: file || (default_schema unless meets),
+                               contract: meets&.schema, row_format_options: row_format_options, text_format: text_format,
+                               **)
       end
 
       # Returns [String] these settings for `#inspect` on a path, see `IOStreams::Path#inspect`, each one only when it is

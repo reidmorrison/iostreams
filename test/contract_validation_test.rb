@@ -40,6 +40,30 @@ class ContractValidationTest < Minitest::Test
         assert_raises(IOStreams::Errors::InvalidHeader) { upload(%({"amount":1}\n), "orders.json").validate_contract! }
       end
 
+      it "checks the header row against a schema of the file first, as reading does" do
+        schema = {fields: [{name: "id", type: "integer"}, {name: "amount", type: "number"}]}
+        error   = assert_raises(IOStreams::Errors::InvalidHeader) { upload("Zip\n1\n").schema(schema).validate_contract! }
+        reading = assert_raises(IOStreams::Errors::InvalidHeader) { upload("Zip\n1\n").schema(schema).each(:hash) { nil } }
+        assert_equal reading.message, error.message
+        assert_equal 2, upload("Zip\n1\n").schema(schema).contract_errors.size
+        assert upload("ID,Amount\n1,2\n").schema(schema).validate_contract!
+      end
+
+      it "returns an IO that it reads to where it was, so that its rows are still read" do
+        source = upload("ID,Amount\n1,12.50\n")
+        source.validate_contract!
+        source.contract_errors
+        records = []
+        source.each(:hash) { |record| records << record }
+
+        assert_equal([1], records.map { |record| record["id"] })
+      end
+
+      it "raises for an empty source, which has no columns, while reading it yields no records" do
+        assert_raises(IOStreams::Errors::InvalidHeader) { upload("").validate_contract! }
+        assert_equal 0, upload("").each(:hash) { nil }
+      end
+
       it "raises when no contract is set" do
         error = assert_raises(ArgumentError) { IOStreams.stream(StringIO.new("id\n1\n")).validate_contract! }
 
@@ -79,6 +103,14 @@ class ContractValidationTest < Minitest::Test
         assert_includes errors.first.message, "not in the order of the fields"
       end
 
+      it "lists two columns that the contract keeps, which are the same key" do
+        contract = IOStreams::Contract.new(extraColumns: "keep", keyType: "cleansed", fieldsMatch: "partial", fields: [{name: "id"}])
+        source   = upload("id,Notes,notes\n1,2,3\n", contract: contract)
+
+        assert_raises(IOStreams::Errors::InvalidHeader) { source.validate_contract! }
+        assert_equal [IOStreams::Errors::InvalidHeader], source.contract_errors.map(&:class)
+      end
+
       it "lists two columns that are the same field" do
         errors = upload("ID,id\n1,2\n").contract_errors
 
@@ -97,6 +129,14 @@ class ContractValidationTest < Minitest::Test
         assert_includes error.message, 'The column "amount" holds values of type boolean, which the number field "amount" never accepts'
         assert_equal [error.message], stream.contract_errors.map(&:message)
         assert_raises(IOStreams::Errors::IncompatibleType) { stream.validate_contract! }
+      end
+
+      it "is not checked when writing, which converts each value written" do
+        output = StringIO.new
+        IOStreams.stream(output).file_name("orders.csv").schema(fields: [{name: "on", type: "date"}]).
+          as(fields: [{name: "on", type: "datetime"}]).writer(:hash) { |io| io << {"on" => Time.utc(2026, 10, 25)} }
+
+        assert_equal "on\n2026-10-25\n", output.string
       end
 
       it "is not checked for text, which is parsed, nor for JSON, each of whose values has its own type" do
@@ -122,6 +162,19 @@ class ContractValidationTest < Minitest::Test
             end
             assert_empty rows
             assert_equal 1, IOStreams.path(dir, "orders.parquet").as(Order).contract_errors.size
+          end
+        end
+
+        it "matches the columns of a Parquet file by name, in any order, as reading does" do
+          Dir.mktmpdir do |dir|
+            path = IOStreams.path(dir, "orders.parquet")
+            path.schema(fields: [{name: "amount", type: "integer"}, {name: "id", type: "integer"}]).writer(:hash) do |io|
+              io << {"id" => 1, "amount" => 2}
+            end
+            contract = IOStreams::Contract.new(fields: [{name: "id", type: "integer"}, {name: "amount", type: "number"}])
+
+            assert IOStreams.path(dir, "orders.parquet").as(contract).validate_contract!
+            assert_empty IOStreams.path(dir, "orders.parquet").as(contract).contract_errors
           end
         end
 
