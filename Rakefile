@@ -117,5 +117,7 @@ end
 
 # JRuby cannot load the zstd-ruby C extension, so the tests use the zstd-jni jar.
 task test: :zstd_jni if RUBY_ENGINE == "jruby"
+# The upgrade suite runs with the same test helper, which loads the jar.
+task upgrade_test: :zstd_jni if RUBY_ENGINE == "jruby"
 
 task default: %i[test query_test]
