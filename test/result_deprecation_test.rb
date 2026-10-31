@@ -108,9 +108,11 @@ class ResultDeprecationTest < Minitest::Test
 
       it "does not report a spreadsheet, whose rows v3.0 reads as CSV whatever its name" do
         FileUtils.cp(File.join(__dir__, "files", "spreadsheet.xlsx"), File.join(@dir, "report.text.xlsx"))
+        # A type for each column, without which reading the rows of a spreadsheet is deprecated itself.
+        schema = {fields: [{name: "first column", type: "string"}, {name: "second column", type: "string"}, {name: "third column", type: "string"}]}
 
-        rows = refute_deprecated { read_all(IOStreams.path(@dir, "report.text.xlsx"), :array) }
-        assert_equal read_all(IOStreams.path(__dir__, "files", "spreadsheet.xlsx"), :array), rows
+        rows = refute_deprecated { read_all(IOStreams.path(@dir, "report.text.xlsx").schema(schema), :array) }
+        assert_equal read_all(IOStreams.path(__dir__, "files", "spreadsheet.xlsx").schema(schema), :array), rows
       end
 
       it "does not report a call that supplies the format, which is deprecated itself" do
@@ -188,6 +190,103 @@ class ResultDeprecationTest < Minitest::Test
               assert_equal([%w[a=1 b=2]], refute_deprecated { read_all(stream, :array) })
             end
           end
+        end
+      end
+    end
+
+    describe "the rows and records of a spreadsheet read without a type for each column" do
+      let(:path) { IOStreams.path(__dir__, "upgrade", "files", "cells.xlsx") }
+      let(:typed) do
+        {
+          fields: [
+            {name: "id", type: "integer"},
+            {name: "amount", type: "number"},
+            {name: "zip", type: "string"},
+            {name: "ok", type: "boolean"},
+            {name: "note", type: "string"}
+          ]
+        }
+      end
+      let(:cells_pattern) { /the rows and records of a spreadsheet read without a type for each column are deprecated, since v3\.0 reads the value of each cell as Excel typed it, such as the Float 1001\.0, a Date or true, rather than its text, such as "1001\.0": give each column that is read a type with #schema/ }
+
+      it "reads the text of each cell, and reports that v3.0 reads its value" do
+        rows = [%w[id amount zip ok note], %w[1001.0 12.5 01234 true x], %w[7.0 3.0 00501 false]]
+
+        assert_equal rows, assert_deprecated(cells_pattern) { read_all(path, :array) }
+        assert_equal({"id" => "1001.0", "amount" => "12.5", "zip" => "01234", "ok" => "true", "note" => "x"},
+                     assert_deprecated(cells_pattern) { read_all(path, :hash) }.first)
+        assert_deprecated(cells_pattern) do
+          IOStreams.stream(StringIO.new).format(:csv).copy_from(path, mode: :hash)
+        end
+      end
+
+      it "reports a field without a type, and the columns that a schema keeps without one" do
+        untyped = {fields: [*typed[:fields].first(4), {name: "note"}]}
+        kept    = {fields: typed[:fields].first(4), fieldsMatch: "subset", extraColumns: "keep"}
+
+        assert_equal "x", assert_deprecated(cells_pattern) { read_all(path.dup.schema(untyped), :hash) }.first["note"]
+        assert_equal "x", assert_deprecated(cells_pattern) { read_all(path.dup.schema(kept), :hash) }.first["note"]
+      end
+
+      it "does not report a type for each column, a field that is skipped, its lines, or its data" do
+        skipped = {fields: [*typed[:fields].first(4), {name: "note", skip: true}]}
+
+        refute_deprecated do
+          assert_equal({"id" => 1001, "amount" => BigDecimal("12.5"), "zip" => "01234", "ok" => true, "note" => "x"},
+                       read_all(path.dup.schema(typed), :hash).first)
+          assert_equal({"id" => 1001, "amount" => BigDecimal("12.5"), "zip" => "01234", "ok" => true},
+                       read_all(path.dup.schema(skipped), :hash).first)
+          assert_equal "id,amount,zip,ok,note", read_all(path, :line).first
+          assert_includes path.read, "01234"
+        end
+      end
+    end
+
+    describe "a time that is not at midnight in a date field" do
+      let(:schema) { {fields: [{name: "id", type: "integer"}, {name: "on", type: "date"}]} }
+      let(:time_pattern) { /a Time that is not at midnight is deprecated for the date field "on", which drops its time of day, since v3\.0 raises IOStreams::Errors::InvalidValue for it rather than lose it: convert it to a Date .*or give the field the type datetime/ }
+
+      # Returns [String] the CSV that writing the records with the schema writes.
+      def write_csv(records, schema: self.schema)
+        io = StringIO.new
+        IOStreams.stream(io).format(:csv).schema(schema).writer(:hash) do |writer|
+          records.each { |record| writer << record }
+        end
+        io.string
+      end
+
+      it "writes its date, dropping its time of day, and reports the first one of the field, since v3.0 raises" do
+        records = [{"id" => 1, "on" => Time.utc(2026, 10, 25, 9, 30)}, {"id" => 2, "on" => Time.utc(2026, 10, 26, 17)}]
+        csv, warnings = deprecations_of { write_csv(records) }
+
+        assert_equal "id,on\n1,2026-10-25\n2,2026-10-26\n", csv
+        assert_equal 1, warnings.size
+        assert_match time_pattern, warnings.first
+      end
+
+      it "reports a DateTime, and a time by its own clock, rather than in UTC" do
+        datetime = DateTime.new(2026, 10, 25, 9, 30)
+        # Midnight in UTC, which is 20:00 the day before at an offset of -04:00.
+        evening  = Time.utc(2026, 10, 25).getlocal("-04:00")
+
+        assert_equal "id,on\n1,2026-10-25\n", assert_deprecated(/a DateTime that is not at midnight is deprecated for the date field "on"/) {
+          write_csv([{"id" => 1, "on" => datetime}])
+        }
+        assert_equal "id,on\n1,2026-10-24\n", assert_deprecated(time_pattern) { write_csv([{"id" => 1, "on" => evening}]) }
+      end
+
+      it "does not report a Date, a time at midnight by its own clock, or a datetime field, which v3.0 takes too" do
+        records = [
+          {"id" => 1, "on" => Date.new(2026, 10, 25)},
+          {"id" => 2, "on" => Time.new(2026, 10, 26, 0, 0, 0, "-04:00")},
+          {"id" => 3, "on" => DateTime.new(2026, 10, 27)}
+        ]
+        datetime = {fields: [{name: "id", type: "integer"}, {name: "on", type: "datetime"}]}
+
+        refute_deprecated do
+          assert_equal "id,on\n1,2026-10-25\n2,2026-10-26\n3,2026-10-27\n", write_csv(records)
+          assert_equal "id,on\n1,2026-10-25T09:30:00Z\n",
+                       write_csv([{"id" => 1, "on" => Time.utc(2026, 10, 25, 9, 30)}], schema: datetime)
         end
       end
     end

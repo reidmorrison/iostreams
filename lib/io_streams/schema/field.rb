@@ -24,7 +24,9 @@ module IOStreams
     #     "integer":  an Integer, such as `-12` or `0042`.
     #     "number":   a BigDecimal, such as `12.50`, `-1.5E3`, `NaN`, `INF` or `-INF`, or a Float with `floatNumber`.
     #     "boolean":  true or false, see `trueValues` and `falseValues`.
-    #     "date":     a Date, written as `2026-10-13` unless `format` is set.
+    #     "date":     a Date, written as `2026-10-13` unless `format` is set. A Time or DateTime is its date, dropping its
+    #                 time of day, which is deprecated for one that is not at midnight, by its own clock, since v3.0 raises
+    #                 for it rather than lose its time of day, see #cast.
     #     "datetime": a Time, written as `2026-10-13T09:30:00Z` unless `format` is set.
     #     "object":   a Hash, read from the text of a JSON object, such as `{"a":1}`, and written as that text, or by a
     #                 format of JSON as an object.
@@ -198,6 +200,8 @@ module IOStreams
         @constraints  = Constraints.new(descriptor["constraints"], @name,
                                         allow_blank: check_flag("allowBlank", descriptor["allowBlank"]))
         require_bigdecimal if @type == "number" && !@float
+        # Reports the first time that is not at midnight, see #midnight, which the field is frozen without.
+        @time_of_day = Deprecation::Once.new if @type == "date"
         freeze
       end
 
@@ -615,7 +619,9 @@ module IOStreams
       end
 
       def cast_date(value)
-        return value.to_date if value.is_a?(Date) || value.is_a?(Time)
+        return value if value.instance_of?(Date)
+        return midnight(value) if value.is_a?(Time) || value.is_a?(DateTime)
+        return value.to_date if value.is_a?(Date)
         return invalid(value) unless value.is_a?(String)
         return parse_time(Date, value) if @format
         return invalid(value) unless DATE.match?(value)
@@ -623,6 +629,29 @@ module IOStreams
         Date.new(*value.split("-").map { |part| Integer(part, 10) })
       rescue Date::Error
         invalid(value)
+      end
+
+      # Returns [Date] the date of a Time or DateTime, dropping its time of day.
+      #
+      # A time that is not at midnight, by its own clock, is deprecated, since v3.0 raises
+      # `IOStreams::Errors::InvalidValue` for it, rather than lose its time of day, while it takes one at midnight, such as
+      # the time that a spreadsheet's date format gives, as its date. The first one that the field converts reports a
+      # deprecation warning, rather than each one, which would report one for each row of a file, see
+      # #time_of_day_warning.
+      def midnight(time)
+        @time_of_day.warn { time_of_day_warning(time) }
+        time.to_date
+      end
+
+      # Returns [String|nil] the deprecation warning of a time that a date field converts, see #midnight, or nil for one
+      # at midnight, by its own clock.
+      def time_of_day_warning(time)
+        fraction = time.is_a?(Time) ? time.subsec : time.sec_fraction
+        return if time.hour.zero? && time.min.zero? && time.sec.zero? && fraction.zero?
+
+        "a #{time.class.name} that is not at midnight is deprecated for the date field #{name.inspect}, which drops its " \
+          "time of day, since v3.0 raises IOStreams::Errors::InvalidValue for it rather than lose it: convert it to a " \
+          "Date in the time zone that it belongs to, such as with #to_date, or give the field the type datetime"
       end
 
       # `Time` moves a day past the end of its month into the next month, such as February 30 into March 2, so the

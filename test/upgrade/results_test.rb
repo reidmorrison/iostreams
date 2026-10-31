@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require_relative "../test_helper"
+require "bigdecimal"
 require "pathname"
 require "tmpdir"
 require "zlib"
@@ -86,6 +87,48 @@ class UpgradeResultsTest < Minitest::Test
 
         assert_equal [%w[name age], ["Jack", 21], ["Jill", 22]], rows
         assert_instance_of IOStreams::Row::HeaderRow, rows.first
+      end
+    end
+
+    # `each(:array)`, `each(:hash)` and a copy of the rows and records of a spreadsheet yield the value of each cell as
+    # Excel typed it in 3.0, such as the Float `1001.0`, rather than its text, such as `"1001.0"`.
+    describe "the cells of a spreadsheet read with a type for each column" do
+      let(:path) do
+        IOStreams.path(__dir__, "files", "cells.xlsx").schema(
+          fields: [
+            {name: "id", type: "integer"},
+            {name: "amount", type: "number"},
+            {name: "zip", type: "string"},
+            {name: "ok", type: "boolean"},
+            {name: "note", type: "string"}
+          ]
+        )
+      end
+
+      it "are the values of the types of the fields" do
+        records = [
+          {"id" => 1001, "amount" => BigDecimal("12.5"), "zip" => "01234", "ok" => true, "note" => "x"},
+          {"id" => 7, "amount" => BigDecimal("3"), "zip" => "00501", "ok" => false, "note" => nil}
+        ]
+
+        assert_equal records, read_all(path, :hash)
+        assert_equal [%w[id amount zip ok note], *records.map(&:values)], read_all(path, :array)
+      end
+    end
+
+    # A date field raises `IOStreams::Errors::InvalidValue` in 3.0 for a `Time` or `DateTime` that is not at midnight.
+    describe "a date field given a Date, or a time at midnight, and a datetime field given a time" do
+      it "writes the date, and the time" do
+        io     = StringIO.new
+        schema = {fields: [{name: "on", type: "date"}, {name: "at", type: "datetime"}]}
+        IOStreams.stream(io).format(:csv).schema(schema).writer(:hash) do |records|
+          records << {"on" => Date.new(2026, 10, 25), "at" => Time.utc(2026, 10, 25, 9, 30)}
+          records << {"on" => Time.new(2026, 10, 26, 0, 0, 0, "-04:00"), "at" => Time.utc(2026, 10, 26, 17)}
+          records << {"on" => Time.utc(2026, 10, 25, 9, 30).to_date, "at" => DateTime.new(2026, 10, 27, 8)}
+        end
+
+        assert_equal "on,at\n2026-10-25,2026-10-25T09:30:00Z\n2026-10-26,2026-10-26T17:00:00Z\n" \
+                     "2026-10-25,2026-10-27T08:00:00+00:00\n", io.string
       end
     end
 

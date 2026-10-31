@@ -14,6 +14,7 @@ module IOStreams
   # Ruby itself, or of a gem that IOStreams called with a block, see .application_location.
   module Deprecation
     autoload :Methods,     "io_streams/deprecation/methods"
+    autoload :Once,        "io_streams/deprecation/once"
     autoload :OptionNames, "io_streams/deprecation/option_names"
     autoload :Words,       "io_streams/deprecation/words"
 

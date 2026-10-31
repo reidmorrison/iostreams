@@ -810,6 +810,7 @@ module IOStreams
       tabular = schema_tabular(args)
       warn_read_options(embedded_within, args)
       warn_text_file_format(args)
+      warn_cell_rows(delimiter)
       line_reader(delimiter: delimiter, embedded_within: embedded_within) do |io|
         yield klass.new(io, **tabular_options(tabular, args))
       end
@@ -947,6 +948,35 @@ module IOStreams
                        "schema, are deprecated, since v3.0 yields each row as an Array, after a header row of the " \
                        "keys of the first record, rather than each record as a Hash: read the records with " \
                        "each(:hash), or set a schema")
+    end
+
+    # Reports what v3.0 changes about reading the rows and records of a spreadsheet, whose streams read its rows in a
+    # format of their own, see `IOStreams::Builder#text_format`, since v3.0 reads them as the values of its cells, as
+    # Excel typed them, rather than as lines of CSV text:
+    # - Reading them without a type for each column, see `IOStreams::Schema#types_every_column?`, which yields the text of
+    #   each cell, such as `"1001.0"`, where v3.0 yields its value, such as the Float `1001.0`. A field with a type
+    #   converts both to the same value, such as `1001` for an integer.
+    # - `delimiter:`, which v3.0 raises ArgumentError for, since they are not lines, as it does for an encoding set with
+    #   #encoding, see `IOStreams::Builder#warn_cells_encoding`.
+    #
+    # None is looked for while deprecation warnings are off, see `IOStreams::Deprecation.on?`, since finding the format
+    # of the text builds the pipeline.
+    def warn_cell_rows(delimiter)
+      return unless Deprecation.on? && builder.text_format
+
+      unless delimiter.nil?
+        Deprecation.warn("delimiter: is deprecated for the rows and records of a spreadsheet, which are its cells " \
+                         "rather than lines of text, since v3.0 raises ArgumentError for it, so remove it; each(:line) " \
+                         "still takes it")
+      end
+      builder.warn_cells_encoding
+      return if builder.tabular_schema&.types_every_column?
+
+      Deprecation.warn("the rows and records of a spreadsheet read without a type for each column are deprecated, " \
+                       "since v3.0 reads the value of each cell as Excel typed it, such as the Float 1001.0, a Date or " \
+                       "true, rather than its text, such as \"1001.0\": give each column that is read a type with " \
+                       "#schema, such as {name: \"id\", type: \"integer\"}, or {name: \"zip\", type: \"string\"} for " \
+                       "its text")
     end
 
     def warn_embedded_within(embedded_within)

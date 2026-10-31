@@ -1137,8 +1137,20 @@ class SchemaTest < Minitest::Test
         end
 
         it "converts a Date or a Time" do
-          assert_equal Date.new(2026, 10, 13), date.cast(DateTime.new(2026, 10, 13, 9, 30))
-          assert_equal Date.new(2026, 10, 13), date.cast(Time.new(2026, 10, 13, 9, 30))
+          refute_deprecated do
+            assert_equal Date.new(2026, 10, 13), date.cast(Date.new(2026, 10, 13))
+            assert_equal Date.new(2026, 10, 13), date.cast(DateTime.new(2026, 10, 13))
+            assert_equal Date.new(2026, 10, 13), date.cast(Time.new(2026, 10, 13))
+          end
+        end
+
+        it "drops the time of day of a time that is not at midnight, which is deprecated, since v3.0 raises" do
+          time_of_day = /a DateTime that is not at midnight is deprecated for the date field "value"/
+
+          assert_deprecated(time_of_day) do
+            assert_equal Date.new(2026, 10, 13), date.cast(DateTime.new(2026, 10, 13, 9, 30))
+            assert_equal Date.new(2026, 10, 13), date.cast(Time.new(2026, 10, 13, 9, 30))
+          end
         end
 
         it "reads and writes the format" do

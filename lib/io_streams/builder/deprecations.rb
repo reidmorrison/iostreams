@@ -36,6 +36,19 @@ module IOStreams
         end
       end
 
+      # An encoding set with #encoding is deprecated when the rows and records of a spreadsheet are read, see
+      # `IOStreams::Stream#warn_cell_rows`, which are its cells rather than lines of text, since v3.0 raises ArgumentError
+      # for it then. Its lines still take it. Without it, a schema reads the text of the cells as UTF-8, see #utf8_text?,
+      # as v3.0 does.
+      def warn_cells_encoding
+        return if @encoding.nil?
+
+        Deprecation.warn("#encoding is deprecated when the rows and records of a spreadsheet are read, which are its " \
+                         "cells rather than lines of text, since v3.0 raises ArgumentError for it, so remove it, and " \
+                         "give its columns a schema, with which v2.2 reads the text of its cells as UTF-8; " \
+                         "each(:line) still takes it")
+      end
+
       # Returns [Array(Array<Symbol>, String, Hash|nil)|nil] the methods that the stream that the application's block
       # receives in v3.0 answers, its name for a deprecation warning, such as "the :gz stream", and what replaces each
       # method that v3.0 removes, when the stream says, see `IOStreams::Reader.v3_stream_advice`, when the stream that it
