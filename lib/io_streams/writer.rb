@@ -18,10 +18,15 @@ module IOStreams
       []
     end
 
+    # The methods of an IO that write, which every stream that v3.0 supplies to a writer block answers, see
+    # .v3_stream_methods.
+    V3_WRITE_METHODS = %i[write << print puts printf].freeze
+
     # Returns [Array<Symbol>|nil] the methods that the stream that v3.0 supplies to a writer block, in place of the one
     # that this writer yields, answers, when it does not answer all of the methods of that one, otherwise nil, for a
-    # writer whose stream answers the same methods in both versions, see `IOStreams::Reader.v3_stream_methods`.
-    def self.v3_stream_methods(_reads_file)
+    # writer whose stream answers the same methods in both versions, see `IOStreams::Reader.v3_stream_methods`, whose
+    # parameters and block it takes too.
+    def self.v3_stream_methods(_options)
       nil
     end
 

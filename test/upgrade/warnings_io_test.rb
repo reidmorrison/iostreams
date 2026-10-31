@@ -116,6 +116,21 @@ module Upgrade
         end
       end
 
+      # A PGP read with `verify_first: true` yields the File that gpg decrypts the data into, in both versions, so v2.2
+      # reports no deprecation warning for its methods.
+      describe "a PGP read with verify_first: true" do
+        it "reads the File that gpg decrypts the data into" do
+          Dir.mktmpdir do |dir|
+            write_file(dir, "people.csv.pgp")
+            input  = StringIO.new(File.binread(File.join(dir, "people.csv.pgp")))
+            stream = IOStreams.stream(input).stream(:pgp, **pgp_reader, verify_first: true)
+            data   = refute_deprecated { stream.reader { |io| [io.class, io.read, io.rewind, io.read, io.size] } }
+
+            assert_equal [::File, csv, 0, csv, csv.bytesize], data
+          end
+        end
+      end
+
       describe "copying the data into a local file first, where the stream must be a File" do
         %w[people.csv.gz people.csv.zip people.csv.pgp.gz].each do |name|
           it "reads #{name} from a local File" do

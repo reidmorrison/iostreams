@@ -7,13 +7,13 @@ module IOStreams
 
       # The methods that the stream that v3.0 supplies to a writer block for the encoding answers: those of an IO that
       # write, #finish and #output_stream, see .v3_stream_methods.
-      V3_METHODS = %i[write << print puts printf finish output_stream].freeze
+      V3_METHODS = [*V3_WRITE_METHODS, :finish, :output_stream].freeze
       private_constant :V3_METHODS
 
       # Returns [Array<Symbol>] the methods that the stream that v3.0 supplies to a writer block for the encoding answers,
       # in place of this writer, see `IOStreams::Writer.v3_stream_methods`. It has no #encoding or #cleaner, which the
       # settings of the path replace, see .v3_stream_advice.
-      def self.v3_stream_methods(_reads_file)
+      def self.v3_stream_methods(_options)
         V3_METHODS
       end
 

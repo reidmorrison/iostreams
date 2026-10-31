@@ -8,7 +8,7 @@ module IOStreams
       # Returns [Array<Symbol>] the methods that the stream that v3.0 supplies to a reader block, in place of the stream of
       # the entry that this reader yields, such as a `Zip::InputStream`, answers: those of an IO that read, see
       # `IOStreams::Reader.v3_stream_methods`.
-      def self.v3_stream_methods(_reads_file)
+      def self.v3_stream_methods(_options)
         V3_READ_METHODS
       end
 

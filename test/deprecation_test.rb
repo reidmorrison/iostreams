@@ -1,6 +1,8 @@
 # frozen_string_literal: true
 
 require_relative "test_helper"
+require "delegate"
+require "forwardable"
 
 class DeprecationTest < Minitest::Test
   # Returns [Module] a module defined by the Ruby source, as the code of the file of the supplied name, so that its
@@ -60,6 +62,31 @@ class DeprecationTest < Minitest::Test
 
   # The name of a file of a gem.
   GEM_FILE = File.join(Gem.path.first, "gems", "deprecation_test-1.0.0", "lib", "deprecation_test.rb")
+
+  # The names of the files of the delegators of Ruby, in its standard library, and in the jar of JRuby.
+  DELEGATOR_FILES = [
+    File.join(RbConfig::CONFIG["rubylibdir"], "delegate.rb"),
+    File.join(RbConfig::CONFIG["rubylibdir"], "forwardable.rb"),
+    "uri:classloader:/META-INF/jruby.home/lib/ruby/stdlib/delegate.rb",
+    "uri:classloader:/META-INF/jruby.home/lib/ruby/stdlib/forwardable.rb"
+  ].freeze
+
+  # An object whose #old is a method of its class, which a class that `DelegateClass` returns delegates to.
+  class Old
+    def old = :old
+  end
+
+  # Wraps an object, and forwards #old to it with `Forwardable`, as an application can wrap the stream that a block
+  # receives.
+  class Forwarder
+    extend Forwardable
+
+    def_delegators :@object, :old
+
+    def initialize(object)
+      @object = object
+    end
+  end
 
   describe IOStreams::Deprecation do
     describe ".warn" do
@@ -377,6 +404,53 @@ class DeprecationTest < Minitest::Test
         end
 
         assert_equal :old, result
+      end
+
+      # A delegator of Ruby calls the method of the object that it wraps for its caller, as a core method does, so the
+      # call is reported at the line of the application that called the delegator.
+      {
+        "a SimpleDelegator"                  => ->(old) { SimpleDelegator.new(old) },
+        "a class that DelegateClass returns" => ->(old) { DelegateClass(DeprecationTest::Old).new(old) },
+        "a Forwardable"                      => ->(old) { DeprecationTest::Forwarder.new(old) }
+      }.each_pair do |name, wrap|
+        it "reports a deprecation warning at the line of the application that called #{name} that wraps the object" do
+          wrapper = wrap.call(IOStreams::Deprecation::Methods.deprecate(DeprecationTest::Old.new, [], "is deprecated"))
+          line    = __LINE__ + 1
+          result  = assert_deprecated(/deprecation_test\.rb:#{line}: warning: IOStreams: #old is deprecated\n\z/) { wrapper.old }
+
+          assert_equal :old, result
+        end
+      end
+
+      DELEGATOR_FILES.each do |file|
+        it "reports a deprecation warning at the line of the application that called the delegator in #{file}" do
+          code   = DeprecationTest.code_in(file, "def self.call(object) = object.old")
+          line   = __LINE__ + 2
+          result = assert_deprecated(/deprecation_test\.rb:#{line}: warning: IOStreams: #old is deprecated\n\z/) do
+            code.call(object)
+          end
+
+          assert_equal :old, result
+        end
+      end
+
+      it "reports a deprecation warning at the line of a file of the application named as a delegator of Ruby" do
+        file = File.join(Dir.pwd, "app", "delegate.rb")
+        code = DeprecationTest.code_in(file, "def self.call(object) = object.old")
+
+        assert_deprecated(/\A#{Regexp.escape(file)}:1: warning: IOStreams: #old is deprecated\n\z/) { code.call(object) }
+      end
+
+      it "reports none when a gem in a directory that Bundler adds to the installed gems called the method" do
+        dir  = File.join(Dir.pwd, "tmp", "bundled_gems")
+        code = DeprecationTest.code_in(File.join(dir, "gems", "added-1.0.0", "lib", "added.rb"), "def self.call(object) = object.old")
+
+        assert_deprecated(/added\.rb:1: warning: IOStreams: #old is deprecated\n\z/) { code.call(object) }
+        # Bundler replaces the Array of the directories of the installed gems when it changes them.
+        Gem.stub(:path, [*Gem.path, dir]) do
+          assert_equal(:old, refute_deprecated { code.call(object) })
+        end
+        assert_deprecated(/added\.rb:1: warning: IOStreams: #old is deprecated\n\z/) { code.call(object) }
       end
 
       it "reports nothing while deprecation warnings are off" do

@@ -12,7 +12,7 @@ module IOStreams
 
       # Returns [Array<Symbol>] the methods that the stream that v3.0 supplies to a reader block, in place of the
       # `Zlib::GzipReader` that this reader yields, answers, see `IOStreams::Reader.v3_stream_methods`.
-      def self.v3_stream_methods(_reads_file)
+      def self.v3_stream_methods(_options)
         V3_METHODS
       end
 

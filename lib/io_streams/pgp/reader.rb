@@ -17,11 +17,12 @@ module IOStreams
       private_constant :V3_METHODS
 
       # Returns [Array<Symbol>|nil] the methods that the stream that v3.0 supplies to a reader block, in place of the IO
-      # of gpg's output that this reader yields, answers, see `IOStreams::Reader.v3_stream_methods`: nil when it reads a
-      # regular local file, which gpg reads itself in v3.0, so that the block receives gpg's output in both versions,
+      # of gpg's output that this reader yields, answers, see `IOStreams::Reader.v3_stream_methods`: nil with
+      # `verify_first: true`, since both versions then yield the File that gpg decrypts the data into, or when it reads
+      # a regular local file, which gpg reads itself in v3.0, so that the block receives gpg's output in both versions,
       # otherwise those of the stream that v3.0 supplies, which feeds gpg the data that it reads.
-      def self.v3_stream_methods(reads_file)
-        V3_METHODS unless reads_file
+      def self.v3_stream_methods(options)
+        V3_METHODS unless options[:verify_first] || yield
       end
 
       # Passphrase to use to open the private key to decrypt the received file

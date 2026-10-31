@@ -47,6 +47,11 @@ module IOStreams
     OWN_FILES = ["#{__dir__}/deprecation.rb", "#{__dir__}/deprecation/methods.rb"].freeze
     private_constant :OWN_FILES
 
+    # The end of the names of the files of the standard library of Ruby that define its delegators: `delegate.rb`, which
+    # defines `SimpleDelegator` and `DelegateClass`, and `forwardable.rb`, which defines `Forwardable`, see .delegator?.
+    DELEGATOR_FILES = %w[/delegate.rb /forwardable.rb].freeze
+    private_constant :DELEGATOR_FILES
+
     # The directory of the standard library of Ruby.
     RUBY_LIB_DIRS = [RbConfig::CONFIG["rubylibdir"]].compact.map { |dir| "#{dir}/" }.freeze
     private_constant :RUBY_LIB_DIRS
@@ -77,21 +82,22 @@ module IOStreams
 
     # Reports, as .warn does, that the application called a deprecated method of an object that IOStreams handed it,
     # such as the stream that a reader block receives, which calls this from that method, see
-    # `IOStreams::Deprecation::Methods`, when the line that called the method, see .calling_location, is the
+    # `IOStreams::Deprecation::Methods`, at the line that called the method, see .calling_location, when it is the
     # application's own: not a line of IOStreams, which calls the methods of the object for itself, of a gem, such as the
     # gem whose object it is, which calls its own methods, or of a library that the application handed the object to,
     # including the standard library of Ruby, see .standard_library?. So a method that the application hands IOStreams
     # as the block itself, such as `reader(&:rewind)`, is not reported, since IOStreams calls it, while one that it hands
-    # a core method of Ruby, such as `io.then(&:rewind)`, is, since the core method calls it for the application.
+    # a core method of Ruby, such as `io.then(&:rewind)`, or calls through a delegator of Ruby that wraps the object,
+    # such as `SimpleDelegator.new(io).rewind`, is, since they call it for the application.
     #
     # Returns nil.
     def self.warn_call(message)
       return unless Warning[:deprecated]
 
       location = calling_location
-      return if location.nil? || library?(location) || standard_library?(location) || gem?(location, installed_gem_dirs)
+      return if location.nil? || library?(location) || gem?(location, installed_gem_dirs) || standard_library?(location)
 
-      warn(message)
+      report(message, location)
     end
 
     # Returns [true|false] whether the message, as `Kernel#warn` passes it to `Warning.warn`, is a warning reported by
@@ -153,13 +159,14 @@ module IOStreams
     private_class_method :loading_location
 
     # Returns [Thread::Backtrace::Location|nil] the line that called the deprecated method that called .warn_call: the
-    # first line of the call stack outside the files of this module, other than a line of a core method, see .core?,
-    # which calls the method for its caller, such as `Kernel#then` in `io.then(&:rewind)`. Ruby names the line that
+    # first line of the call stack outside the files of this module, other than a line of a core method, see .core?, or
+    # of a delegator of Ruby, see .delegator?, which calls the method for its caller, such as `Kernel#then` in
+    # `io.then(&:rewind)`, or the `SimpleDelegator` in `SimpleDelegator.new(io).rewind`. Ruby names the line that
     # called a core method written in C in its place, and CRuby 4.0 does the same for one written in Ruby, so skipping
     # the lines that earlier versions name gives the same line on each version of Ruby.
     def self.calling_location
       Thread.each_caller_location do |location|
-        next if OWN_FILES.include?(location.absolute_path || location.path) || core?(location)
+        next if OWN_FILES.include?(location.absolute_path || location.path) || core?(location) || delegator?(location)
 
         return location
       end
@@ -208,6 +215,16 @@ module IOStreams
     end
     private_class_method :standard_library?
 
+    # Returns [true|false] whether the line of the call stack is in a delegator of the standard library of Ruby, see
+    # DELEGATOR_FILES, which calls the method of the object that it wraps for its caller, as a core method does: the
+    # `#method_missing` of a `SimpleDelegator`, or a method that `DelegateClass` or `Forwardable` defines. The other
+    # files of the standard library call the methods of an object for themselves, such as a library that the
+    # application hands the object to, see .warn_call.
+    def self.delegator?(location)
+      location.path.end_with?(*DELEGATOR_FILES) && standard_library?(location)
+    end
+    private_class_method :delegator?
+
     # Returns [true|false] whether the line of the call stack is in a file of a gem, in one of the directories of the
     # installed gems.
     def self.gem?(location, gem_dirs)
@@ -222,11 +239,19 @@ module IOStreams
     end
     private_class_method :in_dirs?
 
-    # Returns [Array<String>] the directories of the installed gems, which Bundler can change once it is loaded.
+    # Returns [Array<String>] the directories of the installed gems, see `Gem.path`, each ending with "/". They are kept
+    # for as long as `Gem.path` returns the same Array, since Bundler replaces it when it changes them, so that a
+    # deprecated method that a gem calls for each line, see .warn_call, builds them once, rather than on each call.
     def self.installed_gem_dirs
       return [] unless defined?(::Gem)
 
-      ::Gem.path.map { |dir| dir.end_with?("/") ? dir : "#{dir}/" }
+      path   = ::Gem.path
+      cached = @installed_gem_dirs
+      return cached.last if cached&.first.equal?(path)
+
+      dirs                = path.map { |dir| dir.end_with?("/") ? dir : "#{dir}/" }.freeze
+      @installed_gem_dirs = [path, dirs].freeze
+      dirs
     end
     private_class_method :installed_gem_dirs
   end

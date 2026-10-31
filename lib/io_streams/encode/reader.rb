@@ -13,7 +13,7 @@ module IOStreams
       # Returns [Array<Symbol>] the methods that the stream that v3.0 supplies to a reader block for the encoding answers,
       # in place of this reader, see `IOStreams::Reader.v3_stream_methods`. It has no #encoding or #cleaner, which the
       # settings of the path replace, see .v3_stream_advice.
-      def self.v3_stream_methods(_reads_file)
+      def self.v3_stream_methods(_options)
         V3_METHODS
       end
 

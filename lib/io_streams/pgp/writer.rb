@@ -17,13 +17,13 @@ module IOStreams
 
       # The methods that the stream that v3.0 supplies to a writer block for PGP answers: those of an IO that write,
       # #flush, #binmode and #binmode?, see .v3_stream_methods.
-      V3_METHODS = %i[write << print puts printf flush binmode binmode?].freeze
+      V3_METHODS = [*V3_WRITE_METHODS, :flush, :binmode, :binmode?].freeze
       private_constant :V3_METHODS
 
       # Returns [Array<Symbol>] the methods that the stream that v3.0 supplies to a writer block, in place of the IO of
       # gpg's input that this writer yields, answers, which writes to gpg, whatever it writes to, see
       # `IOStreams::Writer.v3_stream_methods`.
-      def self.v3_stream_methods(_reads_file)
+      def self.v3_stream_methods(_options)
         V3_METHODS
       end
 

@@ -9,7 +9,7 @@ module IOStreams
       # this reader yields, a `Zlib::GzipReader` for a compressed file, otherwise a `SymmetricEncryption::Reader`,
       # answers: those of an IO that read, see `IOStreams::Reader.v3_stream_methods`. The stream of a compressed file
       # also answers #close in v3.0, which the block need not call, since the stream is closed once the block returns.
-      def self.v3_stream_methods(_reads_file)
+      def self.v3_stream_methods(_options)
         V3_READ_METHODS
       end
 

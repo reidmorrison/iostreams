@@ -89,7 +89,7 @@ module Paths
           line = __LINE__ + 4
           data = existing_path.reader do |io|
             first = io.read
-            assert_deprecated(/s3_test\.rb:#{line}: warning: IOStreams: #rewind is deprecated on the IO of an S3 path that #reader yields, since in v3\.0 it is a stream that only reads, with #read, #readpartial, #gets, #readline, #readlines, #each_line, #each and #eof\?: read it with those, open the reader again to read it from the start, or copy the data into a local file first, such as with IOStreams\.temp_file and #copy_to, where it must be a File\n\z/) do
+            assert_deprecated(/s3_test\.rb:#{line}: warning: IOStreams: #rewind is deprecated on the IO of an S3 path that #reader yields, since in v3\.0 it is a stream that only reads, with #read, #readpartial, #gets, #readline, #readlines, #each_line, #each, #eof\?, #eof and #closed\?: read it with those, open the reader again to read it from the start, or copy the data into a local file first, such as with IOStreams\.temp_file and #copy_to, where it must be a File\n\z/) do
               io.rewind
             end
             assert_kind_of ::File, io
@@ -160,7 +160,7 @@ module Paths
             io.write(raw)
 
             assert_kind_of ::File, io
-            assert_kind_of String, assert_deprecated(/IOStreams: #path is deprecated on the IO of an S3 path that #writer yields, since in v3\.0 it is a stream that only writes, with #write, #<<, #print, #puts and #printf: write it with those, or write a local file first, such as with IOStreams\.temp_file, and copy it with #copy_to, where it must be a File\n\z/) { io.path }
+            assert_kind_of String, assert_deprecated(/IOStreams: #path is deprecated on the IO of an S3 path that #writer yields, since in v3\.0 it is a stream that only writes, with #write, #<<, #print, #puts, #printf and #flush: write it with those, or write a local file first, such as with IOStreams\.temp_file, and copy it with #copy_to, where it must be a File\n\z/) { io.path }
             assert_deprecated(/#size is deprecated on the IO of an S3 path that #writer yields/) { io.size }
           end
 
@@ -188,6 +188,18 @@ module Paths
           name = refute_deprecated { path.writer { |io| io.write(raw) && io.path } }
 
           assert_kind_of String, name
+          assert_equal raw, write_path.read
+        end
+
+        it "reports a deprecation warning with a checksum option of a read, which v3.0 does not write the object with" do
+          # v3.0 writes the object with only the options that put_object takes, so it uploads the object as it is
+          # written. A client that does not check the parameters of its requests lets v2.2 write it with the option too.
+          path = IOStreams.path(write_path.to_s, client: {validate_params: false}, checksum_mode: "ENABLED")
+          path.writer do |io|
+            io.write(raw)
+            assert_deprecated(/#path is deprecated on the IO of an S3 path that #writer yields/) { io.path }
+          end
+
           assert_equal raw, write_path.read
         end
       end
@@ -352,6 +364,25 @@ module Paths
           source.write("Hello World")
           assert_deprecated(/mode:, columns: are deprecated for a copy with convert: false, which ignores them/) do
             source.copy_to(target, convert: false, mode: :hash, columns: ["name"])
+          end
+
+          assert_equal "Hello World", target.read
+        ensure
+          source&.delete
+          target&.delete
+        end
+
+        it "hands IOStreams the File of the object as it is, when it copies it as stored to and from a local file" do
+          source = root_path.join("copy_test_source.txt")
+          target = root_path.join("copy_test_target.txt")
+          source.write("Hello World")
+          IOStreams::Deprecation::Methods.stub(:deprecate, ->(*) { flunk("The File reports deprecation warnings") }) do
+            IOStreams.temp_file("copy_test", ".txt") do |temp|
+              refute_deprecated do
+                source.copy_to(temp, convert: false)
+                temp.copy_to(target, convert: false)
+              end
+            end
           end
 
           assert_equal "Hello World", target.read

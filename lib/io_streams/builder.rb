@@ -256,8 +256,8 @@ module IOStreams
     # Returns [Array(Array<Symbol>, String, Hash|nil)|nil] the methods that the stream that the application's block
     # receives in v3.0 answers, its name for a deprecation warning, such as "the :gz stream", and what replaces each
     # method that v3.0 removes, when the stream says, see `IOStreams::Reader.v3_stream_advice`, when the stream that it
-    # receives in v2.2 answers others, otherwise nil. The stream closest to the application decides, see
-    # `IOStreams::Reader.v3_stream_methods`. Without any streams, the block receives the IO that they would read or
+    # receives in v2.2 answers others, otherwise nil. The stream closest to the application decides, with its options,
+    # see `IOStreams::Reader.v3_stream_methods`. Without any streams, the block receives the IO that they would read or
     # write, which the supplied source describes, see `IOStreams::Stream#v3_source` and `IOStreams::Stream#v3_target`.
     #
     # Parameters:
@@ -265,18 +265,21 @@ module IOStreams
     #   source: [Array(Array<Symbol>, String)|nil]
     #     The methods and the name of the IO that the streams read or write in v3.0, when it differs from the one in
     #     v2.2, otherwise nil.
-    #   reads_file: [true|false]
-    #     Whether the streams read a regular local file in v3.0.
+    #
+    # Yields, only when the stream closest to the application asks and is the only stream, to ask whether the streams
+    # read a regular local file in v3.0. The block answers true or false.
     #
     # Asked before the streams are opened, so it raises nothing, not even for a stream without a class of the type, which
     # raises as before once it is opened.
-    def v3_stream(type, source, reads_file)
-      streams = pipeline
-      name    = streams.each_key.first
+    def v3_stream(type, source)
+      streams       = pipeline
+      name, options = streams.first
       return source if name.nil?
 
-      klass   = IOStreams.extensions[name]&.public_send(:"#{type}_class")
-      methods = klass.v3_stream_methods(reads_file && streams.size == 1) if klass.respond_to?(:v3_stream_methods)
+      klass = IOStreams.extensions[name]&.public_send(:"#{type}_class")
+      return unless klass.respond_to?(:v3_stream_methods)
+
+      methods = klass.v3_stream_methods(options) { streams.size == 1 && yield }
       return unless methods
 
       [methods, "the #{name.inspect} stream", (klass.v3_stream_advice if klass.respond_to?(:v3_stream_advice))]

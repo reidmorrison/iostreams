@@ -59,20 +59,18 @@ module IOStreams
     private_constant :IO_STREAM_DEPRECATION
 
     # The deprecation warning of a method of the stream that a reader block receives, which the stream that v3.0
-    # supplies in its place does not answer, after the name of the method, with the name of the stream, see
-    # #v3_deprecation.
-    V3_READER_DEPRECATION = "is deprecated on %s that #reader yields, since in v3.0 it is a stream that only reads, " \
-                            "with #read, #readpartial, #gets, #readline, #readlines, #each_line, #each and #eof?: read " \
-                            "it with those, open the reader again to read it from the start, or copy the data into a " \
-                            "local file first, such as with IOStreams.temp_file and #copy_to, where it must be a " \
-                            "File".freeze
+    # supplies in its place does not answer, after the name of the method, with the name of the stream, and the methods
+    # that the stream of v3.0 answers, see #v3_deprecation.
+    V3_READER_DEPRECATION = "is deprecated on %<name>s that #reader yields, since in v3.0 it is a stream that only " \
+                            "reads, with %<methods>s: read it with those, open the reader again to read it from the " \
+                            "start, or copy the data into a local file first, such as with IOStreams.temp_file and " \
+                            "#copy_to, where it must be a File".freeze
     private_constant :V3_READER_DEPRECATION
 
     # The deprecation warning of a method of the stream that a writer block receives, see V3_READER_DEPRECATION.
-    V3_WRITER_DEPRECATION = "is deprecated on %s that #writer yields, since in v3.0 it is a stream that only writes, " \
-                            "with #write, #<<, #print, #puts and #printf: write it with those, or write a local file " \
-                            "first, such as with IOStreams.temp_file, and copy it with #copy_to, where it must be a " \
-                            "File".freeze
+    V3_WRITER_DEPRECATION = "is deprecated on %<name>s that #writer yields, since in v3.0 it is a stream that only " \
+                            "writes, with %<methods>s: write it with those, or write a local file first, such as with " \
+                            "IOStreams.temp_file, and copy it with #copy_to, where it must be a File".freeze
     private_constant :V3_WRITER_DEPRECATION
 
     # The deprecation warning of a method of the stream that a reader or writer block receives, which v3.0 removes, and
@@ -275,7 +273,7 @@ module IOStreams
     #
     # The stream that the block of the `:stream` mode receives reports a deprecation warning for each of its methods that
     # the application calls, and that the stream that v3.0 supplies in its place does not answer, such as `#rewind` of the
-    # `Zlib::GzipReader` of a `.gz` file, see #v3_deprecation.
+    # `Zlib::GzipReader` of a `.gz` file, when deprecation warnings are on as it is opened, see #v3_deprecation.
     def reader(mode = :stream, **args, &)
       case mode
       when :stream
@@ -302,7 +300,7 @@ module IOStreams
     #   this method will load the entire file into memory.
     # - Recommend using instead `#reader` to read a block into memory at a time.
     def read(*args)
-      reader { |stream| stream.read(*args) }
+      internal_reader { |stream| stream.read(*args) }
     end
 
     # Returns a Writer for writing to a file / stream
@@ -317,7 +315,7 @@ module IOStreams
     #
     # The stream that the block of the `:stream` mode receives reports a deprecation warning for each of its methods that
     # the application calls, and that the stream that v3.0 supplies in its place does not answer, such as `#fileno` of
-    # the IO of gpg's input when writing PGP, see #v3_deprecation.
+    # the IO of gpg's input when writing PGP, when deprecation warnings are on as it is opened, see #v3_deprecation.
     def writer(mode = :stream, **args, &)
       case mode
       when :stream
@@ -344,7 +342,7 @@ module IOStreams
     #   since all the data for the file needs to be resident in memory before writing.
     # - Recommend using instead `#writer` to write a block of memory at a time.
     def write(data)
-      writer { |stream| stream.write(data) }
+      internal_writer { |stream| stream.write(data) }
     end
 
     # Copy from another stream, path, file_name or IO instance.
@@ -400,15 +398,15 @@ module IOStreams
           end
         else
           warn_ignored_options(args.keys, "when copying without a `mode:`")
-          stream.reader do |src|
-            writer { |target| copy_data(src, target) }
+          stream.internal_reader do |src|
+            internal_writer { |target| copy_data(src, target) }
           end
         end
       else
         warn_unconverted_copy_options(mode, args)
         stream = source.is_a?(Stream) ? source.dup : IOStreams.new(source)
-        stream.no_streams.reader do |src|
-          dup.no_streams.writer { |target| IO.copy_stream(src, target) }
+        stream.no_streams.internal_reader do |src|
+          dup.no_streams.internal_writer { |target| IO.copy_stream(src, target) }
         end
       end
     end
@@ -623,6 +621,28 @@ module IOStreams
       self
     end
 
+    # Yields the stream that the block of the :stream mode of #reader receives, for IOStreams itself, such as #read or a
+    # copy, which calls its methods for itself, so that it reports no deprecation warning for them, see #v3_deprecation.
+    # It checks first that the stream may be read, as a path's #reader does, see #authorize!.
+    def internal_reader(&)
+      authorize!
+      stream_reader(&)
+    end
+
+    # Yields the stream that the block of the :stream mode of #writer receives, for IOStreams itself, see
+    # #internal_reader.
+    def internal_writer(&)
+      authorize!
+      stream_writer(&)
+    end
+
+    # Checks that the stream may be read or written, before #internal_reader or #internal_writer opens it: a path that
+    # is not within the allowed paths raises, see `IOStreams::Path#authorize!`, while a stream has nothing to check.
+    # They are defined here, rather than for a path, so that any stream may ask another for them, such as a copy from
+    # a path to a stream.
+    def authorize!
+    end
+
     # Options supplied to a copy with `convert: false`, which ignores them, are deprecated, including `mode:`.
     def warn_unconverted_copy_options(mode, args)
       names = args.keys
@@ -667,24 +687,37 @@ module IOStreams
 
     # Returns [Array(Array<Symbol>, String)|nil] the methods that the stream that the block of the :stream mode of the
     # supplied type receives answers in v3.0, and the deprecation warning of each of its other methods that the
-    # application calls, after the name of the method, when the stream that it receives in v2.2 answers others, see
-    # `IOStreams::Builder#v3_stream`, otherwise nil, so that #reader and #writer extend the stream with them, see
-    # `IOStreams::Deprecation::Methods`, and otherwise hand the block on unchanged. Known before the streams are
-    # opened, since the streams that v3.0 replaces are those of IOStreams itself, each of which yields one stream.
+    # application calls, after the name of the method, which names the methods that it answers, when the stream that it
+    # receives in v2.2 answers others, see `IOStreams::Builder#v3_stream`, otherwise nil, so that #reader and #writer
+    # extend the stream with them, see `IOStreams::Deprecation::Methods`, and otherwise hand the block on unchanged.
+    # Known before the streams are opened, since the streams that v3.0 replaces are those of IOStreams itself, each of
+    # which yields one stream.
+    #
+    # Nil while deprecation warnings are off, see `Warning[:deprecated]`, so that the stream is then handed on as it is,
+    # without any of this work.
     #
     # A stream that names what replaces some of its methods, such as the encode stream, whose #encoding the #encoding of
     # the path replaces, has a deprecation warning for each of them, see `IOStreams::Deprecation::Methods.deprecate`.
     def v3_deprecation(type)
+      return unless Warning[:deprecated]
+
       reading               = type == :reader
-      methods, name, advice = builder.v3_stream(type, reading ? v3_source : v3_target, reading && v3_reads_file?)
+      methods, name, advice = builder.v3_stream(type, reading ? v3_source : v3_target) { reading && v3_reads_file? }
       return unless methods
 
-      message = (reading ? V3_READER_DEPRECATION : V3_WRITER_DEPRECATION) % name
+      template = reading ? V3_READER_DEPRECATION : V3_WRITER_DEPRECATION
+      # Kernel.format, since #format is the tabular format of this stream.
+      message  = Kernel.format(template, name: name, methods: method_list(methods))
       return [methods, message] unless advice
 
-      # Kernel.format, since #format is the tabular format of this stream.
       messages = advice.transform_values { |use| Kernel.format(V3_REMOVED_DEPRECATION, name, "##{type}", use) }
       [methods, messages.merge(nil => message)]
+    end
+
+    # Returns [String] the names of the methods, as a deprecation warning lists them, such as "#read, #gets and #eof?".
+    def method_list(methods)
+      names = methods.map { |name| "##{name}" }
+      names.size > 2 ? "#{names[0..-2].join(', ')} and #{names.last}" : names.join(" and ")
     end
 
     # Returns [Array(Array<Symbol>, String)|nil] the methods that the IO that the streams of this stream read in v3.0
@@ -703,7 +736,8 @@ module IOStreams
 
     # Returns [true|false] whether the streams of this stream read a regular local file in v3.0: the IO supplied to
     # `IOStreams.stream`, when it is an open File, or the File of a Tempfile, which gpg reads itself in v3.0, see
-    # `IOStreams::Pgp::Reader.v3_stream_methods`.
+    # `IOStreams::Pgp::Reader.v3_stream_methods`. Only asked by a stream that needs to know, since it checks the file,
+    # see `IOStreams::Builder#v3_stream`.
     def v3_reads_file?
       io = supplied_io
       io = io.__getobj__ if defined?(::Delegator) && io.is_a?(::Delegator)
@@ -946,7 +980,7 @@ module IOStreams
     def line_writer(**args, &block)
       return supplied_writer(IOStreams::Line::Writer, args, &block) if supplied_io.is_a?(IOStreams::Line::Writer)
 
-      writer do |io|
+      stream_writer do |io|
         IOStreams::Line::Writer.stream(io, **args, &block)
       end
     end

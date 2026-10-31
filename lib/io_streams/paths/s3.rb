@@ -498,7 +498,7 @@ module IOStreams
       end
 
       # The methods of the IO that v3.0 uploads the object with, see #v3_target: those of an IO that write, and #flush.
-      V3_UPLOAD_METHODS = %i[write << print puts printf flush].freeze
+      V3_UPLOAD_METHODS = [*IOStreams::Writer::V3_WRITE_METHODS, :flush].freeze
       private_constant :V3_UPLOAD_METHODS
 
       # The options that describe the whole object, with which v3.0 still writes the object into a temp file first, as
@@ -509,10 +509,13 @@ module IOStreams
       # Returns [Array(Array<Symbol>, String)|nil] the methods of the IO that v3.0 uploads the object with, in place of the
       # temp File that v2.2 writes it into, and its name, see `IOStreams::Stream#v3_target`: v3.0 uploads the object as
       # the application writes it, with an IO that only writes, unless an option describes the whole object, which it
-      # still writes into a temp file first.
+      # still writes into a temp file first. v3.0 writes the object with only the options that `put_object` takes, so
+      # only those decide, rather than one that only another request takes, such as `checksum_mode` when reading.
       def v3_target
+        put_object   = ::Aws::S3::Client.api.operation(:put_object).input.shape
         whole_object = options.each_key.any? do |name|
-          V3_WHOLE_OBJECT_OPTIONS.include?(name) || (name.start_with?("checksum_") && name != :checksum_algorithm)
+          put_object.member?(name) &&
+            (V3_WHOLE_OBJECT_OPTIONS.include?(name) || (name.start_with?("checksum_") && name != :checksum_algorithm))
         end
         [V3_UPLOAD_METHODS, "the IO of an S3 path"] unless whole_object
       end

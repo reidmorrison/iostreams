@@ -35,10 +35,14 @@ module IOStreams
     # `IOStreams::Builder#v3_stream`.
     #
     # Parameters:
-    #   reads_file: [true|false]
-    #     Whether this reader reads a regular local file in v3.0, rather than another stream, an IO that is not a
-    #     file, or the object of an S3 or HTTP path, which v3.0 reads without a temp file.
-    def self.v3_stream_methods(_reads_file)
+    #   options: [Hash]
+    #     The options that this reader is opened with, such as `verify_first: true` for PGP, see
+    #     `IOStreams::Pgp::Reader.v3_stream_methods`.
+    #
+    # Yields, for a reader whose stream depends on it, to ask whether this reader reads a regular local file in v3.0,
+    # rather than another stream, an IO that is not a file, or the object of an S3 or HTTP path, which v3.0 reads without
+    # a temp file. The block answers true or false.
+    def self.v3_stream_methods(_options)
       nil
     end
 

@@ -256,7 +256,8 @@ module IOStreams
     end
 
     # Raises [IOStreams::Errors::AccessDenied] when allowed paths have been added, see `IOStreams.add_allowed_path`,
-    # and this path is not within any of them.
+    # and this path is not within any of them, before #reader, #writer, `Stream#internal_reader` and
+    # `Stream#internal_writer` open it.
     def authorize!
       return if IOStreams.allowed_paths.empty? || (@permitted_path && @permitted_path == path)
 

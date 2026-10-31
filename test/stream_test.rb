@@ -905,11 +905,18 @@ class StreamTest < Minitest::Test
         "name,zip\nJack,12345\n"
       end
 
-      let :reader_deprecation do
-        "is deprecated on the %s stream that #reader yields, since in v3.0 it is a stream that only reads, with #read, " \
-          "#readpartial, #gets, #readline, #readlines, #each_line, #each and #eof?: read it with those, open the reader " \
-          "again to read it from the start, or copy the data into a local file first, such as with IOStreams.temp_file " \
-          "and #copy_to, where it must be a File"
+      # The methods of an IO that read, which every stream that v3.0 supplies to a reader block answers, as a deprecation
+      # warning names them.
+      let :read_methods do
+        "#read, #readpartial, #gets, #readline, #readlines, #each_line, #each, #eof?, #eof and #closed?"
+      end
+
+      # Returns [String] the deprecation warning of a method of the stream that a reader block receives, after the name of
+      # the method, for the stream of the supplied name, which names the methods that the stream of v3.0 answers.
+      def reader_deprecation(stream, methods = read_methods)
+        "is deprecated on the #{stream} stream that #reader yields, since in v3.0 it is a stream that only reads, with " \
+          "#{methods}: read it with those, open the reader again to read it from the start, or copy the data into a local " \
+          "file first, such as with IOStreams.temp_file and #copy_to, where it must be a File"
       end
 
       # Writes the CSV into a file of the supplied name in the directory, with the streams that its name implies, and the
@@ -929,14 +936,18 @@ class StreamTest < Minitest::Test
         {passphrase: "receiver_passphrase"}
       end
 
-      %w[gz enc].each do |extension|
+      # The stream of v3.0 for gzip also answers #close, which the warning names.
+      {
+        "gz"  => "#read, #readpartial, #gets, #readline, #readlines, #each_line, #each, #eof?, #eof, #closed? and #close",
+        "enc" => "#read, #readpartial, #gets, #readline, #readlines, #each_line, #each, #eof?, #eof and #closed?"
+      }.each_pair do |extension, methods|
         it "reports a deprecation warning for a method of the reader of a gem for .#{extension}, which still works" do
           Dir.mktmpdir do |dir|
             path = write_file(dir, "people.csv.#{extension}")
             line = __LINE__ + 4
             data = path.reader do |io|
               first = io.read
-              assert_deprecated(/stream_test\.rb:#{line}: warning: IOStreams: #rewind #{Regexp.escape(format(reader_deprecation, ":#{extension}"))}\n\z/) do
+              assert_deprecated(/stream_test\.rb:#{line}: warning: IOStreams: #rewind #{Regexp.escape(reader_deprecation(":#{extension}", methods))}\n\z/) do
                 io.rewind
               end
               [first, io.read]
@@ -964,7 +975,7 @@ class StreamTest < Minitest::Test
           # The stream is a `Zip::InputStream`, or on JRuby an IO of the stream of Java, whose #rewind does not rewind.
           data = path.reader do |io|
             first = io.gets
-            [first, assert_deprecated(/#lineno #{Regexp.escape(format(reader_deprecation, ':zip'))}\n\z/) { io.lineno }, io.read]
+            [first, assert_deprecated(/#lineno #{Regexp.escape(reader_deprecation(':zip'))}\n\z/) { io.lineno }, io.read]
           end
 
           assert_equal ["name,zip\n", 1, "Jack,12345\n"], data
@@ -976,7 +987,7 @@ class StreamTest < Minitest::Test
           path = write_file(dir, "people.csv.bz2")
           data = path.reader do |io|
             first = io.read
-            [first, assert_deprecated(/#pos #{Regexp.escape(format(reader_deprecation, ':bz2'))}\n\z/) { io.pos }]
+            [first, assert_deprecated(/#pos #{Regexp.escape(reader_deprecation(':bz2'))}\n\z/) { io.pos }]
           end
 
           assert_equal [csv, csv.bytesize], data
@@ -1050,11 +1061,55 @@ class StreamTest < Minitest::Test
         end
       end
 
+      # Fails the test when the block hands a stream to `IOStreams::Deprecation::Methods`.
+      def refute_methods_deprecated(&)
+        IOStreams::Deprecation::Methods.stub(:deprecate, ->(*) { flunk("The stream reports deprecation warnings") }, &)
+      end
+
+      it "hands IOStreams itself the stream as it is, when it reads, writes and copies it" do
+        Dir.mktmpdir do |dir|
+          source  = write_file(dir, "people.csv.gz")
+          target  = IOStreams.path(dir, "copy.csv.pgp").option(:pgp, **pgp_writer[:pgp])
+          written = IOStreams.path(dir, "written.csv.pgp").option(:pgp, **pgp_writer[:pgp])
+          lines   = IOStreams.path(dir, "lines.csv.pgp").option(:pgp, **pgp_writer[:pgp])
+          data    = refute_methods_deprecated do
+            refute_deprecated do
+              source.copy_to(target)
+              written.write(csv)
+              lines.writer(:line) { |io| io << "name,zip" << "Jack,12345" }
+              source.read
+            end
+          end
+
+          assert_equal csv, data
+          [target, written, lines].each { |path| assert_equal csv, IOStreams.path(path.to_s).option(:pgp, **pgp_reader).read }
+        end
+      end
+
+      it "hands the block the stream as it is while deprecation warnings are off" do
+        Dir.mktmpdir do |dir|
+          path    = write_file(dir, "people.csv.gz")
+          enabled = Warning[:deprecated]
+          begin
+            Warning[:deprecated] = false
+            data = refute_methods_deprecated { path.reader { |io| [io.read, io.rewind, io.read] } }
+          ensure
+            Warning[:deprecated] = enabled
+          end
+
+          # JRuby's Zlib::GzipReader#rewind returns nil.
+          assert_equal [csv, csv], data.values_at(0, 2)
+        end
+      end
+
       it "reports a deprecation warning for a method of the IO of gpg, when PGP is within another stream" do
         Dir.mktmpdir do |dir|
           path = write_file(dir, "people.csv.pgp.gz", **pgp_writer)
-          data = path.option(:pgp, **pgp_reader).reader do |io|
-            assert_deprecated(/#fileno #{Regexp.escape(format(reader_deprecation, ':pgp'))}/) { io.fileno }
+          # The stream of v3.0 for PGP also answers #binmode and #binmode?, which the warning names.
+          methods = "#read, #readpartial, #gets, #readline, #readlines, #each_line, #each, #eof?, #eof, #closed?, " \
+                    "#binmode and #binmode?"
+          data    = path.option(:pgp, **pgp_reader).reader do |io|
+            assert_deprecated(/#fileno #{Regexp.escape(reader_deprecation(':pgp', methods))}\n\z/) { io.fileno }
             io.read
           end
 
@@ -1072,6 +1127,17 @@ class StreamTest < Minitest::Test
           end
 
           assert_equal csv, data
+        end
+      end
+
+      it "reports none for the File that PGP decrypts into with verify_first: true, which v3.0 yields too" do
+        Dir.mktmpdir do |dir|
+          encrypted = write_file(dir, "people.csv.pgp", **pgp_writer)
+          stream    = IOStreams.stream(StringIO.new(File.binread(encrypted.to_s)))
+          stream.stream(:pgp, **pgp_reader, verify_first: true)
+          data = refute_deprecated { stream.reader { |io| [io.class, io.read, io.rewind, io.size, io.path.empty?] } }
+
+          assert_equal [::File, csv, 0, csv.bytesize, false], data
         end
       end
 
@@ -1094,7 +1160,7 @@ class StreamTest < Minitest::Test
           line = __LINE__ + 4
           path.writer do |io|
             io.write(csv)
-            assert_deprecated(/stream_test\.rb:#{line}: warning: IOStreams: #fileno is deprecated on the :pgp stream that #writer yields, since in v3\.0 it is a stream that only writes, with #write, #<<, #print, #puts and #printf: write it with those, or write a local file first, such as with IOStreams\.temp_file, and copy it with #copy_to, where it must be a File\n\z/) do
+            assert_deprecated(/stream_test\.rb:#{line}: warning: IOStreams: #fileno is deprecated on the :pgp stream that #writer yields, since in v3\.0 it is a stream that only writes, with #write, #<<, #print, #puts, #printf, #flush, #binmode and #binmode\?: write it with those, or write a local file first, such as with IOStreams\.temp_file, and copy it with #copy_to, where it must be a File\n\z/) do
               io.fileno
             end
           end
@@ -2070,6 +2136,22 @@ class StreamTest < Minitest::Test
     end
 
     describe "#copy_from" do
+      it "copies between a path and a stream that is not a path, in either direction" do
+        Dir.mktmpdir do |dir|
+          path = IOStreams.path(dir, "people.csv")
+          path.write("name\nJack\n")
+          output = StringIO.new(+"")
+
+          IOStreams.stream(output).copy_from(path)
+          path.copy_to(IOStreams.stream(other = StringIO.new(+"")))
+          IOStreams.path(dir, "copy.csv").copy_from(IOStreams.stream(StringIO.new("name\nJill\n")))
+
+          assert_equal "name\nJack\n", output.string
+          assert_equal "name\nJack\n", other.string
+          assert_equal "name\nJill\n", IOStreams.path(dir, "copy.csv").read
+        end
+      end
+
       let :source_path do
         IOStreams.join("copy_test", "source.csv.gz")
       end
