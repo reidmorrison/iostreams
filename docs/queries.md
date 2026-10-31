@@ -149,7 +149,7 @@ the query, so that each value is read as its type:
 
 ~~~ruby
 relation = Order.where(paid: true).select(:id, :amount, :created_at)
-schema   = IOStreams.stream(relation).schema
+schema   = IOStreams.stream(relation).infer_schema
 
 IOStreams.stream(relation).each(:slice, size: 1_000) do |slice|
   queue << slice
@@ -227,10 +227,11 @@ say how it reads its rows: supply the relation, or `relation.in_batches(...)`.
 ## Keeping the types of the columns
 
 The types of the columns of the query describe the rows that it reads, as a [schema](formats#schema) does for a file.
-`#schema` returns them, such as on PostgreSQL:
+`#infer_schema` returns them, an `IOStreams::Schema`, whose `#to_h` is its Hash, such as on PostgreSQL, while `#schema`
+returns only a schema that was set, or nil, as for a path:
 
 ~~~ruby
-IOStreams.stream(Order.select(:id, :amount, :status, :created_at)).schema
+IOStreams.stream(Order.select(:id, :amount, :status, :created_at)).infer_schema.to_h
 # {fields: [{name: "id", type: "integer", constraints: {required: true}},
 #           {name: "amount", type: "number", decimals: 2, constraints: {required: true}},
 #           {name: "status", type: "string"},
@@ -298,12 +299,12 @@ A Parquet file needs the type of every column, so a column of `any`, or a number
 * A number without decimals, such as a sum on PostgreSQL, needs its `decimals`.
 
 To give a column a type, set the schema of the query. It replaces the schema of every column, so start from the one
-that `#schema` returns, and change the fields that need it:
+that `#infer_schema` returns, and change the fields that need it:
 
 ~~~ruby
 report = Order.select(:id, :amount, "SUM(amount) OVER (ORDER BY id) AS running_total")
 stream = IOStreams.stream(report)
-fields = stream.schema[:fields].map do |field|
+fields = stream.infer_schema.to_h[:fields].map do |field|
   field[:name] == "running_total" ? field.merge(type: "number", decimals: 2) : field
 end
 

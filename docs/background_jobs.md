@@ -617,7 +617,7 @@ store, and they are written as lines of CSV, by the types of its columns:
 
 ~~~ruby
 relation = Order.where(paid: true).select(:id, :amount, :created_at)
-schema   = IOStreams.stream(relation).schema
+schema   = IOStreams.stream(relation).infer_schema
 
 IOStreams.stream(store).copy_from(relation, mode: :hash)
 ~~~

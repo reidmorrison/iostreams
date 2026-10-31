@@ -74,19 +74,26 @@ module IOStreams
                              "as #{text_format.inspect}. Set the format to #{text_format.inspect}, or to nil.")
       end
 
-      # Returns [Hash|String|IOStreams::Stream|nil] the schema as it was set, see #schema=, which is frozen, so that
-      # neither the caller changing the object that it supplied, nor a change to the object that is returned, changes
-      # it, or nil when none was set.
+      # Returns [IOStreams::Schema|Hash|String|IOStreams::Stream|nil] the schema as it was set, see #schema=, which is
+      # frozen, so that neither the caller changing the object that it supplied, nor a change to the object that is
+      # returned, changes it, or nil when none was set.
       attr_reader :schema
 
-      # Sets the schema of the rows and records, see `IOStreams::Stream#schema`: a Hash, which is checked now, or the path
-      # or url of a JSON file that holds one, which is read the first time that a reader or writer needs it, see
-      # `IOStreams::Schema::Source`, or nil to remove it.
+      # Returns [IOStreams::Schema|nil] the schema that was set, see #schema=, reading its file the first time, or nil
+      # when none was set.
+      def file_schema
+        @schema_source&.schema
+      end
+
+      # Sets the schema of the rows and records, see `IOStreams::Stream#schema`: an `IOStreams::Schema`, a Hash, which is
+      # checked now, or the path or url of a JSON file that holds one, which is read the first time that a reader or
+      # writer needs it, see `IOStreams::Schema::Source`, or nil to remove it.
       #
       # A frozen copy of it is held, so that the caller changing the object that it supplied changes neither #schema nor
       # the schema that is read.
       #
-      # Raises ArgumentError when the schema is not a Hash, a String or a path, or is a Hash that is not a valid schema.
+      # Raises ArgumentError when the schema is not an `IOStreams::Schema`, a Hash, a String or a path, or is a Hash that
+      # is not a valid schema.
       def schema=(schema)
         schema         = schema.is_a?(IOStreams::Stream) ? schema.dup.freeze : Utils.frozen_copy(schema)
         @schema_source = schema.nil? ? nil : IOStreams::Schema::Source.new(schema)
@@ -138,7 +145,7 @@ module IOStreams
       def tabular(file_name:, text_format:, default_schema: nil, **)
         format = rows_format(file_name, text_format)
         row_format_options = (format && @row_options&.[](format.to_sym)) || {}
-        IOStreams::Tabular.new(file_name: file_name, format: format, schema: @schema_source&.schema || default_schema,
+        IOStreams::Tabular.new(file_name: file_name, format: format, schema: file_schema || default_schema,
                                row_format_options: row_format_options, text_format: text_format, **)
       end
 

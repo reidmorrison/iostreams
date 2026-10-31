@@ -376,12 +376,60 @@ end
 A schema in a Hash is checked when it is set. A schema file is read the first time that a reader or writer needs it,
 so that setting it does not read the file, and the copies of a path read it once. Another stream that the file is set
 on reads it again, such as the stream of each slice of a file, so read the file once and set its Hash on each one
-instead, see [Background jobs](background_jobs). `#schema` returns the schema that was set.
+instead, see [Background jobs](background_jobs). `#schema` returns the schema that was set, or nil. `schema(nil)`
+sets no schema, so that one line of code serves a file whose configuration holds a schema and one whose configuration
+holds none, such as `schema(ENV["ORDERS_SCHEMA"])`.
 
 Like `#format`, the schema describes the file, so it is set on the path, rather than supplied to each call of
 `#each`, `#reader` or `#writer`, which raises `ArgumentError` for `schema:`. It replaces the options of each call that
 described the columns before v3.0, such as `columns:` and `allowed_columns:`, see
 [Upgrading](upgrading#the-column-options-of-each-call-are-removed).
+
+### The schema of a source
+
+`#infer_schema` returns the schema that the rows and records of a path are read by: the schema set with `#schema`,
+otherwise the schema that the source declares. IOStreams never guesses a type: it reads only what describes the
+source, such as the header row of a CSV file, the end of a Parquet file, or a query of no rows, see
+[Exporting queries](queries#keeping-the-types-of-the-columns).
+
+~~~ruby
+IOStreams.path("orders.csv").infer_schema.to_h
+# {fields: [{name: "id", type: "string"},
+#           {name: "amount", type: "string"},
+#           {name: "ordered_at", type: "string"}]}
+
+IOStreams.path("orders.parquet").infer_schema.to_h
+# {fields: [{name: "id", type: "integer", constraints: {required: true}},
+#           {name: "amount", type: "number", decimals: 2},
+#           {name: "ordered_at", type: "datetime"}]}
+~~~
+
+| Source | Its schema without one set |
+|--------|----------------------------|
+| CSV, PSV or a spreadsheet | a `string` field for each column of the header row, named as the keys of the records that `each(:hash)` reads, which cleanses them, such as `ordered_at` for `Ordered At`; a column whose name cleanses to nothing, such as `#`, is left out |
+| JSON | an `any` field for each key of its first record, since each value has a type of its own |
+| Parquet | a field of the type of each column, see [Parquet files](#parquet-files), required when the column cannot be null, unless its values are text |
+| An Active Record query | a field of the type of each column, see [Exporting queries](queries#keeping-the-types-of-the-columns) |
+| A slice | as its format declares it, such as by its header row |
+| Fixed width, or `:text` | none: they declare neither the names nor the positions of their columns, so `#infer_schema` raises `ArgumentError`, and they need a schema |
+
+Two columns that are the same key once cleansed, such as `Amount ($)` and `Amount (€)`, raise
+`IOStreams::Errors::InvalidHeader`, since a schema cannot hold both. A file without rows has no fields.
+
+`#infer_schema` returns an `IOStreams::Schema`, an object rather than a Hash, so that a program reads a schema without
+knowing the keys of its Hash or their defaults. `#fields` returns its fields, each of which answers `#name`, `#type`,
+`#aliases` and `#to_h`, `#fields_match` says how the columns must match them, `"exact"` unless the schema says
+otherwise, and `#to_h` returns it as a Frictionless Table Schema, with Symbol keys, to save it as JSON. `#schema` takes
+one as well as a Hash or the path of a JSON file, and `IOStreams::Schema.new(hash)` builds one, which checks it:
+
+~~~ruby
+schema = IOStreams.path("orders.parquet").infer_schema
+schema.fields.map(&:name)
+# => ["id", "amount", "ordered_at"]
+
+File.write("config/schemas/orders.json", JSON.pretty_generate(schema.to_h))
+IOStreams.path("orders.csv").schema(IOStreams::Schema.new(JSON.parse(File.read("config/schemas/orders.json"))))
+~~~
 
 ### Types
 

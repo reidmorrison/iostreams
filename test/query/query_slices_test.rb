@@ -9,7 +9,7 @@ class QuerySlicesTest < Minitest::Test
     describe "the slices of #{IOStreams::Query::Stream.name} on #{database.name}" do
       let(:db) { database }
       let(:relation) { db.order.order(:id).select(:shipped_on, :weight) }
-      let(:schema) { IOStreams.stream(relation).schema }
+      let(:schema) { IOStreams.stream(relation).infer_schema }
       # The second order has neither a date shipped nor a weight, so every value of its row is null.
       let(:expected) do
         [{"shipped_on" => Date.new(2026, 10, 1), "weight" => 1.5}, {"shipped_on" => nil, "weight" => nil},

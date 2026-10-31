@@ -1459,6 +1459,21 @@ class StreamTest < Minitest::Test
         assert_nil stream.schema
       end
 
+      it "takes a schema, which it returns as it was set" do
+        schema = IOStreams::Schema.new(people)
+
+        assert_same schema, stream.schema(schema).schema
+        assert_equal [record], read(csv, schema: schema)
+        assert_equal schema, stream.infer_schema
+      end
+
+      it "sets no schema with nil, so that one line serves a file whose configuration has a schema, and one without" do
+        read_with = ->(configured) { read(csv, schema: configured) }
+
+        assert_equal [record], read_with.call(people)
+        assert_equal [{"id" => "0042", "pay" => "12.5", "joined" => "2026-10-13", "active" => "true"}], read_with.call(nil)
+      end
+
       it "keeps the schema as it was set, when the Hash supplied is changed afterwards" do
         supplied = {fields: [{name: "id", type: "integer"}]}
         stream.schema(supplied)
@@ -1499,7 +1514,7 @@ class StreamTest < Minitest::Test
 
       it "raises when the schema is not a Hash, or a path or url" do
         error = assert_raises(ArgumentError) { stream.schema([{name: "id"}]) }
-        assert_match(/\AA schema must be a Hash, or the path or url of a JSON file/, error.message)
+        assert_match(/\AA schema must be a Hash, or the path or url of a JSON file, or an IOStreams::Schema: /, error.message)
       end
 
       it "raises for a frozen path" do

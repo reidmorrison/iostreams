@@ -190,7 +190,7 @@ class QueryStreamTest < Minitest::Test
         it "describes the columns once for each stream, with a query of no rows" do
           stream = IOStreams.stream(orders)
           names  = statements do
-            stream.schema
+            stream.infer_schema
             each(stream)
             each(stream, :array)
           end
@@ -365,7 +365,7 @@ class QueryStreamTest < Minitest::Test
 
         it "tags a connection that cannot be checked out as Unavailable" do
           stream = IOStreams.stream(orders)
-          stream.schema
+          stream.infer_schema
           error = assert_raises(ActiveRecord::ConnectionTimeoutError) do
             db.pool.stub(:checkout, ->(*) { raise ActiveRecord::ConnectionTimeoutError, "no connection free" }) do
               each(stream)
@@ -471,7 +471,7 @@ class QueryStreamTest < Minitest::Test
         end
       end
 
-      describe "#schema" do
+      describe "#infer_schema" do
         # Yields while every source says that a column that is never null always has a value once cast, when it is of
         # one of the types, see `IOStreams::Query::SqliteStatement.requirable_types`.
         def with_requirable_types(types, sources = sources_defining(:requirable_types), &)
@@ -499,16 +499,16 @@ class QueryStreamTest < Minitest::Test
             ]
           }
 
-          with_requirable_types(REQUIRABLE_TYPES) { assert_equal expected, IOStreams.stream(orders).schema }
+          with_requirable_types(REQUIRABLE_TYPES) { assert_equal expected, IOStreams.stream(orders).infer_schema.to_h }
         end
 
         it "is frozen" do
-          assert_predicate IOStreams.stream(orders).schema, :frozen?
+          assert_predicate IOStreams.stream(orders).infer_schema, :frozen?
         end
 
         it "requires the columns of the table that are never null, when the query only selects columns of the table" do
           required = lambda do |relation|
-            IOStreams.stream(relation).schema[:fields].select { |field| field[:constraints] }.map { |field| field[:name] }
+            IOStreams.stream(relation).infer_schema.to_h[:fields].select { |field| field[:constraints] }.map { |field| field[:name] }
           end
 
           with_requirable_types(REQUIRABLE_TYPES) do
@@ -529,7 +529,7 @@ class QueryStreamTest < Minitest::Test
             db.order.group(Arel.sql("id, amount")).select(:id, :amount),
             db.order.with(paid_orders: db.order.where(paid: true)).select(:id, :amount)
           ].each do |relation|
-            fields = with_requirable_types(REQUIRABLE_TYPES) { IOStreams.stream(relation).schema[:fields] }
+            fields = with_requirable_types(REQUIRABLE_TYPES) { IOStreams.stream(relation).infer_schema.to_h[:fields] }
 
             assert_equal [], fields.select { |field| field[:constraints] }, relation.to_sql
           end
@@ -537,8 +537,18 @@ class QueryStreamTest < Minitest::Test
 
         it "returns the schema that was set instead" do
           schema = {fields: [{name: "id", type: "integer"}, {name: "data", type: "object"}]}
+          stream = IOStreams.stream(orders.select(:id, :data).limit(1)).schema(schema)
 
-          assert_equal schema, IOStreams.stream(orders.select(:id, :data).limit(1)).schema(schema).schema
+          assert_equal schema, stream.schema
+          assert_equal IOStreams::Schema.new(schema), stream.infer_schema
+        end
+
+        it "leaves #schema to return only the schema that was set, nil without one, as for a path" do
+          stream = IOStreams.stream(orders.select(:id))
+
+          assert_nil stream.schema
+          assert_equal([{name: "id", type: "integer"}], stream.infer_schema.to_h[:fields].map { |field| field.except(:constraints) })
+          assert_nil stream.schema
         end
 
         it "reads the rows by the schema that was set" do
@@ -557,7 +567,7 @@ class QueryStreamTest < Minitest::Test
 
         it "raises for two columns of the same name, which a record cannot hold" do
           relation = db.order.joins(:customer).select("orders.name, customers.name")
-          error    = assert_raises(ArgumentError) { IOStreams.stream(relation).schema }
+          error    = assert_raises(ArgumentError) { IOStreams.stream(relation).infer_schema }
 
           assert_equal "The query has more than one column named \"name\": give each column a name of its own, such " \
                        "as with `AS`", error.message
@@ -804,7 +814,7 @@ class QueryStreamTest < Minitest::Test
 
         it "raises when the columns of the query change after it is described" do
           stream = IOStreams.stream(db.order.order(:id))
-          stream.schema
+          stream.infer_schema
           db.record.with_connection { |connection| connection.add_column(:orders, :extra, :string) }
           begin
             error = assert_raises(IOStreams::Errors::InvalidHeader) { each(stream) }

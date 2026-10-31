@@ -21,6 +21,13 @@ module IOStreams
           :text
         end
 
+        # Returns [String] the type of field of the values that this format reads without a schema, which the schema
+        # that a file declares gives each of its columns, see `IOStreams::Stream#infer_schema`: "string" for a format
+        # of text, such as CSV, otherwise "any", such as for JSON, each of whose values has a type of its own.
+        def self.value_type
+          value_form == :text ? "string" : "any"
+        end
+
         # Returns [String] the quote character within which field delimiters and embedded
         # newlines may appear for this format, or [nil] when the format has no such quoting.
         #

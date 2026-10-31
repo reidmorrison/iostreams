@@ -532,13 +532,16 @@ module IOStreams
     # a fixed width file. See docs/formats.md, and `IOStreams::Schema` for its properties.
     #
     # Parameters:
-    #   schema: [Hash|String|IOStreams::Path]
-    #     A Frictionless Table Schema as a Hash, which is checked now, or the path or url of a JSON file that holds
-    #     one, in any store, which is read the first time that a reader or writer needs it.
-    #     nil removes the schema.
+    #   schema: [IOStreams::Schema|Hash|String|IOStreams::Path|nil]
+    #     A schema, see `IOStreams::Schema`, or a Frictionless Table Schema as a Hash, which is checked now, or the path or
+    #     url of a JSON file that holds one, in any store, which is read the first time that a reader or writer needs it.
+    #     nil sets no schema, removing one that was set, so that one line of code sets the schema that configuration
+    #     holds for a file that needs one, such as `schema(ENV["ORDERS_SCHEMA"])`, and none for a file that describes
+    #     itself, such as Parquet.
     #
-    # Returns [Hash|String|IOStreams::Path] the schema as it was set, which is frozen, so that changing the object that
-    # was supplied afterwards does not change it, or [nil] when none was set.
+    # Returns [IOStreams::Schema|Hash|String|IOStreams::Path] the schema as it was set, which is frozen, so that changing
+    # the object that was supplied afterwards does not change it, or [nil] when none was set, also for a source that
+    # declares a schema of its own, such as a query or a Parquet file, which #infer_schema returns.
     #
     # Examples:
     #
@@ -561,10 +564,40 @@ module IOStreams
 
     # Set the schema, see #schema.
     #
-    # Raises ArgumentError when the schema is not a Hash, a String or a path, or is a Hash that is not a valid schema.
+    # Raises ArgumentError when the schema is not an `IOStreams::Schema`, a Hash, a String or a path, or is a Hash that
+    # is not a valid schema.
     def schema=(schema)
       raise_if_frozen!
       tabular_settings.schema = schema
+    end
+
+    # Returns [IOStreams::Schema] the schema that the rows and records of this stream are read by: the schema set with
+    # #schema, reading its file the first time, otherwise the schema that the source declares, which IOStreams never
+    # guesses:
+    # - The header row of a file with one, such as CSV, PSV or a spreadsheet, gives a field of type "string" for each
+    #   column, since its values are text, named as the keys of the records that `each(:hash)` reads, which cleanses
+    #   them, such as `ordered_at` for `Ordered At`. A column whose name cleanses to nothing, such as `#`, is left out,
+    #   as `each(:hash)` leaves it out.
+    # - The first record of a format of keyed records, such as JSON, gives a field of type "any" for each of its keys,
+    #   since each value has a type of its own.
+    # - A Parquet file declares the type of each column, which is read from the end of the file, and a column that cannot
+    #   be null is required, unless its values are text, which can be empty.
+    # - An Active Record query declares the type of each column, see `IOStreams::Query::Stream`.
+    #
+    # It reads only what describes the source, such as the header row of a CSV file, the end of a Parquet file, or a
+    # query of no rows. A file without rows has no fields.
+    #
+    # Raises ArgumentError for a format that declares neither the names nor the positions of its columns, such as fixed
+    # width, which needs a schema that gives the position of each field, or `:text`, whose one column has no name.
+    #
+    # Raises `IOStreams::Errors::InvalidHeader` for two columns of a header row that are the same key once cleansed, such
+    # as `Amount ($)` and `Amount (€)`, since a schema cannot hold both.
+    #
+    # Example:
+    #   IOStreams.path("orders.csv").infer_schema.to_h
+    #   # => {fields: [{name: "id", type: "string"}, {name: "amount", type: "string"}, {name: "ordered_at", type: "string"}]}
+    def infer_schema
+      tabular_settings.file_schema || declared_schema
     end
 
     # Freezes this stream, so that the methods that set its streams, options, file name, format and schema raise
@@ -1084,6 +1117,26 @@ module IOStreams
 
       raise(ArgumentError, "The #{format.inspect} format has no lines, so read and write its rows with the :array or " \
                            ":hash mode, or its bytes with the :stream mode")
+    end
+
+    # Returns [IOStreams::Schema] the schema that the source of the rows declares, without a schema set, see
+    # #infer_schema: that of the columns of a format whose rows are not lines, such as Parquet, which its reader reads
+    # without reading the rows, see `IOStreams::Tabular#read_rows`, otherwise that of the first row that the rows start
+    # with, the header row or the keys of the first record, after any blank rows, as reading skips them, see
+    # `IOStreams::Tabular#declared_schema`. A source of rows
+    # that declares the types of its columns, such as a query, overrides it.
+    #
+    # Raises ArgumentError when nothing names the columns of the rows, such as for the `:text` format, see
+    # `IOStreams::Tabular#check_records`. The tabular of a fixed width file raises itself without a schema.
+    def declared_schema
+      tabular = self.tabular
+      tabular.check_records
+      return stream_reader { |io| tabular.read_rows(io, &:declared_schema) } unless tabular.lines?
+
+      first = open_rows_reader(tabular, nil, nil) do |io|
+        IOStreams::Row::Reader.new(io, tabular: tabular, skip_blanks: true).first
+      end
+      tabular.declared_schema(first)
     end
 
     # Returns [IOStreams::Tabular] that reads or writes the rows of this stream as its tabular settings describe them, see

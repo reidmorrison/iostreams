@@ -149,6 +149,12 @@ module IOStreams
         false
       end
 
+      # Returns [IOStreams::Schema] the schema, which describes the file, whatever its first row, see
+      # `IOStreams::Tabular#declared_schema`.
+      def declared_schema(_row)
+        @schema
+      end
+
       # Matches the keys of the first record of a format of keyed records, such as JSON or Parquet, that is not blank to
       # the fields, as #record_parse would, without converting its values, so that a file whose records do not match the
       # schema raises before its rows are handed on without being parsed, see `IOStreams::Tabular#read_line`. The keys of

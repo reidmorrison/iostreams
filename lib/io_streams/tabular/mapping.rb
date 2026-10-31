@@ -30,6 +30,8 @@ module IOStreams
     # * Checks the keys of the first record of a file whose rows are handed on without being parsed, `#check_keys`, see
     #   `IOStreams::Tabular#read_line`, and answers whether nothing names the columns of its rows, `#unnamed_columns?`,
     #   see `IOStreams::Tabular#unnamed_columns?`.
+    # * Answers the schema that the file declares by the first row that its rows start with, `#declared_schema`, see
+    #   `IOStreams::Tabular#declared_schema`.
     #
     # Each row is an Array, whatever the format: the values of the columns of the rows, in order, which a parser of
     # keyed records, such as JSON, gives by their keys. A row already read, an Array, is read as such, see
@@ -149,6 +151,10 @@ module IOStreams
 
       def unnamed_columns?
         raise(NotImplementedError, "#{self.class.name} does not implement #unnamed_columns?")
+      end
+
+      def declared_schema(_row)
+        raise(NotImplementedError, "#{self.class.name} does not implement #declared_schema")
       end
 
       private

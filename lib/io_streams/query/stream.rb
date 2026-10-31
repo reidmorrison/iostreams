@@ -10,10 +10,11 @@ module IOStreams
     #
     # Its rows start with a header row of the names of the columns of the query, unless a schema is set whose `header` is
     # false, followed by the values of each row, cast as `pluck` casts them, in the `:array` format, see #format. They are
-    # read by the schema that the types of the columns describe, see #schema, unless a schema is set, which a copy gives a
-    # target without one, see `IOStreams::Stream#copy_from`, so that, for example, a Parquet file keeps the types of the
-    # columns. The query is open before its reader is yielded, see #open_rows, so that a copy opens its target only once
-    # the query can be read.
+    # read by the schema that the types of the columns declare, see `IOStreams::Stream#infer_schema`, unless a schema is
+    # set, which a copy gives a target without one, see `IOStreams::Stream#copy_from`, so that, for example, a Parquet
+    # file keeps the types of the columns. `#schema` returns only the schema that was set, or nil, as for a path. The query
+    # is open before its reader is yielded, see #open_rows, so that a copy opens its target only once the query can be
+    # read.
     #
     # A query holds rows rather than bytes, and is only read, see `IOStreams::Row::Stream`, and has no file name, see
     # #file_name=.
@@ -24,27 +25,6 @@ module IOStreams
       #     those batches, see `IOStreams::Query`.
       def initialize(query)
         super(Query.new(query))
-      end
-
-      # Set/get the schema of the rows, see `IOStreams::Stream#schema`.
-      #
-      # Returns [Hash] the schema that was set, otherwise that of the columns of the query, see
-      # `IOStreams::Query::Columns#schema`, which a query of no rows describes the first time, such as:
-      #
-      #   IOStreams.stream(Order.select(:id, :amount, :created_at)).schema
-      #   # => {fields: [{name: "id", type: "integer"},
-      #   #             {name: "amount", type: "number", decimals: 2},
-      #   #             {name: "created_at", type: "datetime"}]}
-      #
-      # A column of the table of the model that is `NOT NULL` is required too, `constraints: {required: true}`, on a
-      # database whose source says that such a column always has a value once cast, see `IOStreams::Query#columns`.
-      #
-      # Set a schema of your own to change it, such as to give a JSON column the type "object", or a number without a
-      # scale its decimals, which a Parquet file needs.
-      def schema(schema = :none)
-        return super unless schema == :none
-
-        super() || io_stream.columns.schema
       end
 
       # Returns [String] the class and the query, rather than every instance variable, such as the relation.
@@ -62,11 +42,30 @@ module IOStreams
 
       private
 
-      # Returns [Hash] the schema of the rows, see #schema, since it describes the values that a copy writes, which are
+      # Returns [IOStreams::Schema] the schema that the columns of the query declare, see `IOStreams::Stream#infer_schema`,
+      # each of the type of the values that its Active Record type casts, see `IOStreams::Query::Columns#schema`, which
+      # a query of no rows describes the first time, such as:
+      #
+      #   IOStreams.stream(Order.select(:id, :amount, :created_at)).infer_schema.to_h
+      #   # => {fields: [{name: "id", type: "integer"},
+      #   #             {name: "amount", type: "number", decimals: 2},
+      #   #             {name: "created_at", type: "datetime"}]}
+      #
+      # A column of the table of the model that is `NOT NULL` is required too, `constraints: {required: true}`, on a
+      # database whose source says that such a column always has a value once cast, see `IOStreams::Query#columns`.
+      #
+      # Set a schema of your own to change it, such as to give a JSON column the type "object", or a number without a
+      # scale its decimals, which a Parquet file needs.
+      def declared_schema
+        IOStreams::Schema.new(io_stream.columns.schema)
+      end
+
+      # Returns [IOStreams::Schema|Hash|String|IOStreams::Stream] the schema of the rows: the schema that was set,
+      # otherwise that of the columns, see #declared_schema, since it describes the values that a copy writes, which are
       # those of the query, so that a target without a schema writes them by their types, see
       # `IOStreams::Stream#copy_from`.
       def rows_schema
-        schema
+        schema || declared_schema
       end
 
       def source_name
@@ -79,7 +78,7 @@ module IOStreams
       end
 
       # Returns [IOStreams::Tabular] that reads the rows by the schema that was set, otherwise that of the columns of the
-      # query, see #schema, see `IOStreams::Stream#tabular`. Each row is a record of the query, whatever its values, so
+      # query, see #declared_schema, see `IOStreams::Stream#tabular`. Each row is a record of the query, whatever its values, so
       # a row whose every value is null or empty text is read, rather than skipped as a blank line of a file is.
       #
       # By the schema of the columns, the values of the rows are those of its fields, which Active Record cast, so that
@@ -87,7 +86,7 @@ module IOStreams
       # BSON keeps a duration as its seconds, does not change the value read from it. A schema that was set describes
       # the values otherwise, so they are cast to its fields, as any other rows are, see `IOStreams::Schema::Field#cast`.
       def tabular(**)
-        super(default_schema: IOStreams::Schema.new(io_stream.columns.schema), blank_rows: false,
+        super(default_schema: declared_schema, blank_rows: false,
               typed: tabular_settings.schema.nil?, **)
       end
 

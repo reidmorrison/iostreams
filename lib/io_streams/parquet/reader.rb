@@ -75,7 +75,74 @@ module IOStreams
         raise(kind ? kind.tag(e) : e)
       end
 
+      # Returns [IOStreams::Schema] the schema that the file declares, see `IOStreams::Stream#infer_schema`: a field for
+      # each of its columns, in order, of the type that #each reads its values as, which it records at its end, so that
+      # no row is read:
+      #   integer:  an integer column of any width, signed or not.
+      #   number:   a decimal, with the `decimals` of its scale, or a float or double, with `floatNumber: true`.
+      #   boolean, date, datetime (a timestamp, or the INT96 of older writers), time and string (text, an enum or JSON).
+      #   array:    a list.
+      #   object:   a map or a struct.
+      #   any:      binary, and any other column.
+      # A column that cannot be null, `REQUIRED`, is required, `constraints: {required: true}`, unless its values are text
+      # or of type "any", which can be empty, as for the columns of a query, see `IOStreams::Query::Columns`.
+      def declared_schema
+        IOStreams::Schema.new(fields: fields.map { |field| declared_field(field) })
+      end
+
       private
+
+      # The type of a field of the logical type of a column, see #declared_schema.
+      LOGICAL_TYPES = {
+        "Integer"   => "integer",
+        "Date"      => "date",
+        "Timestamp" => "datetime",
+        "Time"      => "time",
+        "String"    => "string",
+        "Enum"      => "string",
+        "Json"      => "string",
+        "List"      => "array",
+        "Map"       => "object"
+      }.freeze
+
+      # The type of a field of the converted type of a column of an older writer without a logical type.
+      CONVERTED_TYPES = {
+        "UTF8" => "string", "ENUM" => "string", "JSON" => "string", "DATE" => "date", "TIMESTAMP_MILLIS" => "datetime",
+        "TIMESTAMP_MICROS" => "datetime", "TIME_MILLIS" => "time", "TIME_MICROS" => "time", "LIST" => "array",
+        "MAP" => "object", "MAP_KEY_VALUE" => "object"
+      }.freeze
+
+      # The type of a field of the physical type of a column without a logical or converted type.
+      PHYSICAL_TYPES = {
+        "BOOLEAN" => "boolean", "INT32" => "integer", "INT64" => "integer", "INT96" => "datetime", "FLOAT" => "number",
+        "DOUBLE" => "number"
+      }.freeze
+
+      # The types of field whose values can be empty, so that a column of them that cannot be null is not required.
+      EMPTY_TYPES = %w[string any].freeze
+      private_constant :LOGICAL_TYPES, :CONVERTED_TYPES, :PHYSICAL_TYPES, :EMPTY_TYPES
+
+      # Returns [Hash] the descriptor of the field of a column, as the `parquet` gem describes it, see #declared_schema.
+      def declared_field(column)
+        logical   = column.dig("logical_type", "type")
+        converted = column["converted_type"]
+        scale     = column.dig("logical_type", "scale") || column["scale"]
+        decimal   = logical == "Decimal" || (logical.nil? && converted == "DECIMAL")
+        type      =
+          if decimal then "number"
+          elsif column["type"] == "group" then LOGICAL_TYPES[logical] || CONVERTED_TYPES.fetch(converted, "object")
+          else LOGICAL_TYPES[logical] || CONVERTED_TYPES[converted] || PHYSICAL_TYPES.fetch(column["physical_type"], "any")
+          end
+
+        field = {name: column["name"], type: type}
+        if decimal
+          field[:decimals] = scale if scale.is_a?(Integer) && !scale.negative?
+        elsif type == "number"
+          field[:floatNumber] = true
+        end
+        field[:constraints] = {required: true} if column["repetition"] == "REQUIRED" && !EMPTY_TYPES.include?(type)
+        field
+      end
 
       # Returns [Array<String>] the names of the columns of the file, in order, which it records at its end, so that
       # they are known before any row is read.

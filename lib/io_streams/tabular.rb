@@ -378,6 +378,17 @@ module IOStreams
       @mapping.read_header(line)
     end
 
+    # Returns [IOStreams::Schema] the schema that the file declares by the supplied first row that its rows start with,
+    # see `IOStreams::Stream#infer_schema`: the header row as read, or the keys of the first record of a format of keyed
+    # records, such as JSON, see #read_row, or nil for a file without rows, which declares no fields. With a schema, that
+    # schema, which describes the file. See `IOStreams::Tabular::Mapping#declared_schema`.
+    #
+    # Raises `IOStreams::Errors::InvalidHeader` for two columns that are the same key once cleansed, such as `Amount ($)`
+    # and `Amount (€)`, since a schema cannot hold both.
+    def declared_schema(row)
+      @mapping.declared_schema(row)
+    end
+
     # Raises ArgumentError when nothing names the keys of the records of the file, see #unnamed_columns?, so that a reader
     # or writer of records raises before the file is opened, see `IOStreams::Record::Reader` and
     # `IOStreams::Record::Writer`.
