@@ -268,7 +268,10 @@ module IOStreams
       # `IOStreams::Schema#check_columns`.
       def read_hash(hash)
         record = {}
-        read_plan(hash.keys).each { |field, key, name| record[name] = field ? read_value(field, hash[key]) : hash[key] }
+        read_plan(hash.keys).each do |field, key, name|
+          value        = hash[key] unless key.nil?
+          record[name] = field ? read_value(field, value) : value
+        end
         record
       end
 
@@ -289,7 +292,7 @@ module IOStreams
 
         keys = hash.keys
         plan = keys.eql?(@row_keys) ? @row_plan : row_plan(keys)
-        plan.map { |field, key| key.nil? ? nil : read_value(field, hash[key]) }
+        plan.map { |field, key| read_value(field, key.nil? ? nil : hash[key]) }
       end
 
       # Returns [Array|Hash] the value of each field of the schema, in order, in the form that the format writes it, see

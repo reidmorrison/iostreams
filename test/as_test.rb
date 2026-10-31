@@ -79,6 +79,32 @@ class AsTest < Minitest::Test
         assert_equal 'Field "id" is required, but has no value, in record 2 on line 2', error.message
       end
 
+      it "raises for a key of a required field that a JSON record leaves out, read as rows, or hands the row on" do
+        json = text(%({"zip":"1"}\n{"id":2}\n), "orders.json").as(Order)
+        assert_raises(IOStreams::Errors::InvalidValue) { read(json, :array) }
+
+        problems = []
+        rows     = []
+        text(%({"zip":"1"}\n{"id":2}\n), "orders.json").as(Order).each(:array, on_invalid: ->(row) { problems << row }) do |row|
+          rows << row
+        end
+
+        assert_equal [1], problems.map(&:record_number)
+        assert_equal [%w[id amount ordered_at zip], [2, nil, nil, nil]], rows
+      end
+
+      it "reads a key that a JSON record leaves out of a required field that allows blank values as nil" do
+        blank = IOStreams::Contract.new(fields: [{name: "id", type: "integer"}, {name: "zip", constraints: {required: true}, allowBlank: true}])
+
+        assert_equal [{"id" => 1, "zip" => nil}], read(text(%({"id":1}\n), "orders.json").as(blank))
+      end
+
+      it "keeps the rule of fieldsMatch for each JSON record read by a schema of the file" do
+        schema = {fields: [{name: "id", type: "integer"}, {name: "zip", type: "string"}]}
+
+        assert_raises(IOStreams::Errors::InvalidHeader) { read(text(%({"id":1}\n), "orders.json").schema(schema).as(Order)) }
+      end
+
       it "still raises for a key of a JSON record that an exact contract does not have" do
         exact = IOStreams::Contract.new(fields: [{name: "id", type: "integer"}])
 

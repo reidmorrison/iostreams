@@ -68,7 +68,8 @@ Every one of them yields the same record:
   `IOStreams::Errors::InvalidValue` for it, unless it has `allowBlank: true`, while a key that the contract does not
   have still raises as `fieldsMatch` says. A schema set with `#schema` keeps its rule for each JSON record.
 * The columns of the source are matched to the fields once, before the first row, so a column that the contract
-  requires, and the source does not have, raises `IOStreams::Errors::InvalidHeader` before any work starts.
+  requires, and the source does not have, raises `IOStreams::Errors::InvalidHeader` before any work starts. A key that
+  a JSON record leaves out is a value instead, which reading checks, as above.
 * Each value converts at most once: text, such as that of CSV, is parsed, and a value that is already of the type of its
   field passes through, such as a `BigDecimal` of a Parquet file or a query. A value that cannot be of the type of its
   field, such as `N/A` for `amount`, raises `IOStreams::Errors::InvalidValue`.
@@ -109,7 +110,8 @@ the last column, still raises where it is.
 
 `#validate_contract!` asks whether a source meets the contract without reading its rows, such as in the web request
 that accepts an upload, before any job starts. It checks the columns, such as the header row of a CSV file or the keys
-of the first JSON record, and the types that a source declares, but not the values, which reading checks.
+of the first JSON record, and the types that a source declares, but not the values, which reading checks. Since a key
+that a JSON record leaves out is a missing value, it checks only the keys of JSON that the contract does not have.
 
 ~~~ruby
 source = IOStreams.path(upload_url).as(Orders::CONTRACT)

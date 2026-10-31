@@ -698,7 +698,8 @@ end
 
 A file can need a column whose values can be blank, such as a middle name that must be in every upload, but that
 many people do not have. Give its field `allowBlank: true` with `required`: a header row, or JSON record, without
-the field still raises, while a value that is `nil`, or empty text, is read and written as it is:
+the field still raises, while a value that is `nil`, or empty text, is read and written as it is. A JSON record read
+through a [contract](contracts) alone is the exception: its missing key is a blank value, which the field allows:
 
 ~~~ruby
 schema = {

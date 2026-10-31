@@ -10,7 +10,8 @@ module IOStreams
     #     Whether the field must have a value: a value that is nil, or empty text, raises
     #     `IOStreams::Errors::InvalidValue`, see #no_value, unless the field allows blank values, see `allowBlank` in
     #     `IOStreams::Schema::Field`. A header row or record without the field raises `IOStreams::Errors::InvalidHeader`,
-    #     see `IOStreams::Schema#check_columns`, whether or not it allows blank values.
+    #     see `IOStreams::Schema#check_columns`, whether or not it allows blank values, apart from a JSON record read
+    #     through a contract alone, whose missing key is a value of nil, see `IOStreams::Schema::Columns.new(keys_vary:)`.
     #     Default: false
     #
     # The other constraints of Frictionless, such as `maxLength`, are not supported yet, so they raise ArgumentError,

@@ -642,8 +642,9 @@ module IOStreams
     # that accepts an upload, before any job starts. It meets the contract as reading would before the first row: the
     # columns of the source, such as the header row of a CSV file, or the keys of the first record of JSON, against the
     # fields of the contract and its `fieldsMatch`, and the types that a source declares, such as a Parquet file or a
-    # query, against the types of the fields. It checks no value, which reading checks.
-    #
+    # query, against the types of the fields. It checks no value, which reading checks. A key that a JSON record leaves
+    # out is a missing value, which reading checks, so of JSON it checks only the keys that the contract does not have,
+    # and that one key is a field for `fieldsMatch` `"partial"`.
     #
     # With a schema of the file, set with #schema, the header row of a file with one, or the keys of the first JSON
     # record, must match that schema first, as reading checks them, and the contract then meets the fields that the file
@@ -659,7 +660,7 @@ module IOStreams
       schema = contract_schema!
       source = contract_source
       source.file_columns&.check_meeting(source.file_row, keyed: source.file_keyed)
-      schema.columns(every_field: true, keys_vary: source.keyed).check_meeting(source.labels, keyed: source.keyed)
+      schema.columns(every_field: true, keys_vary: source.keys_vary).check_meeting(source.labels, keyed: source.keyed)
       schema.check_types(source.types) if source.types
       true
     end
@@ -683,7 +684,7 @@ module IOStreams
       errors = source.file_columns&.meeting_errors(source.file_row, keyed: source.file_keyed) || []
       return errors unless errors.empty?
 
-      errors = schema.columns(every_field: true, keys_vary: source.keyed).meeting_errors(source.labels, keyed: source.keyed)
+      errors = schema.columns(every_field: true, keys_vary: source.keys_vary).meeting_errors(source.labels, keyed: source.keyed)
       source.types ? errors + schema.type_errors(source.types) : errors
     end
 
@@ -1437,9 +1438,10 @@ module IOStreams
     # The columns of a source as a contract meets them, see #contract_source: the names of the columns as the source
     # holds them, the schema that declares their types, or nil when they are text or each value has its own type, and
     # whether they are the keys of the records of a format of keyed records, such as JSON, which are matched in any
-    # order; and, with a schema set, the columns of the file matched to that schema, the header row or keys of the first
-    # record that they must meet first, and whether they are keys.
-    ContractSource = Struct.new(:labels, :types, :keyed, :file_columns, :file_row, :file_keyed)
+    # order; with a schema set, the columns of the file matched to that schema, the header row or keys of the first
+    # record that they must meet first, and whether they are keys; and whether each record supplies its own keys, such
+    # as JSON read without a schema, so that a key that one leaves out is a missing value, see `IOStreams::Tabular#keys_vary?`.
+    ContractSource = Struct.new(:labels, :types, :keyed, :file_columns, :file_row, :file_keyed, :keys_vary)
     private_constant :ContractSource
 
     # Returns [ContractSource] the columns of the source as a contract meets them, see #contract_errors:
@@ -1453,7 +1455,7 @@ module IOStreams
 
       if tabular.lines? && !tabular.field_names?
         tabular.check_records
-        return ContractSource.new(first_row(tabular) || [], nil, tabular.keyed?)
+        return ContractSource.new(first_row(tabular) || [], nil, tabular.keyed?, nil, nil, nil, tabular.keys_vary?)
       end
 
       declared = declared_schema

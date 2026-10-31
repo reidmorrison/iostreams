@@ -407,6 +407,13 @@ module IOStreams
       @contract.check_types(yield) if @contract && @file_schema.nil?
     end
 
+    # Returns [true|false] whether each record of the format supplies its own keys, such as JSON, rather than every
+    # record the same columns, such as Parquet, so that a key that a record read through a contract leaves out is a
+    # missing value, see `IOStreams::Tabular::Parser::Base.keys_vary?`.
+    def keys_vary?
+      parser.class.keys_vary?
+    end
+
     # Returns [true|false] whether the records of the format supply their own keys, such as JSON or Parquet, so that
     # their columns are matched by key, in any order, rather than by position, see `IOStreams::Tabular::Parser::Base.keyed?`.
     def keyed?

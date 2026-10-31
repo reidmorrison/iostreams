@@ -37,7 +37,7 @@ Start with the changes that apply to your application:
 | Reads or writes fixed width files | [Fixed width files are read and written as ASCII](#fixed-width-files-are-read-and-written-as-ascii) |
 | Sets the layout of a fixed width file with `#format_options` | [`#format_options` is replaced by `#schema`](#format_options-is-replaced-by-schema) |
 | Uses `columns:`, `allowed_columns:`, `required_columns:`, `skip_unknown:` or `cleanse_header:`, or sets `IOStreams.enforce_column_restrictions` | [The column options of each call are removed](#the-column-options-of-each-call-are-removed) |
-| Reads a `Time` or `DateTime`, such as of a spreadsheet or a query, into a `date` field of a schema | [A date field takes a time only at midnight](#a-date-field-takes-a-time-only-at-midnight) |
+| Reads or writes a `Time` or `DateTime`, such as of a spreadsheet or a query, through a `date` field of a schema | [A date field takes a time only at midnight](#a-date-field-takes-a-time-only-at-midnight) |
 | Reads JSON, fixed width or Parquet files with `each(:array)` or `reader(:array)`, or uploads them to Rocket Job in its `:array` mode | [Rows of JSON, fixed width and Parquet files are Arrays](#rows-of-json-fixed-width-and-parquet-files-are-arrays) |
 | Reads rows or records that can be blank, such as CSV exports with lines of only commas, or JSON records of only nulls | [Blank rows are the same in every format](#blank-rows-are-the-same-in-every-format) |
 | Supplies options to `#option`, `#stream`, `#reader`, `#writer` or the copy methods | [Reading, writing and options](#reading-writing-and-options) |
@@ -810,9 +810,10 @@ Fix: set the format of the file with `#format`, such as `format(:psv)` for a pip
 
 #### A date field takes a time only at midnight
 
-A `date` field of a schema reads a `Time` or `DateTime` at midnight, by its own clock, as its date, such as the time
-that a spreadsheet's date format gives, and raises `IOStreams::Errors::InvalidValue` for any other time, such as
-`2026-10-13 09:30`, rather than drop its time of day, as v2.2 does. A value converts only when nothing is lost, so that a
+A `date` field of a schema reads and writes a `Time` or `DateTime` at midnight, by its own clock, as its date, such as
+the time that a spreadsheet's date format gives, and raises `IOStreams::Errors::InvalidValue` for any other time, such
+as `2026-10-13 09:30`, or `Time.now` written to a date column of an export, rather than drop its time of day, as v2.2
+does. A value converts only when nothing is lost, so that a
 date field never hides a time, nor guesses a time zone to drop it in.
 
 Give such a column the type `datetime`, or convert its values to dates in your code, by the time zone that they belong
@@ -1917,8 +1918,8 @@ working after an upgrade, apart from the changes that v3.0 makes to every file:
   path set as the schema, such as `schema(IOStreams.path("people_schema.json"))`, as a frozen copy only in v3.0, so a
   method that changes the path that it returns, such as `#option` or `#encoding`, raises `FrozenError`, where v2.2
   returns the path itself. Change the path before it is set as the schema, or change a copy, `path.schema.dup`.
-* A `date` field in v2.2 reads a `Time` or `DateTime` as its date, dropping its time of day, while v3.0 reads only one at
-  midnight, by its own clock, as its date, and raises `IOStreams::Errors::InvalidValue` for any other, rather than lose
+* A `date` field in v2.2 reads and writes a `Time` or `DateTime` as its date, dropping its time of day, while v3.0 takes
+  only one at midnight, by its own clock, as its date, and raises `IOStreams::Errors::InvalidValue` for any other, rather than lose
   its time of day, see [A date field takes a time only at midnight](#a-date-field-takes-a-time-only-at-midnight).
 * Parquet files are only in v3.0.
 

@@ -1015,6 +1015,20 @@ class SchemaTest < Minitest::Test
           assert_raises(IOStreams::Errors::InvalidValue) { date.cast(Time.utc(2026, 10, 13, 0, 0, 0.5r)) }
         end
 
+        it "writes a Time only at midnight, as it reads one" do
+          output = StringIO.new
+          IOStreams.stream(output).file_name("dates.csv").schema(fields: [{name: "on", type: "date"}]).writer(:hash) do |io|
+            io << {"on" => Time.utc(2026, 10, 13)}
+          end
+
+          assert_equal "on\n2026-10-13\n", output.string
+          assert_raises(IOStreams::Errors::InvalidValue) do
+            IOStreams.stream(StringIO.new).file_name("dates.csv").schema(fields: [{name: "on", type: "date"}]).writer(:hash) do |io|
+              io << {"on" => Time.utc(2026, 10, 13, 9, 30)}
+            end
+          end
+        end
+
         it "reads and writes the format" do
           pattern = field(type: "date", format: "%d/%m/%Y")
 

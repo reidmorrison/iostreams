@@ -3397,7 +3397,8 @@ end
 
 A file can need a column whose values can be blank, such as a middle name that must be in every upload, but that
 many people do not have. Give its field `allowBlank: true` with `required`: a header row, or JSON record, without
-the field still raises, while a value that is `nil`, or empty text, is read and written as it is:
+the field still raises, while a value that is `nil`, or empty text, is read and written as it is. A JSON record read
+through a [contract](contracts) alone is the exception: its missing key is a blank value, which the field allows:
 
 ~~~ruby
 schema = {
@@ -3847,7 +3848,8 @@ Every one of them yields the same record:
   `IOStreams::Errors::InvalidValue` for it, unless it has `allowBlank: true`, while a key that the contract does not
   have still raises as `fieldsMatch` says. A schema set with `#schema` keeps its rule for each JSON record.
 * The columns of the source are matched to the fields once, before the first row, so a column that the contract
-  requires, and the source does not have, raises `IOStreams::Errors::InvalidHeader` before any work starts.
+  requires, and the source does not have, raises `IOStreams::Errors::InvalidHeader` before any work starts. A key that
+  a JSON record leaves out is a value instead, which reading checks, as above.
 * Each value converts at most once: text, such as that of CSV, is parsed, and a value that is already of the type of its
   field passes through, such as a `BigDecimal` of a Parquet file or a query. A value that cannot be of the type of its
   field, such as `N/A` for `amount`, raises `IOStreams::Errors::InvalidValue`.
@@ -3888,7 +3890,8 @@ the last column, still raises where it is.
 
 `#validate_contract!` asks whether a source meets the contract without reading its rows, such as in the web request
 that accepts an upload, before any job starts. It checks the columns, such as the header row of a CSV file or the keys
-of the first JSON record, and the types that a source declares, but not the values, which reading checks.
+of the first JSON record, and the types that a source declares, but not the values, which reading checks. Since a key
+that a JSON record leaves out is a missing value, it checks only the keys of JSON that the contract does not have.
 
 ~~~ruby
 source = IOStreams.path(upload_url).as(Orders::CONTRACT)
@@ -7924,7 +7927,7 @@ Start with the changes that apply to your application:
 | Reads or writes fixed width files | [Fixed width files are read and written as ASCII](#fixed-width-files-are-read-and-written-as-ascii) |
 | Sets the layout of a fixed width file with `#format_options` | [`#format_options` is replaced by `#schema`](#format_options-is-replaced-by-schema) |
 | Uses `columns:`, `allowed_columns:`, `required_columns:`, `skip_unknown:` or `cleanse_header:`, or sets `IOStreams.enforce_column_restrictions` | [The column options of each call are removed](#the-column-options-of-each-call-are-removed) |
-| Reads a `Time` or `DateTime`, such as of a spreadsheet or a query, into a `date` field of a schema | [A date field takes a time only at midnight](#a-date-field-takes-a-time-only-at-midnight) |
+| Reads or writes a `Time` or `DateTime`, such as of a spreadsheet or a query, through a `date` field of a schema | [A date field takes a time only at midnight](#a-date-field-takes-a-time-only-at-midnight) |
 | Reads JSON, fixed width or Parquet files with `each(:array)` or `reader(:array)`, or uploads them to Rocket Job in its `:array` mode | [Rows of JSON, fixed width and Parquet files are Arrays](#rows-of-json-fixed-width-and-parquet-files-are-arrays) |
 | Reads rows or records that can be blank, such as CSV exports with lines of only commas, or JSON records of only nulls | [Blank rows are the same in every format](#blank-rows-are-the-same-in-every-format) |
 | Supplies options to `#option`, `#stream`, `#reader`, `#writer` or the copy methods | [Reading, writing and options](#reading-writing-and-options) |
@@ -8697,9 +8700,10 @@ Fix: set the format of the file with `#format`, such as `format(:psv)` for a pip
 
 #### A date field takes a time only at midnight
 
-A `date` field of a schema reads a `Time` or `DateTime` at midnight, by its own clock, as its date, such as the time
-that a spreadsheet's date format gives, and raises `IOStreams::Errors::InvalidValue` for any other time, such as
-`2026-10-13 09:30`, rather than drop its time of day, as v2.2 does. A value converts only when nothing is lost, so that a
+A `date` field of a schema reads and writes a `Time` or `DateTime` at midnight, by its own clock, as its date, such as
+the time that a spreadsheet's date format gives, and raises `IOStreams::Errors::InvalidValue` for any other time, such
+as `2026-10-13 09:30`, or `Time.now` written to a date column of an export, rather than drop its time of day, as v2.2
+does. A value converts only when nothing is lost, so that a
 date field never hides a time, nor guesses a time zone to drop it in.
 
 Give such a column the type `datetime`, or convert its values to dates in your code, by the time zone that they belong
@@ -9804,8 +9808,8 @@ working after an upgrade, apart from the changes that v3.0 makes to every file:
   path set as the schema, such as `schema(IOStreams.path("people_schema.json"))`, as a frozen copy only in v3.0, so a
   method that changes the path that it returns, such as `#option` or `#encoding`, raises `FrozenError`, where v2.2
   returns the path itself. Change the path before it is set as the schema, or change a copy, `path.schema.dup`.
-* A `date` field in v2.2 reads a `Time` or `DateTime` as its date, dropping its time of day, while v3.0 reads only one at
-  midnight, by its own clock, as its date, and raises `IOStreams::Errors::InvalidValue` for any other, rather than lose
+* A `date` field in v2.2 reads and writes a `Time` or `DateTime` as its date, dropping its time of day, while v3.0 takes
+  only one at midnight, by its own clock, as its date, and raises `IOStreams::Errors::InvalidValue` for any other, rather than lose
   its time of day, see [A date field takes a time only at midnight](#a-date-field-takes-a-time-only-at-midnight).
 * Parquet files are only in v3.0.
 

@@ -539,12 +539,12 @@ module IOStreams
     def column_problems(found, unknown, ordered:, noun:, missing: true)
       problems = []
       problems << unknown_problem(unknown, noun) unless unknown.empty? || skip_unknown?
-      missing = missing ? missing_fields(found) : []
-      if every_field? && !missing.empty?
-        problems << "missing the #{plural('field', missing)} #{names_of(missing)}, which fieldsMatch #{fields_match.inspect} " \
+      absent = missing ? missing_fields(found) : []
+      if every_field? && !absent.empty?
+        problems << "missing the #{plural('field', absent)} #{names_of(absent)}, which fieldsMatch #{fields_match.inspect} " \
                     "requires; \"superset\" and \"partial\" accept missing fields"
       else
-        required = missing.select(&:required?)
+        required = absent.select(&:required?)
         problems << "missing the required #{plural('field', required)} #{names_of(required)}" unless required.empty?
       end
       if fields_match == "partial" && found.empty?
