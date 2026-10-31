@@ -301,6 +301,13 @@ module IOStreams
       IOStreams::Contract.new(descriptor)
     end
 
+    # Returns [IOStreams::Schema] a schema of the same properties and fields, without what says how a file writes the
+    # text of their values, such as the `format` of a date, see `IOStreams::Schema::Field::TEXT_PROPERTIES`, so that the
+    # target of a copy that takes the types of its source writes its own text, see `IOStreams::Stream#copy_from`.
+    def without_text
+      self.class.new(to_h.merge(fields: fields.map(&:without_text_h)))
+    end
+
     # Returns [String] the Ruby of a class that declares the contract of this schema, see #to_contract, for a person to
     # review and commit, such as of a schema that `IOStreams::Stream#infer_schema` drafted, see
     # `IOStreams::Contract.to_dsl`. The `format` of a field, which the contract leaves to the schema of the file, is a

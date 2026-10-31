@@ -568,7 +568,7 @@ class QueryStreamTest < Minitest::Test
           assert(records.all? { |record| record["total"].is_a?(BigDecimal) })
         end
 
-        it "copies the records of a contract to a target without a schema, rather than by the columns of the query" do
+        it "copies the records of a contract to a target without a schema, by the types of the contract" do
           contract = IOStreams::Contract.new(
             fieldsMatch: "partial",
             fields:      [{name: "total", type: "number", decimals: 2, aliases: ["amount"]}, {name: "label", aliases: ["name"]}]
@@ -576,7 +576,7 @@ class QueryStreamTest < Minitest::Test
           output = StringIO.new
           IOStreams.stream(output).format(:csv).copy_from(IOStreams.stream(orders.select(:id, :name, :amount)).as(contract), mode: :hash)
 
-          assert_equal "total,label\n12.5,a\n3.0,b\n100.25,c\n", output.string
+          assert_equal "total,label\n12.50,a\n3.00,b\n100.25,c\n", output.string
         end
 
         it "raises IncompatibleType before the first row for a column whose type never fits its field of a contract" do

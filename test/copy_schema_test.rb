@@ -39,6 +39,38 @@ class CopySchemaTest < Minitest::Test
         assert_equal "id\n1\n", copy_to_csv(IOStreams.stream(StringIO.new(csv)).format(:csv).as(Order), contract: own)
       end
 
+      it "keeps a schema of the target" do
+        out = StringIO.new
+        IOStreams.stream(out).format(:csv).schema(fieldsMatch: "partial", fields: [{name: "amount"}]).
+          copy_from(IOStreams.stream(StringIO.new(csv)).format(:csv).as(Order), mode: :hash)
+
+        assert_equal "amount\n12.5\n", out.string
+      end
+
+      it "gives the contract without how the source writes its text, so that the target writes its own" do
+        contract = IOStreams::Contract.new(
+          fields: [{name: "on", type: "date", format: "%m/%d/%Y"}, {name: "ok", type: "boolean", trueValues: ["Y"]}]
+        )
+        source = IOStreams.stream(StringIO.new("on,ok\n10/25/2026,Y\n")).format(:csv).as(contract)
+
+        assert_equal "on,ok\n2026-10-25,true\n", copy_to_csv(source)
+      end
+
+      it "gives nothing in the :line mode, which copies the lines as they are" do
+        out = StringIO.new
+        IOStreams.stream(out).format(:csv).copy_from(IOStreams.stream(StringIO.new("id,name\n1,Jack\n")).format(:csv).as(Order),
+                                                     mode: :line)
+
+        assert_equal "id,name\n1,Jack\n", out.string
+      end
+
+      it "gives nothing from a slice of text, whose schema describes its text" do
+        slice  = IOStreams::Slice.new(["1,10/25/2026"], header: %w[id on], format: :csv)
+        source = IOStreams.stream(slice).schema(fields: [{name: "id"}, {name: "on", type: "date", format: "%m/%d/%Y"}])
+
+        assert_equal "id,on\n1,2026-10-25\n", copy_to_csv(source)
+      end
+
       it "gives a target the schema that a typed slice carries" do
         slice = IOStreams::Slice.new([record.values], header: record.keys, format: :array, schema: Order.schema)
 

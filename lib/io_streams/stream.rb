@@ -995,10 +995,12 @@ module IOStreams
     # supplied rows of the source gives it one, when it returns a copy of this stream with it, so that this stream is not
     # changed: the contract that the source is read through, see #copy_contract, otherwise the schema of a source of
     # typed rows, see #copy_schema, such as a query, a Parquet file or a slice of typed values, so that a typed target,
-    # such as Parquet, keeps their types, while text is never guessed. A writer of the mode that is already open, which
-    # writes with its own settings, see #open_writer?, keeps this stream as it is.
+    # such as Parquet, keeps their types, while text is never guessed. The contract is handed on without what says how
+    # the source writes the text of its values, such as the `format` of a date, see `IOStreams::Schema#without_text`,
+    # so that the target writes its own. A writer of the mode that is already open, which writes with its own settings,
+    # see #open_writer?, and a copy of lines, which copies them as they are, keep this stream as it is.
     def with_copy_schema(source, rows, mode)
-      return self if open_writer?(mode)
+      return self if mode == :line || open_writer?(mode)
       return self unless schema.nil? && tabular_settings.contract.nil?
 
       contract = source.copy_contract
@@ -1006,7 +1008,7 @@ module IOStreams
       return self if contract.nil? && copied.nil?
 
       copy = dup
-      contract ? copy.as(contract) : copy.schema = copied
+      contract ? copy.as(contract.schema.without_text) : copy.schema = copied
       copy
     end
 

@@ -128,6 +128,10 @@ module IOStreams
       # it only holds the place of its column, which a contract never has, see `IOStreams::Contract`.
       LAYOUT_PROPERTIES = %w[width start truncate skip].freeze
 
+      # The properties of a field that say how a file writes the text of its values, which the target of a copy does not
+      # take from its source, since it writes its own, see `IOStreams::Schema#without_text`.
+      TEXT_PROPERTIES = %w[format trueValues falseValues].freeze
+
       # The properties of a field that only describe it to people.
       DESCRIPTIVE_PROPERTIES = %w[title description example rdfType].freeze
 
@@ -255,6 +259,12 @@ module IOStreams
       # `format` of its text, for a contract, see `IOStreams::Schema#to_contract`.
       def to_contract_h
         to_h.except(*LAYOUT_PROPERTIES.map(&:to_sym), :format)
+      end
+
+      # Returns [Hash] the properties of this field without those that say how a file writes the text of its values,
+      # see TEXT_PROPERTIES, see `IOStreams::Schema#without_text`.
+      def without_text_h
+        to_h.except(*TEXT_PROPERTIES.map(&:to_sym))
       end
 
       # Returns [true|false] whether the other is a field of the same properties, see #to_h.
