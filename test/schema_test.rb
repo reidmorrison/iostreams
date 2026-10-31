@@ -1003,9 +1003,16 @@ class SchemaTest < Minitest::Test
           end
         end
 
-        it "converts a Date or a Time" do
-          assert_equal Date.new(2026, 10, 13), date.cast(DateTime.new(2026, 10, 13, 9, 30))
-          assert_equal Date.new(2026, 10, 13), date.cast(Time.new(2026, 10, 13, 9, 30))
+        it "converts a Time or DateTime at midnight, by its own clock, as a spreadsheet's date format reads it" do
+          assert_equal Date.new(2026, 10, 13), date.cast(DateTime.new(2026, 10, 13))
+          assert_equal Date.new(2026, 10, 13), date.cast(Time.new(2026, 10, 13, 0, 0, 0, "-05:00"))
+          assert_equal Date.new(2026, 10, 13), date.cast(Time.utc(2026, 10, 13))
+        end
+
+        it "raises for a Time or DateTime that is not midnight, rather than lose its time of day" do
+          assert_raises(IOStreams::Errors::InvalidValue) { date.cast(DateTime.new(2026, 10, 13, 9, 30)) }
+          assert_raises(IOStreams::Errors::InvalidValue) { date.cast(Time.new(2026, 10, 13, 9, 30)) }
+          assert_raises(IOStreams::Errors::InvalidValue) { date.cast(Time.utc(2026, 10, 13, 0, 0, 0.5r)) }
         end
 
         it "reads and writes the format" do

@@ -24,7 +24,9 @@ module IOStreams
     #     "integer":  an Integer, such as `-12` or `0042`.
     #     "number":   a BigDecimal, such as `12.50`, `-1.5E3`, `NaN`, `INF` or `-INF`, or a Float with `floatNumber`.
     #     "boolean":  true or false, see `trueValues` and `falseValues`.
-    #     "date":     a Date, written as `2026-10-13` unless `format` is set.
+    #     "date":     a Date, written as `2026-10-13` unless `format` is set. A Time or DateTime at midnight, by its own
+    #                 clock, as a spreadsheet's date format reads it, is its date, while any other time raises, rather
+    #                 than lose its time of day.
     #     "datetime": a Time, written as `2026-10-13T09:30:00Z` unless `format` is set.
     #     "time":     a time of day, a Time on 2000-01-01, as Active Record holds the value of a `time` column, written as
     #                 the time of its own clock, such as `09:30:00`, without its offset from UTC, unless `format` is set.
@@ -755,8 +757,12 @@ module IOStreams
         invalid(value)
       end
 
+      # A Date passes through, and a Time or DateTime is a Date only when it is midnight, by its own clock, as a
+      # spreadsheet's date format reads it, so that a time of day is never lost, nor a zone guessed: any other time raises.
       def cast_date(value)
-        return value.to_date if value.is_a?(Date) || value.is_a?(Time)
+        return value if value.instance_of?(Date)
+        return midnight(value) if value.is_a?(Time) || value.is_a?(DateTime)
+        return value.to_date if value.is_a?(Date)
         return invalid(value) unless value.is_a?(String)
         return parse_time(Date, value) if @format
         return invalid(value) unless DATE.match?(value)
@@ -764,6 +770,16 @@ module IOStreams
         Date.new(*value.split("-").map { |part| Integer(part, 10) })
       rescue Date::Error
         invalid(value)
+      end
+
+      # Returns [Date] the date of a Time or DateTime at midnight, by its own clock.
+      #
+      # Raises `IOStreams::Errors::InvalidValue` for any other time, whose time of day a date would lose.
+      def midnight(time)
+        fraction = time.is_a?(Time) ? time.subsec : time.sec_fraction
+        return time.to_date if time.hour.zero? && time.min.zero? && time.sec.zero? && fraction.zero?
+
+        invalid(time)
       end
 
       # `Time` moves a day past the end of its month into the next month, such as February 30 into March 2, so the
