@@ -592,16 +592,23 @@ Fix: set `format(:csv)` on the path of a `.text` file that holds CSV.
 
 #### Spreadsheet date and time cells are read as ISO 8601
 
-In the CSV text of a spreadsheet, which its lines and a copy without a mode read, a time cell is its time of day in
-UTC in ISO 8601, such as `2026-01-02T09:30:00Z`, since Excel holds a time without a time zone, so that a `datetime`
-field of a schema can read it. Its rows and records hold the cells themselves instead, see
-[Rows of a spreadsheet are the values of its cells](#rows-of-a-spreadsheet-are-the-values-of-its-cells). Previously it
-was the text of a `Time` in the local time zone of the process, such as `2026-01-02 09:30:00 -0500`. A date cell
-is read as before, such as `2026-01-02`. A decimal cell that the `creek` gem returns as a `BigDecimal` is read as
-a plain decimal, such as `12.5`, where it was `0.125e2`.
+In the CSV text of a spreadsheet, which its lines and a copy without a mode read, a date cell is `2026-01-02`, a date
+and time cell its time in UTC in ISO 8601, such as `2026-01-02T09:30:00Z`, since Excel holds a time without a time
+zone, and a time of day its clock, such as `09:30:00`, so that a field of its type reads each one, the same text in
+every process. Its rows and records hold the cells themselves instead, see
+[Rows of a spreadsheet are the values of its cells](#rows-of-a-spreadsheet-are-the-values-of-its-cells). Previously
+only a cell of a built-in date format of Excel, such as its short date, was `2026-01-02`. A cell of a custom date
+format, such as `yyyy-mm-dd`, or of a time, was the text of a `Time` in the local time zone of the process, such as
+`2026-01-02 00:00:00 -0500` or `2026-01-02 09:30:00 -0500`, a time of day was on 1899-12-30, and a number of a custom
+format with a letter in its text, such as `0" items"`, was a date. A number is the text that the workbook holds, such
+as `1001` or `12.5`, where a cell with the type of a number was `1001.0`, a format of a whole number, such as `0` or
+`#,##0`, dropped the fraction of `12.5`, and a decimal cell that the `creek` gem returns as a `BigDecimal` was
+`0.125e2`.
 
-Fix: code that parses the text of a time cell, such as with `Time.parse`, still works, but gets the time in
-UTC. To get a local time, convert it, such as with `Time.parse(value).localtime`.
+Fix: code that parses the text of a date or time cell, such as with `Date.parse` or `Time.parse`, still works, but
+gets a time in UTC, and a time of day without a date. To get a local time, convert it, such as with
+`Time.parse(value).localtime`. Read a column of times of day with a `time` field, which reads `09:30:00`, rather than
+a `datetime` field, which reads only a date and time.
 
 #### The column options of each call are removed
 

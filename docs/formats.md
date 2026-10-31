@@ -282,8 +282,12 @@ does:
 
 A whole number is a `Float`, such as `1001.0`: an `integer` field of a [schema](schemas) or [contract](contracts)
 converts it, and raises for `1001.5`. A `number` field reads the digits that Excel displays, its 15 most significant,
-such as `0.3` rather than the `Float` `0.30000000000000004`. The lines of the spreadsheet are the text of each cell: a
-date as `2026-01-02T00:00:00Z`, a time as `2026-01-02T09:30:00Z`, and a number as `1.0` or `12.5`.
+such as `0.3` rather than the `Float` `0.30000000000000004`. The lines of the spreadsheet are the text of each cell, the
+same in every process: a date as `2026-01-02`, a date and time as its time in UTC, such as `2026-01-02T09:30:00Z`, a
+cell of a time format as the time of its clock, which Excel shows, such as `09:30:00`, so that a field of its type
+reads it, and a number as the workbook holds it, such as `1001` or `12.5`, whatever its format shows. A number of a date
+or time format that is not a date that Excel holds, such as a negative number, which Excel shows as `####`, is its
+number, in the lines and in the rows.
 
 The rows that `each(:slice)` reads are the values of the cells, in the `:array` format, and `slice.to_h` holds each
 `Date` and `Time` as its ISO 8601 text, which a schema or contract reads back. A `delimiter:` raises `ArgumentError` for
@@ -292,7 +296,8 @@ the rows and records, which are cells rather than lines.
 Writing writes a workbook with one worksheet, with the `xlsxtream` gem. The rows and records are written as the types
 of their values, by the fields of a schema or contract when there is one, so that a number is a number cell, a `Date` a
 date, a `Time` a date and time, and text, such as `"01234"`, is text. A `BigDecimal` is written as the `Float` that Excel
-holds, and a `Hash` or an `Array` as its JSON:
+holds, shown without the `decimals` of its field, see [Limitations](#spreadsheet-limitations), and a `Hash` or an
+`Array` as its JSON:
 
 ~~~ruby
 # Order is a contract, see Contracts.
@@ -333,6 +338,47 @@ Notes:
 * On JRuby, `creek` reads a value that holds a line break only up to the line break, unless the workbook was written
   with `use_shared_strings: true`, as Excel does.
 
+### Limitations {#spreadsheet-limitations}
+
+A `number` field with `decimals` is written as a number cell in Excel's General format, since the `xlsxtream` gem
+writes only the number formats of dates and times, so Excel shows the digits of its value, such as `12.5`, where CSV
+writes `12.50`, and so do the lines of the spreadsheet, its CSV text. The cell holds the same number, which the field
+reads back:
+
+~~~ruby
+# Order is a contract whose amount field has 2 decimals, see Contracts.
+IOStreams.path("report.xlsx").as(Order).writer(:hash) do |io|
+  io << {"id" => 1001, "amount" => BigDecimal("12.5"), "ordered_at" => Time.utc(2026, 10, 25, 9, 30), "zip" => "01234"}
+end
+# Excel shows 12.5 as the amount, where report.csv holds 12.50.
+
+IOStreams.path("report.xlsx").as(Order).each(:hash) do |order|
+  p order
+end
+# {"id" => 1001, "amount" => 0.125e2, "ordered_at" => 2026-10-25 09:30:00 UTC, "zip" => "01234"}
+~~~
+
+A time of day, such as the value of a `time` field, is written as a date and time on 2000-01-01, such as
+`2000-01-01 09:30`, since the `xlsxtream` gem cannot write a cell of a time format. The rows of the spreadsheet read it
+back as a `Time` that a `time` field takes, but its lines, its CSV text, hold `2000-01-01T09:30:00Z`, which a `time`
+field raises `IOStreams::Errors::InvalidValue` for, so a CSV copy of the spreadsheet made without a mode does not read
+back. Copy it in the `:hash` mode with a schema or contract that gives the column the type `time`, which writes the
+time of day, `09:30:00`:
+
+~~~ruby
+# Hours is a contract with the field {name: "opens", type: "time"}.
+IOStreams.path("hours.csv").copy_from(IOStreams.path("hours.xlsx").as(Hours), mode: :hash)
+~~~
+
+A cell of an elapsed time format, such as `[h]:mm:ss`, is read as a time, rather than as the length of time that Excel
+shows. One of less than a day, such as `9:00:00`, is a time of day, and one of a day or more, such as `36:00:00`, is
+the date and time that many days after 1899-12-30, `1899-12-31 12:00:00 UTC`, whose text in the lines of the
+spreadsheet is the time of its clock, `12:00:00`, without its days.
+
+Excel counts 1900 as a leap year, so a date before 1900-03-01 is read a day early, in the rows and the lines alike, such
+as `1899-12-31` for the 1900-01-01 that Excel shows, and Excel's 1900-02-29, which does not exist, as `1900-02-28`.
+The `creek` gem reads them the same way.
+
 ## Schema
 
 A schema describes the columns of a file: the name and type of each field, which columns the file can have and must
@@ -352,7 +398,8 @@ describes itself, such as a CSV file with a header row, JSON, a spreadsheet or P
 ## Parquet files
 
 [Apache Parquet](https://parquet.apache.org/) files hold the type of each column, so their records are read with typed
-values, such as an `Integer`, `BigDecimal`, `Date` or `Time`, even without a schema. A column of times of day is read
+values, such as an `Integer`, `BigDecimal`, `Date` or `Time`, even without a schema, apart from the columns that
+[Limitations](#parquet-limitations) names. A column of times of day is read
 as a `Time` on 2000-01-01, in UTC, as a `time` field reads it. A `.parquet` file name selects the format, and it can also be compressed
 or encrypted, such as `data.parquet.pgp`. Install the [parquet](https://github.com/njaremko/parquet-ruby) gem, which is
 not available on JRuby.
@@ -443,6 +490,41 @@ IOStreams.path("s3://bucket/people.parquet").each(:array) do |row|
 end
 # ["id", "name", "amount", "born"]
 # [1, "Jack", 0.1235e2, #<Date: 2000-02-29 ((2451604j,0s,0n),+0s,2299161j)>]
+~~~
+
+### Limitations {#parquet-limitations}
+
+A `duration`, `object` or `array` field is written as a `string` column that holds its text, see the table above, and
+the file does not record the type of the field, since the `parquet` gem cannot yet write the metadata of a file. So
+without a schema, its values are read back as that text, `#infer_schema` gives the column the type `string`, and a copy
+of the file into another Parquet file writes it as a `string` column. Read it with the schema or [contract](contracts)
+that wrote it, which reads each value back as its type:
+
+~~~ruby
+schema = {
+  fields: [
+    {name: "id", type: "integer"},
+    {name: "wait", type: "duration"},
+    {name: "tags", type: "array"},
+    {name: "address", type: "object"}
+  ]
+}
+
+IOStreams.path("jobs.parquet").schema(schema).writer(:hash) do |writer|
+  writer << {"id" => 1, "wait" => ActiveSupport::Duration.parse("PT8H30M"), "tags" => ["a", "b"], "address" => {"zip" => "01234"}}
+end
+
+# Without a schema, each of them is its text.
+IOStreams.path("jobs.parquet").each(:hash) do |job|
+  p job
+end
+# {"id" => 1, "wait" => "PT8H30M", "tags" => "[\"a\",\"b\"]", "address" => "{\"zip\":\"01234\"}"}
+
+# With the schema that wrote it, each is its type.
+IOStreams.path("jobs.parquet").schema(schema).each(:hash) do |job|
+  p job
+end
+# {"id" => 1, "wait" => 8 hours and 30 minutes, "tags" => ["a", "b"], "address" => {"zip" => "01234"}}
 ~~~
 
 ## Fixed width files

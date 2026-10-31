@@ -19,12 +19,18 @@ module IOStreams
     #   Formula                        | its cached value, typed as above
     #
     # A whole number is a Float, such as `1001.0`: a contract's `integer` field converts it, and raises for `1001.5`.
+    #
+    # The CSV text of a worksheet, its lines, holds the text of each cell as .text gives it, so that the lines and the
+    # rows of a workbook agree on which cells hold a date or a time.
     module Cells
       # The seconds of a day.
       DAY = 86_400
 
       # The first day of a time of day, as Active Record holds the value of a `time` column.
       TIME_OF_DAY = [2000, 1, 1].freeze
+
+      # The number of the day after the last date that Excel holds, 9999-12-31, since 1899-12-30.
+      LAST_DAY = 2_958_466
 
       # The built-in number formats of Excel of dates, times of day, and dates with times, by their ids.
       BUILT_IN_FORMATS = {
@@ -84,36 +90,90 @@ module IOStreams
         end
       end
 
+      # Returns [String|nil] the text of a cell, as the CSV text of a worksheet holds it, see
+      # `IOStreams::Xlsx::Reader#each`, from the same classes of number formats as .value, so that the lines and the rows
+      # of a workbook agree on which cells hold a date or a time. Excel holds a date or a time without a time zone, so
+      # its text is the same in every process, and a field of its type reads it:
+      #   a date                   in ISO 8601, such as "2026-01-02"
+      #   a date and time          its time in UTC, such as "2026-01-02T09:30:00Z", with its milliseconds when it has any
+      #   a time                   the time of its clock, such as "09:30:00", which Excel shows, as a `time` field writes it
+      #   any other number         as the workbook holds it, such as "1001" or "12.5"
+      #   text                     as it is
+      #   a boolean                "true" or "false"
+      #   an error, such as #N/A   as Excel shows it
+      #   an empty cell            nil
+      #
+      # A number of a date or time format that is not a date that Excel holds, such as a negative number, which Excel
+      # shows as `####`, is a number.
+      #
+      # Parameters are those of .value.
+      def self.text(text, type, style, options)
+        return if text.nil? || text.empty?
+        return number_text(text, style, options[:base_date]) if type.nil? || type == "n"
+        return text if type == "e"
+
+        value(text, type, style, options).to_s
+      end
+
       # Returns the number of a cell of a number type, by the class of its number format.
       def self.number(text, style, base_date)
+        days = days(text) if style
+        return Float(text) unless days
+
         case style
-        when :date then base_date + Rational(text).floor
-        when :date_time then date_time(text, base_date)
-        when :time then Rational(text) < 1 ? time_of_day(text) : date_time(text, base_date)
-        else Float(text)
+        when :date then base_date + days.floor
+        when :date_time then date_time(days, base_date)
+        when :time then days < 1 ? time_of_day(days) : date_time(days, base_date)
         end
       rescue ArgumentError, ZeroDivisionError
         text
       end
 
+      # Returns [String] the text of a cell of a number type, by the class of its number format, see .text.
+      def self.number_text(text, style, base_date)
+        days = days(text) if style
+        return text unless days
+
+        case style
+        when :date then (base_date + days.floor).iso8601
+        when :date_time then Schema::Field.any_text(date_time(days, base_date))
+        when :time then time_of_day_field.render(time_of_day(days), :text)
+        end
+      rescue ArgumentError, ZeroDivisionError
+        text
+      end
+
+      # Returns [Rational|nil] the days since the first day of the workbook of the text of a number, or nil for one
+      # outside the dates that Excel holds, from its first day up to 9999-12-31, such as a negative number, or one of a
+      # huge exponent, which is checked as a Float before it becomes a Rational, so that its cost is bounded.
+      def self.days(text)
+        days = Float(text)
+        Rational(text) if days >= 0 && days < LAST_DAY
+      end
+
+      # Returns [IOStreams::Schema::Field] a field of type `time`, which writes the text of a time of day.
+      def self.time_of_day_field
+        @time_of_day_field ||= Schema::Field.new(name: "time", type: "time")
+      end
+
       # Returns [Time] the time, in UTC, of the clock of the days since the first day of the workbook, to the millisecond
       # that Excel holds.
-      def self.date_time(text, base_date)
-        days = Rational(text)
+      def self.date_time(days, base_date)
         date = base_date + days.floor
         Time.utc(date.year, date.month, date.day) + seconds(days)
       end
 
-      # Returns [Time] the time of day of the fraction of a day, on 2000-01-01 in UTC.
-      def self.time_of_day(text)
-        Time.utc(*TIME_OF_DAY) + seconds(Rational(text))
+      # Returns [Time] the time of day of the fraction of a day, on 2000-01-01 in UTC, also when the fraction rounds to
+      # a whole day, which is midnight.
+      def self.time_of_day(days)
+        Time.utc(*TIME_OF_DAY) + (seconds(days) % DAY)
       end
 
       # Returns [Rational] the seconds of the fraction of the day, to the millisecond.
       def self.seconds(days)
         ((days - days.floor) * DAY).round(3)
       end
-      private_class_method :number, :date_time, :time_of_day, :seconds
+      private_class_method :number, :number_text, :days, :time_of_day_field, :date_time, :time_of_day, :seconds
     end
   end
 end

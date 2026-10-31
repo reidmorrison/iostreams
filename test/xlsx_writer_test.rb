@@ -333,8 +333,8 @@ class XlsxWriterTest < Minitest::Test
           io << [1, "Smith, Jack"]
         end
 
-        # The Integer is a number cell, which reading as CSV text gives as the Float that Excel holds.
-        assert_equal [%w[id name], ["1.0", "Smith, Jack"]], read_rows(File.binread(path.to_s))
+        # The Integer is a number cell, which reading as CSV text gives as the number that the workbook holds.
+        assert_equal [%w[id name], ["1", "Smith, Jack"]], read_rows(File.binread(path.to_s))
       end
 
       it "reads each cell as a value, whatever format the file name names before the extension" do
