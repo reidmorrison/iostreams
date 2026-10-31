@@ -64,7 +64,7 @@ module IOStreams
       # otherwise that of the columns, see #declared_schema, since it describes the values that a copy writes, which are
       # those of the query, so that a target without a schema writes them by their types, see
       # `IOStreams::Stream#copy_from`.
-      def rows_schema
+      def rows_schema(_rows)
         schema || declared_schema
       end
 

@@ -130,6 +130,24 @@ source = IOStreams.path("people.csv").schema(
 IOStreams.path("people.json").copy_from(source, mode: :hash)
 ~~~
 
+A target with neither a schema nor a [contract](contracts) of its own takes the types of the rows that the copy reads,
+when the source has them: the contract that the source is read through, otherwise the schema of a source of typed rows,
+such as a Parquet file, an [Active Record query](queries#keeping-the-types-of-the-columns), or a slice of typed values.
+So a Parquet file copied to another keeps the type of each column, and CSV writes each number with its decimals:
+
+~~~ruby
+# The source's contract gives the Parquet columns their types.
+source = IOStreams.path("orders.csv").as(Orders::CONTRACT)
+IOStreams.path("orders.parquet").copy_from(source, mode: :hash)
+
+# A typed source gives them its own.
+IOStreams.path("archive/orders.parquet").copy_from("orders.parquet", mode: :hash)
+~~~
+
+A file of text, such as CSV, or of values that each have their own type, such as JSON or a spreadsheet, gives nothing,
+since its types are never guessed, so a Parquet target needs a schema or a contract, and raises `ArgumentError` before
+it is opened without one, so that an existing file is kept.
+
 An option that only applies when reading, such as `buffer_size:`, raises `ArgumentError` for a copy, rather than being
 ignored, see [Settings on the path, options for each call](streams#settings-on-the-path-options-for-each-call).
 

@@ -853,7 +853,9 @@ end
 With a schema, the columns are matched to its fields, and each value is converted to the type of its field, as for any
 other format, see [Schema](#schema).
 
-Writing needs a schema, since a Parquet file records the type of each of its columns. Its fields are the columns, and
+Writing needs a schema, or a [contract](contracts), since a Parquet file records the type of each of its columns; a copy
+gives one from a source of typed rows, see [Copying and moving](copy_files#choosing-the-columns). Its fields are the
+columns, and
 each type is written as:
 
 | Type | Parquet type |

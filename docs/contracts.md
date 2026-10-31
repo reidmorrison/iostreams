@@ -173,7 +173,9 @@ end
 | Parquet | columns of `int64`, `decimal(38, 2)`, `timestamp` in UTC, and `string` |
 
 A value that is not of the type of its field, such as `"x"` for `id`, raises `IOStreams::Errors::InvalidValue`. A copy
-into a target with a contract writes by it too, such as `path.as(Orders::CONTRACT).copy_from(source, mode: :hash)`.
+into a target with a contract writes by it too, such as `path.as(Orders::CONTRACT).copy_from(source, mode: :hash)`, and
+a copy hands the contract of its source to a target with neither a contract nor a schema, so that a Parquet target
+takes its types, see [Copying and moving](copy_files#choosing-the-columns).
 
 ## Building a contract
 

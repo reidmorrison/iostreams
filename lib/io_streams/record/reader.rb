@@ -122,6 +122,13 @@ module IOStreams
         each { |record| writer << record unless record.nil? }
       end
 
+      # Returns [IOStreams::Schema|nil] the schema that the source of the lines declares, such as that of a Parquet file,
+      # see `IOStreams::Parquet::Reader#declared_schema`, which a copy gives a typed target, see
+      # `IOStreams::Stream#rows_schema`, or nil for lines of text.
+      def declared_schema
+        @line_reader.declared_schema if @line_reader.respond_to?(:declared_schema)
+      end
+
       # Returns [String] the class and the format of the records, see `IOStreams::Tabular#format`, rather than every
       # instance variable, such as the tabular and the lines that it reads, so that irb, which displays what a reader
       # block returns, shows what the documentation describes.

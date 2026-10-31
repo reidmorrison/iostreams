@@ -460,11 +460,13 @@ module IOStreams
     # Notes:
     # - The source is opened before the target, so that the target is not changed when the source
     #   cannot be read, for example when it does not exist.
-    # - A target without a schema, see #schema, writes the rows of an Active Record query by the schema of its columns,
-    #   such as the decimals of a number, which a Parquet file needs, see `IOStreams::Query::Stream#schema`, unless the
-    #   target is a row or record writer that is already open, supplied to `IOStreams.stream`, which writes with its own
-    #   settings. The schema of a file is not given to the target, since it describes the text of that file, such as the
-    #   format of its dates.
+    # - A target with neither a schema, see #schema, nor a contract, see #as, writes the rows by the contract that the
+    #   source is read through, otherwise by the schema of a source of typed rows: the columns of an Active Record query,
+    #   see `IOStreams::Query::Stream`, the columns of a Parquet file, or the schema of a slice of typed values, such as
+    #   the decimals of a number, which a Parquet file needs, unless the target is a row or record writer that is already
+    #   open, supplied to `IOStreams.stream`, which writes with its own settings. A file of text, or of values that each
+    #   have their own type, such as JSON, gives nothing, since the schema of such a file describes its text, such as
+    #   the format of its dates, and its types are never guessed.
     def copy_from(source, convert: true, mode: nil, **args)
       unless mode.nil? || COPY_MODES.include?(mode)
         raise(ArgumentError, "Invalid mode: #{mode.inspect}. A copy converts lines, rows or records with mode: " \
@@ -868,12 +870,18 @@ module IOStreams
       open_writer(&)
     end
 
-    # Returns [Hash|String|IOStreams::Path|nil] the schema that a copy of the rows of this stream gives a target without
-    # one, see #copy_from, and #rows_schema, or nil when the rows are read through a contract, see #as, since they are
-    # then keyed and typed by the contract rather than by the schema of the source. Protected, so that the target asks
-    # the source, and defined only here, so that a target of any class can ask a source of any class.
-    def copy_schema
-      rows_schema unless tabular_settings.contract
+    # Returns [IOStreams::Schema|Hash|String|IOStreams::Path|nil] the schema that a copy of the supplied rows of this
+    # stream gives a target with neither a schema nor a contract, see #copy_from, and #rows_schema. Protected, so that
+    # the target asks the source, and defined only here, so that a target of any class can ask a source of any class.
+    def copy_schema(rows)
+      rows_schema(rows)
+    end
+
+    # Returns [Class|nil] the contract that the rows of this stream are read through, see #as, which a copy gives a target
+    # with neither a schema nor a contract, so that it writes the records of the contract by its types, see #copy_from.
+    # Protected, see #copy_schema.
+    def copy_contract
+      tabular_settings.contract
     end
 
     # Raises ArgumentError, before the target of a copy is opened, see #copy_target, when nothing names the columns of the
@@ -942,12 +950,17 @@ module IOStreams
     # query holds an internal object for it, see `IOStreams::Query::Stream`.
     attr_reader :io_stream
 
-    # Returns [Hash|String|IOStreams::Path|nil] the schema of the rows that this stream reads, which a copy gives a target
-    # without one, see #copy_schema: none, since the schema of a file describes its text, such as the format of its
-    # dates, rather than the values that the copy writes. The stream of an Active Record query gives the schema of its
-    # columns, see `IOStreams::Query::Stream#rows_schema`.
-    def rows_schema
-      nil
+    # Returns [IOStreams::Schema|nil] the schema of the supplied rows that this stream reads, which a copy gives a target
+    # without one, see #copy_schema: that of a format whose rows hold typed values, such as Parquet, which the file
+    # declares, see `IOStreams::Parquet::Reader#declared_schema`, or that was set, which its values are read by. None for
+    # a file of text, such as CSV, or of values that each have their own type, such as JSON or a spreadsheet, since the
+    # schema of such a file describes its text, such as the format of its dates, rather than the values that the copy
+    # writes, and its types are never guessed. A source of typed rows overrides it, such as a query, see
+    # `IOStreams::Query::Stream#rows_schema`, or a slice, see `IOStreams::Slice::Stream#rows_schema`.
+    def rows_schema(rows)
+      return if IOStreams::Tabular.lines?(rows_format)
+
+      tabular_settings.file_schema || (rows.declared_schema if rows.respond_to?(:declared_schema))
     end
 
     # Returns [Hash] the options of the writer of the supplied mode that a copy writes the rows of its source with, see
@@ -973,24 +986,27 @@ module IOStreams
     # supplied mode, see #copy_rows: this stream, or a copy of it with the schema of the source, see #with_copy_schema,
     # once it checks, before it is opened, that it can write rows whose columns nothing names, see #check_unnamed_rows.
     def copy_target(source, rows, mode)
-      target = with_copy_schema(source, mode)
+      target = with_copy_schema(source, rows, mode)
       target.check_unnamed_rows(rows) if mode == :array
       target
     end
 
     # Returns [IOStreams::Stream] this stream, unless it has neither a schema nor a contract, see #as, and a copy of the
-    # rows of the supplied source gives it one, see #copy_schema, when it returns a copy of this stream with that schema,
-    # so that the schema of this stream is not changed. A writer of the mode that is already open, which writes with its
-    # own settings, see #open_writer?, keeps this stream as it is.
-    def with_copy_schema(source, mode)
+    # supplied rows of the source gives it one, when it returns a copy of this stream with it, so that this stream is not
+    # changed: the contract that the source is read through, see #copy_contract, otherwise the schema of a source of
+    # typed rows, see #copy_schema, such as a query, a Parquet file or a slice of typed values, so that a typed target,
+    # such as Parquet, keeps their types, while text is never guessed. A writer of the mode that is already open, which
+    # writes with its own settings, see #open_writer?, keeps this stream as it is.
+    def with_copy_schema(source, rows, mode)
       return self if open_writer?(mode)
       return self unless schema.nil? && tabular_settings.contract.nil?
 
-      copied = source.copy_schema
-      return self if copied.nil?
+      contract = source.copy_contract
+      copied   = source.copy_schema(rows) unless contract
+      return self if contract.nil? && copied.nil?
 
-      copy        = dup
-      copy.schema = copied
+      copy = dup
+      contract ? copy.as(contract) : copy.schema = copied
       copy
     end
 
