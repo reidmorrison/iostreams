@@ -192,6 +192,55 @@ class ResultDeprecationTest < Minitest::Test
       end
     end
 
+    describe "a time that is not at midnight in a date field" do
+      let(:schema) { {fields: [{name: "id", type: "integer"}, {name: "on", type: "date"}]} }
+      let(:time_pattern) { /a Time that is not at midnight is deprecated for the date field "on", which drops its time of day, since v3\.0 raises IOStreams::Errors::InvalidValue for it rather than lose it: convert it to a Date .*or give the field the type datetime/ }
+
+      # Returns [String] the CSV that writing the records with the schema writes.
+      def write_csv(records, schema: self.schema)
+        io = StringIO.new
+        IOStreams.stream(io).format(:csv).schema(schema).writer(:hash) do |writer|
+          records.each { |record| writer << record }
+        end
+        io.string
+      end
+
+      it "writes its date, dropping its time of day, and reports the first one of the field, since v3.0 raises" do
+        records = [{"id" => 1, "on" => Time.utc(2026, 10, 25, 9, 30)}, {"id" => 2, "on" => Time.utc(2026, 10, 26, 17)}]
+        csv, warnings = deprecations_of { write_csv(records) }
+
+        assert_equal "id,on\n1,2026-10-25\n2,2026-10-26\n", csv
+        assert_equal 1, warnings.size
+        assert_match time_pattern, warnings.first
+      end
+
+      it "reports a DateTime, and a time by its own clock, rather than in UTC" do
+        datetime = DateTime.new(2026, 10, 25, 9, 30)
+        # Midnight in UTC, which is 20:00 the day before at an offset of -04:00.
+        evening  = Time.utc(2026, 10, 25).getlocal("-04:00")
+
+        assert_equal "id,on\n1,2026-10-25\n", assert_deprecated(/a DateTime that is not at midnight is deprecated for the date field "on"/) {
+          write_csv([{"id" => 1, "on" => datetime}])
+        }
+        assert_equal "id,on\n1,2026-10-24\n", assert_deprecated(time_pattern) { write_csv([{"id" => 1, "on" => evening}]) }
+      end
+
+      it "does not report a Date, a time at midnight by its own clock, or a datetime field, which v3.0 takes too" do
+        records = [
+          {"id" => 1, "on" => Date.new(2026, 10, 25)},
+          {"id" => 2, "on" => Time.new(2026, 10, 26, 0, 0, 0, "-04:00")},
+          {"id" => 3, "on" => DateTime.new(2026, 10, 27)}
+        ]
+        datetime = {fields: [{name: "id", type: "integer"}, {name: "on", type: "datetime"}]}
+
+        refute_deprecated do
+          assert_equal "id,on\n1,2026-10-25\n2,2026-10-26\n3,2026-10-27\n", write_csv(records)
+          assert_equal "id,on\n1,2026-10-25T09:30:00Z\n",
+                       write_csv([{"id" => 1, "on" => Time.utc(2026, 10, 25, 9, 30)}], schema: datetime)
+        end
+      end
+    end
+
     describe "an SFTP or HTTP url without a path" do
       it "is read as supplied, and reported, since v3.0 adds a / to it" do
         sftp = assert_deprecated(%r{an SFTP url without a path, such as sftp://host, is deprecated, since v3.0 reads it as sftp://host/, the root directory}) do

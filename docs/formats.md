@@ -302,7 +302,7 @@ valid UTF-8, unless an encoding is set, which writes it instead, as it does with
 | `integer` | an `Integer`, from text such as `42`, `-12` or `0042`, or a whole number with a decimal point, such as `12.0`, as a spreadsheet stores it | `42` |
 | `number` | a `BigDecimal`, from text such as `12.5`, `-1.5E3`, `NaN`, `INF` or `-INF`, or a number, including a `Rational`, or a `Float` with `floatNumber: true` | `12.5`, or `12.50` with `decimals: 2` |
 | `boolean` | `true` or `false`, from one of its `trueValues` or `falseValues` | the first of its `trueValues` or `falseValues` |
-| `date` | a `Date`, from `2026-10-13`, or text in its `format` | `2026-10-13`, or text in its `format` |
+| `date` | a `Date`, from `2026-10-13`, or text in its `format`, or the date of a `Time` or `DateTime`, which is deprecated for one that is not at midnight, since v3.0 raises for it, see [Deprecated, and what replaces it](upgrading#deprecated-and-what-replaces-it) | `2026-10-13`, or text in its `format` |
 | `datetime` | a `Time`, from ISO 8601, such as `2026-10-13T09:30:00Z`, or text in its `format`. Text without an offset from UTC is read as UTC | ISO 8601, or text in its `format` |
 | `object` | a `Hash`, from the text of a JSON object, such as `{"a":1}` | that JSON text, or in JSON an object |
 | `array` | an `Array`, from the text of a JSON array, such as `[1,2]` | that JSON text, or in JSON an array |

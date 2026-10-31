@@ -89,6 +89,22 @@ class UpgradeResultsTest < Minitest::Test
       end
     end
 
+    # A date field raises `IOStreams::Errors::InvalidValue` in 3.0 for a `Time` or `DateTime` that is not at midnight.
+    describe "a date field given a Date, or a time at midnight, and a datetime field given a time" do
+      it "writes the date, and the time" do
+        io     = StringIO.new
+        schema = {fields: [{name: "on", type: "date"}, {name: "at", type: "datetime"}]}
+        IOStreams.stream(io).format(:csv).schema(schema).writer(:hash) do |records|
+          records << {"on" => Date.new(2026, 10, 25), "at" => Time.utc(2026, 10, 25, 9, 30)}
+          records << {"on" => Time.new(2026, 10, 26, 0, 0, 0, "-04:00"), "at" => Time.utc(2026, 10, 26, 17)}
+          records << {"on" => Time.utc(2026, 10, 25, 9, 30).to_date, "at" => DateTime.new(2026, 10, 27, 8)}
+        end
+
+        assert_equal "on,at\n2026-10-25,2026-10-25T09:30:00Z\n2026-10-26,2026-10-26T17:00:00Z\n" \
+                     "2026-10-25,2026-10-27T08:00:00+00:00\n", io.string
+      end
+    end
+
     # An SFTP or HTTP(S) url without a path ends with `/` in 3.0.
     describe "an SFTP or HTTP url with a path of /" do
       it "keeps the /" do
