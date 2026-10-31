@@ -362,13 +362,13 @@ module IOStreams
         # Raises `IOStreams::Errors::InvalidEncoding` for a character that is not valid, or that UTF-8 does not have,
         # without `replace`, once it has added the rows of the text before it, see #invalid.
         def utf8(text)
-          return converted(text) || invalid(*invalid_converted(text)) unless binary_or_utf8?(text)
+          return converted(text) || invalid(*IOStreams::Encode.utf8_failure(text)) unless binary_or_utf8?(text)
 
           utf8 = text.encoding == ::Encoding::UTF_8 ? text : text.dup.force_encoding(::Encoding::UTF_8)
           return utf8 if utf8.valid_encoding?
           return utf8.scrub(@replace) if @replace
 
-          invalid(*invalid_utf8(utf8))
+          invalid(*IOStreams::Encode.utf8_failure(utf8))
         end
 
         def binary_or_utf8?(text)
@@ -381,36 +381,6 @@ module IOStreams
           text.encode(::Encoding::UTF_8, **@encode_options)
         rescue ::Encoding::InvalidByteSequenceError, ::Encoding::UndefinedConversionError
           nil
-        end
-
-        # Returns [Array(String, IOStreams::Errors::InvalidEncoding)] the valid text before the first character of the
-        # supplied UTF-8 text that is not valid, which the converter raises for, and the error for it, at its byte offset
-        # within the text.
-        def invalid_utf8(text)
-          IOStreams::Encode::Converter.new(encoding: ::Encoding::UTF_8, replace: nil).convert(text, final: true)
-        rescue IOStreams::Errors::InvalidEncoding => e
-          [text.byteslice(0, e.byte_offset), e]
-        end
-
-        # Returns [Array(String, IOStreams::Errors::InvalidEncoding)] the text before the first character of the
-        # supplied text in another encoding that is not valid, or that UTF-8 does not have, converted to UTF-8, and the
-        # error for it, at the byte offset of that UTF-8 text, which is what the file holds.
-        def invalid_converted(text)
-          converter = ::Encoding::Converter.new(text.encoding, ::Encoding::UTF_8)
-          before    = String.new(encoding: ::Encoding::UTF_8)
-          result    = converter.primitive_convert(text.dup, before, nil, nil)
-          _result, source, _destination, bytes = converter.primitive_errinfo
-          reason    =
-            if result == :undefined_conversion
-              "#{bytes.b.dump} in #{source} has no UTF-8 character"
-            else
-              "#{bytes.b.dump} is not valid #{source}"
-            end
-          error     = IOStreams::Errors::InvalidEncoding.new(
-            reason, byte_offset: before.bytesize, error_char: bytes.b, source_encoding: text.encoding,
-                    destination_encoding: ::Encoding::UTF_8
-          )
-          [before, error]
         end
 
         # Adds the rows of the text kept and of the supplied valid text before a character that is not valid, and

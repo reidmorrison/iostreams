@@ -79,7 +79,8 @@ module IOStreams
     #   # => IOStreams::Errors::InvalidEncoding: "\xFF" is not valid UTF-8 at byte offset 1043 on line 12
     class InvalidEncoding < ::Encoding::UndefinedConversionError
       # Returns [Integer] the offset of the first invalid byte within the data read or written through the encode
-      # stream, which is the data after any decompression or decryption.
+      # stream, which is the data after any decompression or decryption, or within the key or value that the JSON
+      # format checks before it writes its line, see `IOStreams::Tabular::Parser::Json.json_text`.
       attr_reader :byte_offset
 
       # Returns [Integer] the number of the line that the invalid data is on, counting from 1,

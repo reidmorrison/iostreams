@@ -632,6 +632,10 @@ class SchemaTest < Minitest::Test
     end
 
     describe IOStreams::Schema::Field do
+      # The ways that the JSON format writes a value: with the coder of the json gem, when it uses one, see
+      # `IOStreams::Tabular::Parser::Json.coder`, and without one.
+      let(:json_writers) { [IOStreams::Tabular::Parser::Json.coder, nil].uniq }
+
       describe "string" do
         let(:string) { field(type: "string") }
 
@@ -833,8 +837,12 @@ class SchemaTest < Minitest::Test
 
         it "converts a JSON::Fragment into a JsonNumber, for a writer of JSON other than the coder of the json gem" do
           assert_equal IOStreams::Schema::JsonNumber.new("12.50"), IOStreams::Schema::Field.any_json(JSON::Fragment.new("12.50"))
-          assert_equal({"a" => IOStreams::Schema::JsonNumber.new("1.0")}, IOStreams::Schema::Field.any_json({"a" => JSON::Fragment.new("1.0")}))
-          assert_equal %({"a":12.50}), IOStreams::Schema::Field.any_json({"a" => JSON::Fragment.new("12.50")}).to_json
+          # The JSON format converts each value within a Hash or an Array, which Field.any_json returns as it is.
+          record = {"a" => JSON::Fragment.new("1.0")}
+
+          assert_same record, IOStreams::Schema::Field.any_json(record)
+          assert_equal({"a" => IOStreams::Schema::JsonNumber.new("1.0")}, IOStreams::Tabular::Parser::Json.json_value(record))
+          assert_equal %({"a":12.50}), IOStreams::Tabular::Parser::Json.generate({"a" => JSON::Fragment.new("12.50")}, nil)
         end
 
         it "writes a JsonNumber as its text, as a Numeric whose as_json is itself, which ActiveSupport writes with to_json" do
@@ -1229,7 +1237,12 @@ class SchemaTest < Minitest::Test
           prefs = {"limit" => BigDecimal("12.5"), "on" => Date.new(2026, 10, 13), "tags" => [1, nil]}
 
           assert_equal %({"limit":"12.5","on":"2026-10-13","tags":[1,null]}), object.render(prefs, :text)
-          assert_equal({"limit" => "12.5", "on" => "2026-10-13", "tags" => [1, nil]}, object.render(prefs, :json))
+          # The JSON format writes each value within it, see `IOStreams::Tabular::Parser::Json.json_value`.
+          assert_same prefs, object.render(prefs, :json)
+          json_writers.each do |coder|
+            assert_equal %({"limit":"12.5","on":"2026-10-13","tags":[1,null]}),
+                         IOStreams::Tabular::Parser::Json.generate(object.render(prefs, :json), coder)
+          end
           assert_same prefs, object.render(prefs, :typed)
         end
 
@@ -1258,7 +1271,10 @@ class SchemaTest < Minitest::Test
           list = [BigDecimal("1.5"), Time.utc(2026, 10, 13, 9, 30), "x"]
 
           assert_equal %(["1.5","2026-10-13T09:30:00Z","x"]), array.render(list, :text)
-          assert_equal ["1.5", "2026-10-13T09:30:00Z", "x"], array.render(list, :json)
+          assert_same list, array.render(list, :json)
+          json_writers.each do |coder|
+            assert_equal %(["1.5","2026-10-13T09:30:00Z","x"]), IOStreams::Tabular::Parser::Json.generate(array.render(list, :json), coder)
+          end
         end
       end
 
@@ -1277,7 +1293,12 @@ class SchemaTest < Minitest::Test
           assert_equal "12.5", any.render(BigDecimal("12.5"), :text)
           assert_equal "12.5", any.render(BigDecimal("12.5"), :json)
           assert_equal "2026-10-13T09:30:00Z", any.render(Time.utc(2026, 10, 13, 9, 30), :text)
-          assert_equal({"at" => "2026-10-13"}, any.render({"at" => Date.new(2026, 10, 13)}, :json))
+          record = {"at" => Date.new(2026, 10, 13)}
+
+          assert_same record, any.render(record, :json)
+          json_writers.each do |coder|
+            assert_equal %({"at":"2026-10-13"}), IOStreams::Tabular::Parser::Json.generate(any.render(record, :json), coder)
+          end
           assert_equal BigDecimal("12.5"), any.render(BigDecimal("12.5"), :typed)
         end
       end

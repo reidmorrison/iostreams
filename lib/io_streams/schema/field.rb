@@ -239,8 +239,8 @@ module IOStreams
       # Returns [String] the text of a value whose type is not known, as a field of type "any" writes it: a BigDecimal
       # as a plain decimal, such as "12.5" rather than "0.125e2", a Time or DateTime in ISO 8601, such as
       # "2026-10-13T09:30:00Z", with as many digits of its fraction of a second as it needs, a Date in ISO 8601, such as
-      # "2026-10-13", a Hash or an Array as JSON, such as `{"a":1}` or `[1,2]`, which is what the JSON format writes
-      # for it, see .any_json, and any other value with `to_s`.
+      # "2026-10-13", a Hash or an Array as JSON, such as `{"a":1}` or `[1,2]`, which the JSON format writes for it,
+      # see `IOStreams::Tabular::Parser::Json.generate`, and any other value with `to_s`.
       #
       # Formats of text, such as CSV, write each value that has no field this way, as they do every value of a file
       # without a schema.
@@ -257,7 +257,7 @@ module IOStreams
         return value.iso8601 if value.is_a?(Date)
         return value.to_s("F") if defined?(::BigDecimal) && value.is_a?(::BigDecimal)
         # The JSON that the JSON format writes, rather than `to_s`, whose text only Ruby reads, and which Ruby 3.4 changed.
-        return any_json(value).to_json if value.is_a?(::Hash) || value.is_a?(::Array)
+        return IOStreams::Tabular::Parser::Json.generate(value) if value.is_a?(::Hash) || value.is_a?(::Array)
 
         value.to_s
       end
@@ -266,47 +266,15 @@ module IOStreams
       # BigDecimal, Date, Time or DateTime as its text, see .any_text, so that a BigDecimal keeps all of its digits, and
       # every other value as it is, except a `JSON::Fragment`, the text of a JSON value, such as a number that a field
       # writes with all of its digits, see #render, which is an `IOStreams::Schema::JsonNumber`, so that a library that
-      # replaces how Ruby writes JSON, such as ActiveSupport, writes it as it is too. The values within a Hash or an
-      # Array are converted too, in a copy, and the value itself is returned when none of them needs it.
+      # replaces how Ruby writes JSON, such as ActiveSupport, writes it as it is too.
+      #
+      # A Hash or an Array is returned as it is: the JSON format converts each value within it as it writes it, see
+      # `IOStreams::Tabular::Parser::Json.json_value`, which asks this method for each one.
       def self.any_json(value)
-        case value
-        when ::Hash then json_hash(value)
-        when ::Array then json_array(value)
-        when String, Integer, Float, true, false, nil then value
-        else
-          return any_text(value) if textual?(value)
-          return JsonNumber.new(value.json) if defined?(::JSON::Fragment) && value.is_a?(::JSON::Fragment)
+        return any_text(value) if textual?(value)
+        return JsonNumber.new(value.json) if defined?(::JSON::Fragment) && value.is_a?(::JSON::Fragment)
 
-          value
-        end
-      end
-
-      # Returns [Hash] a copy of the hash with each of its values converted, see .any_json, or the hash itself when none
-      # of them needs it.
-      def self.json_hash(hash)
-        copy = nil
-        hash.each_pair do |key, item|
-          # Skips the call for a value that JSON holds as it is, see .any_json.
-          next if item.nil? || item.is_a?(String) || item.is_a?(Integer) || item.is_a?(Float) || item == true || item == false
-
-          json = any_json(item)
-          (copy ||= hash.dup)[key] = json unless json.equal?(item)
-        end
-        copy || hash
-      end
-
-      # Returns [Array] a copy of the array with each of its values converted, see .any_json, or the array itself when
-      # none of them needs it.
-      def self.json_array(array)
-        copy = nil
-        array.each_with_index do |item, index|
-          # Skips the call for a value that JSON holds as it is, see .any_json.
-          next if item.nil? || item.is_a?(String) || item.is_a?(Integer) || item.is_a?(Float) || item == true || item == false
-
-          json = any_json(item)
-          (copy ||= array.dup)[index] = json unless json.equal?(item)
-        end
-        copy || array
+        value
       end
 
       # Returns [true|false] whether JSON holds the value as its text, see .any_json.
@@ -328,7 +296,7 @@ module IOStreams
         else 9
         end
       end
-      private_class_method :time_text, :json_hash, :json_array, :textual?
+      private_class_method :time_text, :textual?
 
       # Returns [true|false] whether the values of this field are numbers, which a fixed width file zero fills.
       def numeric?

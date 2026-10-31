@@ -174,3 +174,25 @@ jobs:
           git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
             commit -q -m "Update coverage badge"
           git push -q -f "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" badges
+      # The tests of v2.2's public behavior that v3.0 keeps live on the v2 branch, so this fetches them at the v2 commit
+      # that test/upgrade_suite.rb pins, and runs them with this branch's test helper.
+      - name: Run the v2.2 Upgrade Suite
+        run: bundle exec rake upgrade_test
+
+  # A job of its own, so that a change to the suite on v2 marks the pin out of date without failing the tests above.
+  upgrade-suite:
+    name: v2.2 Upgrade Suite is current
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Ruby
+        timeout-minutes: 10
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: 3.4
+      # Needs only rake and git, so it skips bundle install.
+      - name: Check that the pinned v2 commit has v2's current upgrade suite
+        run: rake upgrade_suite_current

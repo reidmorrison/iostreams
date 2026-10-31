@@ -42,7 +42,7 @@ module IOStreams
     # Writes each object, see #write_data. Returns [Integer] the number of bytes written. Writes one object, as a stream
     # writes each of its blocks, without the Array of the objects of `IOStreams::Writable#write`.
     def write(*objects)
-      objects.size == 1 ? write_data(objects.first.to_s) : super
+      objects.size == 1 ? write_data(text_of(objects.first)) : super
     end
 
     private

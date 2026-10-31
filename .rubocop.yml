@@ -10,6 +10,8 @@ AllCops:
     - "docs/**/*"
     - "gemfiles/*"
     - "test/files/*"
+    # The v2.2 upgrade suite, which `rake upgrade_suite` extracts from the v2 branch that owns it, see test/upgrade_suite.rb.
+    - "test/upgrade/**/*"
     - "docs/stylesheets/*"
     # RuboCop excludes these by default, but this list replaces its defaults. Worktrees go under tmp/.
     - "tmp/**/*"

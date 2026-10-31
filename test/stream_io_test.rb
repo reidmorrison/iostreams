@@ -281,6 +281,28 @@ class StreamIOTest < Minitest::Test
         end
       end
 
+      it "writes the text of each object, and the separators of #print, like an IO, for the #{name.inspect} stream" do
+        if defined?(JRuby) && format == IOStreams::Xlsx
+          skip("creek on JRuby reads a cell only up to a character that XML escapes, such as the < of Object#to_s")
+        end
+
+        # The separators are set only while #print writes, since `$,` also separates the values of `Array#join`, which
+        # the gems of some streams call to build their output, such as that of a zip file.
+        write = lambda do |io|
+          with_print_separators(",", "\n") do
+            assert_nil io.print("id", "name")
+            assert_nil io.print(subclass.new("1"), "Jack")
+          end
+          io.write(subclass.new("2"), ",", not_text, "\n")
+        end
+        output    = StringIO.new(+"".b)
+        binary_io = StringIO.new(+"".b)
+        IOStreams.stream(output).stream(name, **writer_options).writer(&write)
+        write.call(binary_io)
+
+        assert_equal binary_io.string, IOStreams.stream(StringIO.new(output.string)).stream(name, **reader_options).read.b
+      end
+
       it "writes nothing for an empty string, like an IO, for the #{name.inspect} stream" do
         output = StringIO.new(+"".b)
         IOStreams.stream(output).stream(name, **writer_options).writer do |io|

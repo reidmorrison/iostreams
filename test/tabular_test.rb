@@ -1492,6 +1492,116 @@ class TabularTest < Minitest::Test
                      with_coder
       end
 
+      describe "binary text in JSON" do
+        # Returns [String] the JSON of the record written the supplied way: with the coder of the json gem, when it hands
+        # the coder the text that it does not write as it is, see `IOStreams::Tabular::Parser::Json.coder`, or without
+        # one, as before json 2.10, and with JRuby's json 2.
+        def render_json(record, way)
+          if way == :coder
+            IOStreams::Tabular.new(format: :json).render(record)
+          else
+            IOStreams::Tabular::Parser::Json.stub(:coder, nil) { IOStreams::Tabular.new(format: :json).render(record) }
+          end
+        end
+
+        # Returns [String] the text once Ruby has scanned it, as `String#ascii_only?` does, which JRuby's json 2 then
+        # trusts as it writes binary text.
+        def scanned(text)
+          text.ascii_only?
+          text
+        end
+
+        let(:ways) { %i[coder without_coder] }
+
+        it "is written as the UTF-8 text of its bytes, in keys and values, also within a Hash or an Array" do
+          record = {
+            "Área".b        => "José".b,
+            "Ñame".b.to_sym => ["Zürich".b, {"Ñ".b => scanned("x".b)}],
+            "latin"         => "José".encode("ISO-8859-1"),
+            "ascii".b       => scanned("plain".b),
+            "scanned"       => scanned("Müller".b)
+          }
+
+          ways.each do |way|
+            json = render_json(record, way)
+
+            assert_equal %({"Área":"José","Ñame":["Zürich",{"Ñ":"x"}],"latin":"José","ascii":"plain","scanned":"Müller"}),
+                         json, way
+            assert_equal Encoding::UTF_8, json.encoding, way
+          end
+        end
+
+        it "raises InvalidEncoding for text that is not valid UTF-8, naming its bytes, rather than an error of the json gem" do
+          ways.each do |way|
+            [
+              {"name" => "Jos\xE9".b},
+              {"name" => scanned("Jos\xE9".b)},
+              {scanned("\xE9rea".b) => 1},
+              {"list" => ["ok", scanned("Jos\xE9".b)]},
+              {"name" => (+"Jos\xE9").force_encoding(Encoding::UTF_8)}
+            ].each do |record|
+              error = assert_raises(IOStreams::Errors::InvalidEncoding, "#{way} #{record.inspect}") { render_json(record, way) }
+              assert_equal "\xE9".b, error.error_char
+              assert_match(/\AIn a key or value written to JSON, "\\xE9" is not valid UTF-8 at byte offset \d\z/, error.message)
+            end
+          end
+        end
+
+        it "names the byte offset within the key or value, which is checked before its line is written" do
+          ways.each do |way|
+            error = assert_raises(IOStreams::Errors::InvalidEncoding, way.to_s) { render_json({"id" => 1, "name" => "Jos\xE9".b}, way) }
+            assert_equal 3, error.byte_offset, way
+            assert_nil error.line_number, way
+          end
+        end
+
+        it "raises InvalidEncoding for a character that UTF-8 does not have, rather than an error of Ruby" do
+          ways.each do |way|
+            [
+              {"name" => (+"caf\x81").force_encoding(Encoding::WINDOWS_1252)},
+              {(+"caf\x81").force_encoding(Encoding::WINDOWS_1252) => 1}
+            ].each do |record|
+              error = assert_raises(IOStreams::Errors::InvalidEncoding, "#{way} #{record.inspect}") { render_json(record, way) }
+              assert_equal 'In a key or value written to JSON, "\x81" in WINDOWS-1252 has no UTF-8 character at byte offset 3',
+                           error.message, way
+              assert_equal "\x81".b, error.error_char
+              assert_equal Encoding::WINDOWS_1252, error.source_encoding
+              assert_equal Encoding::UTF_8, error.destination_encoding
+            end
+          end
+        end
+
+        it "writes a Symbol value as the UTF-8 text of its name" do
+          ways.each do |way|
+            assert_equal %({"city":"Zürich","state":"open"}), render_json({"city" => "Zürich".b.to_sym, "state" => :open}, way), way
+          end
+        end
+
+        it "uses a coder only when the json gem hands it the text that it does not write as it is" do
+          hands_text = Object.new
+          def hands_text.dump(_value) = raise(IOStreams::Errors::InvalidEncoding.new("not valid", byte_offset: 0))
+          raises = Object.new
+          def raises.dump(_value) = raise(::JSON::GeneratorError, "source sequence is illegal/malformed utf-8")
+          writes = Object.new
+          def writes.dump(_value) = %(["\xFF"])
+
+          assert IOStreams::Tabular::Parser::Json.send(:hands_text?, hands_text)
+          refute IOStreams::Tabular::Parser::Json.send(:hands_text?, raises)
+          refute IOStreams::Tabular::Parser::Json.send(:hands_text?, writes)
+          # json 2.16 and later hand it the text on MRI, so that its records are written in one pass in the json gem.
+          return unless RUBY_ENGINE == "ruby" && Gem::Version.new(::JSON::VERSION) >= Gem::Version.new("2.16")
+
+          assert IOStreams::Tabular::Parser::Json.coder, "json #{::JSON::VERSION} hands the coder text, so it should be used"
+        end
+
+        it "is written as UTF-8 within the JSON of a Hash or an Array value in CSV, as the JSON format writes it" do
+          csv = with_columns(["prefs"], format: :csv)
+
+          assert_equal %("{""name"":""José"",""Ñ"":[""x""]}"), csv.render({"prefs" => {"name" => "José".b, "Ñ".b => ["x".b]}})
+          assert_raises(IOStreams::Errors::InvalidEncoding) { csv.render({"prefs" => {"name" => "Jos\xE9".b}}) }
+        end
+      end
+
       it "writes a DateTime at its offset, even when DateTime#to_time converts it to the local time zone" do
         stamp = DateTime.new(2026, 10, 13, 9, 30, 0.25r, "+05:30")
         # As ActiveSupport 7 does, unless `ActiveSupport.to_time_preserves_timezone` is set.

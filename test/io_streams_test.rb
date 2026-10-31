@@ -879,6 +879,21 @@ module IOStreams
 
           assert_equal %w[abc.csv def.csv], children.sort
         end
+
+        it "raises ArgumentError for a pattern that is not a String, as the #each_child of a local, S3 or SFTP path does" do
+          directory = IOStreams.join("each_child_test").to_s
+          patterns  = [Pathname.new("#{directory}/*.csv"), :"s3://bucket/data/*.csv", :"sftp://example.org/data/*.csv", false, nil, 1]
+          patterns.each do |pattern|
+            error = assert_raises(ArgumentError, pattern.inspect) { IOStreams.each_child(pattern) { |path| flunk(path.to_s) } }
+            assert_equal "The pattern must be a String, not #{pattern.inspect}", error.message
+          end
+
+          paths = [IOStreams.path(directory), IOStreams.path("s3://bucket/data"), IOStreams.path("sftp://example.org/data")]
+          paths.product([Pathname.new("*.csv"), false]).each do |path, pattern|
+            assert_raises(ArgumentError, "#{path} #{pattern.inspect}") { path.each_child(pattern) { |child| flunk(child.to_s) } }
+            assert_raises(ArgumentError, "#{path} #{pattern.inspect}") { path.children(pattern) }
+          end
+        end
       end
     end
   end

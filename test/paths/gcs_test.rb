@@ -50,6 +50,19 @@ module Paths
         assert_equal data, path.read.b
       end
 
+      it "supplies a writer block a stream that responds to the methods of an IO that write, as S3 does" do
+        path = directory.join("io.csv")
+        path.writer do |io|
+          io.write("id,", "name\n")
+          io << "1," << "Jack\n"
+          io.print("2,", "Jill\n")
+          io.puts("3,Bob", ["4,Ann"])
+          io.printf("%<id>d,%<name>s\n", id: 5, name: "Zoe")
+        end
+
+        assert_equal "id,name\n1,Jack\n2,Jill\n3,Bob\n4,Ann\n5,Zoe\n", path.read
+      end
+
       it "writes an object with its metadata" do
         path = IOStreams.path(directory.join("b.csv").to_s, **credentials,
                               content_type: "text/csv", cache_control: "no-cache", metadata: {"source" => "test"})

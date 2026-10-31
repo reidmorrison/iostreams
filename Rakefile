@@ -79,11 +79,34 @@ task :zstd_jni do
 end
 
 # The query tests load Active Record, whose extensions of Ruby, such as how ActiveSupport writes JSON, would change what
-# the other tests check, so they run in a process of their own, see test/query/query_helper.rb.
+# the other tests check, so they run in a process of their own, see test/query/query_helper.rb. The tests in
+# test/upgrade belong to the v2 branch, see :upgrade_test.
 Rake::TestTask.new(:test) do |t|
-  t.test_files = FileList["test/**/*_test.rb"].exclude("test/query/**/*")
+  t.test_files = FileList["test/**/*_test.rb"].exclude("test/query/**/*", "test/upgrade/**/*")
   t.verbose    = true
   t.warning    = true
+end
+
+# The tests of v2.2's public behavior that v3.0 keeps, which live on the v2 branch, at the v2 commit that
+# test/upgrade_suite.rb pins, run with this branch's test helper.
+Rake::TestTask.new(:upgrade_test) do |t|
+  t.description = "Run the v2.2 upgrade suite at the v2 commit that test/upgrade_suite.rb pins"
+  t.deps        = [:upgrade_suite]
+  t.test_files  = FileList["test/upgrade/**/*_test.rb"]
+  t.verbose     = true
+  t.warning     = true
+end
+
+desc "Extract the v2.2 upgrade suite at the v2 commit that test/upgrade_suite.rb pins into test/upgrade"
+task :upgrade_suite do
+  require_relative "test/upgrade_suite"
+  UpgradeSuite.extract
+end
+
+desc "Check that the v2 commit that test/upgrade_suite.rb pins has v2's current upgrade suite"
+task :upgrade_suite_current do
+  require_relative "test/upgrade_suite"
+  UpgradeSuite.check_current
 end
 
 Rake::TestTask.new(:query_test) do |t|
@@ -94,5 +117,7 @@ end
 
 # JRuby cannot load the zstd-ruby C extension, so the tests use the zstd-jni jar.
 task test: :zstd_jni if RUBY_ENGINE == "jruby"
+# The upgrade suite runs with the same test helper, which loads the jar.
+task upgrade_test: :zstd_jni if RUBY_ENGINE == "jruby"
 
 task default: %i[test query_test]

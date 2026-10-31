@@ -267,12 +267,15 @@ module IOStreams
   # "**.rb"     "./main.rb"      false
   # "**.rb"     "lib/song.rb"    true
   # "*"         "dave/.profile"  true
+  #
+  # Raises ArgumentError for a pattern that is not a String, such as a Pathname, as `#each_child` of every path does,
+  # see `IOStreams::Paths::Matcher.check_pattern`.
   def self.each_child(pattern, case_sensitive: false, directories: false, hidden: false, &)
     # The directory before the first element with pattern characters is the path, such as `s3://bucket/data`
     # for `s3://bucket/data/*.csv`, which lists the pattern within it. Only the path of a url holds the pattern, so that
     # the `[` and `]` of an IPv6 host, a password or a query is not part of it, and the pattern is decoded like the rest
-    # of the path, see `IOStreams::Utils::URI.split`.
-    authority, name, query = Utils::URI.split(pattern)
+    # of the path, see `IOStreams::Utils::URI.split`, once the matcher checks that the pattern is text, as every path does.
+    authority, name, query = Utils::URI.split(Paths::Matcher.check_pattern(pattern))
     matcher   = Paths::Matcher.new(name, case_sensitive: case_sensitive, hidden: hidden)
     directory = path("#{authority}#{matcher.directory}#{query}")
     pattern   = authority.empty? ? matcher.pattern : Utils::URI.decode_path(matcher.pattern)
