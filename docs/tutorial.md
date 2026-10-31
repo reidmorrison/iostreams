@@ -297,7 +297,7 @@ So the code that processes the records does not change when a partner sends a sp
 the file moves to Parquet, or the records come from a database query.
 
 A CSV file with a header row, JSON, a spreadsheet and Parquet name their own columns. A file that cannot describe
-itself, such as a fixed width file, or a CSV file without a header row, also needs a [schema](formats#schema), which
+itself, such as a fixed width file, or a CSV file without a header row, also needs a [schema](schemas), which
 gives the name and position of each of its columns, and is usually held in configuration, beside its path. The
 contract then meets the fields of the schema by their names, see
 [A source that cannot describe itself](contracts#a-source-that-cannot-describe-itself).
@@ -446,8 +446,9 @@ See [Copying and moving](copy_files).
 ## Next steps
 
 * [Reading and writing](streams): every way to read and write a path, and text encodings.
-* [File formats](formats): CSV, JSON, fixed width, Excel and Parquet, and schemas.
+* [File formats](formats): CSV, JSON, fixed width, Excel and Parquet.
 * [Contracts](contracts): the typed records that your code needs, read the same way from any source.
+* [Schemas](schemas): describing the columns of a file, and the types and properties of fields.
 * [Compression and encryption](extensions): the options of each stream.
 * [Paths](path): local files, S3, SFTP and HTTP, and the operations on a path.
 * [Copying and moving](copy_files): copying files between stores, and converting them on the way.

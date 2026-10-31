@@ -158,7 +158,7 @@ loopback and link-local addresses.
 
 A file uploaded by a user can have any columns, and since the format is usually taken from the file name, renaming an
 upload from `.csv` to `.json` changes how it is read. Describe the columns that the application accepts with a
-[schema](formats#schema) on the path, which checks the columns of every file it reads, whatever its format:
+[schema](schemas) on the path, which checks the columns of every file it reads, whatever its format:
 
 ~~~ruby
 schema = {
@@ -175,8 +175,8 @@ end
 ~~~
 
 The records that are read only hold the fields of the schema, so an upload cannot set any other column. A file
-without a required field raises `IOStreams::Errors::InvalidHeader`. See [fieldsMatch](formats#fieldsmatch) and
-[Required fields](formats#required-fields).
+without a required field raises `IOStreams::Errors::InvalidHeader`. See [fieldsMatch](schemas#fieldsmatch) and
+[Required fields](schemas#required-fields).
 
 ## PGP
 

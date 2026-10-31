@@ -130,7 +130,7 @@ IOStreams raises these classes itself:
     tagged with the kind of failure, `Corrupt` or `MissingEntry`.
   * `IOStreams::Errors::MissingHeader`: the columns are needed, but are not known: to write a header row when they
     are not set, or, with a schema, to read a row of a file with a header row before the header row is read.
-  * `IOStreams::Errors::InvalidHeader`: the columns of a file do not match its [schema](formats#fieldsmatch) or
+  * `IOStreams::Errors::InvalidHeader`: the columns of a file do not match its [schema](schemas#fieldsmatch) or
     [contract](contracts): when reading, a header row, or the keys of a JSON record, has columns that `fieldsMatch`
     does not allow, or is missing a required field, or a row has values after its last column that the schema does not
     skip, and when writing, the keys of a record, or the columns or values of a row, that the schema does not skip.
@@ -144,7 +144,7 @@ IOStreams raises these classes itself:
     row written that is neither a Hash nor an Array, or a JSON line that is not an object.
   * `IOStreams::Errors::DelimiterNotFound`: no line delimiter was found within the maximum line length.
   * `IOStreams::Errors::InvalidValue`: a value is not of the type of its field in the schema or contract, or a field
-    that is required has no value, see [Types](formats#types), also for a record of a contract made with `Order.new`,
+    that is required has no value, see [Types](schemas#types), also for a record of a contract made with `Order.new`,
     or a time of day that a query reads is outside a day, or an interval that it reads is infinite, see
     [Times of day](queries#times-of-day), which name the column. A value that a reader of rows or records converts
     names the record that it is in and the line that the record starts on, such as `..., in record 6 on line 7`, which

@@ -102,7 +102,7 @@ source, such as an empty line or a line of only commas, is skipped, see [Blank r
 ## Choosing the columns
 
 The other options of a copy are used to write the target, and the source is read with the settings of its own path,
-so describe each file on its own path: its format, encoding and [schema](formats#schema). To choose the columns that
+so describe each file on its own path: its format, encoding and [schema](schemas). To choose the columns that
 are written, and their order, set a schema on the target, whose fields are the columns written:
 
 ~~~ruby

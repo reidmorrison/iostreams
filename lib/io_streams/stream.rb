@@ -543,7 +543,7 @@ module IOStreams
     # Set/get the schema of the rows and records of this file: the name and type of each field, so that reading
     # rows and records returns each value as its type, such as an Integer or a Date, and writing them writes each
     # value in the text form of its type. It applies to every tabular format, and gives the position of each field of
-    # a fixed width file. See docs/formats.md, and `IOStreams::Schema` for its properties.
+    # a fixed width file. See docs/schemas.md, and `IOStreams::Schema` for its properties.
     #
     # Parameters:
     #   schema: [IOStreams::Schema|Hash|String|IOStreams::Path|nil]

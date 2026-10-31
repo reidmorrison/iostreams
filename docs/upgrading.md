@@ -396,7 +396,7 @@ end
 
 `#format_options`, the layout of a fixed width file, is removed in v3.0, so calling it raises `NoMethodError`. A
 schema replaces it: it gives the `width` of each field of a fixed width file, and the type of each field of every
-format, and can be held in a JSON file, see [Schema](formats#schema). v2.2 deprecates `#format_options`, and its
+format, and can be held in a JSON file, see [Schemas](schemas). v2.2 deprecates `#format_options`, and its
 `IOStreams::Schema.from_layout` returns the schema of a layout, so convert each layout with v2.2 before upgrading, save
 the schema, for example as JSON, and set it with `#schema`, see [Moving a layout to a schema](#moving-a-layout-to-a-schema).
 v3.0 also removes `from_layout`, which v2.2 does not report as deprecated, so convert each layout once, rather than
@@ -451,7 +451,7 @@ Without `fieldsMatch: "subset"`, a schema has `"exact"`, so that writing a recor
 
 Saved as a JSON file, the names of the fields of a schema are strings, so when every key of a layout is a Symbol, the
 schema that `from_layout` returns has `keyType: "symbol"`, which keeps the keys of the records read Symbols, as the
-layout returned them, see [Keys of the records read](formats#keys-of-the-records-read).
+layout returned them, see [Keys of the records read](schemas#keys-of-the-records-read).
 
 Unlike a layout, a schema that sets neither `truncate:` nor `floatNumber:` raises `IOStreams::Errors::ValueTooLong`
 for a string that is longer than its field, and reads a `number` field as a `BigDecimal`. The schema that
@@ -608,10 +608,10 @@ UTC. To get a local time, convert it, such as with `Time.parse(value).localtime`
 `columns:`, `cleanse_header:`, `allowed_columns:`, `required_columns:` and `skip_unknown:` raise `ArgumentError`, as
 for any other option that a mode does not take, and `IOStreams.enforce_column_restrictions=`, which only applied to
 them, is removed, see [enforce_column_restrictions](#enforce_column_restrictions). v2.2 reports all of them as
-deprecated, the options even when they are nil. A [schema](formats#schema) describes the columns of the
+deprecated, the options even when they are nil. A [schema](schemas) describes the columns of the
 file on its path instead, so that every reader and writer of the path, including a copy, checks them the same way. Its
 fields name the keys of the records read, and each column of the header row is matched to a field whatever its case, spaces
-and punctuation, or to one of the `aliases` of a field, see [Matching columns to fields](formats#matching-columns-to-fields).
+and punctuation, or to one of the `aliases` of a field, see [Matching columns to fields](schemas#matching-columns-to-fields).
 So the keys no longer depend on how the cleansing rule changes a column, such as `Amount ($)` and `Amount (€)`, which
 are both `amount_`.
 
@@ -626,12 +626,12 @@ The property of a schema that replaces each option:
 
 | Option | With a schema |
 |--------|---------------|
-| `columns:` | The fields are the columns, in order: with `header: false` to read a file of a format with a header row, such as CSV, `fieldsMatch: "partial"` to read JSON, and `fieldsMatch: "subset"` to write. A `nil` column, which was not read, is a field with `skip: true`, see [Field properties](formats#field-properties) |
+| `columns:` | The fields are the columns, in order: with `header: false` to read a file of a format with a header row, such as CSV, `fieldsMatch: "partial"` to read JSON, and `fieldsMatch: "subset"` to write. A `nil` column, which was not read, is a field with `skip: true`, see [Field properties](schemas#field-properties) |
 | `allowed_columns:` with `skip_unknown: false` | `fieldsMatch: "superset"`, which accepts a file without some of the fields, as `allowed_columns:` did, or `"equal"` when `required_columns:` lists every allowed column |
 | `allowed_columns:` with `skip_unknown: true` | `fieldsMatch: "partial"`, which accepts a file without some of the fields, as `allowed_columns:` did, or `"subset"` when `required_columns:` lists every allowed column |
 | `required_columns:` | `constraints: {required: true}` with `allowBlank: true` on each field, which needs the column but not a value, as `required_columns:` did, or a `fieldsMatch` that needs every field. Without `allowBlank`, a blank value raises too |
-| `required_columns:` without `allowed_columns:`, which also read the other columns | Also `fieldsMatch: "subset"`, `extraColumns: "keep"` and `keyType: "cleansed"`, which keep the other columns, keyed as `cleanse_header` cleansed them, see [Keeping the other columns](formats#keeping-the-other-columns) |
-| `cleanse_header:` | The keys of each record are the names of the fields, which the columns are matched to, or with `keyType: "cleansed"` the names once cleansed, as `cleanse_header: true` cleansed the columns, see [Keys of the records read](formats#keys-of-the-records-read) |
+| `required_columns:` without `allowed_columns:`, which also read the other columns | Also `fieldsMatch: "subset"`, `extraColumns: "keep"` and `keyType: "cleansed"`, which keep the other columns, keyed as `cleanse_header` cleansed them, see [Keeping the other columns](schemas#keeping-the-other-columns) |
+| `cleanse_header:` | The keys of each record are the names of the fields, which the columns are matched to, or with `keyType: "cleansed"` the names once cleansed, as `cleanse_header: true` cleansed the columns, see [Keys of the records read](schemas#keys-of-the-records-read) |
 | `cleanse_header: false` without the other options, which read every column as it is written | `fieldsMatch: "subset"`, `extraColumns: "keep"` and no fields |
 
 ~~~ruby

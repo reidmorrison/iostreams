@@ -50,7 +50,7 @@ CSV file, and describes them, so that any worker can parse them on its own:
   worker reads its rows correctly without knowing how, or where, the file was read.
 * **A slice is plain data.** It turns into a Hash of Strings, Arrays and Integers, which JSON, a job queue or a database
   stores as it is, and back into a slice where the worker runs.
-* **A file is checked before any work starts.** Its header row is matched to the [schema](formats#schema) before the
+* **A file is checked before any work starts.** Its header row is matched to the [schema](schemas) before the
   first slice is handed on, so a file with the wrong columns raises before any job is enqueued.
 * **Each row keeps its place in the file.** A slice holds the line and record number of each of its rows, so a job can
   report the line of a row that fails, and a job that resumes knows where it stopped.
@@ -90,7 +90,7 @@ class ImportPeopleSliceJob < ApplicationJob
 end
 ~~~
 
-where `People::SCHEMA` is the [schema](formats#schema) of the file, a Hash that each process reads once:
+where `People::SCHEMA` is the [schema](schemas) of the file, a Hash that each process reads once:
 
 ~~~ruby
 module People

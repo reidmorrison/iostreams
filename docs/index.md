@@ -200,7 +200,7 @@ end
   [Contracts](contracts).
 * A **schema** describes the columns of one file, with the same fields and types, for a file that cannot describe
   itself, such as a fixed width file or a CSV file without a header row. Like the path, it is usually held in
-  configuration. See [Schema](formats#schema).
+  configuration. See [Schemas](schemas).
 
 ## Common tasks
 
@@ -398,8 +398,9 @@ When a gem is missing, the feature that needs it raises `LoadError`, naming the 
 
 * The [tutorial](tutorial) walks through reading and writing files, step by step.
 * [Reading and writing](streams): lines, rows, records and text encodings.
-* [File formats](formats): CSV, JSON, Excel, fixed width and Parquet files, and schemas.
+* [File formats](formats): CSV, JSON, Excel, fixed width and Parquet files.
 * [Contracts](contracts): the typed records that your code needs, read the same way from any source.
+* [Schemas](schemas): describing the columns of a file, and the types and properties of fields.
 * [Compression and encryption](extensions): gzip, zip, bzip2, Zstandard, PGP and Symmetric Encryption.
 * [Paths](path): local files, S3, Google Cloud Storage (experimental), SFTP and HTTP, and the operations on a path.
 * [Copying and moving](copy_files): copying files between stores, and converting them on the way.

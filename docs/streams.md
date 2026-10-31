@@ -107,7 +107,7 @@ end
 ~~~
 
 * The header row is the first row that is not blank, with or without `skip_blanks`.
-* A blank row is not checked against a [schema](formats#schema), so it does not raise for a field that is required, as
+* A blank row is not checked against a [schema](schemas), so it does not raise for a field that is required, as
   a row with other values does.
 * Only the values that are read count: the fields of a fixed width line, not its filler, and of a Parquet file read
   with a schema that skips columns, only the columns of its fields.
@@ -119,7 +119,7 @@ end
 
 ### Values that are not valid
 
-A value that is not of the type of its field, of a [schema](formats#schema) or a [contract](contracts), such as `N/A`
+A value that is not of the type of its field, of a [schema](schemas) or a [contract](contracts), such as `N/A`
 for a number, raises `IOStreams::Errors::InvalidValue`, which names its field, its value, the record that it is in,
 counting from 1 without the header row, and the line of the file that the record starts on, when the source has lines:
 
@@ -188,7 +188,7 @@ end
   the first record of JSON without a schema in the `:array` mode, whose keys are the columns of every row, so it is
   read for them, and raises when it is not valid JSON, as reading every row would: give the file a schema, or read it
   in the `:hash` or `:slice` mode.
-* The header row is still read, and matched to the [schema](formats#schema), and `each(:array)` yields it first.
+* The header row is still read, and matched to the [schema](schemas), and `each(:array)` yields it first.
 * A query is read again from its start, so give the relation an order, such as `order(:id)`, so that its rows come back
   in the same order each time. Without one, a database may return them in another order, so that the rows skipped are
   not those that were processed. `in_batches` reads each batch in the order of its primary key.

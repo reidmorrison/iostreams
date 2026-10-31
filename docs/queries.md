@@ -225,7 +225,7 @@ say how it reads its rows: supply the relation, or `relation.in_batches(...)`.
 
 ## Keeping the types of the columns
 
-The types of the columns of the query describe the rows that it reads, as a [schema](formats#schema) does for a file.
+The types of the columns of the query describe the rows that it reads, as a [schema](schemas) does for a file.
 `#infer_schema` returns them, an `IOStreams::Schema`, whose `#to_h` is its Hash, such as on PostgreSQL, while `#schema`
 returns only a schema that was set, or nil, as for a path:
 
@@ -264,7 +264,7 @@ a model that the query joins, otherwise the type that the database gives the col
   attribute within, so an encrypted string is a `string`. A serialized attribute, also one that is encrypted, and an
   attribute of a type of the application, such as `attribute :price, MoneyType.new`, are `any`, since their values can
   be objects of any class, which a format of text writes as it writes a
-  [value without a field](formats#values-without-a-field).
+  [value without a field](schemas#values-without-a-field).
 * A column that the query computes, or names with `AS`, has the type that the database gives the column of its
   result, unless it has the name of an attribute of the model. PostgreSQL gives a type to every column, without the
   scale of a decimal, so that a sum is a `number` without decimals. SQLite gives a type only to a column of a table,

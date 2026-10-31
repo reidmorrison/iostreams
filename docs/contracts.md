@@ -16,7 +16,7 @@ With a contract, every source yields the same records, whatever its format or st
 contract, in its order, with values of their types. Moving a feed from CSV to Parquet then changes only a path in
 configuration, and moving it to a database query changes only the line that opens the source.
 
-A [schema](formats#schema) describes a file, such as the position of each field of a fixed width file, and is usually
+A [schema](schemas) describes a file, such as the position of each field of a fixed width file, and is usually
 set in configuration. A contract states what the program needs, and lives with its code. A source that describes
 itself, such as a CSV file with a header row, a Parquet file or a query, needs only the contract.
 
@@ -61,7 +61,7 @@ Every one of them yields the same record:
 
 * The keys are the names of the fields of the contract, or as its `keyType` forms them, whatever the source calls its
   columns: the column `ID` matches the field `id`, and an alias matches `created_at`, see
-  [Matching columns to fields](formats#matching-columns-to-fields).
+  [Matching columns to fields](schemas#matching-columns-to-fields).
 * Every record has every field of the contract, in its order, `nil` for a field whose column the source does not have,
   which `fieldsMatch` `"partial"` and `"superset"` accept. `each(:array)` yields the same values, after a header row of
   the keys.
@@ -202,12 +202,12 @@ end
 # {"email" => "j@x.com", "date_of_birth" => #<Date: 2001-02-03 ((2451944j,0s,0n),+0s,2299161j)>, "subscribed" => true}
 ~~~
 
-* `field` takes the name of the field in Ruby, its type, see [Types](formats#types), and the other properties of a
-  field, see [Field properties](formats#field-properties), as Ruby names them, such as `decimals:`, `aliases:`,
+* `field` takes the name of the field in Ruby, its type, see [Types](schemas#types), and the other properties of a
+  field, see [Field properties](schemas#field-properties), as Ruby names them, such as `decimals:`, `aliases:`,
   `format:`, `true_values:` or `allow_blank:`. `required: true` is `constraints: {required: true}`, and `name:` names
   the field in its schema, such as `name: "Ordered At"`, when it differs from its name in Ruby.
 * `fields_match`, `key_type` and `extra_columns` set `fieldsMatch`, `keyType` and `extraColumns`, see
-  [Schema properties](formats#schema-properties). Without `fields_match`, the columns of a source must be the fields,
+  [Schema properties](schemas#schema-properties). Without `fields_match`, the columns of a source must be the fields,
   in order.
 * A subclass of a contract starts with its fields.
 * `Order.fields` returns its fields, and `Order.to_h` the contract as a Frictionless Table Schema, see below.
@@ -238,7 +238,7 @@ Order = IOStreams::Contract.new(JSON.parse(File.read(Rails.root.join("config/con
 ~~~
 
 This `Order` is the same contract as the class declared at the top of this page: the properties of the Hash are named
-as the [Schema properties](formats#schema-properties) and [Field properties](formats#field-properties) name them,
+as the [Schema properties](schemas#schema-properties) and [Field properties](schemas#field-properties) name them,
 such as `fieldsMatch` and `trueValues`. `#as` also takes the Hash itself, or an `IOStreams::Schema`, and builds the
 contract with `IOStreams::Contract.new`.
 
@@ -335,7 +335,7 @@ File.write("config/contracts/orders.json", JSON.pretty_generate(draft.to_contrac
 ~~~
 
 `#infer_schema` without arguments returns the schema that the source declares, without reading its values, see
-[The schema of a source](formats#the-schema-of-a-source), which for CSV is a `string` field for each column.
+[The schema of a source](schemas#the-schema-of-a-source), which for CSV is a `string` field for each column.
 
 ## A source that cannot describe itself
 
