@@ -191,9 +191,7 @@ with `each(:hash)` returns the same records.
 ## Describe the file with a schema
 
 Every value of a CSV file is text. A [schema](formats#schema) gives each column a name and a type, so that reading
-returns each value as its type, and writing writes each value in the text form of its type. A `number` field, such
-as `salary` below, needs the `bigdecimal` gem: with Bundler on Ruby 3.4 or later, add `gem "bigdecimal"` to the
-Gemfile, since it is a bundled gem.
+returns each value as its type, and writing writes each value in the text form of its type.
 
 ~~~ruby
 path = IOStreams.path("sample/people.csv").schema(

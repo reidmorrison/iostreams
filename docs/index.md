@@ -345,7 +345,6 @@ gems of the features that your application uses:
 | Symmetric Encryption | `symmetric-encryption` |
 | Parquet | `parquet`, which is not available on JRuby |
 | [Active Record queries](queries) | `activerecord` 7.2 or later, and the driver of the database: `pg`, `mysql2` or `sqlite3` |
-| The `number` fields of a schema | `bigdecimal`, a bundled gem from Ruby 3.4 |
 
 When a gem is missing, the feature that needs it raises `LoadError`, naming the gem to install.
 

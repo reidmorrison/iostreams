@@ -498,9 +498,6 @@ writes JSON. Reading JSON keeps all of the digits of a `number` too, rather than
 the numbers of the other fields are a `Float`, as they are without a schema. The `:hash` and `:array` formats keep the
 values themselves.
 
-A `number` field needs the `bigdecimal` gem, which is a bundled gem from Ruby 3.4, so add `gem "bigdecimal"` to the
-Gemfile, or set `floatNumber: true` to read a `Float` instead.
-
 **A `duration` field needs the `activesupport` gem**, since its values are `ActiveSupport::Duration`s, which keep the
 months and days of a duration, such as a PostgreSQL `interval`, apart from its seconds, as neither has a fixed number of
 seconds. Rails includes it. Any other application must add `gem "activesupport"` to its Gemfile, otherwise setting a

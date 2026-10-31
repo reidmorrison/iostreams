@@ -1,5 +1,6 @@
 # frozen_string_literal: true
 
+require "bigdecimal"
 require "date"
 require "json"
 require "time"
@@ -238,7 +239,6 @@ module IOStreams
                                         allow_blank: check_flag("allowBlank", descriptor["allowBlank"]))
         @properties   = properties_of(descriptor)
         @hash         = [self.class, @properties].hash
-        require_bigdecimal if @type == "number" && !@float
         require_duration if @type == "duration"
         freeze
       end
@@ -329,7 +329,7 @@ module IOStreams
         return time_text(value) if value.is_a?(Time)
         return time_text(time_of(value)) if value.is_a?(DateTime)
         return value.iso8601 if value.is_a?(Date)
-        return value.to_s("F") if defined?(::BigDecimal) && value.is_a?(::BigDecimal)
+        return value.to_s("F") if value.is_a?(::BigDecimal)
         # The JSON that the JSON format writes, rather than `to_s`, whose text only Ruby reads, and which Ruby 3.4 changed.
         return IOStreams::Tabular::Parser::Json.generate(value) if value.is_a?(::Hash) || value.is_a?(::Array)
 
@@ -353,7 +353,7 @@ module IOStreams
 
       # Returns [true|false] whether JSON holds the value as its text, see .any_json.
       def self.textual?(value)
-        value.is_a?(Time) || value.is_a?(Date) || (defined?(::BigDecimal) && value.is_a?(::BigDecimal))
+        value.is_a?(Time) || value.is_a?(Date) || value.is_a?(::BigDecimal)
       end
 
       # Returns [String] the time in ISO 8601, with as many digits of its fraction of a second as it needs.
@@ -679,15 +679,6 @@ module IOStreams
         raise(ArgumentError, "Field #{name.inspect}: #{property} must be an Array of text that is not empty: #{values.inspect}")
       end
 
-      # The bigdecimal gem is a default gem before Ruby 3.4, and a bundled gem since, so it is loaded only when a
-      # number field needs it.
-      def require_bigdecimal
-        require "bigdecimal"
-      rescue LoadError => e
-        raise(LoadError, "Field #{name.inspect}: a number field needs the bigdecimal gem, so add `gem \"bigdecimal\"` to " \
-                         "the Gemfile, or set `floatNumber: true` to return a Float: #{e.message}")
-      end
-
       # ActiveSupport::Duration is loaded, which reads and writes ISO 8601 durations, with the parts of ActiveSupport that
       # it needs, such as some extensions of core classes, but not the whole of ActiveSupport, nor its JSON, so that an
       # application that does not use it otherwise, such as one without Rails, writes JSON as before. Its class is held
@@ -984,7 +975,7 @@ module IOStreams
       end
 
       def bigdecimal?(value)
-        defined?(::BigDecimal) && value.is_a?(::BigDecimal)
+        value.is_a?(::BigDecimal)
       end
 
       def invalid(value)

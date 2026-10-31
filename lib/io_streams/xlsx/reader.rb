@@ -1,5 +1,6 @@
 # frozen_string_literal: true
 
+require "bigdecimal"
 require "csv"
 require "zlib"
 
@@ -161,7 +162,6 @@ module IOStreams
         def displayed(value)
           return value unless value.is_a?(Float) && value.finite?
 
-          require "bigdecimal"
           number = BigDecimal(value.to_s)
           number.zero? ? number : number.round(DISPLAYED_DIGITS - number.exponent)
         end

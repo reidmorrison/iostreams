@@ -171,7 +171,7 @@ module IOStreams
         end
 
         def decimal?(value)
-          defined?(::BigDecimal) && value.is_a?(::BigDecimal)
+          value.is_a?(::BigDecimal)
         end
 
         # Returns [true|false] whether the text is an ISO 8601 date or datetime of a day that exists.

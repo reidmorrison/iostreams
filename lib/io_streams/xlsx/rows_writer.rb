@@ -1,5 +1,6 @@
 # frozen_string_literal: true
 
+require "bigdecimal"
 require "date"
 
 module IOStreams
@@ -85,7 +86,7 @@ module IOStreams
 
       # Returns [true|false] whether the value is a BigDecimal.
       def decimal?(value)
-        defined?(::BigDecimal) && value.is_a?(::BigDecimal)
+        value.is_a?(::BigDecimal)
       end
 
       # Returns the number, date, time or boolean that the text looks like, or the text, as `xlsxtream` formats it.
