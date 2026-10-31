@@ -124,6 +124,7 @@ class ContractTest < Minitest::Test
       it "raises for a field that is not valid as it is declared" do
         assert_raises(ArgumentError) { Class.new(IOStreams::Contract) { field :id, :year } }
         assert_raises(ArgumentError) { Class.new(IOStreams::Contract) { field "id", :integer } }
+        assert_raises(ArgumentError) { Class.new(IOStreams::Contract) { field :"my-field", :integer } }
         assert_raises(ArgumentError) { Class.new(IOStreams::Contract) { field :id, :integer, colour: "red" } }
         assert_raises(ArgumentError) { Class.new(IOStreams::Contract) { fields_match "loose" } }
         assert_raises(ArgumentError) { Class.new(IOStreams::Contract) { field :id, required: "no" } }
@@ -194,6 +195,17 @@ class ContractTest < Minitest::Test
             field :paid,         :boolean,  required: true, true_values: ["Y"]
           end
         RUBY
+      end
+
+      it "keeps the name of a field that is a Ruby name as its accessor, numbering a cleansed name that is the same" do
+        contract = IOStreams::Contract.new(fields: [{name: "Ordered At"}, {name: "ordered_at"}, {name: "Ordered-At"}])
+
+        assert_equal %i[ordered_at_2 ordered_at ordered_at_3], contract.accessors # rubocop:disable Naming/VariableNumber
+      end
+
+      it "writes no blank line for a contract without fields" do
+        assert_equal "class Empty < IOStreams::Contract\n  fields_match \"subset\"\nend\n",
+                     IOStreams::Contract.new(fieldsMatch: "subset", fields: []).to_dsl("Empty")
       end
     end
 

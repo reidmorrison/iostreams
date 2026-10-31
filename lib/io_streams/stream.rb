@@ -1292,34 +1292,67 @@ module IOStreams
 
       tabular.check_records
       inference = IOStreams::Schema::Inference.new
-      read_sample(tabular, sample) { |record| inference << record }
-      names = tabular.declared_schema(tabular.header.row).fields.map(&:name)
+      names     = nil
+      read_sample(tabular, sample) do |record|
+        names ||= declared_names(tabular)
+        inference << record
+      end
+      names ||= declared_names(tabular)
       IOStreams::Schema.new(fieldsMatch: "subset", fields: inference.fields(names | inference.names))
+    end
+
+    # Returns [Array] the names of the fields that the header row, or the keys of the first record, that the supplied
+    # tabular has read declare, see `IOStreams::Tabular#declared_schema`, which raises for two columns that are the
+    # same key, as soon as the first record is read.
+    def declared_names(tabular)
+      tabular.declared_schema(tabular.header.row).fields.map(&:name)
     end
 
     # Returns [IOStreams::Schema] the schema that a source of typed columns declares, such as Parquet or a query, with
     # `fieldsMatch: "subset"`, drafting the type of each of its fields of type "any" from the values of the sample, see
-    # #draft_schema.
+    # #draft_schema. A format whose rows are not lines, such as Parquet, is opened once, for its declared schema and its
+    # sample, so that an IO that cannot be read twice still is, while a query describes its columns without its rows.
     def draft_typed_schema(tabular, sample)
-      declared = declared_schema
-      drafted  = declared.fields.select { |field| field.type == "any" }.map(&:name)
+      return draft_declared(declared_schema, tabular, sample) if tabular.lines?
+
+      reading_ahead do
+        open_rows_reader(tabular, nil, nil) { |rows| draft_declared(rows.declared_schema, tabular, sample, rows) }
+      end
+    end
+
+    # Returns [IOStreams::Schema] the supplied declared schema, drafting the type of each field of type "any" from the
+    # values of the sample, of the supplied rows, already open, or otherwise read, see #draft_typed_schema.
+    def draft_declared(declared, tabular, sample, rows = nil)
+      drafted   = declared.fields.select { |field| field.type == "any" }.map(&:name)
       inference = IOStreams::Schema::Inference.new
-      read_sample(tabular, sample) { |record| inference << record } unless drafted.empty?
+      unless drafted.empty?
+        if rows
+          sample_records(rows, tabular, sample) { |record| inference << record }
+        else
+          read_sample(tabular, sample) { |record| inference << record }
+        end
+      end
       drafts = inference.fields(drafted).to_h { |field| [field[:name], field] }
       fields = declared.fields.map { |field| drafts.fetch(field.name) { field.to_h } }
       IOStreams::Schema.new(fieldsMatch: "subset", fields: fields)
     end
 
     # Yields each of the first records of the sample, see `IOStreams::Schema::Inference.size`, read by the supplied
-    # tabular, without a contract, skipping blank rows.
-    def read_sample(tabular, sample)
-      size = IOStreams::Schema::Inference.size(sample)
-      open_rows_reader(tabular, nil, nil) do |io|
-        IOStreams::Record::Reader.new(io, tabular: tabular, skip_blanks: true).each_with_index do |record, index|
-          break if index >= size
+    # tabular, without a contract, skipping blank rows, leaving an IO supplied to `IOStreams.stream` where it was, see
+    # #reading_ahead.
+    def read_sample(tabular, sample, &)
+      reading_ahead do
+        open_rows_reader(tabular, nil, nil) { |rows| sample_records(rows, tabular, sample, &) }
+      end
+    end
 
-          yield record
-        end
+    # Yields each of the first records of the sample of the supplied rows, see #read_sample.
+    def sample_records(rows, tabular, sample)
+      size = IOStreams::Schema::Inference.size(sample)
+      IOStreams::Record::Reader.new(rows, tabular: tabular, skip_blanks: true).each_with_index do |record, index|
+        break if index >= size
+
+        yield record
       end
     end
 

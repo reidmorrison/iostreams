@@ -63,6 +63,18 @@ class InferSampleTest < Minitest::Test
         assert_equal({name: "notes", type: "any"}, drafted("id,notes\n1,\n2,  \n", "notes"))
       end
 
+      it "drafts a string for a column of text with blank values, also null in JSON" do
+        assert_equal "string", drafted("x,y\nabc,1\n,2\n", "x")[:type]
+        assert_equal "string", text(%({"s":"abc"}\n{"s":null}\n), "orders.json").infer_schema(sample: :all).fields.first.type
+      end
+
+      it "drafts only the types that read the sample back, such as booleans of the default text, and real times" do
+        assert_equal "boolean", drafted("v\ntrue\nFALSE\nTrue\n", "v")[:type]
+        assert_equal "string", drafted("v\ntRuE\n", "v")[:type]
+        assert_equal "datetime", drafted("v\n2026-10-25T23:59:59Z\n", "v")[:type]
+        assert_equal "string", drafted("v\n2026-10-25T25:00:00\n", "v")[:type]
+      end
+
       it "drafts a string for text of several types, or that is no type" do
         assert_equal "string", drafted("v\n1\n2026-10-25\n", "v")[:type]
         assert_equal "string", drafted("v\n2026-10-25\n2026-10-25T09:30:00Z\n", "v")[:type]
@@ -149,6 +161,33 @@ class InferSampleTest < Minitest::Test
                          IOStreams.path(dir, "orders.parquet").infer_schema(sample: 10).to_h)
           end
         end
+
+        it "drafts a column of type any from its values, opening an IO once, and leaving it to be read" do
+          Dir.mktmpdir do |dir|
+            file = File.join(dir, "blobs.parquet")
+            require "parquet"
+            schema = ::Parquet::Schema.define do
+              field :id, :int64
+              field :blob, :binary
+            end
+            ::Parquet.write_rows([[1, "abc"], [2, "x"]].each, schema: schema, write_to: file)
+            reader, writer = IO.pipe
+            writer.binmode
+            writer.write(File.binread(file))
+            writer.close
+
+            expected = {fieldsMatch: "subset", fields: [{name: "id", type: "integer"}, {name: "blob", type: "string"}]}
+
+            assert_equal expected, IOStreams.stream(reader).file_name("blobs.parquet").infer_schema(sample: 10).to_h
+            stream = IOStreams.stream(StringIO.new(File.binread(file))).file_name("blobs.parquet")
+
+            assert_equal expected, stream.infer_schema(sample: 10).to_h
+            records = []
+            stream.each(:hash) { |record| records << record }
+
+            assert_equal([1, 2], records.map { |record| record["id"] })
+          end
+        end
       end
     end
 
@@ -166,6 +205,13 @@ class InferSampleTest < Minitest::Test
             field :field_1st,  :string,   name: "1st"
           end
         RUBY
+      end
+
+      it "notes the format of a field, which the contract leaves to the schema of the file" do
+        dsl = IOStreams.stream(StringIO.new("on\n10/25/2026\n")).file_name("orders.csv").infer_schema(sample: 10).to_dsl("Order")
+
+        assert_includes dsl, '# The schema of the file reads "on" with format "%m/%d/%Y", which this contract leaves to it'
+        assert_includes dsl, "field :on, :date\n"
       end
     end
   end

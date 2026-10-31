@@ -93,8 +93,9 @@ module IOStreams
       # other than true or false, and for `type:`, since the type is the second argument.
       def field(accessor, type = :any, name: accessor.to_s, required: false, **properties)
         raise(ArgumentError, "IOStreams::Contract has no fields: declare them in a subclass") if equal?(Contract)
-        unless accessor.is_a?(Symbol)
-          raise(ArgumentError, "The accessor of a field of a contract must be a Symbol: #{accessor.inspect}")
+        unless accessor.is_a?(Symbol) && ACCESSOR.match?(accessor.to_s)
+          raise(ArgumentError, "The accessor of a field of a contract must be a Symbol that is a name of a method in Ruby, " \
+                               "such as :ordered_at, with the name of the field in its schema as name:: #{accessor.inspect}")
         end
         unless [true, false].include?(required)
           raise(ArgumentError, "required: of the field #{accessor.inspect} must be true or false: #{required.inspect}")
@@ -154,12 +155,12 @@ module IOStreams
       # Returns [String] the Ruby of a class that declares this contract, see .field, for a person to review and commit,
       # such as of a contract that `IOStreams::Schema#to_contract` drafted:
       #
-      #   puts IOStreams.path("samples/orders.csv").infer_schema(sample: 1_000).to_dsl("Order")
+      #   puts IOStreams.path("samples/orders.json").infer_schema(sample: 1_000).to_dsl("Order")
       #   # class Order < IOStreams::Contract
       #   #   fields_match "subset"
       #   #
       #   #   field :id,         :integer
-      #   #   field :amount,     :number, decimals: 2
+      #   #   field :amount,     :number,   decimals: 2
       #   #   field :ordered_at, :datetime, name: "Ordered At"
       #   # end
       #
@@ -174,7 +175,7 @@ module IOStreams
       def to_dsl(class_name = name || "Contract")
         lines = ["class #{class_name} < IOStreams::Contract"]
         to_h.except(:fields).each { |property, value| lines << "  #{dsl_property(property, value)}" }
-        lines << "" if lines.size > 1
+        lines << "" if lines.size > 1 && !fields.empty?
         rows = fields.zip(accessors).map { |field, accessor| [":#{accessor}", ":#{field.type}", dsl_options(field, accessor)] }
         width = rows.map { |row| row[0].size }.max.to_i + 1
         types = rows.map { |row| row[1].size }.max.to_i + 1
@@ -186,16 +187,14 @@ module IOStreams
         "#{lines.join("\n")}\n"
       end
 
-      # Returns [Array<Symbol>] the name in Ruby of each field, in order: the accessor that .field declared it with, or
-      # for a field of a contract built from a Hash, see .accessor_of.
+      # Returns [Array<Symbol>] the name in Ruby of each field, in order, as `Struct.members` returns those of a Struct:
+      # the accessor that .field declared it with, or for a field of a contract built from a Hash, its name when that is
+      # a name of a method in Ruby, otherwise its name cleansed, see .accessor_of, numbered from `_2` when another field
+      # already has that accessor, so that a field named `ordered_at` keeps it, whichever field comes first.
       def accessors
-        used = {}
-        fields.map do |field|
-          accessor = (@accessors || {})[field.name] || accessor_of(field.name)
-          accessor = :"#{accessor}_#{used.size}" while used.key?(accessor)
-          used[accessor] = true
-          accessor
-        end
+        own  = fields.map { |field| own_accessor(field) }
+        used = own.compact.to_h { |accessor| [accessor, true] }
+        fields.zip(own).map { |field, accessor| accessor || unused_accessor(accessor_of(field.name), used) }
       end
 
       # Returns [String] the name of the class, or for a contract built from a Hash, its schema.
@@ -235,6 +234,25 @@ module IOStreams
         cleansed = IOStreams::Tabular::Header.cleanse_column(text)
         cleansed = "field_#{cleansed}" unless ACCESSOR.match?(cleansed)
         cleansed.to_sym
+      end
+
+      # Returns [Symbol|nil] the accessor that .field declared the field with, or its name when that is its accessor, see
+      # #accessors, otherwise nil.
+      def own_accessor(field)
+        declared = (@accessors || {})[field.name]
+        return declared if declared
+
+        accessor = accessor_of(field.name)
+        accessor if accessor.to_s == field.name.to_s
+      end
+
+      # Returns [Symbol] the supplied accessor, numbered from `_2` while another field has it, which it then takes.
+      def unused_accessor(base, used)
+        accessor = base
+        count    = 1
+        accessor = :"#{base}_#{count += 1}" while used.key?(accessor)
+        used[accessor] = true
+        accessor
       end
 
       # Returns [String] the line of the class that declares a property of the contract, see #to_dsl.

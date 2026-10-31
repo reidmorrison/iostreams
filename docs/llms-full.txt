@@ -3964,8 +3964,9 @@ File.write("config/contracts/orders.json", JSON.pretty_generate(draft.to_contrac
   field of type `any`, such as a JSON column of a query, from its values.
 
 The draft is a schema: `#to_contract` returns its contract, without the `format` of a date, which describes how one file
-writes its text, and so stays in the schema of that file. `#to_dsl` writes the class of the contract instead, for a
-person to review and commit:
+writes its text, and so stays in the schema of that file. A file of US dates is read with both: save the draft as the
+schema of the file too, and set it with `#schema` beside `#as`. `#to_dsl` writes the class of the contract instead, for
+a person to review and commit, with a comment for each `format` that it leaves to the schema of the file:
 
 ~~~ruby
 puts IOStreams.path("samples/orders.csv").infer_schema(sample: 1_000).to_dsl("Order")

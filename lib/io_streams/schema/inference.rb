@@ -29,8 +29,9 @@ module IOStreams
       # A number with a fraction, whose whole part has no leading zero, such as `12.50`, `0.5` or `.5`.
       NUMBER = /\A[+-]?(?:0|[1-9]\d*)?\.(\d+)\z/
 
-      # The text of a boolean.
-      BOOLEAN = /\A(?:true|false)\z/i
+      # The text of a boolean that a field reads without `trueValues` or `falseValues`, other than `1` and `0`, which are
+      # integers, see `IOStreams::Schema::Field::DEFAULT_TRUE_VALUES`.
+      BOOLEANS = (Field::DEFAULT_TRUE_VALUES + Field::DEFAULT_FALSE_VALUES).to_h { |text| [text, true] }.freeze
 
       # A date written month or day first, such as `10/25/2026` or `25/10/2026`, see #us_date.
       SLASHED_DATE = %r{\A(\d{1,2})/(\d{1,2})/(\d{4})\z}
@@ -84,8 +85,10 @@ module IOStreams
         def initialize
           @kinds    = {}
           @decimals = 0
-          @text     = true
-          @us_dates = []
+          @text        = true
+          @us_date     = false
+          @month_first = true
+          @day_first   = true
         end
 
         # Adds the supplied value of the column.
@@ -122,10 +125,10 @@ module IOStreams
         # Returns [Symbol|nil] the kind of the value, or nil when it is blank, which drafts nothing.
         def kind_of(value)
           return text_kind(value) if value.is_a?(String)
+          return if value.nil?
 
           @text = false
           case value
-          when nil then nil
           when true, false then :boolean
           when Integer then :integer
           when Float, Rational then float_kind(value)
@@ -147,9 +150,9 @@ module IOStreams
             @decimals = [@decimals, fraction[1].length].max
             return :number
           end
-          return :boolean if BOOLEAN.match?(text)
+          return :boolean if BOOLEANS.key?(text)
           return :date if iso?(text, Field::DATE)
-          return :datetime if iso?(text, Field::DATETIME)
+          return :datetime if iso?(text, Field::DATETIME) && clock?(text[11, 8])
           return :time if Field::TIME.match?(text) && clock?(text)
 
           slashed_date(text) || :text
@@ -190,7 +193,8 @@ module IOStreams
           first, second, year = parts.captures.map(&:to_i)
           return unless Date.valid_date?(year, first, second) || Date.valid_date?(year, second, first)
 
-          @us_dates << [first, second, year]
+          @month_first &&= Date.valid_date?(year, first, second)
+          @day_first   &&= Date.valid_date?(year, second, first)
           :us_date
         end
 
@@ -199,11 +203,9 @@ module IOStreams
         # above 12 settles which is the day. Every sampled date that could be either drafts month first, as the US writes
         # them. Returns nil when the dates disagree, such as one with a first part above 12 and another with a second.
         def us_date
-          month_first = @us_dates.all? { |first, second, year| Date.valid_date?(year, first, second) }
-          day_first   = @us_dates.all? { |first, second, year| Date.valid_date?(year, second, first) }
-          return ["%d/%m/%Y", nil] if day_first && !month_first
-          return unless month_first
-          return ["%m/%d/%Y", nil] unless day_first
+          return ["%d/%m/%Y", nil] if @day_first && !@month_first
+          return unless @month_first
+          return ["%m/%d/%Y", nil] unless @day_first
 
           ["%m/%d/%Y", "Every sampled date could be month or day first, such as 01/02/2026, so month first was drafted: " \
                        "check it, and use %d/%m/%Y for day first"]

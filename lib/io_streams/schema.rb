@@ -302,9 +302,20 @@ module IOStreams
 
     # Returns [String] the Ruby of a class that declares the contract of this schema, see #to_contract, for a person to
     # review and commit, such as of a schema that `IOStreams::Stream#infer_schema` drafted, see
-    # `IOStreams::Contract.to_dsl`.
+    # `IOStreams::Contract.to_dsl`. The `format` of a field, which the contract leaves to the schema of the file, is a
+    # comment, so that the reviewer sets it there:
+    #
+    #   # The schema of the file reads "ordered_on" with format "%m/%d/%Y", which this contract leaves to it
     def to_dsl(class_name = "Contract")
-      to_contract.to_dsl(class_name)
+      lines = to_contract.to_dsl(class_name).lines
+      notes = fields.reject(&:skip?).filter_map do |field|
+        format = field.to_h[:format]
+        next unless format
+
+        "  # The schema of the file reads #{field.name.to_s.inspect} with format #{format.inspect}, which this contract " \
+          "leaves to it\n"
+      end
+      [lines.first, *notes, *lines.drop(1)].join
     end
 
     # Returns [IOStreams::Schema::Field] the field that the supplied column of a header row, or key of a record, names:
