@@ -3191,6 +3191,27 @@ end
 # {"id" => 1001, "amount" => 0.125e2, "ordered_at" => 2026-10-25 09:30:00 UTC, "zip" => "01234"}
 ~~~
 
+A time of day, such as the value of a `time` field, is written as a date and time on 2000-01-01, such as
+`2000-01-01 09:30`, since the `xlsxtream` gem cannot write a cell of a time format. The rows of the spreadsheet read it
+back as a `Time` that a `time` field takes, but its lines, its CSV text, hold `2000-01-01T09:30:00Z`, which a `time`
+field raises `IOStreams::Errors::InvalidValue` for, so a CSV copy of the spreadsheet made without a mode does not read
+back. Copy it in the `:hash` mode with a schema or contract that gives the column the type `time`, which writes the
+time of day, `09:30:00`:
+
+~~~ruby
+# Hours is a contract with the field {name: "opens", type: "time"}.
+IOStreams.path("hours.csv").copy_from(IOStreams.path("hours.xlsx").as(Hours), mode: :hash)
+~~~
+
+A cell of an elapsed time format, such as `[h]:mm:ss`, is read as a time, rather than as the length of time that Excel
+shows. One of less than a day, such as `9:00:00`, is a time of day, and one of a day or more, such as `36:00:00`, is
+the date and time that many days after 1899-12-30, `1899-12-31 12:00:00 UTC`, whose text in the lines of the
+spreadsheet is the time of its clock, `12:00:00`, without its days.
+
+Excel counts 1900 as a leap year, so a date before 1900-03-01 is read a day early, in the rows and the lines alike, such
+as `1899-12-31` for the 1900-01-01 that Excel shows, and Excel's 1900-02-29, which does not exist, as `1900-02-28`.
+The `creek` gem reads them the same way.
+
 ## Schema
 
 A schema describes the columns of a file: the name and type of each field, which columns the file can have and must
