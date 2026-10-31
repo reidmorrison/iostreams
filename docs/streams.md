@@ -61,7 +61,7 @@ end
 
 `#reader` and `#writer` return the result of the block.
 
-In the `:line`, `:array`, `:hash` and `:slice` modes, the reader that `#reader` yields is `Enumerable`, and its
+In the `:line`, `:array`, `:hash`, `:record` and `:slice` modes, the reader that `#reader` yields is `Enumerable`, and its
 `#each` returns an Enumerator without a block, so methods such as `io.first(10)` and `io.each.with_index` read it.
 Use them within the block, since the file is closed once the block returns:
 
@@ -136,7 +136,7 @@ IOStreams.path("people.csv.gz").each(:slice, size: 500, resume_at: 1_001) do |sl
 end
 ~~~
 
-* The `:array`, `:hash` and `:slice` modes take it, for a file, a query or a slice. `nil` reads every record, so the
+* The `:array`, `:hash`, `:record` and `:slice` modes take it, for a file, a query or a slice. `nil` reads every record, so the
   cursor of a job that has not started yet, which is usually `nil`, can be supplied as it is. A job that keeps the
   number of the last record that it processed resumes at the record after it.
 * The file is still read up to that record, since it cannot be read from the middle, such as when it is compressed, but

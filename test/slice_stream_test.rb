@@ -357,7 +357,7 @@ class SliceStreamTest < Minitest::Test
         assert_raises(ArgumentError) { stream.each { |_line| nil } }
         assert_raises(ArgumentError) { stream.each(:line) { |_line| nil } }
         error = assert_raises(ArgumentError) { stream.reader { |_io| nil } }
-        assert_match(/\AA slice is read in the :array, :hash or :slice mode, not :stream/, error.message)
+        assert_match(/\AA slice is read in the :array, :hash, :record or :slice mode, not :stream/, error.message)
         assert_raises(ArgumentError) { stream.read }
       end
 

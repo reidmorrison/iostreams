@@ -90,6 +90,67 @@ class ContractRecordsTest < Minitest::Test
         assert_equal "hi", wide.new(id: 1, notes: "hi").notes
       end
 
+      it "gives a subclass the accessors of the fields that it inherits, and the methods that its contract defines" do
+        base = Class.new(IOStreams::Contract) do
+          field :placed_at, :datetime, name: "Placed"
+          field :amount, :number
+
+          def amount = "custom"
+        end
+        copy  = Class.new(base)
+        order = copy.new(placed_at: at, amount: 1)
+        order.placed_at = "2026-10-25T09:30:00Z"
+
+        assert_equal %i[placed_at amount], copy.record_fields.keys
+        assert_equal [at, "custom"], [order.placed_at, order.amount]
+        refute copy.method_defined?(:placed)
+      end
+
+      it "names a field as a function of Kernel, such as format or select, which a record never calls on itself" do
+        contract = Class.new(IOStreams::Contract) do
+          field :format, :string
+          field :select
+        end
+
+        assert_equal %w[mp4 x], [contract.new(format: "mp4").format, contract.new(select: "x").select]
+        assert_raises(ArgumentError) { Class.new(IOStreams::Contract) { field :raise } }
+        assert_raises(ArgumentError) { Class.new(IOStreams::Contract) { field :initialize_copy } }
+      end
+
+      it "raises for a field whose accessor a field that it inherits already has, also one that its name gives it" do
+        base = IOStreams::Contract.new(fields: [{name: "Ordered At"}])
+
+        assert_raises(ArgumentError) { Class.new(base) { field :ordered_at, :string, name: "Placed" } }
+      end
+
+      it "keeps the accessors of a contract whose field is not valid, so that it can be declared again" do
+        contract = Class.new(IOStreams::Contract) { field :id }
+        assert_raises(ArgumentError) { contract.field(:amount, :money) }
+        contract.field(:amount, :number)
+
+        assert_equal %i[id amount], contract.accessors
+      end
+
+      it "is eql? to a record of values that are eql?, as a Hash key needs" do
+        contract = IOStreams::Contract.new(fields: [{name: "v"}])
+
+        assert_equal contract.new(v: 1), contract.new(v: 1.0)
+        refute contract.new(v: 1).eql?(contract.new(v: 1.0))
+        assert_equal 1, {contract.new(v: 1) => 1}[contract.new(v: 1)]
+      end
+
+      it "takes a String as a name in the schema, and a Symbol as a name in Ruby, and raises for two keys of one field" do
+        contract = Class.new(IOStreams::Contract) do
+          field :a, name: "b"
+          field :b, name: "a"
+        end
+        record = contract.new(a: 1, b: 2)
+
+        assert_equal [2, 1], [record["a"], record[:a]]
+        assert_equal record, contract.new(**record.to_h)
+        assert_raises(ArgumentError) { Order.new(id: 1, "id" => 2) }
+      end
+
       it "raises for a field named as a method that every record answers, or as another field" do
         assert_raises(ArgumentError) { Class.new(IOStreams::Contract) { field :hash } }
         assert_raises(ArgumentError) { Class.new(IOStreams::Contract) { field :to_h } }
@@ -134,6 +195,15 @@ class ContractRecordsTest < Minitest::Test
         assert_includes error.message, "#as"
       end
 
+      it "resumes at a record number that a slice holds" do
+        slices = []
+        text("ID\n1\n2\n3\n4\n").each(:slice, size: 2) { |slice| slices << slice }
+        ids = []
+        IOStreams.stream(slices.last).as(Order).each(:record, resume_at: 4) { |order| ids << order.id }
+
+        assert_equal [4], ids
+      end
+
       it "raises for an option that it does not take, naming the mode" do
         error = assert_raises(ArgumentError) { text("ID\n1\n").as(Order).each(:record, columns: ["id"]) { nil } }
 
@@ -151,10 +221,31 @@ class ContractRecordsTest < Minitest::Test
         assert_equal "id,amount,Ordered At,zip\n1001,12.50,2026-10-25T09:30:00Z,01234\n", out.string
       end
 
-      it "raises for anything but a record of the contract" do
+      it "raises for anything but a record of the contract, such as a record of a subclass, which has other fields" do
         assert_raises(ArgumentError) do
           IOStreams.stream(StringIO.new).file_name("orders.csv").as(Order).writer(:record) { |io| io << {"id" => 1} }
         end
+        wide = Class.new(Order) { field :notes, :string }
+        assert_raises(ArgumentError) do
+          IOStreams.stream(StringIO.new).file_name("orders.csv").as(Order).writer(:record) { |io| io << wide.new(id: 1) }
+        end
+      end
+
+      it "writes the records of the contract to a store of slices" do
+        store = Class.new do
+          include IOStreams::Slice::Target
+
+          attr_reader :slices
+
+          def write_slice(slice)
+            (@slices ||= []) << slice
+          end
+        end.new
+        IOStreams.stream(store).format(:csv).as(Order).writer(:record) { |io| io << Order.new(id: 1001, zip: "01234") }
+        records = []
+        IOStreams.stream(store.slices.first).as(Order).each(:record) { |order| records << order }
+
+        assert_equal [Order.new(id: 1001, zip: "01234")], records
       end
 
       it "raises before the file is opened without a contract" do

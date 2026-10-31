@@ -29,8 +29,11 @@ module IOStreams
     class TargetStream < IOStreams::Stream
       include IOStreams::Row::WithoutBytes
 
-      # The modes that write rows into slices, see #writer.
+      # The modes that copy rows into slices, see #copy_from.
       MODES = %i[line array hash].freeze
+
+      # The modes that write rows into slices, see #writer: those of a copy, and the records of a contract.
+      WRITER_MODES = [*MODES, :record].freeze
 
       # The options of #encoding that a store takes, which apply to the lines written in the `:line` mode.
       ENCODING_OPTIONS = %i[replace cleaner].freeze
@@ -63,6 +66,8 @@ module IOStreams
       #           spreadsheet that holds a quoted line break, which a copy keeps whole instead, see #copy_from.
       #   :array  each row, see `IOStreams::Row::Writer`.
       #   :hash   each record, see `IOStreams::Record::Writer`.
+      #   :record each record of the contract set with #as, as the `:hash` mode writes its Hash, see
+      #           `IOStreams::Contract::RecordWriter`.
       #
       # Each slice holds the number of rows that the store says, see `IOStreams::Slice::Target#slice_size`, apart from
       # the last, which holds the rows that are left.
@@ -79,6 +84,8 @@ module IOStreams
       # or in the `:array` or `:hash` mode once `replace:` or `cleaner:` is set, see #encoding, before the block is called.
       def writer(mode = :stream, **args, &block)
         require_block!(:writer, block)
+        return write_contract_records(slice_options(mode, args), &block) if mode == :record
+
         # The rows and records that a program writes are each a record, whatever their values, as those of a query are,
         # while the lines written in the :line mode are those of a file.
         write_slices(mode, slice_options(mode, args), blank_rows: mode == :line, &block)
@@ -98,7 +105,7 @@ module IOStreams
       # or `:hash` mode once `replace:` or `cleaner:` is set, see #encoding, before the source is opened.
       def copy_from(source, convert: true, mode: nil, **args)
         unless convert && MODES.include?(mode)
-          raise(ArgumentError, "A #{source_name} is copied to in the #{modes} mode, " \
+          raise(ArgumentError, "A #{source_name} is copied to in the #{modes(MODES)} mode, " \
                                "supplied as `mode:`, since it holds slices of rows rather than bytes")
         end
 
@@ -462,9 +469,20 @@ module IOStreams
         "slice target"
       end
 
-      # Returns [String] the modes that write rows into slices, see MODES, such as ":line, :array or :hash".
-      def modes
-        "#{MODES[0..-2].map(&:inspect).join(', ')} or #{MODES.last.inspect}"
+      # Returns [String] the supplied modes, such as ":line, :array or :hash".
+      def modes(modes)
+        "#{modes[0..-2].map(&:inspect).join(', ')} or #{modes.last.inspect}"
+      end
+
+      # Yields the writer of the records of the contract set with #as, see `IOStreams::Contract::RecordWriter`, which
+      # writes each one as the `:hash` mode writes a record, see #writer.
+      #
+      # Raises ArgumentError when no contract is set, before the block is called.
+      def write_contract_records(options)
+        contract = records_contract!(:record)
+        write_slices(:hash, options, blank_rows: false) do |writer|
+          yield IOStreams::Contract::RecordWriter.new(writer, contract)
+        end
       end
 
       # Returns [Hash] the options of the collector of the slices, see #writer: the slice size of the store, see
@@ -473,8 +491,8 @@ module IOStreams
       # Raises ArgumentError for a mode other than those of MODES, or an option that the call does not take, see
       # .option_names, or a value that the collector cannot collect with, see `IOStreams::Slice::Collector.check`.
       def slice_options(mode, args)
-        unless MODES.include?(mode)
-          raise(ArgumentError, "A #{source_name} is written in the #{modes} mode, not " \
+        unless WRITER_MODES.include?(mode)
+          raise(ArgumentError, "A #{source_name} is written in the #{modes(WRITER_MODES)} mode, not " \
                                "#{mode.inspect}, since it holds slices of rows rather than bytes")
         end
 

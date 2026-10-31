@@ -288,6 +288,11 @@ module IOStreams
     #     p hash
     #   end
     #
+    # Example: Read each record as a record of a contract, see `IOStreams::Contract`
+    #   IOStreams.path("orders.csv").as(Order).each(:record) do |order|
+    #     p order.amount
+    #   end
+    #
     # Example: Read up to 100 rows at a time, as they are in the file, to parse elsewhere, see `IOStreams::Slice`
     #   IOStreams.path("people.csv").schema("people.json").each(:slice, size: 100) do |slice|
     #     p slice.header
@@ -301,7 +306,7 @@ module IOStreams
     #      applies, so this includes `:array` and `:hash` for a file name without a tabular extension.
     #   2. Or, in the `:line` mode, the `embedded_within` argument is supplied (e.g. `embedded_within: '"'`).
     # - Pass `embedded_within: nil` to read the physical lines of a quoted format in the `:line` mode.
-    #   The `:array`, `:hash` and `:slice` modes do not take `embedded_within`, since the format splits their lines
+    #   The `:array`, `:hash`, `:record` and `:slice` modes do not take `embedded_within`, since the format splits their lines
     #   where its parser expects: set the format with #format instead.
     # - The settings that describe the file, such as #format and #schema, are set on the path, and raise
     #   ArgumentError when they are supplied to a call, see PATH_SETTINGS. So does any other option that the mode does
@@ -313,14 +318,15 @@ module IOStreams
     #   carries it, and the format of its rows, so that the rows of the slice can be parsed on their own, elsewhere.
     #   With `validate: true` each row is also parsed before its slice is yielded, and raises when its values are not
     #   valid, after the slices before it, while each slice still holds the rows as they are.
-    # - The `:array`, `:hash` and `:slice` modes resume at the record of the number supplied with `resume_at:`, such as
-    #   for a job that stopped part way through the file: the records before it are read, but not parsed, counted from 1
-    #   without the header row, as the slices of the file number them, see `IOStreams::Row::Reader#initialize`.
-    # - The `:array` and `:hash` modes skip each blank row with `skip_blanks: true`, rather than yield nil for it: a line
-    #   that is empty or only whitespace, or a row or record whose every value is nil or blank text, the same way in every
-    #   format, see `IOStreams::Tabular::Mapping`. It defaults to false, so that the rows yielded count the lines of the
-    #   file. The `:slice` mode, like the `:line` mode, hands on every row as it is in the file, so that the rows of each
-    #   slice can be read with `IOStreams.stream(slice).each(:hash, skip_blanks: true)`.
+    # - The `:array`, `:hash`, `:record` and `:slice` modes resume at the record of the number supplied with
+    #   `resume_at:`, such as for a job that stopped part way through the file: the records before it are read, but not
+    #   parsed, counted from 1 without the header row, as the slices of the file number them, see
+    #   `IOStreams::Row::Reader#initialize`.
+    # - The `:array`, `:hash` and `:record` modes skip each blank row with `skip_blanks: true`, rather than yield nil for
+    #   it: a line that is empty or only whitespace, or a row or record whose every value is nil or blank text, the same
+    #   way in every format, see `IOStreams::Tabular::Mapping`. It defaults to false, so that the rows yielded count the
+    #   lines of the file. The `:slice` mode, like the `:line` mode, hands on every row as it is in the file, so that
+    #   the rows of each slice can be read with `IOStreams.stream(slice).each(:hash, skip_blanks: true)`.
     # - Lines, rows and records are read as UTF-8 text, and data that is not valid UTF-8 raises
     #   `IOStreams::Errors::InvalidEncoding`, an `Encoding::UndefinedConversionError`, with the byte offset and line
     #   number of the invalid data, once the lines before it have been read. To read text in another encoding,
@@ -343,7 +349,7 @@ module IOStreams
     # Returns a Reader for reading a file / stream
     #
     # The `:stream` mode reads bytes, so for example `read(1024)` on the stream it yields returns binary data, unless
-    # an encode stream is set. The `:line`, `:array`, `:hash` and `:slice` modes read UTF-8 text, see #each.
+    # an encode stream is set. The `:line`, `:array`, `:hash`, `:record` and `:slice` modes read UTF-8 text, see #each.
     def reader(mode = :stream, **args, &block)
       require_block!(:reader, block)
       case mode

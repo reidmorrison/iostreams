@@ -109,8 +109,14 @@ module IOStreams
         end
 
         check_accessor(accessor, name)
-        @accessors = (@accessors || {}).merge(name => accessor)
-        add_field(field_descriptor(name, type, required, properties))
+        declared   = @accessors
+        @accessors = (declared || {}).merge(name => accessor)
+        begin
+          add_field(field_descriptor(name, type, required, properties))
+        rescue StandardError
+          @accessors = declared
+          raise
+        end
         accessor
       end
 
@@ -241,8 +247,8 @@ module IOStreams
       # A subclass of a contract starts with its fields.
       def inherited(subclass)
         super
-        subclass.send(:descriptor=, @descriptor) if @descriptor
         subclass.instance_variable_set(:@accessors, @accessors.dup) if @accessors
+        subclass.send(:descriptor=, @descriptor) if @descriptor
       end
 
       # Returns [Symbol] the name in Ruby of a field of the supplied name in its schema: the name itself when it is a name
@@ -279,33 +285,39 @@ module IOStreams
       end
 
       # Returns [true|false] whether every record answers a method of the name, see #to_h, such as `hash` or `display`,
-      # so that a field cannot be named so in Ruby.
+      # or Ruby calls it on every object, such as `initialize_copy`, so that a field cannot be named so in Ruby. The
+      # functions of Kernel, such as `format`, `select` or `test`, which a record never calls on itself, can be names of
+      # fields, apart from `raise`, which it does.
       def reserved?(accessor)
-        Contract.method_defined?(accessor) || Contract.private_method_defined?(accessor) ||
-          Contract.method_defined?(:"#{accessor}=")
+        return true if Contract.method_defined?(accessor) || Contract.method_defined?(:"#{accessor}=")
+        return false unless Contract.private_method_defined?(accessor)
+
+        accessor == :raise || !Kernel.singleton_class.public_method_defined?(accessor, false)
       end
 
       # Raises ArgumentError for an accessor of a field that every record answers, see #reserved?, or that another field
-      # of the contract has.
+      # of the contract has, also one that its name gives it, see #accessors.
       def check_accessor(accessor, name)
         if reserved?(accessor)
           raise(ArgumentError, "A field of a contract cannot be named #{accessor.inspect} in Ruby, which every record " \
                                "answers: name it otherwise in Ruby, and #{name.to_s.inspect} with name:")
         end
-        return unless @accessors&.value?(accessor)
+        return unless @schema && accessors.include?(accessor)
 
         raise(ArgumentError, "The contract already has a field named #{accessor.inspect} in Ruby")
       end
 
-      # Defines a reader and a writer of each field of the records of the contract, see #record_fields, that it does not
-      # already have. The writer converts and checks the value, as .new does.
+      # Defines a reader and a writer of each field of the records of the contract, see #record_fields, that neither it
+      # nor a contract that it inherits from has, so that a method that a contract defines itself is kept. The writer
+      # converts and checks the value, as .new does.
       def define_accessors
         record_fields.each do |accessor, field|
-          name = field.name
-          next if method_defined?(accessor, false)
+          name   = field.name
+          writer = :"#{accessor}="
+          define_method(accessor) { @values[name] } unless method_defined?(accessor)
+          next if method_defined?(writer)
 
-          define_method(accessor) { @values[name] }
-          define_method(:"#{accessor}=") { |value| @values[name] = self.class.record_fields.fetch(accessor).cast(value) }
+          define_method(writer) { |value| @values[name] = self.class.record_fields.fetch(accessor).cast(value) }
         end
       end
 
@@ -395,7 +407,16 @@ module IOStreams
     # required.
     def initialize(**values)
       fields = self.class.record_fields
-      by_key = values.transform_keys { |key| record_accessor(fields, key) }
+      by_key = {}
+      values.each do |key, value|
+        accessor = record_accessor(fields, key)
+        if by_key.key?(accessor)
+          raise(ArgumentError, "#{self.class.inspect}.new takes one value of the field #{accessor.inspect}, not one by " \
+                               "its name in Ruby and another by its name in the schema")
+        end
+
+        by_key[accessor] = value
+      end
       @values = {}
       fields.each { |accessor, field| @values[field.name] = field.cast(by_key[accessor]) }
     end
@@ -416,7 +437,12 @@ module IOStreams
     def ==(other)
       other.instance_of?(self.class) && to_h == other.to_h
     end
-    alias eql? ==
+
+    # Returns [true|false] whether the other is a record of the same contract, with values that are `eql?`, as a Hash
+    # key needs, so that records of the values `1` and `1.0` are equal, but not the same key.
+    def eql?(other)
+      other.instance_of?(self.class) && to_h.eql?(other.to_h)
+    end
 
     def hash
       [self.class, @values].hash
@@ -430,13 +456,18 @@ module IOStreams
 
     private
 
-    # Returns [Symbol] the name in Ruby of the field of the supplied key, its name in Ruby or in the schema.
+    # Returns [Symbol] the name in Ruby of the field of the supplied key: a Symbol is a name in Ruby before a name in the
+    # schema, and a String a name in the schema before a name in Ruby, so that the keys of #to_h, which are the names in
+    # the schema, always name their own fields.
     def record_accessor(fields, key)
+      return key if key.is_a?(Symbol) && fields.key?(key)
+
+      found = fields.find { |_accessor, field| field.name == key } ||
+              fields.find { |_accessor, field| field.name.to_s == key.to_s }
+      return found.first if found
+
       symbol = key.to_sym if key.respond_to?(:to_sym)
       return symbol if fields.key?(symbol)
-
-      found = fields.find { |_accessor, field| field.name == key || field.name.to_s == key.to_s }
-      return found.first if found
 
       raise(ArgumentError, "#{self.class.inspect} has no field #{key.inspect}: its fields are " \
                            "#{fields.keys.map(&:inspect).join(', ')}")

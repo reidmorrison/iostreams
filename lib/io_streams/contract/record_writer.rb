@@ -19,9 +19,10 @@ module IOStreams
 
       # Writes a record of the contract.
       #
-      # Raises ArgumentError for anything else, such as a Hash, which `writer(:hash)` takes.
+      # Raises ArgumentError for anything else, such as a Hash, which `writer(:hash)` takes, or a record of a subclass of
+      # the contract, whose other fields the contract does not write.
       def <<(record)
-        unless record.is_a?(@contract)
+        unless record.instance_of?(@contract)
           raise(ArgumentError, "#<< takes a record of #{@contract.inspect}, such as #{@contract.inspect}.new(...), " \
                                "not a #{record.class.name}: write Hashes with writer(:hash)")
         end

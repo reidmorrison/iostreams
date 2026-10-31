@@ -19,7 +19,7 @@ module IOStreams
     # A slice holds rows, already split and decoded, rather than bytes, and is only read, see `IOStreams::Row::Stream`.
     class Stream < IOStreams::Row::Stream
       # The modes whose readers resume at a record, see #reader.
-      RESUMABLE_MODES = %i[array hash slice].freeze
+      RESUMABLE_MODES = %i[array hash record slice].freeze
 
       # Parameters
       #   slice: [IOStreams::Slice]
@@ -36,8 +36,8 @@ module IOStreams
         "#<#{self.class.name} rows=#{io_stream.size} format=#{format.inspect}>"
       end
 
-      # Yields the reader of the supplied mode, see `IOStreams::Row::Stream#reader`. `resume_at:` in the `:array`, `:hash`
-      # and `:slice` modes is a record number that the slice holds, see `IOStreams::Slice#record_number_at`, such as
+      # Yields the reader of the supplied mode, see `IOStreams::Row::Stream#reader`. `resume_at:` in the `:array`, `:hash`,
+      # `:record` and `:slice` modes is a record number that the slice holds, see `IOStreams::Slice#record_number_at`, such as
       # the one that a job saw when it stopped, rather than a count of the rows of the slice, so the rows are read from
       # that record on, see `IOStreams::Slice#from_record`, and the slices read from them keep their numbers.
       #
