@@ -53,7 +53,7 @@ module IOStreams
       file_name:          "where it only chose the format, set the format on the path instead, for example: " \
                           "path.format(:json).each(:hash)",
       schema:             "set it on the path instead, for example: path.schema(\"people.json\").each(:hash)",
-      contract:           "set it on the path instead, for example: path.as(Orders::CONTRACT).each(:hash)",
+      contract:           "set it on the path instead, for example: path.as(Order).each(:hash)",
       row_format_options: "set them on the path instead, for example: " \
                           "path.option(:parquet, compression: \"zstd\").writer(:hash)"
     }.freeze
@@ -616,25 +616,22 @@ module IOStreams
     # valid contract, such as one that lays out a file, see `IOStreams::Contract`.
     #
     # Example:
-    #   module Orders
-    #     CONTRACT = IOStreams::Contract.new(
-    #       fieldsMatch: "partial",
-    #       fields:      [
-    #         {name: "id", type: "integer", constraints: {required: true}},
-    #         {name: "amount", type: "number", decimals: 2},
-    #         {name: "ordered_at", type: "datetime", aliases: ["created_at"]}
-    #       ]
-    #     )
+    #   class Order < IOStreams::Contract
+    #     fields_match "partial"
     #
-    #     def self.import(source)
-    #       source.as(CONTRACT).each(:hash) do |order|
-    #         Ledger.post(order["id"], order["amount"], order["ordered_at"])
-    #       end
+    #     field :id,         :integer,  required: true
+    #     field :amount,     :number,   decimals: 2
+    #     field :ordered_at, :datetime, aliases: ["created_at"]
+    #   end
+    #
+    #   def import_orders(source)
+    #     source.as(Order).each(:record) do |order|
+    #       Ledger.post(order.id, order.amount, order.ordered_at)
     #     end
     #   end
     #
-    #   Orders.import(IOStreams.path(ENV.fetch("ORDERS_URL")))   # CSV, JSON, Excel or Parquet, in any store
-    #   Orders.import(IOStreams.stream(Order.where(paid: true))) # An Active Record query
+    #   import_orders(IOStreams.path(ENV.fetch("ORDERS_URL")))      # CSV, JSON, Excel or Parquet, in any store
+    #   import_orders(IOStreams.stream(Purchase.where(paid: true))) # An Active Record query
     def as(contract)
       raise_if_frozen!
       tabular_settings.contract = contract
@@ -694,11 +691,11 @@ module IOStreams
     # Returns [IOStreams::Schema] the schema that the rows and records of this stream are read by: the schema set with
     # #schema, reading its file the first time, otherwise the schema that the source declares, which IOStreams never
     # guesses:
-    # - The header row of a file with one, such as CSV, PSV or a spreadsheet, gives a field of type "string" for each
-    #   column, since its values are text, named as the keys of the records that `each(:hash)` reads, which cleanses
-    #   them, such as `ordered_at` for `Ordered At`. A column whose name cleanses to nothing, such as `#`, or an empty
-    #   one, is left out, as `each(:hash)` leaves it out, and the schema is then `fieldsMatch: "subset"`, so that it
-    #   still reads the file.
+    # - The header row of a file with one, such as CSV, PSV or a spreadsheet, gives a field for each column, named as
+    #   the keys of the records that `each(:hash)` reads, which cleanses them, such as `ordered_at` for `Ordered At`,
+    #   of type "string" for a file of text, such as CSV, and "any" for a spreadsheet, each of whose cells has a type
+    #   of its own. A column whose name cleanses to nothing, such as `#`, or an empty one, is left out, as
+    #   `each(:hash)` leaves it out, and the schema is then `fieldsMatch: "subset"`, so that it still reads the file.
     # - The first record of a format of keyed records, such as JSON, gives a field of type "any" for each of its keys,
     #   since each value has a type of its own. It declares only the keys of that record, which the records after it
     #   need not share.

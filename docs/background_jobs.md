@@ -500,7 +500,11 @@ When a row fails, support staff need to find it in the file. A slice holds the n
   too. IOStreams counts it as it reads the rows into slices.
 
 `slice.line_number_at(index)` and `slice.record_number_at(index)` return them for the row at an index of the slice.
-Name them in what the job reports:
+A value that is not valid raises `IOStreams::Errors::InvalidValue`, whose message names them already, such as
+`Field "born": "1990-02-30" is not a valid date, in record 2 on line 3`, and `on_invalid:` hands each bad row to a
+handler with its `#line_number` and `#record_number` instead, see
+[Values that are not valid](streams#values-that-are-not-valid). Name them in what the job reports for any other
+failure, such as of its own code:
 
 ~~~ruby
 def perform(rows)
@@ -510,6 +514,8 @@ def perform(rows)
     Person.upsert(person) if person
     index += 1
   end
+rescue IOStreams::Errors::InvalidValue
+  raise
 rescue StandardError => e
   raise unless slice && index < slice.size
 
@@ -527,9 +533,10 @@ end
   of a query, and rows or records written to a store of slices with `writer(:array)` or `writer(:hash)`, or copied to
   it in those modes.
 * The rows of an Excel spreadsheet, `.xlsx`, have no line number either, also once copied to a store of slices in the
-  `:line` mode. Its rows are read as CSV text, whose lines are not the rows of the sheet, since a cell that holds line
-  breaks takes a line for each. Their record numbers count the rows that are read, and the empty rows of the sheet are
-  left out, so a record number is not always the row in Excel either.
+  `:line` mode. Its rows are read from the cells of the sheet, rather than from lines, and the lines of its CSV text
+  are not the rows of the sheet, since a cell that holds line breaks takes a line for each. Their record numbers
+  count the rows that are read, and the empty rows of the sheet are left out, so a record number is not always the
+  row in Excel either.
 * The slices read from a slice, such as with `IOStreams.stream(slice).each(:slice, size: 10)`, keep the line and record
   numbers of its rows.
 * A row added to a slice by your code without numbers, see [A slice](#a-slice), has none, `nil`, as do the rows of a
@@ -616,21 +623,23 @@ The store decides the size of its slices, rather than each call, since it knows 
 
 ### Slices of a query
 
-An Active Record query can be cut into slices the same way, see [Exporting queries](queries). Copy its records to a
-store, and they are written as lines of CSV, by the types of its columns:
+An Active Record query can be cut into slices the same way, see [Exporting queries](queries):
 
 ~~~ruby
 relation = Order.where(paid: true).select(:id, :amount, :created_at)
-schema   = IOStreams.stream(relation).infer_schema
 
-IOStreams.stream(store).copy_from(relation, mode: :hash)
+IOStreams.stream(relation).each(:slice, size: 500) do |slice|
+  ImportOrderSliceJob.perform_later(slice.to_h)
+end
 ~~~
 
-The slices are lines of CSV, so the jobs read each one with the schema of the query, so that each value is read back as
-its type:
+Each slice holds the values of its rows, such as a `BigDecimal` or a time, with the schema of the columns of the query,
+and `slice.to_h` holds each value in a form that JSON keeps exactly, so that every job queue keeps it, see
+[Slices of a query](queries#slices-of-a-query). So the job reads each value back as its type, without a schema of its
+own:
 
 ~~~ruby
-IOStreams.stream(slice).schema(schema).each(:hash) do |order|
+IOStreams.stream(IOStreams.slice(rows)).each(:hash) do |order|
   p order
 end
 ~~~
@@ -638,10 +647,9 @@ end
 Rows whose values are all null are records of the query, rather than blank lines of a file, and each slice says so,
 so the jobs read them as records.
 
-The query can also be read in slices directly, with `IOStreams.stream(relation).each(:slice, size: 500)`. Those slices
-hold the values themselves, such as a `BigDecimal` or a time, rather than text. Active Job can serialize such values,
-but a queue whose arguments must be JSON cannot, and JSON keeps a time only to the precision of its text. Copying the
-query to a store, as above, gives slices of text that every queue keeps as they are.
+A query can also be copied to a store of slices, with `IOStreams.stream(store).copy_from(relation, mode: :hash)`, whose
+slices are lines of CSV, written by the types of its columns. The jobs then read each one with the schema of the query,
+`IOStreams.stream(relation).infer_schema`, set with `#schema`, so that each value is read back as its type.
 
 ## Threads
 

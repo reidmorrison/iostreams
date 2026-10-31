@@ -1,6 +1,6 @@
 ---
 layout: default
-title: Tabular Formats
+title: File Formats
 description: >-
   Reading and writing rows and records of CSV, PSV, JSON, fixed width, Excel,
   Parquet and plain text files, how the format is chosen, and typed values with a
@@ -13,7 +13,7 @@ description: >-
 {:toc}
 
 When reading or writing rows (`:array`) or records (`:hash`), IOStreams converts each line of the file to or from its
-tabular format:
+format:
 
 | Format | File name | Each row is |
 |--------|-----------|-------------|
@@ -296,7 +296,8 @@ date, a `Time` a date and time, and text, such as `"01234"`, is text. A `BigDeci
 holds, and a `Hash` or an `Array` as its JSON:
 
 ~~~ruby
-IOStreams.path("report.xlsx").as(Orders::CONTRACT).writer(:hash) do |io|
+# Order is a contract, see Contracts.
+IOStreams.path("report.xlsx").as(Order).writer(:hash) do |io|
   io << {"id" => 1001, "amount" => BigDecimal("12.5"), "ordered_at" => Time.utc(2026, 10, 25, 9, 30), "zip" => "01234"}
 end
 ~~~
@@ -341,6 +342,12 @@ the text form of its type. It applies to every format, and gives the position of
 Its fields name the keys of the records read, and say which columns a file can have and must have, so that the keys
 do not depend on how cleansing changes a column, such as `Amount ($)` and `Amount (€)`, which both cleanse to
 `amount_`.
+
+A schema describes one file, and is usually held in configuration, beside its path. The fields that your code needs,
+whatever the file, are its [contract](contracts), a Ruby class with the same fields, types and properties, which lives
+with the code. A source that describes itself, such as a CSV file with a header row, JSON, a spreadsheet, Parquet or a
+query, needs only the contract, while a file that cannot, such as fixed width, needs a schema too. The types and
+properties below apply to both.
 
 A schema is a [Frictionless Table Schema](https://datapackage.org/standard/table-schema/), set on the path with
 `#schema`, either as a Hash:
@@ -428,7 +435,8 @@ IOStreams.path("orders.parquet").infer_schema.to_h
 
 | Source | Its schema without one set |
 |--------|----------------------------|
-| CSV, PSV or a spreadsheet | a `string` field for each column of the header row, named as the keys of the records that `each(:hash)` reads, which cleanses them, such as `ordered_at` for `Ordered At`; a column whose name cleanses to nothing, such as `#`, or an empty one, is left out, and the schema is then `fieldsMatch: "subset"`, so that it still reads the file |
+| CSV or PSV | a `string` field for each column of the header row, named as the keys of the records that `each(:hash)` reads, which cleanses them, such as `ordered_at` for `Ordered At`; a column whose name cleanses to nothing, such as `#`, or an empty one, is left out, and the schema is then `fieldsMatch: "subset"`, so that it still reads the file |
+| A spreadsheet | an `any` field for each column of its header row, named as for CSV, since each cell has a type of its own, see [Excel spreadsheets](#excel-spreadsheets) |
 | JSON | an `any` field for each key of its first record, since each value has a type of its own; the records after it need not have the same keys |
 | Parquet | a field of the type of each column, see [Parquet files](#parquet-files), required when the column cannot be null, unless its values are text or of type `any` |
 | An Active Record query | a field of the type of each column, see [Exporting queries](queries#keeping-the-types-of-the-columns) |

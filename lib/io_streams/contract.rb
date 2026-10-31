@@ -7,13 +7,7 @@ module IOStreams
   # query, changes only its path in configuration, or the line that opens it, not the code that processes it.
   #
   # A contract is a class, as `Struct.new` and `Data.define` make one, whose fields are a Frictionless Table Schema, see
-  # `IOStreams::Schema`. Build one from a Hash, such as a JSON file saved with the code that depends on it:
-  #
-  #   module Orders
-  #     CONTRACT = IOStreams::Contract.new(JSON.parse(File.read("config/contracts/orders.json")))
-  #   end
-  #
-  # Or declare its fields in a class of its own:
+  # `IOStreams::Schema`. Declare its fields in a class of its own:
   #
   #   class Order < IOStreams::Contract
   #     fields_match "subset"
@@ -26,9 +20,14 @@ module IOStreams
   #
   # Then read any source through it:
   #
-  #   IOStreams.path(ENV.fetch("ORDERS_URL")).as(Order).each(:hash) do |order|
-  #     Ledger.post(order["id"], order["amount"], order["Ordered At"])
+  #   IOStreams.path(ENV.fetch("ORDERS_URL")).as(Order).each(:record) do |order|
+  #     Ledger.post(order.id, order.amount, order.ordered_at)
   #   end
+  #
+  # Or build one from a Hash, such as a JSON file saved with the code that depends on it, as `Struct.new` builds a
+  # class:
+  #
+  #   Order = IOStreams::Contract.new(JSON.parse(File.read("config/contracts/orders.json")))
   #
   # A contract states what the program needs, while a schema set with `IOStreams::Stream#schema` describes a file, so a
   # contract never lays out a file: the `header` and `width` of a schema, and the `width`, `start`, `truncate` and

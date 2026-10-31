@@ -567,8 +567,10 @@ application.
 
 #### The rows of a spreadsheet are CSV
 
-A spreadsheet is read as CSV, one line for each row of its worksheet, so its rows and records are now always parsed
-as CSV, and `#format` returns `:csv` for a `.xlsx` or `.xlsm` path, where it returned `nil`. Previously the format was
+The format of a spreadsheet is always CSV, the format of its lines, one for each row of its worksheet, while its rows
+and records are read from its cells, see
+[Rows of a spreadsheet are the values of its cells](#rows-of-a-spreadsheet-are-the-values-of-its-cells). So `#format`
+returns `:csv` for a `.xlsx` or `.xlsm` path, where it returned `nil`. Previously the format was
 taken from the rest of the file name, so `report.json.xlsx` raised, and `report.psv.xlsx` joined the cells of each
 row into one value. Setting another format with `#format`, such as `format(:psv)`, now raises `ArgumentError` when
 the rows, records or lines are read or written, apart from the new `:text` format, which reads the CSV text of each
@@ -590,8 +592,10 @@ Fix: set `format(:csv)` on the path of a `.text` file that holds CSV.
 
 #### Spreadsheet date and time cells are read as ISO 8601
 
-A time cell of a spreadsheet is read as its time of day in UTC in ISO 8601, such as `2026-01-02T09:30:00Z`,
-since Excel holds a time without a time zone, so that a `datetime` field of a schema can read it. Previously it
+In the CSV text of a spreadsheet, which its lines and a copy without a mode read, a time cell is its time of day in
+UTC in ISO 8601, such as `2026-01-02T09:30:00Z`, since Excel holds a time without a time zone, so that a `datetime`
+field of a schema can read it. Its rows and records hold the cells themselves instead, see
+[Rows of a spreadsheet are the values of its cells](#rows-of-a-spreadsheet-are-the-values-of-its-cells). Previously it
 was the text of a `Time` in the local time zone of the process, such as `2026-01-02 09:30:00 -0500`. A date cell
 is read as before, such as `2026-01-02`. A decimal cell that the `creek` gem returns as a `BigDecimal` is read as
 a plain decimal, such as `12.5`, where it was `0.125e2`.

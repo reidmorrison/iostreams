@@ -188,19 +188,24 @@ IOStreams.path("sample/example.json").read
 Name it `example.xlsx` to write an Excel spreadsheet, or `example.psv` for pipe separated values. Reading any of them
 with `each(:hash)` returns the same records.
 
-## Describe the file with a schema
+## Typed records with a contract
 
-Every value of a CSV file is text. A [schema](formats#schema) gives each column a name and a type, so that reading
-returns each value as its type, and writing writes each value in the text form of its type.
+Every value of a CSV file is text. A [contract](contracts) names the fields that your code needs, and the type of
+each one, so that reading returns each value as its type, and writing writes each value in the text form of its type.
+Declare it as a class, with a field for each value:
 
 ~~~ruby
-path = IOStreams.path("sample/people.csv").schema(
-  fields: [
-    {name: "name",   type: "string"},
-    {name: "born",   type: "date"},
-    {name: "salary", type: "number", decimals: 2}
-  ]
-)
+class Person < IOStreams::Contract
+  field :name,   :string
+  field :born,   :date
+  field :salary, :number, decimals: 2
+end
+~~~
+
+Set the contract on the path with `#as`, and write a record:
+
+~~~ruby
+path = IOStreams.path("sample/people.csv").as(Person)
 
 path.writer(:hash) do |io|
   io << {"name" => "Jack Jones", "born" => Date.new(1990, 2, 1), "salary" => BigDecimal("1234.5")}
@@ -208,17 +213,94 @@ end
 
 path.read
 # => "name,born,salary\nJack Jones,1990-02-01,1234.50\n"
+~~~
 
+Read each record as a `Person`, whose methods return the values of its fields as their types:
+
+~~~ruby
+path.each(:record) do |person|
+  puts "#{person.name} was born in #{person.born.year}"
+end
+# Jack Jones was born in 1990
+~~~
+
+Or read each one as a Hash of the same values:
+
+~~~ruby
 path.each(:hash) do |person|
   p person
 end
 # => {"name" => "Jack Jones", "born" => #<Date: 1990-02-01 ((2447924j,0s,0n),+0s,2299161j)>, "salary" => 0.12345e4}
 ~~~
 
-The schema also checks the columns of the file, so that a file with other columns raises
-`IOStreams::Errors::InvalidHeader`, rather than being read wrongly. A schema can accept extra columns, match columns
-named another way, such as `First Name` for the field `first_name`, describe a file without a header row, and give
-the position of each field of a fixed width file. See [Schema](formats#schema).
+The contract also checks the file: one without a column that the contract needs raises
+`IOStreams::Errors::InvalidHeader` before the first record, rather than being read wrongly, and a value that is not of
+the type of its field, such as `N/A` for `salary`, raises `IOStreams::Errors::InvalidValue`, naming the field, the
+value and its line. A contract can accept extra columns, match columns named another way, such as `First Name` for the
+field `first_name`, and report every invalid row of an upload rather than stop at the first. See
+[Contracts](contracts).
+
+### Draft a contract from a file
+
+For a file that you already have, let IOStreams draft the contract from a sample of its values, then review the class
+that it writes, and save it with your code:
+
+~~~ruby
+puts IOStreams.path("sample/people.csv").infer_schema(sample: 100).to_dsl("Person")
+# class Person < IOStreams::Contract
+#   fields_match "subset"
+#
+#   field :name,   :string
+#   field :born,   :date
+#   field :salary, :number, decimals: 2
+# end
+~~~
+
+`fields_match "subset"` accepts a file with more columns than the contract lists. IOStreams never guesses types while
+it reads, since a guess could change from one file to the next, so the draft is only a start, for you to review. See
+[Drafting a contract](contracts#drafting-a-contract).
+
+## Same records, any format
+
+Each format reads values as it stores them. Copy the file to JSON and to a spreadsheet, and read each one back as a
+Hash. The spreadsheet needs the `creek` and `xlsxtream` gems; without them, leave it out.
+
+~~~ruby
+IOStreams.path("sample/people.json").copy_from(path, mode: :hash)
+IOStreams.path("sample/people.xlsx").copy_from(path, mode: :hash)
+
+["sample/people.csv", "sample/people.json", "sample/people.xlsx"].each do |name|
+  IOStreams.path(name).each(:hash) do |record|
+    p record
+  end
+end
+# {"name" => "Jack Jones", "born" => "1990-02-01", "salary" => "1234.50"}
+# {"name" => "Jack Jones", "born" => "1990-02-01", "salary" => 1234.5}
+# {"name" => "Jack Jones", "born" => #<Date: 1990-02-01 ((2447924j,0s,0n),+0s,2299161j)>, "salary" => 1234.5}
+~~~
+
+CSV holds text, JSON numbers but no dates, and the spreadsheet a date and a `Float`. Read through the contract, every
+one of them yields the same record:
+
+~~~ruby
+["sample/people.csv", "sample/people.json", "sample/people.xlsx"].each do |name|
+  IOStreams.path(name).as(Person).each(:hash) do |record|
+    p record
+  end
+end
+# {"name" => "Jack Jones", "born" => #<Date: 1990-02-01 ((2447924j,0s,0n),+0s,2299161j)>, "salary" => 0.12345e4}
+# {"name" => "Jack Jones", "born" => #<Date: 1990-02-01 ((2447924j,0s,0n),+0s,2299161j)>, "salary" => 0.12345e4}
+# {"name" => "Jack Jones", "born" => #<Date: 1990-02-01 ((2447924j,0s,0n),+0s,2299161j)>, "salary" => 0.12345e4}
+~~~
+
+So the code that processes the records does not change when a partner sends a spreadsheet instead of a CSV file, or
+the file moves to Parquet, or the records come from a database query.
+
+A CSV file with a header row, JSON, a spreadsheet and Parquet name their own columns. A file that cannot describe
+itself, such as a fixed width file, or a CSV file without a header row, also needs a [schema](formats#schema), which
+gives the name and position of each of its columns, and is usually held in configuration, beside its path. The
+contract then meets the fields of the schema by their names, see
+[A source that cannot describe itself](contracts#a-source-that-cannot-describe-itself).
 
 ## Same code, any file type
 
@@ -364,7 +446,8 @@ See [Copying and moving](copy_files).
 ## Next steps
 
 * [Reading and writing](streams): every way to read and write a path, and text encodings.
-* [Tabular formats](formats): CSV, JSON, fixed width, Excel and Parquet, and schemas.
+* [File formats](formats): CSV, JSON, fixed width, Excel and Parquet, and schemas.
+* [Contracts](contracts): the typed records that your code needs, read the same way from any source.
 * [Compression and encryption](extensions): the options of each stream.
 * [Paths](path): local files, S3, SFTP and HTTP, and the operations on a path.
 * [Copying and moving](copy_files): copying files between stores, and converting them on the way.

@@ -57,8 +57,8 @@ take, and opens them with the options that each one uses. An extension matches f
 `data.csv.XZ` is read with `MyXz` too. `:encode` and `:none` are reserved keywords, which `#option` and `#stream` give
 a meaning of their own, so they cannot be registered.
 
-A format whose reader returns text in a tabular format of its own, as a spreadsheet's reader returns CSV, also answers
-`text_format`, such as `:csv`, so that the rows of a path with that stream are always read in that format.
+A format whose reader returns text in a format of rows of its own, such as CSV, also answers `text_format`, such as
+`:csv`, so that the rows of a path with that stream are always read in that format.
 
 ### The reader and writer classes
 

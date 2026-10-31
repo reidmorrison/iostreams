@@ -22,33 +22,35 @@ itself, such as a CSV file with a header row, a Parquet file or a query, needs o
 
 ## Reading through a contract
 
-Set the contract with `#as`:
+Declare a contract as a class, with a field for each value that the program needs, and its type, see
+[Building a contract](#building-a-contract):
 
 ~~~ruby
-module Orders
-  CONTRACT = IOStreams::Contract.new(
-    fieldsMatch: "partial",
-    fields:      [
-      {name: "id",         type: "integer",  constraints: {required: true}},
-      {name: "amount",     type: "number",   decimals: 2},
-      {name: "ordered_at", type: "datetime", aliases: ["created_at"]},
-      {name: "zip",        type: "string"}
-    ]
-  )
+class Order < IOStreams::Contract
+  fields_match "partial"
 
-  def self.import(source)
-    source.as(CONTRACT).each(:hash) do |order|
-      Ledger.post(order["id"], order["amount"], order["ordered_at"])
-    end
+  field :id,         :integer,  required: true
+  field :amount,     :number,   decimals: 2
+  field :ordered_at, :datetime, aliases: ["created_at"]
+  field :zip,        :string
+end
+~~~
+
+Then set it on any source with `#as`:
+
+~~~ruby
+def import_orders(source)
+  source.as(Order).each(:hash) do |order|
+    Ledger.post(order["id"], order["amount"], order["ordered_at"])
   end
 end
 
 # CSV, JSON, Excel or Parquet, on local disk, S3 or SFTP, compressed or encrypted.
-Orders.import(IOStreams.path(ENV.fetch("ORDERS_URL")))
+import_orders(IOStreams.path(ENV.fetch("ORDERS_URL")))
 
-# An Active Record query, of a model named Purchase here so that it is not the contract below, whose created_at
+# An Active Record query, of a model named Purchase here so that it is not the contract Order, whose created_at
 # column the alias matches.
-Orders.import(IOStreams.stream(Purchase.where(paid: true)))
+import_orders(IOStreams.stream(Purchase.where(paid: true)))
 ~~~
 
 Every one of them yields the same record:
@@ -79,7 +81,8 @@ Every one of them yields the same record:
 * For a `number` field, JSON reads the digits of the number exactly, rather than through a `Float`.
 * The `:stream` and `:line` modes read bytes and lines as they are stored, so a contract converts nothing there.
 
-`#as` returns the path, so that it chains, and `as(nil)` removes the contract.
+`#as` returns the path, so that it chains, and `as(nil)` removes the contract. To read each record as an `Order`, with
+`order.amount` rather than `order["amount"]`, see [Records of a contract](#records-of-a-contract).
 
 ### Report invalid rows and carry on
 
@@ -114,7 +117,7 @@ of the first JSON record, and the types that a source declares, but not the valu
 that a JSON record leaves out is a missing value, it checks only the keys of JSON that the contract does not have.
 
 ~~~ruby
-source = IOStreams.path(upload_url).as(Orders::CONTRACT)
+source = IOStreams.path(upload_url).as(Order)
 
 source.contract_valid?
 # => true or false
@@ -160,7 +163,7 @@ The same contract writes every target: it names and orders the columns by its fi
 value, which each format writes in its own form:
 
 ~~~ruby
-report = IOStreams.path(ENV.fetch("REPORT_URL")).as(Orders::CONTRACT)
+report = IOStreams.path(ENV.fetch("REPORT_URL")).as(Order)
 report.writer(:hash) do |io|
   io << {"id" => 1001, "amount" => BigDecimal("12.5"), "ordered_at" => Time.utc(2026, 10, 25, 9, 30), "zip" => "01234"}
 end
@@ -173,50 +176,71 @@ end
 | Parquet | columns of `int64`, `decimal(38, 2)`, `timestamp` in UTC, and `string` |
 
 A value that is not of the type of its field, such as `"x"` for `id`, raises `IOStreams::Errors::InvalidValue`. A copy
-into a target with a contract writes by it too, such as `path.as(Orders::CONTRACT).copy_from(source, mode: :hash)`, and
+into a target with a contract writes by it too, such as `path.as(Order).copy_from(source, mode: :hash)`, and
 a copy hands the contract of its source to a target with neither a contract nor a schema, so that a Parquet target
 takes its types, see [Copying and moving](copy_files#choosing-the-columns).
 
 ## Building a contract
 
-A contract is a class, as `Struct.new` makes one. `IOStreams::Contract.new` builds one from a
-[Frictionless Table Schema](https://datapackage.org/standard/table-schema/), as a Hash, such as one saved as JSON with
-the code that depends on it:
+A contract is a class, as `Struct.new` makes one. Declare it as a subclass of `IOStreams::Contract`, with a `field` for
+each value that the program needs, in the order of its records, as `Order` above:
 
 ~~~ruby
-module Orders
-  CONTRACT = IOStreams::Contract.new(JSON.parse(File.read(Rails.root.join("config/contracts/orders.json"))))
+# An upload, whose columns may be in any order, with names that people typed, and columns that the code ignores.
+class Contact < IOStreams::Contract
+  fields_match "subset"
+
+  field :email,         :string,  required: true, aliases: ["E-mail Address"]
+  field :date_of_birth, :date,    aliases: ["DOB", "Birth Date"]
+  field :subscribed,    :boolean, true_values: ["Y"], false_values: ["N"]
 end
+
+IOStreams.path("upload.csv").as(Contact).each(:hash) do |contact|
+  p contact
+end
+# "E-mail Address,First Name,DOB,Subscribed\nj@x.com,Jack,2001-02-03,Y\n" =>
+# {"email" => "j@x.com", "date_of_birth" => #<Date: 2001-02-03 ((2451944j,0s,0n),+0s,2299161j)>, "subscribed" => true}
 ~~~
 
-Or declare its fields in a class of its own:
-
-~~~ruby
-class Order < IOStreams::Contract
-  fields_match "partial"
-
-  field :id,         :integer, required: true
-  field :amount,     :number,  decimals: 2
-  field :ordered_at, :datetime, aliases: ["created_at"]
-  field :zip,        :string
-end
-
-IOStreams.path(ENV.fetch("ORDERS_URL")).as(Order).each(:hash) do |order|
-  p order
-end
-~~~
-
-* `field` takes the name of the field in Ruby, its type, and the other properties of a field, see
-  [Field properties](formats#field-properties), as Ruby names them, such as `decimals:`, `aliases:`, `format:`,
-  `true_values:` or `allow_blank:`. `required: true` is `constraints: {required: true}`, and `name:` names the field in
-  its schema, such as `name: "Ordered At"`, when it differs from its name in Ruby.
+* `field` takes the name of the field in Ruby, its type, see [Types](formats#types), and the other properties of a
+  field, see [Field properties](formats#field-properties), as Ruby names them, such as `decimals:`, `aliases:`,
+  `format:`, `true_values:` or `allow_blank:`. `required: true` is `constraints: {required: true}`, and `name:` names
+  the field in its schema, such as `name: "Ordered At"`, when it differs from its name in Ruby.
 * `fields_match`, `key_type` and `extra_columns` set `fieldsMatch`, `keyType` and `extraColumns`, see
-  [Schema properties](formats#schema-properties).
+  [Schema properties](formats#schema-properties). Without `fields_match`, the columns of a source must be the fields,
+  in order.
 * A subclass of a contract starts with its fields.
-* `Order.to_h` is the contract as a Frictionless Table Schema, a Hash with Symbol keys, which `JSON.generate` writes as
-  the JSON file above, and `Order.fields` its fields.
+* `Order.fields` returns its fields, and `Order.to_h` the contract as a Frictionless Table Schema, see below.
+* A contract is a class of its own, so name it so that it does not clash with a class of the application, such as an
+  Active Record model of the same name: `OrderContract`, or `Imports::Order`.
 
-`#as` takes a contract, the Hash of one, or an `IOStreams::Schema`, which it builds with `IOStreams::Contract.new`.
+### Building a contract from a Hash
+
+A contract is also a [Frictionless Table Schema](https://datapackage.org/standard/table-schema/), the open standard
+that a schema follows too, so it can be kept as JSON, such as to share it with programs written in other languages.
+`IOStreams::Contract.new` builds a contract from its Hash, as `Struct.new` builds a class, and `Order.to_h` returns the
+Hash of a contract, with Symbol keys, which `JSON.pretty_generate` writes as such a file:
+
+~~~json
+{
+  "fieldsMatch": "partial",
+  "fields": [
+    {"name": "id",         "type": "integer",  "constraints": {"required": true}},
+    {"name": "amount",     "type": "number",   "decimals": 2},
+    {"name": "ordered_at", "type": "datetime", "aliases": ["created_at"]},
+    {"name": "zip",        "type": "string"}
+  ]
+}
+~~~
+
+~~~ruby
+Order = IOStreams::Contract.new(JSON.parse(File.read(Rails.root.join("config/contracts/orders.json"))))
+~~~
+
+This `Order` is the same contract as the class declared at the top of this page: the properties of the Hash are named
+as the [Schema properties](formats#schema-properties) and [Field properties](formats#field-properties) name them,
+such as `fieldsMatch` and `trueValues`. `#as` also takes the Hash itself, or an `IOStreams::Schema`, and builds the
+contract with `IOStreams::Contract.new`.
 
 ## Records of a contract
 
@@ -264,22 +288,19 @@ Ask a sample of the source for its types once, in development, review the draft,
 as its contract. IOStreams never guesses types while it reads, since a guess would change with the data: one file of a
 feed holds `007`, and the next `7`.
 
-`#infer_schema` without arguments returns the schema that the source declares, see
-[The schema of a source](formats#the-schema-of-a-source), which for CSV is a `string` field for each column.
 `#infer_schema(sample: 1_000)` drafts the types of a source that reports none, such as CSV, from the values of its first
-1,000 records:
+1,000 records, and `#to_dsl` writes the draft as the class of a contract, for a person to review and commit:
 
 ~~~ruby
-draft = IOStreams.path("samples/orders.csv").infer_schema(sample: 1_000)
-draft.to_h
-# {fieldsMatch: "subset", fields: [
-#   {name: "id",         type: "integer"},
-#   {name: "amount",     type: "number", decimals: 2},
-#   {name: "ordered_at", type: "datetime"},
-#   {name: "zip",        type: "string"}
-# ]}
-
-File.write("config/contracts/orders.json", JSON.pretty_generate(draft.to_contract.to_h))
+puts IOStreams.path("samples/orders.csv").infer_schema(sample: 1_000).to_dsl("Order")
+# class Order < IOStreams::Contract
+#   fields_match "subset"
+#
+#   field :id,         :integer
+#   field :amount,     :number,   decimals: 2
+#   field :ordered_at, :datetime
+#   field :zip,        :string
+# end
 ~~~
 
 * It reads the first `sample:` records, or every record with `sample: :all`. Any other value, such as `0`, a negative
@@ -298,26 +319,23 @@ File.write("config/contracts/orders.json", JSON.pretty_generate(draft.to_contrac
 * For a source that declares its types, such as Parquet or a query, it returns that schema, drafting only the type of a
   field of type `any`, such as a JSON column of a query, from its values.
 
-The draft is a schema: `#to_contract` returns its contract, without the `format` of a date, which describes how one file
-writes its text, and so stays in the schema of that file. A file of US dates is read with both: save the draft as the
-schema of the file too, and set it with `#schema` beside `#as`. `#to_dsl` writes the class of the contract instead, for
-a person to review and commit, with a comment for each `format` that it leaves to the schema of the file:
-
-~~~ruby
-puts IOStreams.path("samples/orders.csv").infer_schema(sample: 1_000).to_dsl("Order")
-# class Order < IOStreams::Contract
-#   fields_match "subset"
-#
-#   field :id,         :integer
-#   field :amount,     :number,   decimals: 2
-#   field :ordered_at, :datetime
-#   field :zip,        :string
-# end
-~~~
-
 The name of each field in Ruby is its name when that is a name of a method in Ruby, otherwise the name cleansed as a
 header row is, with `name:` its name in the schema, such as `field :ordered_at, :datetime, name: "Ordered At"`. A
 contract writes its own class the same way with `Order.to_dsl`.
+
+The draft is a schema, an `IOStreams::Schema`: `#to_contract` returns its contract, without the `format` of a date,
+which describes how one file writes its text, and so stays in the schema of that file, and `#to_dsl` writes a comment
+for each `format` that it leaves out. A file of US dates is read with both: save the draft as the schema of the file
+too, and set it with `#schema` beside `#as`. To keep the contract as JSON instead, save the Hash of its
+contract, see [Building a contract from a Hash](#building-a-contract-from-a-hash):
+
+~~~ruby
+draft = IOStreams.path("samples/orders.csv").infer_schema(sample: 1_000)
+File.write("config/contracts/orders.json", JSON.pretty_generate(draft.to_contract.to_h))
+~~~
+
+`#infer_schema` without arguments returns the schema that the source declares, without reading its values, see
+[The schema of a source](formats#the-schema-of-a-source), which for CSV is a `string` field for each column.
 
 ## A source that cannot describe itself
 
@@ -331,7 +349,7 @@ their names, as it meets the columns of any other source:
 #   production:  ORDERS_URL=s3://warehouse/orders.parquet
 source = IOStreams.path(ENV.fetch("ORDERS_URL")).schema(ENV["ORDERS_SCHEMA"])
 
-Orders.import(source)
+import_orders(source)
 ~~~
 
 where `orders_fixed.json` gives the position of each field, and how its text is written:

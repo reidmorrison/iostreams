@@ -96,7 +96,7 @@ end
 ~~~
 
 So a number is written with the digits that it has, such as `12.5`, rather than with the decimals of its column, unless
-the path has a schema.
+the path has a schema or a [contract](contracts).
 
 ## Reading the rows of a query
 
