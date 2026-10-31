@@ -42,7 +42,9 @@ class UpgradeWarningsOptionsTest < Minitest::Test
 
     describe "the options that a stream takes, in place of misspelled ones" do
       it "accepts the options of a stream that the file name does not include, which do not apply" do
-        path = IOStreams.path(dir, "data.csv").option(:pgp, recipient: "receiver@example.org").option(:gz, level: 9)
+        # 2.2 cannot write .xlsx, while 3.0 can, with the options of its writer, such as sheet_name:.
+        path = IOStreams.path(dir, "data.csv").option(:pgp, recipient: "receiver@example.org").option(:gz, level: 9).
+               option(:xlsx, sheet_name: "Data")
         path.write(csv)
 
         assert_equal csv, File.read(File.join(dir, "data.csv"))

@@ -363,6 +363,22 @@ module Paths
             IOStreams.path("s3://bucket", client: client)
           end
         end
+
+        it "checks nothing while deprecation warnings are off, since each child that #each_child yields is a new path" do
+          enabled = Warning[:deprecated]
+          Warning[:deprecated] = false
+          checked = ->(*) { flunk("checked while deprecation warnings are off") }
+          path    = IOStreams::Paths::S3.stub(:known_option_names, checked) do
+            IOStreams::Utils.stub(:display_text, checked) do
+              IOStreams.path("s3://bucket:9000/a?tagging=a#b.csv", client: client, acll: "public-read", region: "eu-west-1")
+            end
+          end
+
+          assert_equal "a", path.path
+          assert_equal({acll: "public-read", tagging: "a"}, path.options)
+        ensure
+          Warning[:deprecated] = enabled
+        end
       end
 
       describe "an option that no S3 request takes, or that the path sets itself, which v3.0 raises ArgumentError for" do

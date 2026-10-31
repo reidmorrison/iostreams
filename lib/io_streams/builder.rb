@@ -220,6 +220,17 @@ module IOStreams
       format && IOStreams::Tabular.parser_class(format).quote_character
     end
 
+    # Returns [Hash<Symbol, Array<Symbol>>] the settings of this stream that apply to what it writes, other than the
+    # options of each call: `streams:` the names of the streams of its pipeline, see #pipeline, which #stream, #option,
+    # #encoding and the file name set, and `tabular:` the names of those of its rows and records that were set: `:format`,
+    # when it was set, see #format=, rather than taken from the file name, and `:schema`, see #schema=.
+    def writer_settings
+      tabular = []
+      tabular << :format if format_set?
+      tabular << :schema unless schema.nil?
+      {streams: pipeline.keys, tabular: tabular}
+    end
+
     private
 
     # Sets the options of a stream that is applied once the file name extensions have been parsed, see #option.
@@ -274,26 +285,58 @@ module IOStreams
     # Reports a deprecation warning for each option of the stream that IOStreams 3.0 raises ArgumentError for when it is
     # set with #option, #stream or #option_or_stream, whether or not the file name includes the stream, so that it is
     # reported wherever the code runs, rather than only where a file name includes the stream: one that the reader or
-    # the writer of the stream replaces, with the option that replaces it, see `IOStreams::Extension#replaced_option_names`,
-    # and one that neither of them takes, such as a misspelled one, see `IOStreams::Extension#unknown_option_names`. An
-    # option of the other direction is not reported, since v3.0 accepts it, and ignores it, nor are the options of the
-    # encode stream, which is deprecated itself, see #warn_deprecated_stream, or of `:none`, which takes none.
+    # the writer of the stream replaces, with the option that replaces it, see
+    # `IOStreams::Deprecation::OptionNames#replaced_option_names`, and one that neither of them takes in IOStreams 3.0,
+    # such as a misspelled one, see #v3_option_names. An option of the other direction is not reported, since v3.0
+    # accepts it, and ignores it, nor are the options of the encode stream, which is deprecated itself, see
+    # #warn_deprecated_stream, or of `:none`, which takes none.
     def warn_deprecated_options(stream, options)
       return if options.empty? || %i[encode none].include?(stream)
 
-      extension = IOStreams.extensions[stream]
-      return unless extension
-
-      replaced = extension.replaced_option_names.slice(*options.keys)
+      classes  = v3_stream_classes(stream)
+      replaced = classes.each_with_object({}) do |klass, names|
+        names.merge!(klass.replaced_option_names) if klass.respond_to?(:replaced_option_names)
+      end.slice(*options.keys)
       replaced.each_pair { |name, replacement| Deprecation.warn("#{name}: is deprecated, use #{replacement}: instead") }
 
-      names = extension.unknown_option_names(options.keys - replaced.keys)
+      known = v3_option_names(classes)
+      names = known ? options.keys - replaced.keys - known : []
       return if names.empty?
 
-      them = names.size == 1 ? "it" : "them"
-      Deprecation.warn("#{names.map { |name| "#{name}:" }.join(', ')} #{names.size == 1 ? 'is' : 'are'} deprecated " \
-                       "for a #{stream.inspect} stream, since neither its reader nor its writer takes #{them}, so " \
-                       "correct or remove #{them}")
+      words = Deprecation::Words.new(names)
+      Deprecation.warn("#{words.keywords} #{words.are} deprecated for a #{stream.inspect} stream, since neither its " \
+                       "reader nor its writer takes #{words.them}, so correct or remove #{words.them}")
+    end
+
+    # Returns [Array<Class|Module>] the classes that read and write the stream in IOStreams 3.0, as far as they are
+    # known: the reader and the writer registered for it, and, in place of a writer that it does not have, the stand-in
+    # for the one that IOStreams 3.0 adds, when its reader names one, such as for `.xlsx`, see
+    # `IOStreams::Xlsx::Reader.v3_writer`. None when the stream is not registered.
+    def v3_stream_classes(stream)
+      extension = IOStreams.extensions[stream]
+      return [] unless extension
+
+      reader   = extension.reader_class
+      writer   = extension.writer_class
+      writer ||= reader.v3_writer if reader.respond_to?(:v3_writer)
+      [reader, writer].compact
+    end
+
+    # Returns [Array<Symbol>|nil] the options that IOStreams 3.0 accepts when they are set for a stream of the supplied
+    # classes, see #v3_stream_classes: those that its reader or its writer takes, or nil when they are not known, since
+    # a class does not declare them, as one that an application registers need not.
+    def v3_option_names(classes)
+      names = classes.map { |klass| v3_class_option_names(klass) }
+      names.flatten.uniq unless names.empty? || names.include?(nil)
+    end
+
+    # Returns [Array<Symbol>|nil] the options that the class takes in IOStreams 3.0, see
+    # `IOStreams::Deprecation::OptionNames#known_option_names`, or those that it declares when it does not answer them,
+    # as a class that an application registers need not, or nil when it does neither.
+    def v3_class_option_names(klass)
+      return klass.known_option_names if klass.respond_to?(:known_option_names)
+
+      klass.option_names if klass.respond_to?(:option_names)
     end
 
     # A file name ending in `.encode` is deprecated, since file names do not name the encode stream, see #encoding.
@@ -379,7 +422,26 @@ module IOStreams
     def open_stream(type, stream, io_stream, opts, &)
       klass = class_for_stream(type, stream)
       validate_options(type, stream, klass, opts)
-      klass.open(io_stream, **opts, &)
+      klass.open(io_stream, **taken_options(type, stream, klass, opts), &)
+    end
+
+    # Returns [Hash] the options of the stream that the class is opened with: all of them, unless the class takes any
+    # option, since it does not declare them, see #validate_options, while it answers those that it takes in IOStreams
+    # 3.0, as `IOStreams::Bzip2::Reader` does until v3.0, see #v3_class_option_names. It is then opened with those
+    # alone, and a warning is logged for each of the others, which it would ignore, see
+    # `IOStreams::Utils.warn_unknown_options`, naming the stream as it was set: one that the class of the other
+    # direction takes, which v3.0 accepts, and ignores, or one that neither takes, which v3.0 raises ArgumentError for.
+    def taken_options(type, stream, klass, opts)
+      known = v3_class_option_names(klass) if option_names(klass).nil?
+      return opts if known.nil?
+
+      unknown = opts.except(*known)
+      return opts if unknown.empty?
+
+      other       = IOStreams.extensions[stream].public_send(type == :reader ? :writer_class : :reader_class)
+      other_names = (v3_class_option_names(other) if other) || []
+      Utils.warn_unknown_options(unknown, stream, type, known, other_names)
+      opts.slice(*known)
     end
 
     # Options are strict: an option the stream does not accept raises instead of being ignored.

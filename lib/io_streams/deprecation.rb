@@ -13,6 +13,9 @@ module IOStreams
   # Each warning names the line of the application that used what is deprecated, rather than a line of IOStreams, of
   # Ruby itself, or of a gem that IOStreams called with a block, see .application_location.
   module Deprecation
+    autoload :OptionNames, "io_streams/deprecation/option_names"
+    autoload :Words,       "io_streams/deprecation/words"
+
     # The directory of the files of this library, whose lines are skipped when finding the line that used it.
     LIB_DIR = "#{__dir__}/".freeze
     private_constant :LIB_DIR

@@ -1,5 +1,8 @@
 module IOStreams
   class Writer
+    # Answers the names of the options that this writer takes in IOStreams 3.0, and those that it replaces.
+    extend Deprecation::OptionNames
+
     # Returns [Array<Symbol>] the names of the options this writer accepts,
     # or [nil] when the writer does not declare them.
     #
@@ -7,25 +10,6 @@ module IOStreams
     # naming the direction an option belongs to when it is only valid for the other direction.
     def self.option_names
       nil
-    end
-
-    # Returns [Array<Symbol>] the names of the options that this writer takes in IOStreams 3.0 too, or [nil] when
-    # they are not known, since it does not declare its options. `#option`, `#stream` and `#option_or_stream` report
-    # a deprecation warning for an option that neither the reader nor the writer of a stream knows, see
-    # `IOStreams::Extension#unknown_option_names`, since IOStreams 3.0 raises ArgumentError for it when it is set.
-    #
-    # By default the options that it declares, see .option_names, other than those that it replaces, see
-    # .replaced_option_names.
-    def self.known_option_names
-      names = option_names
-      names && (names - replaced_option_names.keys)
-    end
-
-    # Returns [Hash<Symbol, Symbol>] the deprecated options that this writer still takes, which IOStreams 3.0 does
-    # not, with the option that replaces each, which `#option`, `#stream` and `#option_or_stream` name in their
-    # deprecation warning, see `IOStreams::Extension#replaced_option_names`. None by default.
-    def self.replaced_option_names
-      {}
     end
 
     # Returns [Array<Symbol>] the names of the options whose values must not be displayed, such as a passphrase,

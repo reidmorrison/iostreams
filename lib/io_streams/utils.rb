@@ -87,19 +87,19 @@ module IOStreams
       raise(LoadError, "Please install the gem '#{gem_name}' to support #{stream_type}. #{e.message}")
     end
 
-    # Log a warning for options that a stream ignores when reading (type: :reader) or writing (:writer): those that it
-    # takes in the other direction, which v3.0 also accepts, and ignores, and those that it takes in neither, which
-    # v3.0 raises `ArgumentError` for. The extension registered for the stream says which options either direction
-    # takes, see `IOStreams::Extension#known_option_names`, and when it cannot, every option is taken as one of neither.
+    # Log a warning for options that a stream ignores when reading (type: :reader) or writing (:writer): those that the
+    # class of the other direction takes, other_names, which v3.0 also accepts, and ignores, and the others, which v3.0
+    # raises `ArgumentError` for. A path supplies other_names, and the stream as it was set, see
+    # `IOStreams::Builder#taken_options`; without them, as when a class is opened directly, each option is one that
+    # v3.0 raises for, since its class takes only its own options.
     #
     # Those of neither direction are deprecated, and report a deprecation warning when they are set, see
     # `IOStreams::Builder#option`.
-    def self.warn_unknown_options(unknown, stream, type, valid)
+    def self.warn_unknown_options(unknown, stream, type, valid, other_names = [])
       return if unknown.empty?
 
-      known     = IOStreams.extensions[stream]&.known_option_names
-      neither   = known ? unknown.keys - known : unknown.keys
-      other     = unknown.keys - neither
+      other     = unknown.keys & other_names
+      neither   = unknown.keys - other
       direction = type == :reader ? "reading" : "writing"
       unless other.empty?
         IOStreams.logger&.warn(

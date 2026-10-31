@@ -182,14 +182,15 @@ module IOStreams
           @client_options[:region]            = region if region
         end
 
-        option_names = args.keys
-        @options     = args
-        @options.merge!(uri.query.transform_keys(&:to_sym)) if uri.query
+        @options = uri.query ? args.merge(uri.query.transform_keys(&:to_sym)) : args
 
         super(key)
+        # Each child that #each_child yields is a new path too, so nothing is checked while deprecation warnings are off.
+        return unless Warning[:deprecated]
+
         warn_unusable_url(uri)
         warn_client_arguments(client, access_key_id: access_key_id, secret_access_key: secret_access_key, region: region)
-        warn_unusable_options(option_names)
+        warn_unusable_options(args.keys) unless args.empty?
         warn_unusable_query(uri.query) if uri.query
       end
 
@@ -399,25 +400,32 @@ module IOStreams
       # code runs: a url without a bucket, a fragment, which an unencoded `#` starts, and which is not part of the key, a
       # port, and a user name or password, which are ignored.
       def warn_unusable_url(uri)
-        url = "s3://#{bucket_name}/#{path}"
-        warn_url(url, "it names no bucket, name one, such as 's3://bucket/#{path}'") if bucket_name.to_s.empty?
+        warn_url("it names no bucket, name one, such as 's3://bucket/#{path}'") if bucket_name.to_s.empty?
         if uri.fragment
-          warn_url(url, "it has a fragment, which a '#' starts, and which is not part of the key, percent-encode a '#' " \
-                        "in a key as '%23'")
+          warn_url("it has a fragment, which a '#' starts, and which is not part of the key, percent-encode a '#' in a " \
+                   "key as '%23'")
         end
         if uri.port
-          warn_url(url, "its port is ignored, supply the endpoint of another service that implements the S3 API with " \
-                        "client: {endpoint: \"https://host:port\"}")
+          warn_url("its port is ignored, supply the endpoint of another service that implements the S3 API with " \
+                   "client: {endpoint: \"https://host:port\"}")
         end
         return unless uri.user || uri.password
 
-        warn_url(url, "its user name and password are ignored, supply the credentials with access_key_id: and " \
-                      "secret_access_key:")
+        warn_url("its user name and password are ignored, supply the credentials with access_key_id: and " \
+                 "secret_access_key:")
       end
 
-      # Reports that the S3 url is deprecated, since IOStreams 3.0 raises ArgumentError for it, for the supplied reason.
-      def warn_url(url, reason)
-        Deprecation.warn("the S3 url #{Utils.display_text(url).inspect} is deprecated, since #{reason}")
+      # Reports that the S3 url of this path is deprecated, since IOStreams 3.0 raises ArgumentError for it, for the
+      # supplied reason.
+      def warn_url(reason)
+        Deprecation.warn("the S3 url #{warning_url} is deprecated, since #{reason}")
+      end
+
+      # Returns [String] the url of this path as a deprecation warning names it, quoted: its bucket and its key, without
+      # the parts of the url that the path cannot use, such as a user name, and with an empty bucket kept, unlike #to_s,
+      # such as `"s3:///a.csv"`.
+      def warning_url
+        Utils.display_text("s3://#{bucket_name}/#{path}").inspect
       end
 
       # Reports a deprecation warning for the region and credentials supplied with an `Aws::S3::Client`, which ignores
@@ -428,10 +436,9 @@ module IOStreams
         names = arguments.compact.keys
         return if names.empty?
 
-        keywords = names.map { |name| "#{name}:" }.join(", ")
-        them     = names.size == 1 ? "it" : "them"
-        Deprecation.warn("#{keywords} #{names.size == 1 ? 'is' : 'are'} deprecated with an Aws::S3::Client as client:, " \
-                         "which ignores #{them}, since it has its own, supply #{them} to Aws::S3::Client.new instead, or " \
+        words = Deprecation::Words.new(names)
+        Deprecation.warn("#{words.keywords} #{words.are} deprecated with an Aws::S3::Client as client:, which ignores " \
+                         "#{words.them}, since it has its own, supply #{words.them} to Aws::S3::Client.new instead, or " \
                          "supply client: as a Hash of its options")
       end
 
@@ -440,8 +447,8 @@ module IOStreams
       # and one that no S3 request takes, such as a misspelled one, which the AWS SDK raises for once the path is used.
       def warn_unusable_options(names)
         unusable_option_names(names).each_pair do |set_by_path, unusable|
-          list = unusable.map { |name| name.is_a?(Symbol) ? "#{name}:" : name.inspect }.join(", ")
-          warn_unusable("the S3 #{unusable.size == 1 ? 'option' : 'options'} #{list}", unusable.size, set_by_path)
+          words = Deprecation::Words.new(unusable)
+          warn_unusable("the S3 #{words.one? ? 'option' : 'options'} #{words.keywords}", words, set_by_path)
         end
       end
 
@@ -450,12 +457,11 @@ module IOStreams
       # value is more likely part of a key, such as the `?` of `s3://bucket/data/file?.csv`, so the warning then also
       # says how to write a `?` in a key.
       def warn_unusable_query(query)
-        url = Utils.display_text("s3://#{bucket_name}/#{path}").inspect
         unusable_option_names(query.keys.map(&:to_sym)).each_pair do |set_by_path, unusable|
           names  = unusable.map(&:to_s)
+          words  = Deprecation::Words.new(names)
           encode = ", and percent-encode a '?' in a key as '%3F'" if names.any? { |name| query[name].to_s.empty? }
-          warn_unusable("#{names.map(&:inspect).join(', ')} in the query of the S3 url #{url}", names.size, set_by_path,
-                        encode)
+          warn_unusable("#{words.keywords} in the query of the S3 url #{warning_url}", words, set_by_path, encode)
         end
       end
 
@@ -467,17 +473,18 @@ module IOStreams
         {true => set_by_path, false => names - set_by_path - self.class.known_option_names}.reject { |_, list| list.empty? }
       end
 
-      # Reports that the options, which the subject names, are deprecated, since the path sets them itself, or since no
-      # S3 request takes them, followed by the supplied advice.
-      def warn_unusable(subject, count, set_by_path, advice = nil)
-        them   = count == 1 ? "it" : "them"
+      # Reports that the options, which the subject names, and the words are about, see `IOStreams::Deprecation::Words`,
+      # are deprecated, since the path sets them itself, or since no S3 request takes them, followed by the supplied
+      # advice.
+      def warn_unusable(subject, words, set_by_path, advice = nil)
+        them   = words.them
         reason =
           if set_by_path
             "the path sets #{them} itself, and overrides #{them}, so remove #{them}"
           else
             "no S3 request takes #{them}, so correct or remove #{them}"
           end
-        Deprecation.warn("#{subject} #{count == 1 ? 'is' : 'are'} deprecated, since #{reason}#{advice}")
+        Deprecation.warn("#{subject} #{words.are} deprecated, since #{reason}#{advice}")
       end
 
       # Yields the bucket name and each object in the bucket whose key starts with the supplied prefix.

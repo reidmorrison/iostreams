@@ -304,6 +304,28 @@ class DeprecationTest < Minitest::Test
         refute IOStreams::Deprecation.warning?("app.rb:12: warning: use IOStreams: instead\n")
       end
     end
+
+    describe IOStreams::Deprecation::Words do
+      it "words a message about one item" do
+        words = IOStreams::Deprecation::Words.new(%i[level])
+
+        assert_equal "level:", words.keywords
+        assert_predicate words, :one?
+        assert_equal ["is", "it", "it is"], [words.are, words.them, words.they_are]
+      end
+
+      it "words a message about more items" do
+        words = IOStreams::Deprecation::Words.new(%i[level compress])
+
+        assert_equal "level:, compress:", words.keywords
+        refute_predicate words, :one?
+        assert_equal ["are", "them", "they are"], [words.are, words.them, words.they_are]
+      end
+
+      it "shows an item that is not a Symbol as it is written, since it is not a keyword" do
+        assert_equal %("acl", level:), IOStreams::Deprecation::Words.new(["acl", :level]).keywords
+      end
+    end
   end
 
   describe DeprecationCheck do

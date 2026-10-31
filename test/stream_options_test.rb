@@ -138,9 +138,24 @@ class StreamOptionsTest < Minitest::Test
         end
       end
 
-      it "reports no deprecation warning for a stream that cannot be written, whose options when writing are not known" do
-        # IOStreams 3.0 also writes xlsx files, with options of their own, such as sheet_name:.
-        refute_deprecated { path("a.csv").option(:xlsx, sheet_name: "Sheet1") }
+      it "reports a deprecation warning for an option that neither the reader of .xlsx nor the writer that IOStreams 3.0 adds takes" do
+        line = __LINE__ + 2
+        assert_deprecated(/stream_options_test\.rb:#{line}: warning: IOStreams: bogus: is deprecated for a :xlsx stream, since neither its reader nor its writer takes it, so correct or remove it\n\z/) do
+          path("a.csv").option(:xlsx, bogus: 1)
+        end
+        assert_deprecated(/IOStreams: sheet: is deprecated for a :xlsm stream/) { path("a.csv").option(:xlsm, sheet: "Data", sheet_name: "Data") }
+      end
+
+      it "reports no deprecation warning for an option of the writer of .xlsx that IOStreams 3.0 adds, and still cannot write one" do
+        # IOStreams 3.0 also writes xlsx files, with options of their own, which an application can already set.
+        refute_deprecated do
+          path("a.csv").option(:xlsx, sheet_name: "Data", auto_format: true, use_shared_strings: true)
+          path("a.csv").option(:xlsm, sheet_name: "Data")
+        end
+
+        assert_nil IOStreams.extensions[:xlsx].writer_class
+        error = assert_raises(ArgumentError) { path("a.xlsx").option(:xlsx, sheet_name: "Data").write(data) }
+        assert_equal "No writer registered for Stream type: :xlsx", error.message
       end
 
       it "reports no deprecation warning for a registered stream that does not declare its options" do
@@ -229,6 +244,49 @@ class StreamOptionsTest < Minitest::Test
         refute_includes output, "v3.0"
       end
 
+      it "names the stream as it was set in the warnings that it logs, when it is registered under another name" do
+        bz2 = IOStreams.extensions[:bz2]
+        IOStreams.register_extension(:bzip2_test, bz2.reader_class, bz2.writer_class)
+        path("a.bzip2_test").write(data)
+        result = nil
+
+        output = assert_deprecated(/IOStreams: bogus: is deprecated for a :bzip2_test stream/) do
+          with_logger { result = path("a.bzip2_test").option(:bzip2_test, block_size: 1, bogus: 2).read }
+        end
+
+        assert_equal data, result
+        assert_includes output, "Ignoring :block_size when reading a :bzip2_test stream, since it only applies when writing."
+        assert_includes output, "Ignoring unknown option :bogus when reading a :bzip2_test stream. " \
+                                "Valid options: :autoclose, :first_only, :small. In v3.0 this will raise ArgumentError."
+        refute_includes output, ":bz2"
+      ensure
+        IOStreams.deregister_extension(:bzip2_test)
+      end
+
+      it "tells the options of the other direction by the classes registered for the stream that is read" do
+        writer = Class.new(IOStreams::Writer) { def self.option_names = %i[level] }
+        IOStreams.register_extension(:mixed_test, IOStreams.extensions[:bz2].reader_class, writer)
+        path("a.bz2").write(data)
+        FileUtils.cp(File.join(dir, "a.bz2"), File.join(dir, "a.mixed_test"))
+        result = nil
+
+        output = refute_deprecated { with_logger { result = path("a.mixed_test").option(:mixed_test, level: 9).read } }
+
+        assert_equal data, result
+        assert_includes output, "Ignoring :level when reading a :mixed_test stream, since it only applies when writing."
+        refute_includes output, "v3.0"
+      ensure
+        IOStreams.deregister_extension(:mixed_test)
+      end
+
+      it "logs a warning for an option supplied to its class directly, which v3.0 raises ArgumentError for" do
+        io     = StringIO.new("".b)
+        output = with_logger { IOStreams::Bzip2::Writer.stream(io, block_size: 1, first_only: true) { |bz| bz.write(data) } }
+
+        assert_includes output, "Ignoring unknown option :first_only when writing a :bz2 stream. " \
+                                "Valid options: :autoclose, :block_size, :work_factor. In v3.0 this will raise ArgumentError."
+      end
+
       def with_logger
         output   = StringIO.new
         original = IOStreams.logger
@@ -279,6 +337,16 @@ class StreamOptionsTest < Minitest::Test
             keywords = params.select { |kind, _| %i[key keyreq].include?(kind) }.map(&:last)
 
             assert_equal keywords.sort, klass.option_names.sort
+          end
+        end
+      end
+    end
+
+    describe "the extensions of IOStreams.extensions" do
+      it "answer no methods for the options of IOStreams 3.0, which the formats that IOStreams 3.0 returns do not have" do
+        IOStreams.extensions.each_value do |extension|
+          %i[known_option_names unknown_option_names replaced_option_names].each do |name|
+            refute_respond_to extension, name
           end
         end
       end

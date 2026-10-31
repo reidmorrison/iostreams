@@ -9,8 +9,9 @@ module IOStreams
       end
 
       # Returns [Array<Symbol>] the options that this class takes, which v3.0 declares as its `option_names`, see
-      # `IOStreams::Reader.known_option_names`, so that an option that neither it nor the reader takes is reported as
-      # deprecated when it is set, while one of the reader is not, since v3.0 accepts it, and ignores it.
+      # `IOStreams::Deprecation::OptionNames#known_option_names`, so that an option that neither it nor the reader takes
+      # is reported as deprecated when it is set, while one of the reader is not, since v3.0 accepts it, and ignores it,
+      # and so that a path opens it with these alone, and logs the others, see `IOStreams::Builder#taken_options`.
       def self.known_option_names
         OPTION_NAMES
       end

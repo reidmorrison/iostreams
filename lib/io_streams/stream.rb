@@ -696,15 +696,16 @@ module IOStreams
       names = args.keys & IOStreams::Tabular::Header::READ_OPTION_NAMES
       return if names.empty?
 
+      words  = Deprecation::Words.new(names)
       advice =
         if builder.schema.nil?
           "describe the columns that are written with #schema instead"
         else
-          "so remove #{names.size == 1 ? 'it' : 'them'}"
+          "so remove #{words.them}"
         end
-      Deprecation.warn("#{keywords(names)} #{names.size == 1 ? 'is' : 'are'} deprecated when writing, since " \
-                       "#{names.size == 1 ? 'it only applies' : 'they only apply'} when reading and " \
-                       "#{names.size == 1 ? 'is' : 'are'} ignored, #{advice}")
+      Deprecation.warn("#{words.keywords} #{words.are} deprecated when writing, since " \
+                       "#{words.one? ? 'it only applies' : 'they only apply'} when reading and #{words.are} ignored, " \
+                       "#{advice}")
     end
 
     # The column options of each call are deprecated, since a schema describes the columns of the file on its path, see
@@ -713,26 +714,24 @@ module IOStreams
     def warn_column_options(names)
       return if names.empty?
 
+      words  = Deprecation::Words.new(names)
       advice =
         if builder.schema.nil?
           "describe the columns of the file with #schema instead"
         else
-          "and #{names.size == 1 ? 'has' : 'have'} no effect with a schema, which describes the columns of the file, " \
-            "so remove #{names.size == 1 ? 'it' : 'them'}"
+          "and #{words.one? ? 'has' : 'have'} no effect with a schema, which describes the columns of the file, so " \
+            "remove #{words.them}"
         end
-      Deprecation.warn("#{keywords(names)} #{names.size == 1 ? 'is' : 'are'} deprecated, #{advice}")
+      Deprecation.warn("#{words.keywords} #{words.are} deprecated, #{advice}")
     end
 
     # Options that are ignored, such as those supplied to the `:stream` mode, are deprecated.
     def warn_ignored_options(names, where)
       return if names.empty?
 
-      Deprecation.warn("#{keywords(names)} #{names.size == 1 ? 'is' : 'are'} deprecated #{where}, which ignores " \
-                       "#{names.size == 1 ? 'it' : 'them'}, so remove #{names.size == 1 ? 'it' : 'them'}")
-    end
-
-    def keywords(names)
-      names.map { |name| "#{name}:" }.join(", ")
+      words = Deprecation::Words.new(names)
+      Deprecation.warn("#{words.keywords} #{words.are} deprecated #{where}, which ignores #{words.them}, so remove " \
+                       "#{words.them}")
     end
 
     def warn_embedded_within(embedded_within)
@@ -857,36 +856,36 @@ module IOStreams
     # accepts it, and raises ArgumentError for any other.
     def warn_supplied_writer_options(klass, args)
       names = args.reject { |name, value| name == :delimiter && value.nil? }.keys
-      warn_supplied_writer(klass, keywords(names), names.size) unless names.empty?
+      return if names.empty?
+
+      words = Deprecation::Words.new(names)
+      warn_supplied_writer(klass, words.keywords, words)
     end
 
     # Reports a deprecation warning for the settings of this stream that the supplied writer ignores, see
-    # #supplied_writer: the streams of its pipeline, which #stream, #option, #encoding and the file name set, and,
-    # unless the rows or records of this stream are written to it, which apply them, a format set with #format, rather
-    # than taken from the file name, and a schema.
+    # #supplied_writer, as the builder answers them, see `IOStreams::Builder#writer_settings`: the streams of its
+    # pipeline, and, unless the rows or records of this stream are written to it, which apply them, its format and
+    # schema.
     def warn_supplied_writer_settings(klass, rows)
-      streams = builder.pipeline.keys
+      settings = builder.writer_settings
+      streams  = settings[:streams]
       unless streams.empty?
-        list = streams.map(&:inspect).join(", ")
-        warn_supplied_writer(klass, "the #{streams.size == 1 ? 'stream' : 'streams'} #{list} that #stream, #option, " \
-                                    "#encoding or #file_name set", streams.size)
+        words = Deprecation::Words.new(streams)
+        warn_supplied_writer(klass, "the #{words.one? ? 'stream' : 'streams'} #{streams.map(&:inspect).join(', ')} " \
+                                    "that #stream, #option, #encoding or #file_name set", words)
       end
-      return if rows
+      return if rows || settings[:tabular].empty?
 
-      settings = []
-      settings << "#format" if builder.format_set?
-      settings << "#schema" unless builder.schema.nil?
-      warn_supplied_writer(klass, settings.join(" and "), settings.size) unless settings.empty?
+      names = settings[:tabular].map { |name| "##{name}" }
+      warn_supplied_writer(klass, names.join(" and "), Deprecation::Words.new(names))
     end
 
-    # Reports that what the subject names, of the supplied count, is deprecated for the supplied writer, which is
-    # already open, and ignores it.
-    def warn_supplied_writer(klass, subject, count)
-      them = count == 1 ? "it" : "them"
-      Deprecation.warn("#{subject} #{count == 1 ? 'is' : 'are'} deprecated for the #{klass.name} supplied to " \
-                       "IOStreams.stream, which is already open and writes with its own settings, so " \
-                       "#{count == 1 ? 'it is' : 'they are'} ignored: set #{them} where that writer is opened instead, " \
-                       "or remove #{them}")
+    # Reports that what the subject names, which the words are about, see `IOStreams::Deprecation::Words`, is deprecated
+    # for the supplied writer, which is already open, and ignores it.
+    def warn_supplied_writer(klass, subject, words)
+      Deprecation.warn("#{subject} #{words.are} deprecated for the #{klass.name} supplied to IOStreams.stream, which " \
+                       "is already open and writes with its own settings, so #{words.they_are} ignored: set " \
+                       "#{words.them} where that writer is opened instead, or remove #{words.them}")
     end
   end
 end

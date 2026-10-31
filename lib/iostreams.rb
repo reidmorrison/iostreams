@@ -55,7 +55,8 @@ module IOStreams
   end
 
   module Xlsx
-    autoload :Reader, "io_streams/xlsx/reader"
+    autoload :Reader,   "io_streams/xlsx/reader"
+    autoload :V3Writer, "io_streams/xlsx/v3_writer"
   end
 
   module Zip

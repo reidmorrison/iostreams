@@ -16,6 +16,12 @@ module IOStreams
         end
       end
 
+      # Returns [Module] the stand-in for the writer of the files that this class reads, which IOStreams 3.0 adds, and
+      # IOStreams 2.2 does not have, which answers the options that it takes, see `IOStreams::Xlsx::V3Writer`.
+      def self.v3_writer
+        V3Writer
+      end
+
       def initialize(file_name)
         begin
           require "creek" unless defined?(Creek::Book)
