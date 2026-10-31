@@ -781,10 +781,11 @@ module IOStreams
     end
 
     # Returns [Hash|String|IOStreams::Path|nil] the schema that a copy of the rows of this stream gives a target without
-    # one, see #copy_from, and #rows_schema. Protected, so that the target asks the source, and defined only here, so
-    # that a target of any class can ask a source of any class.
+    # one, see #copy_from, and #rows_schema, or nil when the rows are read through a contract, see #as, since they are
+    # then keyed and typed by the contract rather than by the schema of the source. Protected, so that the target asks
+    # the source, and defined only here, so that a target of any class can ask a source of any class.
     def copy_schema
-      rows_schema
+      rows_schema unless tabular_settings.contract
     end
 
     # Raises ArgumentError, before the target of a copy is opened, see #copy_target, when nothing names the columns of the
@@ -1191,7 +1192,7 @@ module IOStreams
     # Raises ArgumentError when nothing names the columns of the rows, such as for the `:text` format, see
     # `IOStreams::Tabular#check_records`. The tabular of a fixed width file raises itself without a schema.
     def declared_schema
-      tabular = self.tabular
+      tabular = self.tabular(contract: false)
       tabular.check_records
       reading_ahead do
         open_rows_reader(tabular, nil, nil) do |rows|
@@ -1294,7 +1295,7 @@ module IOStreams
 
       names  = options.compact.keys.map(&:inspect)
       names << "#stream, #option or #encoding" unless builder.pipeline.empty?
-      names << "#format or #schema" unless format_applies || !tabular_settings.described?
+      names << "#format, #schema or #as" unless format_applies || !tabular_settings.described?
       return true if names.empty?
 
       raise(ArgumentError, "#{names.join(', ')} cannot be applied to the #{klass.name} supplied to IOStreams.stream, " \

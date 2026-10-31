@@ -74,23 +74,30 @@ module IOStreams
       #     Default: the accessor as a String
       #
       #   required: [true|false]
-      #     Whether the field must have a column, and a value, see `constraints` in `IOStreams::Schema::Field`.
+      #     Whether the field must have a column, and a value, see `constraints` in `IOStreams::Schema::Field`, along
+      #     with any other `constraints:`.
       #     Default: false
       #
       #   The other properties of a field, see `IOStreams::Schema::Field`, as Ruby names them, such as `decimals:`,
-      #   `aliases:`, `format:`, `true_values:`, `float_number:` or `allow_blank:`.
+      #   `aliases:`, `format:`, `true_values:`, `float_number:`, `allow_blank:` or `constraints:`, whose own keys are
+      #   named so too, such as `{min_length: 5}`.
       #
-      # Raises ArgumentError for a field that is not valid, or that lays out a file, such as `width:`.
+      # Raises ArgumentError for a field that is not valid, or that lays out a file, such as `width:`, for `required:`
+      # other than true or false, and for `type:`, since the type is the second argument.
       def field(accessor, type = :any, name: accessor.to_s, required: false, **properties)
         raise(ArgumentError, "IOStreams::Contract has no fields: declare them in a subclass") if equal?(Contract)
         unless accessor.is_a?(Symbol)
           raise(ArgumentError, "The accessor of a field of a contract must be a Symbol: #{accessor.inspect}")
         end
+        unless [true, false].include?(required)
+          raise(ArgumentError, "required: of the field #{accessor.inspect} must be true or false: #{required.inspect}")
+        end
+        if properties.key?(:type)
+          raise(ArgumentError, "The type of the field #{accessor.inspect} is its second argument, such as " \
+                               "field #{accessor.inspect}, #{properties[:type].to_sym.inspect}")
+        end
 
-        field = {name: name, type: type.to_s}
-        properties.each { |property, value| field[property_name(property)] = value }
-        field[:constraints] = {required: true} if required
-        add_field(field)
+        add_field(field_descriptor(name, type, required, properties))
         accessor
       end
 
@@ -118,7 +125,11 @@ module IOStreams
       def schema
         return @schema if @schema
 
-        raise(ArgumentError, "IOStreams::Contract has no fields: subclass it, or build a contract with IOStreams::Contract.new(hash)")
+        if equal?(Contract)
+          raise(ArgumentError, "IOStreams::Contract has no fields: subclass it, or build a contract with IOStreams::Contract.new(hash)")
+        end
+
+        raise(ArgumentError, "The contract #{inspect} has no fields: declare them with field, such as field :id, :integer")
       end
 
       # Returns [Array<IOStreams::Schema::Field>] the fields of the contract, in order.
@@ -176,8 +187,20 @@ module IOStreams
         self.descriptor = descriptor
       end
 
+      # Returns [Hash] the descriptor of a field declared by .field, its properties named as the schema names them.
+      def field_descriptor(name, type, required, properties)
+        field = {name: name, type: type.to_s}
+        properties.each do |property, value|
+          value = value.transform_keys { |key| property_name(key) } if property == :constraints && value.is_a?(::Hash)
+          field[property_name(property)] = value
+        end
+        field[:constraints] = {**(field[:constraints] || {}), required: true} if required
+        field
+      end
+
       def set_property(property, value)
         raise(ArgumentError, "IOStreams::Contract has no fields: declare them in a subclass") if equal?(Contract)
+        raise(ArgumentError, "The #{property} of a contract cannot be nil") if value.nil?
 
         self.descriptor = (@descriptor || {fields: []}).merge(property => value)
         value

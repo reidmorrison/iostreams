@@ -226,6 +226,19 @@ class AsTest < Minitest::Test
           error = assert_raises(IOStreams::Errors::InvalidHeader) { read(text("0000012.50\n", "orders.fixed").schema(schema).as(Order)) }
           assert_includes error.message, 'missing the required field "id"'
         end
+
+        it "raises before the first row for a required field of the contract whose column the file does not have" do
+          schema = {fieldsMatch: "partial", fields: [{name: "ID", type: "integer"}, {name: "Amount", type: "number"}]}
+
+          %W[Amount\n2\n Amount\n].each do |csv|
+            error = assert_raises(IOStreams::Errors::InvalidHeader) { read(text(csv, "orders.csv").schema(schema).as(Order)) }
+            assert_includes error.message, 'missing the required field "id"'
+          end
+        end
+
+        it "infers the schema of the file, rather than the contract" do
+          assert_equal(%w[id name], text("ID,Name\n1,x\n", "orders.csv").as(Order).infer_schema.fields.map(&:name))
+        end
       end
     end
   end

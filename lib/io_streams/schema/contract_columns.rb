@@ -31,12 +31,14 @@ module IOStreams
         @renames  = nil
       end
 
-      # Matches the columns of a header row read to the fields of the file, then the keys of its records to the fields of
-      # the contract, see `IOStreams::Schema::Columns#match`.
+      # Matches the columns of a header row read to the fields of the file, then the keys of the fields of the file that
+      # it has to the fields of the contract, see `IOStreams::Schema::Columns#match`, so that a field that the contract
+      # requires, and the file does not have, raises before the first row.
       #
       # Returns [Array<String|Symbol>] the keys of the fields of the contract in the records read, see #names.
       def match(labels)
-        meet(@source.match(labels))
+        @source.match(labels)
+        meet(@source.found_names)
       end
 
       # Matches the columns of a file without a header row, which are the fields of its schema, in order, then the

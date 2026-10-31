@@ -568,6 +568,17 @@ class QueryStreamTest < Minitest::Test
           assert(records.all? { |record| record["total"].is_a?(BigDecimal) })
         end
 
+        it "copies the records of a contract to a target without a schema, rather than by the columns of the query" do
+          contract = IOStreams::Contract.new(
+            fieldsMatch: "partial",
+            fields:      [{name: "total", type: "number", decimals: 2, aliases: ["amount"]}, {name: "label", aliases: ["name"]}]
+          )
+          output = StringIO.new
+          IOStreams.stream(output).format(:csv).copy_from(IOStreams.stream(orders.select(:id, :name, :amount)).as(contract), mode: :hash)
+
+          assert_equal "total,label\n12.5,a\n3.0,b\n100.25,c\n", output.string
+        end
+
         it "raises before the first row for a required field of a contract that the query has no column for" do
           contract = IOStreams::Contract.new(fieldsMatch: "partial", fields: [{name: "zip", constraints: {required: true}}])
 

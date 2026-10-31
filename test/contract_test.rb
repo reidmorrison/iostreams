@@ -126,6 +126,23 @@ class ContractTest < Minitest::Test
         assert_raises(ArgumentError) { Class.new(IOStreams::Contract) { field "id", :integer } }
         assert_raises(ArgumentError) { Class.new(IOStreams::Contract) { field :id, :integer, colour: "red" } }
         assert_raises(ArgumentError) { Class.new(IOStreams::Contract) { fields_match "loose" } }
+        assert_raises(ArgumentError) { Class.new(IOStreams::Contract) { field :id, required: "no" } }
+        assert_raises(ArgumentError) { Class.new(IOStreams::Contract) { field :id, type: :integer } }
+        assert_raises(ArgumentError) { Class.new(IOStreams::Contract) { fields_match nil } }
+      end
+
+      it "keeps the other constraints of a required field, named as Ruby names them, which a field rejects unless supported" do
+        error = assert_raises(ArgumentError) do
+          Class.new(IOStreams::Contract) { field :id, :integer, required: true, constraints: {max_length: 5} }
+        end
+
+        assert_includes error.message, '"maxLength" is not supported'
+      end
+
+      it "names the subclass that has no fields" do
+        error = assert_raises(ArgumentError) { Class.new(IOStreams::Contract).schema }
+
+        assert_includes error.message, "has no fields: declare them with field"
       end
 
       it "raises for a field that lays out a file" do

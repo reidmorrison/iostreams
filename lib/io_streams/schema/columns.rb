@@ -171,6 +171,14 @@ module IOStreams
         names
       end
 
+      # Returns [Array<String|Symbol>] the keys of the fields that the columns of the file matched, see #names, without
+      # the fields that the file does not have, which the records read still have when every field is read, see #initialize.
+      def found_names
+        names = matched.filter_map { |_field, index, key| key.dup unless index.nil? }
+        @extra.each { |extra| names << extra.last.dup }
+        names
+      end
+
       # Returns [Array] the values of a row read, in the order of the columns, converted to the type of each field,
       # in the order of the fields, without the columns that the schema does not list, unless it keeps them, see
       # #extra_columns, whose values follow, as they are.

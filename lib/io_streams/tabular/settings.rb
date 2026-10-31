@@ -177,13 +177,19 @@ module IOStreams
       #     values instead, each of which passes through when it is of the type of its field, see
       #     `IOStreams::Schema::Field#cast`.
       #
+      #   contract: [true|false]
+      #     Whether the rows are read through the contract, when one is set, see #contract=, rather than as the source
+      #     declares them, see `IOStreams::Stream#infer_schema`.
+      #     Default: true
+      #
       #   The other options are those that the source of the rows supplies, see
       #   `IOStreams::Tabular::SOURCE_OPTION_NAMES`.
-      def tabular(file_name:, text_format:, default_schema: nil, **)
-        format = rows_format(file_name, text_format)
+      def tabular(file_name:, text_format:, default_schema: nil, contract: true, **)
+        format             = rows_format(file_name, text_format)
         row_format_options = (format && @row_options&.[](format.to_sym)) || {}
-        schema = file_schema || (default_schema unless @contract)
-        IOStreams::Tabular.new(file_name: file_name, format: format, schema: schema, contract: @contract&.schema,
+        meets              = (@contract if contract)
+        schema             = file_schema || (default_schema unless meets)
+        IOStreams::Tabular.new(file_name: file_name, format: format, schema: schema, contract: meets&.schema,
                                row_format_options: row_format_options, text_format: text_format, **)
       end
 

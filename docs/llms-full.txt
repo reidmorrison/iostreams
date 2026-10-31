@@ -3778,8 +3778,9 @@ end
 # CSV, JSON, Excel or Parquet, on local disk, S3 or SFTP, compressed or encrypted.
 Orders.import(IOStreams.path(ENV.fetch("ORDERS_URL")))
 
-# An Active Record query, whose created_at column the alias matches.
-Orders.import(IOStreams.stream(Order.where(paid: true)))
+# An Active Record query, of a model named Purchase here so that it is not the contract below, whose created_at
+# column the alias matches.
+Orders.import(IOStreams.stream(Purchase.where(paid: true)))
 ~~~
 
 Every one of them yields the same record:
@@ -3861,7 +3862,8 @@ end
 * `fields_match`, `key_type` and `extra_columns` set `fieldsMatch`, `keyType` and `extraColumns`, see
   [Schema properties](formats#schema-properties).
 * A subclass of a contract starts with its fields.
-* `Order.to_h` is the Frictionless Hash of the contract, the same as the JSON file, and `Order.fields` its fields.
+* `Order.to_h` is the contract as a Frictionless Table Schema, a Hash with Symbol keys, which `JSON.generate` writes as
+  the JSON file above, and `Order.fields` its fields.
 
 `#as` takes a contract, the Hash of one, or an `IOStreams::Schema`, which it builds with `IOStreams::Contract.new`.
 
