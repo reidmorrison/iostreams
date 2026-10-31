@@ -10,6 +10,11 @@ module IOStreams
         []
       end
 
+      # Returns [Array<Symbol>] the arguments of the rows that a stream reads, see .file, which are not options.
+      def self.argument_names
+        %i[rows decimals]
+      end
+
       # Returns [Array<Symbol>] the options of the writer that reading raises for: `sheet_name`, since a caller could
       # expect it to read that worksheet, which it does not, since it reads the first. The other options of the writer
       # are ignored, since the workbook records them.
@@ -31,15 +36,19 @@ module IOStreams
         true
       end
 
-      # Convert a xlsx, or xlsm file into CSV format.
+      # Convert a xlsx, or xlsm file into CSV format, or with `rows: true`, see `IOStreams::Xlsx.rows_format`, yield the
+      # rows of its first worksheet, each an Array of the value of each of its cells, typed by Excel, see
+      # `IOStreams::Xlsx::Cells`.
       #
       # Raises the exception of creek, tagged as `IOStreams::Errors::Corrupt`, for a file that is not a spreadsheet, see
       # .failure_kind, and `IOStreams::Errors::StreamFailure`, tagged the same way, for a part of the spreadsheet that is
       # damaged, see .verify, naming the spreadsheet by its `display_name`, see .takes_display_name?, otherwise by the name
       # of the local file.
-      def self.file(file_name, display_name: nil, &block)
+      def self.file(file_name, display_name: nil, rows: false, decimals: nil, &block)
         name = display_name || file_name
         verify(file_name, name)
+        return yield(Rows.new(file_name, name, decimals: decimals)) if rows
+
         # Stream into a temp file as csv
         Utils.private_temp_file("iostreams_csv", purpose: "the rows of the spreadsheet as CSV") do |temp_file_name|
           ::File.open(temp_file_name, "wb") do |io|
@@ -86,6 +95,86 @@ module IOStreams
       def each
         @worksheet.rows.each { |row| yield(row.values.map { |value| self.class.cell_text(value) }) }
       end
+
+      # The rows of the first worksheet of a workbook, each an Array of the value of each of its cells, typed by Excel's own
+      # cell type and number format, see `IOStreams::Xlsx::Cells`, rather than by creek, which only reads them.
+      class Rows
+        include Enumerable
+
+        # The most significant digits that Excel displays of a number, which a number of a column that keeps its digits
+        # has, see #initialize.
+        DISPLAYED_DIGITS = 15
+
+        # Parameters:
+        #   decimals: [#call|nil]
+        #     Answers whether the column of the supplied label of the header row keeps the digits of its numbers, such as
+        #     that of a `number` field, rather than the Float that Excel holds, so that each number of the column is the
+        #     BigDecimal of the digits that Excel displays, such as `0.3` for the Float `0.30000000000000004`. The stream
+        #     supplies it for its schema or contract, which the reader never sees, as JSON keeps the digits of its numbers.
+        #     Default: nil, every number is a Float.
+        def initialize(file_name, display_name, decimals: nil)
+          @file_name    = file_name
+          @display_name = display_name
+          @decimals     = decimals
+        end
+
+        # Yields [Array] each row, as an Array of the values of its cells, from the first, the header row of a worksheet
+        # with one, see `IOStreams::Tabular`, and the empty cells before a cell that holds a value as nil.
+        #
+        # Raises the exception of creek, tagged as `IOStreams::Errors::Corrupt`, for a worksheet that it cannot read, see
+        # `IOStreams::Xlsx::Reader.failure_kind`.
+        def each
+          return enum_for(:each) unless block_given?
+
+          sheet   = Reader.tag_failure(@display_name) { Reader.new(@file_name).worksheet }
+          formats = Reader.tag_failure(@display_name) { Cells.number_formats(Creek::Styles.new(sheet.book).styles_xml) }
+          sheet.define_singleton_method(:convert) do |text, type, style_index|
+            Cells.value(text, type, formats[style_index.to_i], converter_options)
+          end
+          indexes = nil
+          each_row(sheet) do |row|
+            if @decimals && indexes.nil?
+              indexes = row.each_index.select { |index| @decimals.call(row[index]) }
+            elsif indexes && !indexes.empty?
+              indexes.each { |index| row[index] = displayed(row[index]) }
+            end
+            yield(row)
+          end
+        end
+
+        private
+
+        # Returns [BigDecimal|Object] the digits of a Float that Excel displays, its most significant 15, or any other
+        # value as it is.
+        def displayed(value)
+          return value unless value.is_a?(Float) && value.finite?
+
+          require "bigdecimal"
+          number = BigDecimal(value.to_s)
+          number.zero? ? number : number.round(DISPLAYED_DIGITS - number.exponent)
+        end
+
+        # Yields the values of each row of the worksheet, tagging a failure of creek as `.failure_kind` says, but not one
+        # that the block raises, which creek raises as it is, as it calls the block while it reads the worksheet.
+        def each_row(sheet)
+          in_block = false
+          sheet.rows.each do |row|
+            in_block = true
+            yield(row.values)
+            # Not reset in an ensure, which would clear it before the exception that the block raised reaches the rescue.
+            in_block = false
+          end
+          nil
+        rescue StandardError => e
+          raise if in_block
+
+          kind = Reader.failure_kind(e)
+          raise(kind ? kind.tag(e, @display_name) : e)
+        end
+      end
+
+      # Returns [Creek::Sheet] the first worksheet of the workbook, which #each reads.
+      attr_reader :worksheet
 
       # Returns [String|nil] the text of the value of a cell, as a field of type "any" writes it, see
       # `IOStreams::Schema::Field.any_text`, so that a field of type date or datetime can read it: a Date in ISO 8601,

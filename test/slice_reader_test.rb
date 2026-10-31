@@ -106,10 +106,10 @@ class SliceReaderTest < Minitest::Test
         assert_equal([[nil, 3]], list.last.each.map { |_row, line, record| [line, record] })
       end
 
-      it "gives the rows of a spreadsheet no line, since the lines of the CSV text that it is read as are not its rows" do
+      it "gives the rows of a spreadsheet, the values of its cells, no line, since a spreadsheet has no lines" do
         list = slices(IOStreams.path(File.join(__dir__, "files", "multiline_cell.xlsx")), size: 5)
 
-        assert_equal [[%(data 1,data 2,"more\ndata"), nil, 1]], list.first.each.to_a
+        assert_equal [[["data 1", "data 2", "more\ndata"], nil, 1]], list.first.each.to_a
       end
 
       it "gives the rows of a compressed file their lines, which are those of the file" do

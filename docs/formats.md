@@ -254,33 +254,55 @@ end
 
 ## Excel spreadsheets
 
-A spreadsheet is read as CSV, one line for each row of its first worksheet, so the `:line`, `:array` and `:hash` modes
-apply, and a [schema](#schema) can give the type of each column. The `:text` format reads the CSV text of each row as it
-is, see [Text](#text):
+The rows and records of a spreadsheet are the values of the cells of its first worksheet, each as Excel typed it, so
+that a number is a number and a date is a date, while its lines, and its bytes, are its CSV text, one line for each row,
+so the `:line` mode and a copy without a mode read that text. The `:text` format reads the CSV text of each row as it
+is, see [Text](#text). Reading needs the `creek` gem.
 
 ~~~ruby
-IOStreams.path("spreadsheet.xlsx").each(:hash) do |record|
-  p record
+IOStreams.path("orders.xlsx").each(:hash) do |order|
+  p order
+end
+# {"id" => 1001.0, "amount" => 12.5, "ordered_at" => 2026-10-25 09:30:00 UTC, "shipped_on" => #<Date: 2026-10-25>,
+#  "zip" => "01234", "paid" => true}
+~~~
+
+IOStreams types each cell from Excel's own cell type and number format, rather than as the gem that reads the workbook
+does:
+
+| Excel cell | Ruby value |
+|------------|------------|
+| Text | a `String`, keeping the zero of `01234` |
+| A number, without a date format | a `Float`, as Excel holds it, such as `1001.0` |
+| A number of a date format, such as `yyyy-mm-dd` | a `Date` |
+| A number of a date and time format | a `Time` in UTC, with the time of the clock of the cell, since Excel has no time zone |
+| A number of a time format, such as `h:mm` | a time of day, a `Time` on 2000-01-01 in UTC |
+| A boolean | `true` or `false` |
+| An empty cell, or an error, such as `#N/A` | `nil` |
+| A formula | its cached value, typed as above |
+
+A whole number is a `Float`, such as `1001.0`: an `integer` field of a [schema](#schema) or [contract](contracts)
+converts it, and raises for `1001.5`. A `number` field reads the digits that Excel displays, its 15 most significant,
+such as `0.3` rather than the `Float` `0.30000000000000004`. The lines of the spreadsheet are the text of each cell: a
+date as `2026-01-02T00:00:00Z`, a time as `2026-01-02T09:30:00Z`, and a number as `1.0` or `12.5`.
+
+The rows that `each(:slice)` reads are the values of the cells, in the `:array` format, and `slice.to_h` holds each
+`Date` and `Time` as its ISO 8601 text, which a schema or contract reads back. A `delimiter:` raises `ArgumentError` for
+the rows and records, which are cells rather than lines.
+
+Writing writes a workbook with one worksheet, with the `xlsxtream` gem. The rows and records are written as the types
+of their values, by the fields of a schema or contract when there is one, so that a number is a number cell, a `Date` a
+date, a `Time` a date and time, and text, such as `"01234"`, is text. A `BigDecimal` is written as the `Float` that Excel
+holds, and a `Hash` or an `Array` as its JSON:
+
+~~~ruby
+IOStreams.path("report.xlsx").as(Orders::CONTRACT).writer(:hash) do |io|
+  io << {"id" => 1001, "amount" => BigDecimal("12.5"), "ordered_at" => Time.utc(2026, 10, 25, 9, 30), "zip" => "01234"}
 end
 ~~~
 
-Each cell is read as its text: a date as `2026-01-02`, a time as its time of day in UTC, such as
-`2026-01-02T09:30:00Z`, since Excel holds a time without a time zone, and a number as Excel stores it, as a decimal,
-such as `1.0` or `12.5`, which an `integer` field reads as `1`. A date in a custom number format, such as one written
-with `auto_format: true`, reads as a time, such as `2026-01-02T00:00:00Z`, which a `date` field does not read: only
-Excel's built-in date formats read as a date. Reading needs the `creek` gem.
-
-Writing writes the CSV text of each row into the cells of a workbook with one worksheet, with the `xlsxtream` gem:
-
-~~~ruby
-IOStreams.path("report.xlsx").writer(:hash) do |io|
-  io << {"name" => "Jack", "zip" => "01234"}
-  io << {"name" => "Jill", "zip" => "98101"}
-end
-~~~
-
-Every cell is written as text by default, so that reading the spreadsheet returns the same values, such as the leading
-zero of `"01234"`, with these exceptions:
+Lines of CSV text, written with `writer(:line)` or copied without a mode, are written as text, one cell for each value.
+Reading the spreadsheet returns the same values, such as the leading zero of `"01234"`, with these exceptions:
 
 * Empty cells at the end of a row are not stored, so they read back as missing values, which are nil, as for CSV.
 * A row of only empty cells reads back as an empty line, which `each(:array)` and `each(:hash)` yield as nil.
@@ -291,7 +313,7 @@ The writer accepts these options:
 | Option | Default | Description |
 |--------|---------|-------------|
 | `sheet_name` | `"Sheet1"` | The name of the worksheet: 1 to 31 characters, without any of `[ ] : * ? / \`, and not starting or ending with an apostrophe, as Excel requires. Any other name raises `ArgumentError` before the file is opened. |
-| `auto_format` | `false` | Write values that look like numbers, dates, times or booleans, such as `"1.5"`, `"2026-10-09"` or `"true"`, as Excel numbers, dates and booleans. Such values may then read back differently, such as `"01234"` as `"1234.0"`. |
+| `auto_format` | `false` | Write text that looks like a number, date, time or boolean, such as `"1.5"`, `"2026-10-09"` or `"true"`, as an Excel number, date or boolean. Only the text of a column whose type is not known is written so: a field of type `any`, a file without a schema, or a line of CSV text, while the text of a `string` field stays text. Such text may then read back differently, such as `"01234"` as `1234.0`. |
 | `use_shared_strings` | `false` | Store each distinct value once, which makes the workbook smaller when values repeat, but holds every distinct value in memory until the workbook is complete. |
 
 ~~~ruby
@@ -306,8 +328,8 @@ Notes:
 * Reading ignores `auto_format` and `use_shared_strings`, since the workbook records them, and raises for `sheet_name`,
   since it always reads the first worksheet.
 * Reading a spreadsheet needs a local file, so one stored elsewhere, or within another stream, is copied into a temp
-  file first, and its rows are converted into CSV in a second temp file, since the `creek` gem returns them to a
-  block. Writing streams the workbook, without a temp file, see [When temp files are used](config#when-temp-files-are-used).
+  file first. Its lines, and its bytes, are converted into CSV in a second temp file, since the `creek` gem returns them
+  to a block, while its rows and records are read straight from the workbook. Writing streams the workbook, without a temp file, see [When temp files are used](config#when-temp-files-are-used).
 * On JRuby, `creek` reads a value that holds a line break only up to the line break, unless the workbook was written
   with `use_shared_strings: true`, as Excel does.
 

@@ -60,6 +60,15 @@ module IOStreams
       nil
     end
 
+    # Returns [Symbol|nil] the tabular format of the rows that this format reads and writes itself, rather than as the
+    # text of its #text_format, when it is the stream closest to the application and the rows and records of the stream
+    # are read or written, such as `:array` for a spreadsheet, whose cells hold typed values, see
+    # `IOStreams::Builder#rows_format`. Its reader and writer then take `rows: true`, and yield rows rather than text.
+    # Returns nil for a format that only reads and writes bytes.
+    def rows_format
+      nil
+    end
+
     # Returns [Array<Symbol>] the options whose values must not be displayed, such as a passphrase, as declared
     # by the reader and the writer with `sensitive_option_names`.
     def sensitive_option_names

@@ -102,9 +102,9 @@ class InferSchemaTest < Minitest::Test
         assert_equal [], fields(text("\n", "orders.json"))
       end
 
-      it "names the fields of a spreadsheet by its header row, as text, which it reads its cells as" do
-        assert_equal [{name: "first_column", type: "string"}, {name: "second_column", type: "string"},
-                      {name: "third_column", type: "string"}], fields(IOStreams.path(File.join(__dir__, "files", "spreadsheet.xlsx")))
+      it "names the fields of a spreadsheet by its header row, of type any, since each cell has its own type" do
+        assert_equal [{name: "first_column", type: "any"}, {name: "second_column", type: "any"},
+                      {name: "third_column", type: "any"}], fields(IOStreams.path(File.join(__dir__, "files", "spreadsheet.xlsx")))
       end
 
       it "names the fields of a slice by its header row" do

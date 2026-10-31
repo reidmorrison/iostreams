@@ -1,11 +1,14 @@
 # frozen_string_literal: true
 
 module IOStreams
-  # Excel workbooks, which are read and written as CSV.
+  # Excel workbooks, whose bytes and lines are read and written as CSV, and whose rows and records are the values of
+  # their cells, typed by Excel, see `IOStreams::Xlsx::Cells`.
   module Xlsx
     extend StreamFormat
 
+    autoload :Cells,  "io_streams/xlsx/cells"
     autoload :Reader, "io_streams/xlsx/reader"
+    autoload :RowsWriter, "io_streams/xlsx/rows_writer"
     autoload :Writer, "io_streams/xlsx/writer"
 
     # Returns [Class] the class that reads a workbook.
@@ -32,6 +35,13 @@ module IOStreams
     # for each row of its worksheet, see `IOStreams::StreamFormat#text_format`.
     def self.text_format
       :csv
+    end
+
+    # Returns [Symbol] the tabular format of the rows that a workbook is read and written as, when the rows and records
+    # of a stream are read or written, rather than its lines: `:array`, an Array of the value of each cell of a row,
+    # typed by Excel, see `IOStreams::Xlsx::Cells`, rather than as text, see `IOStreams::StreamFormat#rows_format`.
+    def self.rows_format
+      :array
     end
   end
 end

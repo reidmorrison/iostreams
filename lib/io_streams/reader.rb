@@ -27,6 +27,13 @@ module IOStreams
       end
     end
 
+    # Returns [Array<Symbol>] the names of the arguments that a stream supplies to this reader, rather than a caller, such as
+    # `rows:` of a format that reads and writes rows itself, see `IOStreams::StreamFormat#rows_format`, which are not
+    # options, so that a call cannot supply them. None by default.
+    def self.argument_names
+      []
+    end
+
     # Returns [Array<Symbol>] the names of the options this reader accepts,
     # or [nil] when the reader does not declare them.
     #

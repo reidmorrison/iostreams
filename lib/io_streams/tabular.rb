@@ -398,6 +398,24 @@ module IOStreams
       @mapping.value_errors(line)
     end
 
+    # Returns [true|false] whether the column of the supplied label of a header row is that of a field that keeps every
+    # digit of its numbers, see `IOStreams::Schema::Field#decimal?`, so that a source that holds its numbers as Floats,
+    # such as a spreadsheet, keeps the digits of that column, see `IOStreams::Xlsx::Reader::Rows`, as JSON does.
+    def decimal_column?(label)
+      @schema&.field_for(label)&.decimal? || false
+    rescue IOStreams::Errors::InvalidHeader
+      false
+    end
+
+    # Returns [Array<Integer>] the positions of the values of the rows rendered whose field is a `string`, which a
+    # format that writes the values themselves, such as a spreadsheet, keeps as text, see
+    # `IOStreams::Xlsx::RowsWriter`, or none without a schema, whose values have no type.
+    def text_columns
+      return [] unless @schema
+
+      @schema.fields.reject(&:skip?).each_index.select { |index| @schema.fields.reject(&:skip?)[index].type == "string" }
+    end
+
     # Raises `IOStreams::Errors::IncompatibleType` for a column of the schema that the block returns, which a source
     # declares when it is opened, such as a Parquet file, whose type can never be that of its field of the contract that
     # its rows are read through, without a schema, see `IOStreams::Schema#check_types`. The block is called only then,

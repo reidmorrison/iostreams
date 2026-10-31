@@ -37,6 +37,7 @@ Start with the changes that apply to your application:
 | Reads or writes fixed width files | [Fixed width files are read and written as ASCII](#fixed-width-files-are-read-and-written-as-ascii) |
 | Sets the layout of a fixed width file with `#format_options` | [`#format_options` is replaced by `#schema`](#format_options-is-replaced-by-schema) |
 | Uses `columns:`, `allowed_columns:`, `required_columns:`, `skip_unknown:` or `cleanse_header:`, or sets `IOStreams.enforce_column_restrictions` | [The column options of each call are removed](#the-column-options-of-each-call-are-removed) |
+| Reads or writes Excel spreadsheets in the `:array` or `:hash` mode | [Rows of a spreadsheet are the values of its cells](#rows-of-a-spreadsheet-are-the-values-of-its-cells) |
 | Reads or writes a `Time` or `DateTime`, such as of a spreadsheet or a query, through a `date` field of a schema | [A date field takes a time only at midnight](#a-date-field-takes-a-time-only-at-midnight) |
 | Reads JSON, fixed width or Parquet files with `each(:array)` or `reader(:array)`, or uploads them to Rocket Job in its `:array` mode | [Rows of JSON, fixed width and Parquet files are Arrays](#rows-of-json-fixed-width-and-parquet-files-are-arrays) |
 | Reads rows or records that can be blank, such as CSV exports with lines of only commas, or JSON records of only nulls | [Blank rows are the same in every format](#blank-rows-are-the-same-in-every-format) |
@@ -807,6 +808,20 @@ file splits the lines of its rows and records, since its parser must agree with 
 the lines where CSV does not. It is still the way to choose the lines that `each(:line)` returns.
 
 Fix: set the format of the file with `#format`, such as `format(:psv)` for a pipe-delimited file named `.csv`.
+
+#### Rows of a spreadsheet are the values of its cells
+
+`each(:array)`, `each(:hash)` and `each(:slice)` of a spreadsheet return the value of each cell as Excel typed it, rather
+than its text: a number is a `Float`, such as `1001.0` where it was `"1001.0"`, a cell of a date format a `Date`, of a
+date and time format a `Time` in UTC, a boolean `true` or `false`, and an error, such as `#N/A`, `nil`, while text, such
+as `"01234"`, is still a `String`. Its lines, `each(:line)`, and a copy into a CSV file without a mode, are still its CSV
+text. Writing rows and records to a spreadsheet writes each value as its type, so `1001` is a number cell, where it was
+the text `"1001"`, and `auto_format` only converts the text of a column whose type is not known.
+
+Give the columns that the code reads a schema or a [contract](contracts), whose fields convert each value to their
+types, such as `{name: "id", type: "integer"}` for `1001.0`, or `{name: "zip", type: "string"}` for text. Remove a
+`delimiter:` supplied to `writer(:array)` or `writer(:hash)` of a spreadsheet, which now raises `ArgumentError`, since
+its rows are cells rather than lines.
 
 #### A date field takes a time only at midnight
 

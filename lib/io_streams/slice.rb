@@ -516,7 +516,7 @@ module IOStreams
     #   # => {"rows" => ["Jack,21", "Jill,\"line one\nline two\"", "Joe,23"], "header" => ["Name", "NOTE"],
     #   #     "format" => "csv", "line_number" => 2, "record_number" => 1, "jumps" => [[2, 5, 3]]}
     def to_h
-      hash = {"rows" => schema ? dumped_rows : @rows.dup, "header" => header, "format" => format&.to_s}
+      hash = {"rows" => stored_rows, "header" => header, "format" => format&.to_s}
       hash["blank_rows"]    = false unless blank_rows?
       hash["schema"]        = Utils.string_keys(schema.to_h) if schema
       hash["line_number"]   = line_number if line_number
@@ -668,6 +668,17 @@ module IOStreams
 
       raise(ArgumentError, "A slice of the #{format.inspect} format cannot have a schema, since its rows are text: only " \
                            "the rows of a format whose rows hold the values themselves, such as :hash or :array, can")
+    end
+
+    # Returns [Array] the rows as #to_h holds them: of a slice with a schema, each value in a form that JSON keeps, see
+    # #dumped_rows, of a slice of values without one, such as the cells of a spreadsheet, each BigDecimal, Date and Time
+    # as its text, see `IOStreams::Schema::Field.any_json`, which a contract reads back, and of a slice of lines, as
+    # they are.
+    def stored_rows
+      return dumped_rows if schema
+      return @rows.dup unless IOStreams::Tabular.renders_values?(format)
+
+      @rows.map { |row| map_values(row, Hash.new(true)) { |_field, value| IOStreams::Schema::Field.any_json(value) } }
     end
 
     # Returns [Array] the rows of a slice with a schema, each value in a form that JSON keeps, see

@@ -2,6 +2,13 @@
 
 module IOStreams
   class Writer
+    # Returns [Array<Symbol>] the names of the arguments that a stream supplies to this writer, rather than a caller, such as
+    # `rows:` of a format that reads and writes rows itself, see `IOStreams::StreamFormat#rows_format`, which are not
+    # options, so that a call cannot supply them. None by default.
+    def self.argument_names
+      []
+    end
+
     # Returns [Array<Symbol>] the names of the options this writer accepts,
     # or [nil] when the writer does not declare them.
     #

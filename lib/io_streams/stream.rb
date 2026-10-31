@@ -1286,6 +1286,12 @@ module IOStreams
     # Raises ArgumentError when `delimiter` or `buffer_size` is supplied, or an encoding is set, for a format without
     # lines, see #reject_line_options!.
     def open_rows_reader(tabular, delimiter, buffer_size, &)
+      if stream_rows?
+        reject_row_options!(tabular, delimiter: delimiter, buffer_size: buffer_size)
+        decimals = (->(label) { tabular.decimal_column?(label) } if tabular.schema&.decimals?)
+        return rows_stream(decimals: decimals).send(:stream_reader, &)
+      end
+
       unless tabular.lines?
         reject_line_options!(tabular, delimiter: delimiter, buffer_size: buffer_size)
         return stream_reader do |io|
@@ -1307,6 +1313,11 @@ module IOStreams
     # #reject_line_options!. Raises before the output is opened when the format cannot write the rows, such as without a
     # schema for Parquet, see `IOStreams::Tabular#check_write_rows`, so that an existing file is not replaced.
     def open_rows_writer(tabular, delimiter, &)
+      if stream_rows?
+        reject_row_options!(tabular, delimiter: delimiter)
+        return rows_stream(text_columns: tabular.text_columns).send(:open_writer, &)
+      end
+
       unless tabular.lines?
         reject_line_options!(tabular, delimiter: delimiter)
         tabular.check_write_rows
@@ -1315,6 +1326,36 @@ module IOStreams
 
       IOStreams::Line::Writer.check(delimiter: delimiter)
       open_line_writer(tabular.encoding, delimiter: delimiter, &)
+    end
+
+    # Returns [true|false] whether the rows and records of this stream are those that the stream closest to the
+    # application reads and writes itself, see `IOStreams::Builder#rows_format`, such as the typed values of the cells of
+    # a spreadsheet, rather than the lines of its text: when they are in the format of that text, see #rows_format,
+    # rather than in another that holds each line of it as it is, such as `:text`. Its lines, and its bytes, are still
+    # its text, such as the CSV of a spreadsheet.
+    def stream_rows?
+      !builder.rows_format.nil? && rows_format == text_format
+    end
+
+    # Returns [IOStreams::Stream] a copy of this stream whose stream closest to the application reads or writes its rows,
+    # with the supplied arguments, see `IOStreams::Builder#for_rows`, rather than its text, see #stream_rows?, whose own
+    # #stream_reader and #open_writer open the storage of the stream, such as a local file or an S3 object.
+    def rows_stream(**arguments)
+      copy = dup
+      copy.instance_variable_set(:@builder, builder.for_rows(**arguments))
+      copy
+    end
+
+    # Raises ArgumentError for the options of lines of a stream whose rows its stream reads and writes itself, see
+    # #stream_rows?, such as a spreadsheet, whose rows are not lines. An encoding applies to its text, such as the CSV of
+    # its lines, so its rows ignore it.
+    def reject_row_options!(tabular, **options)
+      names = options.compact.keys
+      return if names.empty?
+
+      raise(ArgumentError, "#{names.map(&:inspect).join(', ')} cannot be used with the rows of the #{tabular.format.inspect} " \
+                           "format of a #{builder.pipeline.each_key.find { |name| name != :encode }.inspect} file, which " \
+                           "are not lines of text")
     end
 
     # Options are strict: raise rather than ignore the options of lines for a format whose rows are not lines, and
@@ -1521,7 +1562,9 @@ module IOStreams
     # `IOStreams::Tabular::Settings#tabular`, with the options that the source of the rows supplies, such as
     # `IOStreams::Query::Stream#tabular`.
     def tabular(**)
-      tabular_settings.tabular(file_name: file_name, text_format: text_format, **)
+      return tabular_settings.tabular(file_name: file_name, text_format: text_format, **) unless stream_rows?
+
+      tabular_settings.tabular(file_name: file_name, text_format: nil, rows_format: builder.rows_format, **)
     end
 
     # Returns [Symbol|nil] the format of the rows, records and lines of this stream, see #format.
