@@ -679,32 +679,41 @@ module IOStreams
 
     # Turns the values of the rows of a slice with a schema back into the types of their fields, see
     # `IOStreams::Schema::Field#load`, from the forms that #to_h holds them in, see .from_h.
+    #
+    # Raises `IOStreams::Errors::InvalidValue` for a value that its field cannot hold, naming the record that it is in,
+    # and the line that the record starts on.
     def load_rows
       return unless schema
 
       fields = row_fields
-      @rows.map! { |row| map_values(row, fields) { |field, value| field.load(value) } }
+      @rows.each_index do |index|
+        @rows[index] = map_values(@rows[index], fields) { |field, value| field.load(value) }
+      rescue IOStreams::Errors::InvalidValue => e
+        raise e.at(line_number: line_number_at(index), record_number: record_number_at(index))
+      end
     end
 
     # Returns [Array|Hash] the values of the row, the value of each column whose field the fields name changed by the
-    # block, the others as they are.
+    # block, the others as they are, by the position of each value of an Array, or the key of each value of a Hash, see
+    # #row_fields.
     def map_values(row, fields)
+      positions, keys = fields
       case row
       when ::Array
-        row.each_with_index.map { |value, index| (field = fields[index]) && !value.nil? ? yield(field, value) : value }
+        row.each_with_index.map { |value, index| (field = positions[index]) && !value.nil? ? yield(field, value) : value }
       when ::Hash
-        row.to_h { |key, value| [key, (field = fields[key]) && !value.nil? ? yield(field, value) : value] }
+        row.to_h { |key, value| [key, (field = keys[key]) && !value.nil? ? yield(field, value) : value] }
       else row
       end
     end
 
-    # Returns [Array|Hash] the field of each column of the rows: by position, of the columns of the header row, or the
-    # fields in order of rows without one, or by key, for rows that are Hashes, see #map_values.
+    # Returns [Array(Array, Hash)] the field of each column of the rows, by position, of the columns of the header row,
+    # or for rows without one, every field of the schema in order, which their values are in, a field that only holds
+    # the place of a column, `skip: true`, being nil; and by key, for a row that is a Hash, see #map_values.
     def row_fields
-      fields = Hash.new { |known, key| known[key] = field_of(key) }
-      return fields if @rows.first.is_a?(::Hash)
-
-      header? ? header.map { |label| field_of(label) } : schema.fields.reject(&:skip?)
+      keys      = Hash.new { |known, key| known[key] = field_of(key) }
+      positions = header? ? header.map { |label| field_of(label) } : schema.fields.map { |field| field unless field.skip? }
+      [positions, keys]
     end
 
     # Returns [IOStreams::Schema::Field|nil] the field of the schema of the column or key, or nil when it has none.

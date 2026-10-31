@@ -88,11 +88,12 @@ module IOStreams
       # query, see #declared_schema, see `IOStreams::Stream#tabular`. Each row is a record of the query, whatever its values, so
       # a row whose every value is null or empty text is read, rather than skipped as a blank line of a file is.
       #
-      # By the schema of the columns, the values of the rows are those of its fields, which Active Record cast, so that
-      # the slices of the rows say so, see `IOStreams::Slice#typed?`, and a store that changes the form of a value, as
-      # BSON keeps a duration as its seconds, does not change the value read from it. A schema or a contract that was set
-      # describes the values otherwise, so they are cast to its fields, as any other rows are, each value of the type of
-      # its field passing through, see `IOStreams::Schema::Field#cast`.
+      # By the schema of the columns, the values of the rows are those of its fields, which Active Record cast, and a
+      # store that changes the form of a value, as BSON keeps a duration as its seconds, does not change the value read
+      # from it. A schema or a contract that was set describes the values otherwise, so they are cast to its fields, as
+      # any other rows are, each value of the type of its field passing through, see `IOStreams::Schema::Field#cast`.
+      # The slices of the rows carry the schema of the columns whatever is set, see #slice_schema, since it is the
+      # schema of the values that they hold.
       def tabular(**)
         super(default_schema: declared_schema, blank_rows: false,
               typed: !tabular_settings.schema_or_contract?, **)

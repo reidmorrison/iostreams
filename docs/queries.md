@@ -164,8 +164,9 @@ end
 `slice.to_h` holds the schema, and each value in a form that JSON keeps exactly, such as a number as its digits,
 `"12.50"`, and a time in ISO 8601 with its fraction of a second and offset, so that every job queue and store keeps them,
 and `IOStreams.slice` turns them back into their types. The schema adds about one row's worth of bytes to each slice,
-well under 1% of a slice of 1,000 rows. A value that a store keeps in another form is still read back as its type: a
-duration, which BSON keeps as its number of seconds, is a duration again.
+well under 1% of a slice of 1,000 rows. A value of a column of type `any`, such as one that the query computes, is
+held as JSON holds it, a time, a date or a BigDecimal as its text, which comes back as text, since the column does
+not say what type it is.
 
 ## One query or batches
 

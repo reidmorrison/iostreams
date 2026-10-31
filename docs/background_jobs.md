@@ -127,9 +127,12 @@ slice.to_h
   in the `:array` or `:hash` format, they are the values of its fields themselves, such as Integers and Dates, so
   their slice also carries the schema, `"schema"`, with each value in a form that JSON keeps exactly, as does a slice
   of a query or a Parquet file. `IOStreams.stream(slice)` then reads them by that schema, without the job knowing it,
-  and hands the job each value in the type of its field, also when the queue changed its form: a duration that BSON
-  keeps as its seconds is a duration again, and a Date that BSON returns as a Time is a Date. To replace the rows of a slice with
-  others in the same form, `slice.with_rows(rows)` returns a new slice that keeps everything else that the slice says.
+  and hands the job each value in the type of its field, also when a store of the slice itself, rather than of its
+  `#to_h`, changed its form: a duration that BSON keeps as its seconds is a duration again, and a Date that BSON
+  returns as a Time is a Date. A value of a field of type `any`, such as a computed column of a query, is held as
+  JSON holds it, a time, a date or a BigDecimal as its text, which comes back as text. To replace the rows of a slice
+  with others in the same form, `slice.with_rows(rows)` returns a new slice that keeps everything else that the slice
+  says.
 
 ### Choosing the size of a slice
 

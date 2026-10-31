@@ -274,6 +274,37 @@ class SliceTest < Minitest::Test
         assert_equal(-4 * 3600, copy.rows.first[1].utc_offset)
       end
 
+      it "holds the values of rows without a header row in the positions of every field, past a field that is skipped" do
+        layout = {header: false, fields: [{name: "name"}, {name: "x", skip: true}, {name: "on", type: "date"},
+                                          {name: "amount", type: "number", decimals: 2}]}
+        slice  = IOStreams::Slice.new([["Jack", nil, Date.new(2024, 1, 2), BigDecimal("12.5")]], format: :array, schema: layout)
+
+        assert_equal [["Jack", nil, "2024-01-02", "12.50"]], slice.to_h["rows"]
+        assert_equal slice, IOStreams.slice(JSON.parse(JSON.generate(slice.to_h)))
+      end
+
+      it "holds a nil row of a slice of records as it is" do
+        slice = IOStreams::Slice.new([nil, {"on" => Date.new(2026, 1, 2)}], format: :hash, schema: schema)
+
+        assert_equal [nil, {"on" => "2026-01-02"}], slice.to_h["rows"]
+      end
+
+      it "holds a time, a date or a BigDecimal of a field of type any as its text, which comes back as text" do
+        any   = {fields: [{name: "at"}, {name: "amount"}]}
+        slice = IOStreams::Slice.new([[Time.utc(2024, 1, 2, 3, 4, 5.123r), BigDecimal("12.5")]], header: %w[at amount],
+                                                                                                  format: :array, schema: any)
+
+        assert_equal [["2024-01-02T03:04:05.123Z", "12.5"]], slice.to_h["rows"]
+      end
+
+      it "names the record and line of a value that its field cannot hold, when it is turned back" do
+        hash  = {"rows" => [{"name" => "Jack", "on" => "2026-01-02"}, {"name" => "Jill", "on" => "x"}], "format" => "hash",
+                 "schema" => schema, "record_number" => 5, "line_number" => 7}
+        error = assert_raises(IOStreams::Errors::InvalidValue) { IOStreams.slice(hash) }
+
+        assert_equal [6, 8], [error.record_number, error.line_number]
+      end
+
       it "makes slices that differ by it not equal" do
         refute_equal typed, IOStreams::Slice.new(typed.rows, format: :hash)
       end

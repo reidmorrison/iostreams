@@ -360,7 +360,7 @@ module IOStreams
         else 9
         end
       end
-      private_class_method :time_text, :textual?
+      private_class_method :time_text
 
       # Returns [true|false] whether a value of the supplied type, which a source declares for a column, such as a Parquet
       # file or a database query, can be one of this field, see CONVERTED_TYPES, so that a column whose values never can,
@@ -446,7 +446,9 @@ module IOStreams
       # a number as the text of its digits, without rounding them, such as "12.50" for a field with 2 decimals, or a
       # Float, which JSON keeps, apart from NaN and the infinities, which are text, a date, a datetime and a duration in
       # ISO 8601, a datetime with as many digits of its fraction of a second as it needs and its offset, a time of day as
-      # its clock with its offset, such as "09:30:00.250-04:00", and any other value as it is.
+      # its clock with its offset, such as "09:30:00.250-04:00", and any other value as it is, apart from a time, a date
+      # or a BigDecimal of a field of type "any", which JSON holds as its text, see .any_text, and which therefore comes
+      # back as that text, since the field does not say what type it is.
       def dump(value)
         return value if value.nil?
 
@@ -456,6 +458,7 @@ module IOStreams
         when "datetime" then value.is_a?(Time) || value.is_a?(DateTime) ? self.class.any_text(value) : value
         when "time" then value.is_a?(Time) ? clock_dump(value) : value
         when "duration" then value.respond_to?(:iso8601) ? value.iso8601 : value
+        when "any" then self.class.textual?(value) ? self.class.any_text(value) : value
         else value
         end
       end
