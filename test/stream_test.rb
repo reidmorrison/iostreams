@@ -1864,6 +1864,11 @@ class StreamTest < Minitest::Test
             assert_equal %({"área":"12","name":"José"}\n), write([{"área".b => "12", "Name" => "José"}], file_name: "places.json", schema: places)
           end
 
+          it "matches a Symbol key whose name is binary text to the field that its UTF-8 text names" do
+            assert_equal "área,name\n12,José\n", write([{"Área".b.to_sym => "12", name: "José"}], schema: places)
+            assert_equal %({"área":"12","name":"José"}\n), write([{"área".b.to_sym => "12", name: "José"}], file_name: "places.json", schema: places)
+          end
+
           it "matches a binary column of a header row, such as that of a file read with encoding(\"BINARY\") that is copied" do
             assert_equal "área,name\n12,José\n", write([header_row("Name".b, "Área".b), %w[José 12]], :array, schema: places)
 
