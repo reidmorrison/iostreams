@@ -152,8 +152,10 @@ class ContractTest < Minitest::Test
       end
 
       it "shows its name, or its schema when it has none" do
+        hash = {fields: [{name: "id"}]}
+
         assert_equal "ContractTest::Order", Order.inspect
-        assert_equal '#<IOStreams::Contract {fields: [{name: "id"}]}>', IOStreams::Contract.new(fields: [{name: "id"}]).inspect
+        assert_equal "#<IOStreams::Contract #{hash.inspect}>", IOStreams::Contract.new(hash).inspect
       end
     end
 
