@@ -7984,8 +7984,8 @@ Start with the changes that apply to your application:
 | Reads or writes fixed width files | [Fixed width files are read and written as ASCII](#fixed-width-files-are-read-and-written-as-ascii) |
 | Sets the layout of a fixed width file with `#format_options` | [`#format_options` is replaced by `#schema`](#format_options-is-replaced-by-schema) |
 | Uses `columns:`, `allowed_columns:`, `required_columns:`, `skip_unknown:` or `cleanse_header:`, or sets `IOStreams.enforce_column_restrictions` | [The column options of each call are removed](#the-column-options-of-each-call-are-removed) |
-| Reads or writes Excel spreadsheets in the `:array`, `:hash` or `:slice` mode | [Rows of a spreadsheet are the values of its cells](#rows-of-a-spreadsheet-are-the-values-of-its-cells) |
-| Reads or writes a `Time` or `DateTime`, such as of a spreadsheet or a query, through a `date` field of a schema | [A date field takes a time only at midnight](#a-date-field-takes-a-time-only-at-midnight) |
+| Reads the rows or records of Excel spreadsheets, in the `:array` or `:hash` mode, or copies them | [Rows of a spreadsheet are the values of its cells](#rows-of-a-spreadsheet-are-the-values-of-its-cells) |
+| Writes a `Time` or `DateTime` through a `date` field of a schema | [A date field takes a time only at midnight](#a-date-field-takes-a-time-only-at-midnight) |
 | Reads JSON, fixed width or Parquet files with `each(:array)` or `reader(:array)`, or uploads them to Rocket Job in its `:array` mode | [Rows of JSON, fixed width and Parquet files are Arrays](#rows-of-json-fixed-width-and-parquet-files-are-arrays) |
 | Reads rows or records that can be blank, such as CSV exports with lines of only commas, or JSON records of only nulls | [Blank rows are the same in every format](#blank-rows-are-the-same-in-every-format) |
 | Supplies options to `#option`, `#stream`, `#reader`, `#writer` or the copy methods | [Reading, writing and options](#reading-writing-and-options) |
@@ -8763,23 +8763,26 @@ than its text: a number is a `Float`, such as `1001.0` where it was `"1001.0"`, 
 date and time format a `Time` in UTC, a boolean `true` or `false`, and an error, such as `#N/A`, `nil`, while text, such
 as `"01234"`, is still a `String`. Its lines, `each(:line)`, and a copy into a CSV file without a mode, are still its CSV
 text. A header cell of a date format is the key of its date, such as `2026_01_01` where it was `2026_01_01t000000z`.
-Writing rows and records to a spreadsheet writes each value as its type, so `1001` is a number cell, where it was the
-text `"1001"`, a time in UTC, a whole number of more than 15 digits, which Excel cannot hold, as text, and
-`auto_format` only converts the text of a column whose type is not known.
+v3.0 also writes spreadsheets, which v2.2 cannot, see [Excel spreadsheets](formats#excel-spreadsheets).
 
 Give the columns that the code reads a schema or a [contract](contracts), whose fields convert each value to their
-types, such as `{name: "id", type: "integer"}` for `1001.0`, or `{name: "zip", type: "string"}` for text. Remove a
-`delimiter:` or `buffer_size:` supplied to the rows and records of a spreadsheet, and an encoding set with `#encoding`
-when they are read or written, which now raise `ArgumentError`, since its rows are cells rather than lines of text; the
-`:line` mode still takes them.
+types, such as `{name: "id", type: "integer"}` for `1001.0`, or `{name: "zip", type: "string"}` for text. With a type
+for each column, the values are those that v2.2 reads, apart from the text of a date and time cell, see
+[Spreadsheet date and time cells are read as ISO 8601](#spreadsheet-date-and-time-cells-are-read-as-iso-8601), and a
+`number` field, which reads the 15 digits that Excel displays, such as `0.3` where v2.2 reads `0.30000000000000004`.
+Remove a `delimiter:` or `buffer_size:` supplied to the rows and records of a spreadsheet, and an encoding set with
+`#encoding` when they are read or written, which now raise `ArgumentError`, since its rows are cells rather than lines of
+text; the `:line` mode still takes them. v2.2 reports reading the rows and records of a spreadsheet without a type for
+each column as deprecated, and `delimiter:` and an encoding set with `#encoding` for them, while it raises for
+`buffer_size:` itself.
 
 #### A date field takes a time only at midnight
 
 A `date` field of a schema reads and writes a `Time` or `DateTime` at midnight, by its own clock, as its date, such as
 the time that a spreadsheet's date format gives, and raises `IOStreams::Errors::InvalidValue` for any other time, such
 as `2026-10-13 09:30`, or `Time.now` written to a date column of an export, rather than drop its time of day, as v2.2
-does. A value converts only when nothing is lost, so that a
-date field never hides a time, nor guesses a time zone to drop it in.
+does. A value converts only when nothing is lost, so that a date field never hides a time, nor guesses a time zone to
+drop it in. v2.2 reports such a time as deprecated, the first one that each field converts.
 
 Give such a column the type `datetime`, or convert its values to dates in your code, by the time zone that they belong
 to, such as `time.in_time_zone("America/New_York").to_date`.
@@ -9756,8 +9759,10 @@ v2.2 and v3.0. Each still works, and gives the same result, as before. They are,
   `IOStreams.enforce_column_restrictions=`, see
   [Moving the column options to a schema](#moving-the-column-options-to-a-schema); those of them that only apply when
   reading, supplied to a writer or a copy; `embedded_within:` when reading rows and records; `each(:array)` of JSON or
-  fixed width without a schema; the rows and records of a `.text` file without `#format`; and a format other than
-  `:csv` for a spreadsheet.
+  fixed width without a schema; the rows and records of a `.text` file without `#format`; a format other than `:csv`
+  for a spreadsheet; the rows and records of a spreadsheet read without a type for each column, and `delimiter:` and an
+  encoding set with `#encoding` for them; and a `Time` or `DateTime` that is not at midnight converted by a `date`
+  field.
 * [Reading, writing and options](#reading-writing-and-options): an option that neither the reader nor the writer of a
   stream takes, when it is set; an option set for another extension of the format of the file name, such as
   `option(:pgp, ...)` for a `.gpg` file; the options that a mode or a copy ignores; options and settings for a line,
@@ -9883,9 +9888,13 @@ working after an upgrade, apart from the changes that v3.0 makes to every file:
   path set as the schema, such as `schema(IOStreams.path("people_schema.json"))`, as a frozen copy only in v3.0, so a
   method that changes the path that it returns, such as `#option` or `#encoding`, raises `FrozenError`, where v2.2
   returns the path itself. Change the path before it is set as the schema, or change a copy, `path.schema.dup`.
-* A `date` field in v2.2 reads and writes a `Time` or `DateTime` as its date, dropping its time of day, while v3.0 takes
-  only one at midnight, by its own clock, as its date, and raises `IOStreams::Errors::InvalidValue` for any other, rather than lose
-  its time of day, see [A date field takes a time only at midnight](#a-date-field-takes-a-time-only-at-midnight).
+* A `date` field in v2.2 reads and writes a `Time` or `DateTime` as its date, dropping its time of day, which it
+  reports as deprecated, while v3.0 takes only one at midnight, by its own clock, as its date, and raises
+  `IOStreams::Errors::InvalidValue` for any other, rather than lose its time of day, see
+  [A date field takes a time only at midnight](#a-date-field-takes-a-time-only-at-midnight).
+* A spreadsheet read with a type for each column reads the same values in both, apart from the text of a date and time
+  cell, which v3.0 reads in UTC, and a `number` field, which reads the 15 digits that Excel displays in v3.0, see
+  [Rows of a spreadsheet are the values of its cells](#rows-of-a-spreadsheet-are-the-values-of-its-cells).
 * Parquet files are only in v3.0.
 
 ### Changes in behavior in v2.2
