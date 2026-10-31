@@ -8,6 +8,7 @@ module IOStreams
   autoload :Builder,             "io_streams/builder"
   autoload :BytesOutput,         "io_streams/bytes_output"
   autoload :ChunkReader,         "io_streams/chunk_reader"
+  autoload :Contract,            "io_streams/contract"
   autoload :Deprecation,         "io_streams/deprecation"
   autoload :Errors,              "io_streams/errors"
   autoload :Path,                "io_streams/path"

@@ -89,6 +89,7 @@ module IOStreams
   class Schema
     autoload :Columns,     "io_streams/schema/columns"
     autoload :Constraints, "io_streams/schema/constraints"
+    autoload :ContractColumns, "io_streams/schema/contract_columns"
     autoload :Field,       "io_streams/schema/field"
     autoload :JsonNumber,  "io_streams/schema/json_number"
     autoload :Keys,        "io_streams/schema/keys"
@@ -96,6 +97,10 @@ module IOStreams
 
     # The properties of a schema that IOStreams supports.
     PROPERTIES = %w[fields fieldsMatch header width keyType extraColumns].freeze
+
+    # The properties of a schema that lay out a file, whether it has a header row and the width of its lines, which a
+    # contract never has, see `IOStreams::Contract`. Those of a field are `IOStreams::Schema::Field::LAYOUT_PROPERTIES`.
+    LAYOUT_PROPERTIES = %w[header width].freeze
 
     # The properties of a schema that only describe it to people.
     DESCRIPTIVE_PROPERTIES = %w[$schema title description].freeze
@@ -270,9 +275,28 @@ module IOStreams
     end
 
     # Returns [IOStreams::Schema::Columns] a new matcher of the columns of one file to these fields, which a reader or
-    # writer holds while it reads or writes the file.
-    def columns(typed: false)
-      Columns.new(self, typed: typed)
+    # writer holds while it reads or writes the file. With `every_field`, each record and row read has every field, nil
+    # for a field that the file does not have, as a contract reads them, see `IOStreams::Contract`.
+    def columns(typed: false, every_field: false)
+      Columns.new(self, typed: typed, every_field: every_field)
+    end
+
+    # Returns [Array<String>] the properties of this schema that lay out a file, see LAYOUT_PROPERTIES, each as it
+    # applies, such as `"width"` or `"width of the field \"id\""`, which a contract rejects, see `IOStreams::Contract`.
+    def layout_properties
+      LAYOUT_PROPERTIES.select { |name| @properties.key?(name.to_sym) } +
+        fields.flat_map { |field| field.layout_properties.map { |name| "#{name} of the field #{field.name.to_s.inspect}" } }
+    end
+
+    # Returns [Class] a new contract, see `IOStreams::Contract`, of what this schema says about the values of the
+    # records, without what lays out the file: its `header` and `width`, the `width`, `start` and `truncate` of each
+    # field, the fields that only hold the place of a column, `skip: true`, and the `format` of a date, datetime or
+    # time, since how a file writes its text stays in its schema, so that a contract drafted from one file reads the
+    # same records from any other, such as from a schema that `IOStreams::Stream#infer_schema` drafted.
+    def to_contract
+      descriptor = to_h.except(*LAYOUT_PROPERTIES.map(&:to_sym))
+      descriptor[:fields] = fields.reject(&:skip?).map(&:to_contract_h)
+      IOStreams::Contract.new(descriptor)
     end
 
     # Returns [IOStreams::Schema::Field] the field that the supplied column of a header row, or key of a record, names:

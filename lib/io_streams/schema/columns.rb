@@ -33,9 +33,19 @@ module IOStreams
       #     its field from the form that a store returned it in, see #read_value, rather than read as text. Their
       #     columns are matched to the fields either way.
       #     Default: false
-      def initialize(schema, typed: false)
+      #
+      #   every_field: [true|false]
+      #     Whether each record and row read has every field, in the order of the fields, nil for a field whose column
+      #     the file does not have, which `fieldsMatch` "superset" and "partial" accept, as the records that a contract
+      #     reads do, see `IOStreams::Contract`. Without it, a record has only the fields of the columns of the file.
+      #     Default: false
+      def initialize(schema, typed: false, every_field: false)
         @schema       = schema
         @typed        = typed
+        @every_field  = every_field
+        # The column that each field matched, by the field, see #match, so that a contract that reads the records of
+        # another schema renders the values of those columns, see `IOStreams::Schema::ContractColumns`.
+        @labels       = nil
         @keep_extra   = schema.keep_extra?
         # The fields whose values the rows and records read have, those that are not skipped, see
         # `IOStreams::Schema::Field#skip?`, in order, and whether any is skipped.
@@ -81,11 +91,24 @@ module IOStreams
         found, unknown, positions = find_fields(labels, "column")
         @schema.check_columns(found, unknown, ordered: true, noun: "column")
         @matched = @schema.fields.filter_map do |field|
-          [field, positions[field], @schema.key(field)] if positions.key?(field) && !field.skip?
+          [field, positions[field], @schema.key(field)] if (@every_field || positions.key?(field)) && !field.skip?
         end
+        @labels  = positions.to_h { |field, index| [field, labels[index]] }.compare_by_identity
         @extra   = extra_columns(labels, positions, "column")
         @width   = labels.size
         names
+      end
+
+      # Returns [Array<String|Symbol>] the key of each field whose values the rows and records read have, in the order of
+      # the fields, see `IOStreams::Schema#key`, whatever the columns of a file are.
+      def field_keys
+        @values.map { |field| @schema.key(field) }
+      end
+
+      # Returns [Hash<IOStreams::Schema::Field, String|Symbol>] the column that each field matched, by the field, once the
+      # columns are matched, see #match, without the fields that the file does not have.
+      def labels
+        @labels || raise(IOStreams::Errors::MissingHeader, "The columns must be known before they can be named")
       end
 
       # Matches the columns of a file without a header row, of a format that has one, such as CSV, which are the
@@ -156,7 +179,7 @@ module IOStreams
       def row(values)
         columns = matched
         check_extra(values, @width, "column")
-        row = columns.map { |field, index| read_value(field, values[index]) }
+        row = columns.map { |field, index| read_value(field, index && values[index]) }
         @extra.each { |extra| row << values[extra.first] }
         row
       end
@@ -170,7 +193,7 @@ module IOStreams
         columns = matched
         check_extra(values, @width, "column")
         record = {}
-        columns.each { |field, index, key| record[key] = read_value(field, values[index]) }
+        columns.each { |field, index, key| record[key] = read_value(field, index && values[index]) }
         @extra.each { |index, key| record[key] = values[index] }
         record
       end
@@ -394,7 +417,10 @@ module IOStreams
           @schema.check_columns(found, unknown, ordered: false, noun: "key")
           @read_plans.clear if @read_plans.size >= PLANS
           plan = @schema.fields.filter_map do |field|
-            [field, keys[positions[field]], @schema.key(field)] if positions.key?(field) && !field.skip?
+            next if field.skip?
+            next [field, keys[positions[field]], @schema.key(field)] if positions.key?(field)
+
+            [field, nil, @schema.key(field)] if @every_field
           end
           extra_columns(keys, positions, "key").each { |index, name| plan << [nil, keys[index], name] }
           @read_plans[keys] = plan

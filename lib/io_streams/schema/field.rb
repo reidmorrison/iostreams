@@ -121,6 +121,10 @@ module IOStreams
       # The properties of a field that is skipped, see `skip` above, which place its column.
       SKIP_PROPERTIES = %w[name type width start aliases skip].freeze
 
+      # The properties of a field that lay out a file, its position and how a long value is cut to its width, and whether
+      # it only holds the place of its column, which a contract never has, see `IOStreams::Contract`.
+      LAYOUT_PROPERTIES = %w[width start truncate skip].freeze
+
       # The properties of a field that only describe it to people.
       DESCRIPTIVE_PROPERTIES = %w[title description example rdfType].freeze
 
@@ -218,6 +222,17 @@ module IOStreams
       # Hash each time, see `IOStreams::Schema#to_h`.
       def to_h
         Utils.deep_copy(@properties)
+      end
+
+      # Returns [Array<String>] the properties of this field that lay out a file, see LAYOUT_PROPERTIES.
+      def layout_properties
+        LAYOUT_PROPERTIES.select { |name| @properties.key?(name.to_sym) }
+      end
+
+      # Returns [Hash] the properties of this field without those that lay out a file, see LAYOUT_PROPERTIES, nor the
+      # `format` of its text, for a contract, see `IOStreams::Schema#to_contract`.
+      def to_contract_h
+        to_h.except(*LAYOUT_PROPERTIES.map(&:to_sym), :format)
       end
 
       # Returns [true|false] whether the other is a field of the same properties, see #to_h.
