@@ -39,10 +39,21 @@ module IOStreams
       #     the file does not have, which `fieldsMatch` "superset" and "partial" accept, as the records that a contract
       #     reads do, see `IOStreams::Contract`. Without it, a record has only the fields of the columns of the file.
       #     Default: false
-      def initialize(schema, typed: false, every_field: false)
+      #
+      #   keys_vary: [true|false]
+      #     Whether each record supplies its own keys, which can leave out the key of a field whose value is missing, such
+      #     as JSON, see `IOStreams::Tabular::Parser::Base.keys_vary?`, so that such a key is a missing value, nil, as an
+      #     empty value of CSV is, rather than a missing column: the record has the field, and a field whose value is
+      #     required raises `IOStreams::Errors::InvalidValue`, as an empty value does, unless it allows blank values,
+      #     while the keys that are not fields still raise as `fieldsMatch` says, as a contract reads them, see
+      #     `IOStreams::Contract`. A format whose records are all keyed by the same columns, such as Parquet, checks a
+      #     missing column as CSV does, and so does a schema of a file without a contract, as in v2.2.
+      #     Default: false
+      def initialize(schema, typed: false, every_field: false, keys_vary: false)
         @schema       = schema
         @typed        = typed
         @every_field  = every_field
+        @keys_vary    = keys_vary
         # The column that each field matched, by the field, see #match, so that a contract that reads the records of
         # another schema renders the values of those columns, see `IOStreams::Schema::ContractColumns`.
         @labels       = nil
@@ -114,7 +125,8 @@ module IOStreams
         noun   = keyed ? "key" : "column"
         labels = named(labels) unless keyed
         found, unknown, positions = find_fields(labels, noun)
-        @schema.column_errors(found, unknown, ordered: !keyed, noun: noun) + extra_column_errors(labels, positions, noun)
+        @schema.column_errors(found, unknown, ordered: !keyed, noun: noun, missing: !(keyed && @keys_vary)) +
+          extra_column_errors(labels, positions, noun)
       rescue IOStreams::Errors::InvalidHeader => e
         [e]
       end
@@ -481,13 +493,13 @@ module IOStreams
 
         @read_plan = @read_plans.fetch(keys) do
           found, unknown, positions = find_fields(keys, "key")
-          @schema.check_columns(found, unknown, ordered: false, noun: "key")
+          @schema.check_columns(found, unknown, ordered: false, noun: "key", missing: !@keys_vary)
           @read_plans.clear if @read_plans.size >= PLANS
           plan = @schema.fields.filter_map do |field|
             next if field.skip?
             next [field, keys[positions[field]], @schema.key(field)] if positions.key?(field)
 
-            [field, nil, @schema.key(field)] if @every_field
+            [field, nil, @schema.key(field)] if @every_field || @keys_vary
           end
           extra_columns(keys, positions, "key").each { |index, name| plan << [nil, keys[index], name] }
           @read_plans[keys] = plan

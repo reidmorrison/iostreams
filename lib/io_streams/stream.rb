@@ -659,7 +659,7 @@ module IOStreams
       schema = contract_schema!
       source = contract_source
       source.file_columns&.check_meeting(source.file_row, keyed: source.file_keyed)
-      schema.columns(every_field: true).check_meeting(source.labels, keyed: source.keyed)
+      schema.columns(every_field: true, keys_vary: source.keyed).check_meeting(source.labels, keyed: source.keyed)
       schema.check_types(source.types) if source.types
       true
     end
@@ -683,7 +683,7 @@ module IOStreams
       errors = source.file_columns&.meeting_errors(source.file_row, keyed: source.file_keyed) || []
       return errors unless errors.empty?
 
-      errors = schema.columns(every_field: true).meeting_errors(source.labels, keyed: source.keyed)
+      errors = schema.columns(every_field: true, keys_vary: source.keyed).meeting_errors(source.labels, keyed: source.keyed)
       source.types ? errors + schema.type_errors(source.types) : errors
     end
 

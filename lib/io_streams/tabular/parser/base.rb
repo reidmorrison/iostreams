@@ -28,6 +28,13 @@ module IOStreams
           value_form == :text ? "string" : "any"
         end
 
+        # Returns [true|false] whether each record supplies its own keys, and leaves out the key of a value that is missing,
+        # such as JSON, so that a schema reads a key that a record leaves out as a missing value, nil, rather than a
+        # missing column, see `IOStreams::Schema::Columns#initialize`: false for a format of columns, such as CSV.
+        def self.keys_vary?
+          false
+        end
+
         # Returns [true|false] whether the format takes the position of each value of a line from a schema, such as fixed
         # width, which a contract never gives, see `IOStreams::Contract`, rather than from the line itself.
         def self.layout?

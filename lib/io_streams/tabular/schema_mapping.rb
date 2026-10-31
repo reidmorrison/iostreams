@@ -30,7 +30,8 @@ module IOStreams
       #
       #   every_field: [true|false]
       #     Whether each record and row read has every field, nil for a field whose column the file does not have, as a
-      #     contract reads them when it is the schema, see `IOStreams::Schema::Columns#initialize`.
+      #     contract reads them when it is the schema, see `IOStreams::Schema::Columns#initialize`, which also reads a key
+      #     that a record of a format whose records supply their own keys, such as JSON, leaves out as a missing value.
       #     Default: false
       #
       #   contract: [IOStreams::Schema|nil]
@@ -52,7 +53,9 @@ module IOStreams
             IOStreams::Schema::ContractColumns.new(schema.columns(typed: typed, every_field: true),
                                                    contract.columns(every_field: true))
           else
-            schema.columns(typed: typed, every_field: every_field)
+            # A contract reads a key that a record leaves out as a missing value, while a schema of the file keeps the
+            # rule of `fieldsMatch` for each record, as in v2.2.
+            schema.columns(typed: typed, every_field: every_field, keys_vary: every_field && parser.class.keys_vary?)
           end
         @requires_header = parser.requires_header? && (headerless.nil? ? schema.header? : !headerless)
         # Whether each row is a record whose keys are its columns, such as JSON, rather than the values in the order of

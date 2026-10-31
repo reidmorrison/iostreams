@@ -35,9 +35,12 @@ class ContractValidationTest < Minitest::Test
         assert_includes error.message, 'missing the required field "id"'
       end
 
-      it "checks the keys of the first record of JSON" do
+      it "checks the keys of the first record of JSON, a key that it leaves out being a missing value, not a column" do
+        exact = IOStreams::Contract.new(fields: [{name: "id", type: "integer", constraints: {required: true}}])
+
         assert upload(%({"id":1}\n), "orders.json").validate_contract!
-        assert_raises(IOStreams::Errors::InvalidHeader) { upload(%({"amount":1}\n), "orders.json").validate_contract! }
+        assert upload(%({"amount":1}\n), "orders.json").validate_contract!
+        assert_raises(IOStreams::Errors::InvalidHeader) { upload(%({"id":1,"notes":"x"}\n), "orders.json", contract: exact).validate_contract! }
       end
 
       it "checks the header row against a schema of the file first, as reading does" do

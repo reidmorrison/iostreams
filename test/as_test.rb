@@ -66,6 +66,25 @@ class AsTest < Minitest::Test
         assert_equal [{"id" => 1, "amount" => nil, "ordered_at" => nil, "zip" => nil}], read(text("id,notes\n1,a\n").as(Order))
       end
 
+      it "reads a key that a JSON record leaves out as a missing value, nil, as an empty CSV value is" do
+        exact = IOStreams::Contract.new(fields: [{name: "id", type: "integer"}, {name: "zip", type: "string"}])
+
+        assert_equal [{"id" => 1, "zip" => nil}], read(text(%({"id":1}\n), "orders.json").as(exact))
+        assert_equal [{"id" => 1, "zip" => nil}], read(text("id,zip\n1,\n").as(exact))
+      end
+
+      it "raises InvalidValue for a key of a required field that a JSON record leaves out, naming the record" do
+        error = assert_raises(IOStreams::Errors::InvalidValue) { read(text(%({"id":1}\n{"amount":2}\n), "orders.json").as(Order)) }
+
+        assert_equal 'Field "id" is required, but has no value, in record 2 on line 2', error.message
+      end
+
+      it "still raises for a key of a JSON record that an exact contract does not have" do
+        exact = IOStreams::Contract.new(fields: [{name: "id", type: "integer"}])
+
+        assert_raises(IOStreams::Errors::InvalidHeader) { read(text(%({"id":1,"notes":"x"}\n), "orders.json").as(exact)) }
+      end
+
       it "yields the keys of the contract as the header row of each(:array), and the values of every field in order" do
         rows = read(text("Zip,ID\n01234,1\n").as(Order), :array)
 

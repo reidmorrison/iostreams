@@ -277,9 +277,10 @@ module IOStreams
 
     # Returns [IOStreams::Schema::Columns] a new matcher of the columns of one file to these fields, which a reader or
     # writer holds while it reads or writes the file. With `every_field`, each record and row read has every field, nil
-    # for a field that the file does not have, as a contract reads them, see `IOStreams::Contract`.
-    def columns(typed: false, every_field: false)
-      Columns.new(self, typed: typed, every_field: every_field)
+    # for a field that the file does not have, as a contract reads them, see `IOStreams::Contract`, and with `keys_vary`
+    # a key that a record leaves out is a missing value, see `IOStreams::Schema::Columns#initialize`.
+    def columns(typed: false, every_field: false, keys_vary: false)
+      Columns.new(self, typed: typed, every_field: every_field, keys_vary: keys_vary)
     end
 
     # Returns [Array<String>] the properties of this schema that lay out a file, see LAYOUT_PROPERTIES, each as it
@@ -360,16 +361,20 @@ module IOStreams
     #
     #   noun: [String]
     #     What the columns are, "column" or "key", for the message.
-    def check_columns(found, unknown, ordered:, noun:)
-      problems = column_problems(found, unknown, ordered: ordered, noun: noun)
+    #
+    #   missing: [true|false]
+    #     Whether a field that is not one of the columns is a problem, as `fieldsMatch` and `constraints` say, rather
+    #     than a missing value, as a key that a JSON record leaves out is, see `IOStreams::Schema::Columns#initialize`.
+    def check_columns(found, unknown, ordered:, noun:, missing: true)
+      problems = column_problems(found, unknown, ordered: ordered, noun: noun, missing: missing)
       raise(IOStreams::Errors::InvalidHeader, "#{subject(noun)} #{problems.join('; ')}") unless problems.empty?
     end
 
     # Returns [Array<IOStreams::Errors::InvalidHeader>] each way that the columns of a header row, or the keys of a
     # record, do not match the fields, see #check_columns, which raises them as one, not raised, so that every problem
     # can be listed at once, such as for an upload screen, see `IOStreams::Stream#contract_errors`.
-    def column_errors(found, unknown, ordered:, noun:)
-      column_problems(found, unknown, ordered: ordered, noun: noun).map do |problem|
+    def column_errors(found, unknown, ordered:, noun:, missing: true)
+      column_problems(found, unknown, ordered: ordered, noun: noun, missing: missing).map do |problem|
         IOStreams::Errors::InvalidHeader.new("#{subject(noun)} #{problem}")
       end
     end
@@ -531,10 +536,10 @@ module IOStreams
 
     # Returns [Array<String>] each way that the columns of a header row, or the keys of a record, do not match the
     # fields, see #check_columns.
-    def column_problems(found, unknown, ordered:, noun:)
+    def column_problems(found, unknown, ordered:, noun:, missing: true)
       problems = []
       problems << unknown_problem(unknown, noun) unless unknown.empty? || skip_unknown?
-      missing = missing_fields(found)
+      missing = missing ? missing_fields(found) : []
       if every_field? && !missing.empty?
         problems << "missing the #{plural('field', missing)} #{names_of(missing)}, which fieldsMatch #{fields_match.inspect} " \
                     "requires; \"superset\" and \"partial\" accept missing fields"

@@ -3842,6 +3842,10 @@ Every one of them yields the same record:
 * Every record has every field of the contract, in its order, `nil` for a field whose column the source does not have,
   which `fieldsMatch` `"partial"` and `"superset"` accept. `each(:array)` yields the same values, after a header row of
   the keys.
+* A key that a JSON record leaves out is a missing value, `nil`, as an empty CSV value is, rather than a missing
+  column, so that one contract behaves the same for JSON and CSV: a field that is required raises
+  `IOStreams::Errors::InvalidValue` for it, unless it has `allowBlank: true`, while a key that the contract does not
+  have still raises as `fieldsMatch` says. A schema set with `#schema` keeps its rule for each JSON record.
 * The columns of the source are matched to the fields once, before the first row, so a column that the contract
   requires, and the source does not have, raises `IOStreams::Errors::InvalidHeader` before any work starts.
 * Each value converts at most once: text, such as that of CSV, is parsed, and a value that is already of the type of its
