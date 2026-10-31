@@ -19,6 +19,9 @@ module IOStreams
     #   Formula                        | its cached value, typed as above
     #
     # A whole number is a Float, such as `1001.0`: a contract's `integer` field converts it, and raises for `1001.5`.
+    #
+    # The CSV text of a worksheet, its lines, holds the text of each cell of a date or a time as .text gives it, so that
+    # the lines and the rows of a workbook agree on which cells hold one.
     module Cells
       # The seconds of a day.
       DAY = 86_400
@@ -84,16 +87,47 @@ module IOStreams
         end
       end
 
+      # Returns [String|nil] the text of a cell of a number of a date, time or date and time format, see .number_formats,
+      # as the CSV text of a worksheet holds it, see `IOStreams::Xlsx::Reader#each`, or nil for any other cell, whose
+      # text the reader takes from creek. Excel holds a date or a time without a time zone, so its text is the same in
+      # every process, and a field of its type reads it:
+      #   a date             in ISO 8601, such as "2026-01-02"
+      #   a date and time    its time in UTC, such as "2026-01-02T09:30:00Z", with its milliseconds when it has any
+      #   a time of day      the time of its clock, such as "09:30:00", as a `time` field writes it
+      #
+      # Parameters are those of .value.
+      def self.text(text, type, style, options)
+        return unless style && (type.nil? || type == "n")
+        return if text.nil? || text.empty?
+
+        value = number(text, style, options[:base_date])
+        return value if value.is_a?(String)
+        return time_of_day_field.render(value, :text) if style == :time && time_of_day?(text)
+
+        Schema::Field.any_text(value)
+      end
+
       # Returns the number of a cell of a number type, by the class of its number format.
       def self.number(text, style, base_date)
         case style
         when :date then base_date + Rational(text).floor
         when :date_time then date_time(text, base_date)
-        when :time then Rational(text) < 1 ? time_of_day(text) : date_time(text, base_date)
+        when :time then time_of_day?(text) ? time_of_day(text) : date_time(text, base_date)
         else Float(text)
         end
       rescue ArgumentError, ZeroDivisionError
         text
+      end
+
+      # Returns [true|false] whether the number of a cell of a time format is a time of day, less than a day, rather
+      # than a date and time, which Excel shows the time of.
+      def self.time_of_day?(text)
+        Rational(text) < 1
+      end
+
+      # Returns [IOStreams::Schema::Field] a field of type `time`, which writes the text of a time of day.
+      def self.time_of_day_field
+        @time_of_day_field ||= Schema::Field.new(name: "time", type: "time")
       end
 
       # Returns [Time] the time, in UTC, of the clock of the days since the first day of the workbook, to the millisecond
@@ -113,7 +147,7 @@ module IOStreams
       def self.seconds(days)
         ((days - days.floor) * DAY).round(3)
       end
-      private_class_method :number, :date_time, :time_of_day, :seconds
+      private_class_method :number, :time_of_day?, :time_of_day_field, :date_time, :time_of_day, :seconds
     end
   end
 end

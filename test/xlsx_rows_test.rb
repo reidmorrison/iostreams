@@ -28,6 +28,29 @@ class XlsxRowsTest < Minitest::Test
       rows
     end
 
+    # Replaces the first worksheet of the workbook with the supplied XML.
+    def replace_sheet(xml)
+      require "zip"
+      Zip::File.open(file_name) do |zip|
+        zip.get_output_stream("xl/worksheets/sheet1.xml") { |io| io << xml }
+      end
+    end
+
+    # Replaces the styles of the workbook with one cell style of each supplied number format, `[id, code]`, whose code
+    # is nil for a built-in format of Excel.
+    def replace_styles(formats)
+      require "zip"
+      custom = formats.select(&:last).map { |id, code| %(<numFmt numFmtId="#{id}" formatCode=#{code.encode(xml: :attr)}/>) }
+      styles = formats.map { |id, _code| %(<xf numFmtId="#{id}" fontId="0" fillId="0" borderId="0" xfId="0"/>) }
+      xml    = '<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">' \
+               "<numFmts>#{custom.join}</numFmts><cellXfs>" \
+               '<xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>' \
+               "#{styles.join}</cellXfs></styleSheet>"
+      Zip::File.open(file_name) do |zip|
+        zip.get_output_stream("xl/styles.xml") { |io| io << xml }
+      end
+    end
+
     describe "reading" do
       before do
         workbook(
@@ -53,7 +76,7 @@ class XlsxRowsTest < Minitest::Test
       it "still reads the lines and bytes of the spreadsheet as CSV text" do
         lines = read(IOStreams.path(file_name), :line)
 
-        assert_equal "1001.0,12.5,2026-10-25T09:30:00Z,2026-10-25T00:00:00Z,01234,true,,0.30000000000000004", lines.last
+        assert_equal "1001.0,12.5,2026-10-25T09:30:00Z,2026-10-25,01234,true,,0.30000000000000004", lines.last
         assert_equal "#{lines.join("\n")}\n", IOStreams.path(file_name).read
       end
 
@@ -155,13 +178,84 @@ class XlsxRowsTest < Minitest::Test
         assert_nil IOStreams::Xlsx::Cells.custom_format("[>=100]0;0")
         assert_nil IOStreams::Xlsx::Cells.custom_format("[" * 40_000)
       end
+    end
 
-      # Replaces the first worksheet of the workbook with the supplied XML.
-      def replace_sheet(xml)
-        require "zip"
-        Zip::File.open(file_name) do |zip|
-          zip.get_output_stream("xl/worksheets/sheet1.xml") { |io| io << xml }
+    describe "the CSV text of a cell of a date or a time" do
+      # A column of each number format, as Excel and xlsxtream write them, and the text of its number: Excel's short
+      # date, which creek reads as a date, custom formats of a date, which creek reads as a time in the time zone of
+      # the process, a date and time, with a fraction of a second, times of day, a number without a cell type, and a
+      # number of a custom format whose text has a `d`. The dates are those whose midnight, or 02:30, a change to
+      # daylight saving time skips in Santiago and New York.
+      let :columns do
+        [
+          ["short", 14, nil, "46271"],
+          ["iso", 164, "yyyy\\-mm\\-dd", "46271"],
+          ["dmy", 165, "dd/mm/yyyy", "46271"],
+          ["at", 22, nil, "46089.104166666667"],
+          ["at_ms", 166, "yyyy-mm-dd hh:mm:ss.000", "46089.104172453706"],
+          ["clock", 20, nil, "0.39583333333333331"],
+          ["shift", 167, "hh:mm", "0.39583333333333331"],
+          ["count", 0, nil, "1001"],
+          ["items", 168, '0" items"', "5"]
+        ]
+      end
+
+      let :contract do
+        Class.new(IOStreams::Contract) do
+          field :short, :date
+          field :iso,   :date
+          field :dmy,   :date
+          field :at,    :datetime
+          field :at_ms, :datetime
+          field :clock, :time
+          field :shift, :time
+          field :count, :integer
+          field :items, :integer
         end
+      end
+
+      before do
+        IOStreams.path(file_name).writer(:array) { |io| io << %w[a] }
+        replace_styles(columns.map { |_name, id, code, _number| [id, code] })
+        header = columns.each_with_index.map do |(name, *), index|
+          %(<c r="#{('A'.ord + index).chr}1" t="inlineStr"><is><t>#{name}</t></is></c>)
+        end
+        # Each number as Excel writes it, without a cell type, in the style of its column.
+        cells = columns.each_with_index.map do |(*, number), index|
+          %(<c r="#{('A'.ord + index).chr}2" s="#{index + 1}"><v>#{number}</v></c>)
+        end
+        replace_sheet('<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>' \
+                      "<row r=\"1\">#{header.join}</row><row r=\"2\">#{cells.join}</row></sheetData></worksheet>")
+      end
+
+      # Runs the block with the local time zone of the process set to the supplied zone.
+      def in_time_zone(zone)
+        original = ENV.fetch("TZ", nil)
+        ENV["TZ"] = zone
+        yield
+      ensure
+        ENV["TZ"] = original
+      end
+
+      it "is the date, the time in UTC, or the time of day that the rows read, in every time zone" do
+        rows = read(IOStreams.path(file_name), :array).last
+
+        assert_equal [Date.new(2026, 9, 6), Date.new(2026, 9, 6), Date.new(2026, 9, 6), Time.utc(2026, 3, 8, 2, 30),
+                      Time.utc(2026, 3, 8, 2, 30, 0.5), Time.utc(2000, 1, 1, 9, 30), Time.utc(2000, 1, 1, 9, 30), 1001.0, 5.0],
+                     rows
+        %w[UTC America/Santiago America/New_York].each do |zone|
+          in_time_zone(zone) do
+            assert_equal "2026-09-06,2026-09-06,2026-09-06,2026-03-08T02:30:00Z,2026-03-08T02:30:00.500Z,09:30:00,09:30:00,1001,5",
+                         read(IOStreams.path(file_name), :line).last, zone
+          end
+        end
+      end
+
+      it "reads back through a contract as the same values as the rows of the workbook, once copied to a CSV file" do
+        csv = File.join(dir, "copy.csv")
+        IOStreams.path(csv).copy_from(file_name)
+
+        assert_equal read(IOStreams.path(file_name).as(contract)), read(IOStreams.path(csv).as(contract))
       end
     end
 

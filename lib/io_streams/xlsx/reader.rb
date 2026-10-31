@@ -91,9 +91,40 @@ module IOStreams
         @worksheet = workbook.sheets[0]
       end
 
-      # Returns each [Array] row from the spreadsheet, with the text of each value, see .cell_text.
+      # Returns each [Array] row from the spreadsheet, with the text of each value, see .cell_text: the text of a cell of
+      # a date or a time as `IOStreams::Xlsx::Cells.text` gives it, the same in every process, so that the lines and the
+      # rows of the workbook agree on which cells hold one, and any other cell as creek converts it, see #creek_value.
       def each
+        formats = self.class.number_formats(@worksheet)
+        styles  = @worksheet.book.style_types
+        self.class.convert_cells(@worksheet) do |text, type, style, options|
+          Cells.text(text, type, formats[style], options) || creek_value(text, type, styles[style], options)
+        end
         @worksheet.rows.each { |row| yield(row.values.map { |value| self.class.cell_text(value) }) }
+      end
+
+      # Replaces creek's conversion of each cell of a worksheet, `Creek::Sheet#convert`, with the block, which it calls
+      # with the text of the cell, its cell type, the index of its style, and `Creek::Sheet#converter_options`, the
+      # shared strings and the first day of the workbook, so that IOStreams types its cells, see
+      # `IOStreams::Xlsx::Cells`, rather than creek, which only reads them.
+      #
+      # Raises `IOStreams::Errors::Error` when the version of creek no longer has those methods, rather than let creek
+      # type the cells itself.
+      def self.convert_cells(sheet, &block)
+        unless sheet.respond_to?(:convert, true) && sheet.respond_to?(:converter_options, true)
+          raise(IOStreams::Errors::Error, "creek #{Creek::VERSION} no longer has Creek::Sheet#convert and " \
+                                          "#converter_options, which IOStreams replaces to type the cells of a spreadsheet")
+        end
+
+        sheet.define_singleton_method(:convert) do |text, type, style_index|
+          block.call(text, type, style_index.to_i, converter_options)
+        end
+      end
+
+      # Returns [Array<Symbol|nil>] the class of the number format of each style of the workbook of a worksheet, see
+      # `IOStreams::Xlsx::Cells.number_formats`.
+      def self.number_formats(sheet)
+        Cells.number_formats(Creek::Styles.new(sheet.book).styles_xml)
       end
 
       # The rows of the first worksheet of a workbook, each an Array of the value of each of its cells, typed by Excel's own
@@ -128,8 +159,8 @@ module IOStreams
           return enum_for(:each) unless block_given?
 
           sheet   = Reader.tag_failure(@display_name) { Reader.new(@file_name).worksheet }
-          formats = Reader.tag_failure(@display_name) { Cells.number_formats(Creek::Styles.new(sheet.book).styles_xml) }
-          type_cells(sheet, formats)
+          formats = Reader.tag_failure(@display_name) { Reader.number_formats(sheet) }
+          Reader.convert_cells(sheet) { |text, type, style, options| Cells.value(text, type, formats[style], options) }
           positions = nil
           each_row(sheet) do |row|
             positions ||= @decimals&.call
@@ -139,22 +170,6 @@ module IOStreams
         end
 
         private
-
-        # Types each cell of the worksheet by Excel's own cell type and number format, see `IOStreams::Xlsx::Cells.value`,
-        # in place of creek's `Creek::Sheet#convert`, which it calls with `#converter_options` for each cell.
-        #
-        # Raises `IOStreams::Errors::Error` when the version of creek no longer has those methods, rather than let creek
-        # type the cells itself.
-        def type_cells(sheet, formats)
-          unless sheet.respond_to?(:convert, true) && sheet.respond_to?(:converter_options, true)
-            raise(IOStreams::Errors::Error, "creek #{Creek::VERSION} no longer has Creek::Sheet#convert and " \
-                                            "#converter_options, which IOStreams replaces to type the cells of a spreadsheet")
-          end
-
-          sheet.define_singleton_method(:convert) do |text, type, style_index|
-            Cells.value(text, type, formats[style_index.to_i], converter_options)
-          end
-        end
 
         # Returns [BigDecimal|Object] the digits of a Float that Excel displays, its most significant 15, or any other
         # value as it is.
@@ -188,20 +203,21 @@ module IOStreams
       attr_reader :worksheet
 
       # Returns [String|nil] the text of the value of a cell, as a field of type "any" writes it, see
-      # `IOStreams::Schema::Field.any_text`, so that a field of type date or datetime can read it: a Date in ISO 8601,
-      # such as "2026-01-02", and a BigDecimal as a plain decimal, such as "12.5", where `Array#to_csv` wrote "0.125e2".
-      #
-      # A time is written as its time of day in UTC, such as "2026-01-02T09:30:00Z", since Excel holds it without a
-      # time zone, so that the text is the same in every process, while creek returns it in the local time zone of the
-      # process that reads it, such as "2026-01-02 09:30:00 -0500".
-      #
-      # An empty cell is nil, and any other value, such as a String, an Integer or a Float, has the text that
-      # `Array#to_csv` gives it.
+      # `IOStreams::Schema::Field.any_text`: a BigDecimal as a plain decimal, such as "12.5", where `Array#to_csv` wrote
+      # "0.125e2", and the text of a date or a time, which `IOStreams::Xlsx::Cells.text` gives, as it is. An empty cell
+      # is nil, and any other value, such as a String, an Integer or a Float, has the text that `Array#to_csv` gives it.
       def self.cell_text(value)
-        return if value.nil?
-        return Schema::Field.any_text(value) unless value.is_a?(Time)
+        Schema::Field.any_text(value) unless value.nil?
+      end
 
-        Schema::Field.any_text(Time.utc(value.year, value.month, value.day, value.hour, value.min, value.sec + value.subsec))
+      private
+
+      # Returns the value that creek converts a cell to, see `Creek::Styles::Converter.call`, as v2 read it, apart from
+      # a cell whose style creek takes for a date or a time, which `IOStreams::Xlsx::Cells` does not, such as a number
+      # of the custom format `0" items"`, in which creek finds a `d`, and which is its number.
+      def creek_value(text, type, style, options)
+        style = :unsupported if Creek::Styles::Converter::DATE_TYPES.include?(style)
+        Creek::Styles::Converter.call(text, type, style, options)
       end
     end
   end
