@@ -50,10 +50,10 @@ IOStreams.path("orders.parquet").copy_from(paid_orders, mode: :hash)
 IOStreams.path("orders.xlsx").option(:xlsx, auto_format: true).copy_from(paid_orders, mode: :array)
 ~~~
 
-A spreadsheet is written with each value as text, unless `auto_format: true` writes those that look like numbers,
-dates, times or booleans as the values of Excel, so that Excel can add up the amounts, and sort by date. It applies to
-every column, so text that looks like a number, such as the zip code `01234`, is written as a number too, see
-[Excel spreadsheets](formats#excel-spreadsheets).
+A spreadsheet is written with each value as its type, by the types of the columns of the query, so that Excel can add
+up the amounts, and sort by date, while a `string` column, such as the zip code `01234`, stays text. `auto_format: true`
+also writes text that looks like a number, date, time or boolean as that value, but only in a column whose type is not
+known, see [Excel spreadsheets](formats#excel-spreadsheets).
 
 Select the columns to export with `select`, which can join other tables and compute columns, as any query can:
 

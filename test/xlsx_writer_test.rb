@@ -299,7 +299,7 @@ class XlsxWriterTest < Minitest::Test
             IOStreams.path(file_name).writer(:array, delimiter: delimiter) { |io| io << %w[a b] }
           end
 
-          assert_includes error.message, "not lines of text"
+          assert_includes error.message, "rather than lines of text"
         end
       end
 

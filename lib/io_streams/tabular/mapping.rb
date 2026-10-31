@@ -163,6 +163,18 @@ module IOStreams
         []
       end
 
+      # Returns [Array<Integer>|nil] the positions of the values of the rows read whose field keeps the digits of its
+      # numbers, see `IOStreams::Tabular#decimal_positions`: none without a schema, whose values have no type.
+      def decimal_positions
+        []
+      end
+
+      # Returns [Array<Integer>] the positions of the values of the rows rendered whose field is a `string`, see
+      # `IOStreams::Tabular#text_positions`: none without a schema, whose values have no type.
+      def text_positions
+        []
+      end
+
       private
 
       # Returns [Array|Hash] the values of the line, which the parser parses, or a row already read, as it is.

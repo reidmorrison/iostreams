@@ -176,6 +176,19 @@ module IOStreams
         @schema
       end
 
+      # Returns [Array<Integer>|nil] the positions of the values of the rows read whose field keeps the digits of its
+      # numbers, see `IOStreams::Schema::Columns#decimal_positions`: those of the fields in order of a file without a
+      # header row, otherwise nil until the header row is matched to the fields.
+      def decimal_positions
+        @columns.decimal_positions(in_order: !@requires_header)
+      end
+
+      # Returns [Array<Integer>] the positions of the values of the rows rendered whose field is a `string`, see
+      # `IOStreams::Schema::Columns#text_positions`.
+      def text_positions
+        @columns.text_positions
+      end
+
       # Returns [Array<IOStreams::Errors::InvalidValue>] an error for each field whose value of the line is not valid, see
       # `IOStreams::Tabular#value_errors`, or none for a blank line.
       def value_errors(line)

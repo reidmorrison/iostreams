@@ -107,9 +107,10 @@ module IOStreams
 
         # Parameters:
         #   decimals: [#call|nil]
-        #     Answers whether the column of the supplied label of the header row keeps the digits of its numbers, such as
-        #     that of a `number` field, rather than the Float that Excel holds, so that each number of the column is the
-        #     BigDecimal of the digits that Excel displays, such as `0.3` for the Float `0.30000000000000004`. The stream
+        #     Returns the positions of the values of the rows that keep the digits of their numbers, such as those of a
+        #     `number` field, rather than the Float that Excel holds, so that each number of the column is the BigDecimal
+        #     of the digits that Excel displays, such as `0.3` for the Float `0.30000000000000004`, or nil until they are
+        #     known, once the header row is read, so it is called before each row until it returns them. The stream
         #     supplies it for its schema or contract, which the reader never sees, as JSON keeps the digits of its numbers.
         #     Default: nil, every number is a Float.
         def initialize(file_name, display_name, decimals: nil)
@@ -128,21 +129,32 @@ module IOStreams
 
           sheet   = Reader.tag_failure(@display_name) { Reader.new(@file_name).worksheet }
           formats = Reader.tag_failure(@display_name) { Cells.number_formats(Creek::Styles.new(sheet.book).styles_xml) }
-          sheet.define_singleton_method(:convert) do |text, type, style_index|
-            Cells.value(text, type, formats[style_index.to_i], converter_options)
-          end
-          indexes = nil
+          type_cells(sheet, formats)
+          positions = nil
           each_row(sheet) do |row|
-            if @decimals && indexes.nil?
-              indexes = row.each_index.select { |index| @decimals.call(row[index]) }
-            elsif indexes && !indexes.empty?
-              indexes.each { |index| row[index] = displayed(row[index]) }
-            end
+            positions ||= @decimals&.call
+            positions&.each { |index| row[index] = displayed(row[index]) }
             yield(row)
           end
         end
 
         private
+
+        # Types each cell of the worksheet by Excel's own cell type and number format, see `IOStreams::Xlsx::Cells.value`,
+        # in place of creek's `Creek::Sheet#convert`, which it calls with `#converter_options` for each cell.
+        #
+        # Raises `IOStreams::Errors::Error` when the version of creek no longer has those methods, rather than let creek
+        # type the cells itself.
+        def type_cells(sheet, formats)
+          unless sheet.respond_to?(:convert, true) && sheet.respond_to?(:converter_options, true)
+            raise(IOStreams::Errors::Error, "creek #{Creek::VERSION} no longer has Creek::Sheet#convert and " \
+                                            "#converter_options, which IOStreams replaces to type the cells of a spreadsheet")
+          end
+
+          sheet.define_singleton_method(:convert) do |text, type, style_index|
+            Cells.value(text, type, formats[style_index.to_i], converter_options)
+          end
+        end
 
         # Returns [BigDecimal|Object] the digits of a Float that Excel displays, its most significant 15, or any other
         # value as it is.

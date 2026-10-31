@@ -56,6 +56,18 @@ module IOStreams
         meet(@source.names)
       end
 
+      # Returns [Array<Integer>|nil] the positions of the values of the rows of the file whose field of the schema of the
+      # file keeps the digits of its numbers, see `IOStreams::Schema::Columns#decimal_positions`.
+      def decimal_positions(in_order: false)
+        @source.decimal_positions(in_order: in_order)
+      end
+
+      # Returns [Array<Integer>] the positions of the values of the rows of the file rendered whose field of the schema of
+      # the file is a `string`, see `IOStreams::Schema::Columns#text_positions`.
+      def text_positions
+        @source.text_positions
+      end
+
       # Returns [true|false] whether the columns of the file read are known, see #match.
       def matched?
         @source.matched? && !@renames.nil?

@@ -295,15 +295,21 @@ module IOStreams
     # when its format decides it, such as `:csv` for a spreadsheet, see `IOStreams::StreamFormat#text_format`, otherwise
     # nil. The encode stream converts that text, so it is the stream after it.
     def text_format
-      stream = pipeline.each_key.find { |name| name != :encode }
+      stream = application_stream
       stream_format(stream).text_format if stream
+    end
+
+    # Returns [Symbol|nil] the name of the stream closest to the application, the one after the encode stream, which
+    # converts its text, such as `:xlsx`, or nil without streams.
+    def application_stream
+      pipeline.each_key.find { |name| name != :encode }
     end
 
     # Returns [Symbol|nil] the tabular format of the rows that the stream closest to the application reads and writes
     # itself, rather than as text, when the rows and records of the stream are read or written, such as `:array` for a
     # spreadsheet, see `IOStreams::StreamFormat#rows_format`, or nil when the streams only read and write bytes.
     def rows_format
-      stream = pipeline.each_key.find { |name| name != :encode }
+      stream = application_stream
       stream_format(stream).rows_format if stream
     end
 
@@ -475,7 +481,7 @@ module IOStreams
     # Asks the stream's format to open its reader or writer, see `IOStreams::StreamFormat#open_stream`, the stream
     # closest to the application with the arguments of its rows, see #for_rows.
     def open_stream(type, stream, io_stream, opts, display_name: nil, &)
-      arguments = @rows_arguments if @rows_arguments && stream == pipeline.each_key.find { |name| name != :encode }
+      arguments = @rows_arguments if @rows_arguments && stream == application_stream
       stream_format(stream).open_stream(
         type, io_stream, opts, name: stream, file_name: file_name, display_name: display_name, arguments: arguments, &
       )

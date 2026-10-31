@@ -101,6 +101,28 @@ class XlsxRowsTest < Minitest::Test
       it "raises for a delimiter of the rows read, which are cells rather than lines" do
         assert_raises(ArgumentError) { read(IOStreams.path(file_name), :hash, delimiter: "\n") }
       end
+
+      it "raises for an encoding of the rows read, which are cells rather than text, as their lines take it" do
+        error = assert_raises(ArgumentError) { read(IOStreams.path(file_name).encoding("ISO-8859-1"), :hash) }
+
+        assert_includes error.message, "#encoding cannot be used with the rows"
+        assert_equal 2, read(IOStreams.path(file_name).encoding("UTF-8"), :line).size
+      end
+    end
+
+    describe "the digits that Excel displays" do
+      it "are read once the header row places the columns, after a blank row before it" do
+        workbook([], %w[ratio], [0.1 + 0.2])
+
+        assert_equal [{"ratio" => BigDecimal("0.3")}], read(IOStreams.path(file_name).as(fields: [{name: "ratio", type: "number"}]))
+      end
+
+      it "are read from the first row of a file without a header row, by the positions of its fields" do
+        workbook([0.1 + 0.2, "x"])
+        schema = {header: false, fields: [{name: "ratio", type: "number"}, {name: "note"}]}
+
+        assert_equal [{"ratio" => BigDecimal("0.3"), "note" => "x"}], read(IOStreams.path(file_name).schema(schema))
+      end
     end
 
     describe "cells of each kind" do
@@ -180,6 +202,50 @@ class XlsxRowsTest < Minitest::Test
         end
 
         assert_equal [{"a" => 1.0, "b" => Date.new(2026, 1, 2), "c" => "x", "d" => '{"k":1}'}], read
+      end
+
+      it "writes a time in UTC, so that it reads back as the same instant" do
+        IOStreams.path(file_name).writer(:array) do |io|
+          io << %w[at]
+          io << [Time.new(2026, 1, 1, 10, 0, 0, "-05:00")]
+        end
+
+        assert_equal [{"at" => Time.utc(2026, 1, 1, 15)}], read
+      end
+
+      it "writes a whole number of more digits than Excel keeps, NaN and an infinity as text, which a field reads back" do
+        IOStreams.path(file_name).writer(:array) do |io|
+          io << %w[id big nan inf]
+          io << [1, 12_345_678_901_234_567_890, Float::NAN, -Float::INFINITY]
+        end
+        contract = IOStreams::Contract.new(
+          fields: [{name: "id", type: "integer"}, {name: "big", type: "integer"},
+                   {name: "nan", type: "number", floatNumber: true}, {name: "inf", type: "number", floatNumber: true}]
+        )
+
+        assert_equal [{"id" => 1.0, "big" => "12345678901234567890", "nan" => "NaN", "inf" => "-INF"}], read
+        record = read(IOStreams.path(file_name).as(contract)).first
+
+        assert_equal [1, 12_345_678_901_234_567_890, -Float::INFINITY], record.values_at("id", "big", "inf")
+        assert_predicate record["nan"], :nan?
+      end
+
+      it "keeps the text of a string field as text past a field that only holds the place of a column" do
+        schema = {fields: [{name: "filler", skip: true}, {name: "zip", type: "string"}, {name: "code"}]}
+        IOStreams.path(file_name).option(:xlsx, auto_format: true).schema(schema).writer(:hash) do |io|
+          io << {"zip" => "01234", "code" => "01234"}
+        end
+
+        assert_equal [{"filler" => nil, "zip" => "01234", "code" => 1234.0}], read
+      end
+
+      it "writes text of a time without seconds as a time with auto_format, as the lines do" do
+        IOStreams.path(file_name).option(:xlsx, auto_format: true).writer(:array) do |io|
+          io << %w[at]
+          io << ["2026-10-09T10:00"]
+        end
+
+        assert_equal [{"at" => Time.utc(2026, 10, 9, 10)}], read
       end
 
       it "still writes lines of CSV text as text" do

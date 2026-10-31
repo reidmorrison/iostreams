@@ -517,8 +517,9 @@ module IOStreams
     # Set/get the tabular format.
     #
     # Returns [Symbol] the format that was set, otherwise the format of the text that the stream closest to the
-    # application reads and writes, when that stream decides it, such as `:csv` for a spreadsheet, whose cells are read
-    # and written as CSV, otherwise the format detected from the file name, or [nil] when none applies.
+    # application reads and writes, when that stream decides it, such as `:csv` for a spreadsheet, whose lines are CSV
+    # text, while its rows and records are the values of its cells, otherwise the format detected from the file name, or
+    # [nil] when none applies.
     #
     # Reading or writing rows, records or lines raises ArgumentError when the format that was set is not the format of
     # the text of that stream, such as `:json` for a spreadsheet, rather than read or write them in the wrong format.
@@ -1288,7 +1289,7 @@ module IOStreams
     def open_rows_reader(tabular, delimiter, buffer_size, &)
       if stream_rows?
         reject_row_options!(tabular, delimiter: delimiter, buffer_size: buffer_size)
-        decimals = (->(label) { tabular.decimal_column?(label) } if tabular.schema&.decimals?)
+        decimals = (-> { tabular.decimal_positions } if tabular.schema&.decimals?)
         return rows_stream(decimals: decimals).send(:stream_reader, &)
       end
 
@@ -1315,7 +1316,7 @@ module IOStreams
     def open_rows_writer(tabular, delimiter, &)
       if stream_rows?
         reject_row_options!(tabular, delimiter: delimiter)
-        return rows_stream(text_columns: tabular.text_columns).send(:open_writer, &)
+        return rows_stream(text_columns: tabular.text_positions).send(:open_writer, &)
       end
 
       unless tabular.lines?
@@ -1347,15 +1348,16 @@ module IOStreams
     end
 
     # Raises ArgumentError for the options of lines of a stream whose rows its stream reads and writes itself, see
-    # #stream_rows?, such as a spreadsheet, whose rows are not lines. An encoding applies to its text, such as the CSV of
-    # its lines, so its rows ignore it.
+    # #stream_rows?, such as a spreadsheet, whose rows are not lines, and for an encoding, see #encoding, which applies
+    # only to its text, such as the CSV of its lines, so that a setting that has no effect on its rows is not ignored.
     def reject_row_options!(tabular, **options)
-      names = options.compact.keys
+      names = options.compact.keys.map(&:inspect)
+      names << "#encoding" if builder.setting(:encode)
       return if names.empty?
 
-      raise(ArgumentError, "#{names.map(&:inspect).join(', ')} cannot be used with the rows of the #{tabular.format.inspect} " \
-                           "format of a #{builder.pipeline.each_key.find { |name| name != :encode }.inspect} file, which " \
-                           "are not lines of text")
+      raise(ArgumentError, "#{names.join(', ')} cannot be used with the rows of the #{tabular.format.inspect} format of a " \
+                           "#{builder.application_stream.inspect} file, which are the values of its cells rather than " \
+                           "lines of text: read and write its lines as text with the :line mode")
     end
 
     # Options are strict: raise rather than ignore the options of lines for a format whose rows are not lines, and

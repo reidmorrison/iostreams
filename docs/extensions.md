@@ -288,15 +288,16 @@ See [PGP Encryption](pgp) for creating and importing keys, signing and verifying
 
 ## Excel spreadsheets
 
-A spreadsheet, `.xlsx` or `.xlsm`, is read as CSV, one line for each row of its first worksheet, and written from CSV
-into a workbook with one worksheet. So the `:line`, `:array` and `:hash` modes apply, and the format of its rows is
-always CSV. See [Excel spreadsheets](formats#excel-spreadsheets) for the values that each cell is read as.
+A spreadsheet, `.xlsx` or `.xlsm`, is read from its first worksheet, and written into a workbook with one worksheet.
+Its rows and records, in the `:array`, `:hash`, `:record` and `:slice` modes, are the values of its cells, as Excel
+typed them, while its lines, in the `:line` mode, and its bytes, such as a copy without a mode, are CSV text, one line
+for each row. See [Excel spreadsheets](formats#excel-spreadsheets) for the values that each cell is read as.
 
 ### Reading an Excel spreadsheet
 
-Reading uses the `creek` gem, which reads a local file and returns its rows to a block, so the rows are converted into
-CSV in a temp file for your code to read. A spreadsheet on S3 or HTTP, or within another stream, is first copied into a
-temp file of its own, see [When temp files are used](config#when-temp-files-are-used). Reading takes no options, and
+Reading uses the `creek` gem, which reads a local file and returns its rows to a block. Its rows and records are read
+from the worksheet as they are, while its lines are converted into CSV in a temp file for your code to read. A
+spreadsheet on S3 or HTTP, or within another stream, is first copied into a temp file of its own, see [When temp files are used](config#when-temp-files-are-used). Reading takes no options, and
 raises `ArgumentError` for `sheet_name`, since it always reads the first worksheet.
 
 A spreadsheet is a zip file of parts, such as its worksheets. Before creek reads it, IOStreams checks the size and the

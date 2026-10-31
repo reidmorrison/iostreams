@@ -225,6 +225,23 @@ module IOStreams
         names
       end
 
+      # Returns [Array<Integer>|nil] the position of each value of a row read whose field keeps the digits of its numbers,
+      # see `IOStreams::Schema::Field#decimal?`: of the columns that the fields matched, once they are matched, see
+      # #match, otherwise nil, or with `in_order: true`, of the fields in order, as a file without a header row holds
+      # them, see #match_in_order, so that they are known before its first row.
+      def decimal_positions(in_order: false)
+        return @schema.fields.each_index.select { |index| @schema.fields[index].decimal? } if in_order
+        return unless matched?
+
+        matched.filter_map { |field, index, _key| index if index && field.decimal? }
+      end
+
+      # Returns [Array<Integer>] the position of each value of a row rendered whose field is a `string`, see #render: every
+      # field, in order, a field that only holds the place of a column included.
+      def text_positions
+        @schema.fields.each_index.select { |index| @schema.fields[index].type == "string" }
+      end
+
       # Returns [Array<String|Symbol>] the keys of the fields that the columns of the file matched, see #names, without
       # the fields that the file does not have, which the records read still have when every field is read, see #initialize.
       def found_names
