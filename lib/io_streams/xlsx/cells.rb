@@ -33,8 +33,9 @@ module IOStreams
       }.freeze
 
       # The parts of a custom format code that are not its tokens: quoted text, an escaped character, and a section in
-      # brackets other than an elapsed time, such as a color or a locale.
-      LITERALS = /"[^"]*"|\\.|_.|\*.|\[(?![hms]+\])[^\]]*\]/i
+      # brackets other than an elapsed time, such as a color or a locale. A section never holds another `[`, so a match
+      # stops there, rather than scan the rest of the code again from each `[` of a workbook's code that never closes.
+      LITERALS = /"[^"]*"|\\.|_.|\*.|\[(?![hms]+\])[^\[\]]*\]/i
 
       # Returns [Array<Symbol|nil>] the class of the number format of each style of a workbook, by the index of the style,
       # as a cell names it with its `s` attribute: `:date`, `:time` or `:date_time`, or nil for a number, from Excel's own

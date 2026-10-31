@@ -150,6 +150,13 @@ class XlsxRowsTest < Minitest::Test
         assert_nil IOStreams::Xlsx::Cells.custom_format('"days" 0')
       end
 
+      it "classifies a format code by what its sections in brackets leave, also one whose brackets never close" do
+        assert_equal :date, IOStreams::Xlsx::Cells.custom_format("[$-409][Blue]mmmm d, yyyy")
+        assert_equal :time, IOStreams::Xlsx::Cells.custom_format("[h]:mm:ss")
+        assert_nil IOStreams::Xlsx::Cells.custom_format("[>=100]0;0")
+        assert_nil IOStreams::Xlsx::Cells.custom_format("[" * 40_000)
+      end
+
       # Replaces the first worksheet of the workbook with the supplied XML.
       def replace_sheet(xml)
         require "zip"
