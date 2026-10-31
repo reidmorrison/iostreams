@@ -137,7 +137,7 @@ class SliceTest < Minitest::Test
 
       it "raises for a key that a slice does not have" do
         error = assert_raises(ArgumentError) { IOStreams.slice("rows" => [], "line" => 1) }
-        assert_equal 'Unknown key "line" of a slice. Valid keys: "rows", "header", "format", "blank_rows", "typed", ' \
+        assert_equal 'Unknown key "line" of a slice. Valid keys: "rows", "header", "format", "blank_rows", "schema", ' \
                      '"line_number", "record_number", "jumps"', error.message
       end
 
@@ -229,21 +229,80 @@ class SliceTest < Minitest::Test
       end
     end
 
-    describe "#typed?" do
-      let(:typed) { IOStreams::Slice.new([{"name" => "Jack", "on" => Date.new(2026, 1, 2)}], format: :hash, typed: true) }
+    describe "#schema" do
+      let(:schema) { {fields: [{name: "name", type: "string"}, {name: "on", type: "date"}]} }
+      let(:typed) { IOStreams::Slice.new([{"name" => "Jack", "on" => Date.new(2026, 1, 2)}], format: :hash, schema: schema) }
 
-      it "is false unless the slice says that its values are those of the fields of a schema" do
+      it "is nil unless the slice says that its values are those of the fields of a schema, which marks it typed" do
+        assert_nil slice.schema
         refute_predicate slice, :typed?
+        assert_equal IOStreams::Schema.new(schema), typed.schema
         assert_predicate typed, :typed?
       end
 
-      it "is held by the Hash of the slice only when it is true, which IOStreams.slice turns back" do
-        assert typed.to_h["typed"]
-        refute slice.to_h.key?("typed")
-        assert_predicate IOStreams.slice(typed.to_h), :typed?
-        assert_predicate IOStreams.slice(rows: [], format: "hash", typed: true), :typed?
-        refute_predicate IOStreams.slice(rows: []), :typed?
-        refute_predicate IOStreams.slice(rows: [], typed: false), :typed?
+      it "is held by the Hash of the slice, by String keys, with each value in a form that JSON keeps exactly" do
+        assert_equal({"fields" => [{"name" => "name", "type" => "string"}, {"name" => "on", "type" => "date"}]}, typed.to_h["schema"])
+        assert_equal [{"name" => "Jack", "on" => "2026-01-02"}], typed.to_h["rows"]
+        refute slice.to_h.key?("schema")
+      end
+
+      it "is turned back by IOStreams.slice, with the values of the rows as their types, also once stored as JSON" do
+        assert_equal typed, IOStreams.slice(typed.to_h)
+        assert_equal typed, IOStreams.slice(JSON.parse(JSON.generate(typed.to_h)))
+        assert_nil IOStreams.slice(rows: []).schema
+      end
+
+      it "keeps every digit of a number, and the fraction of a second and offset of a time, through JSON" do
+        exact = {
+          fields: [
+            {name: "amount", type: "number", decimals: 2},
+            {name: "at", type: "datetime"},
+            {name: "opens", type: "time"},
+            {name: "data", type: "object"}
+          ]
+        }
+        row   = [BigDecimal("12345678901234567890.5"), Time.new(2026, 10, 25, 9, 30, 0.123456r, "-04:00"),
+                 Time.new(2000, 1, 1, 9, 30, 0, "-04:00"), {"a" => [1]}]
+        slice = IOStreams::Slice.new([row, [nil, nil, nil, nil]], header: %w[amount at opens data], format: :array,
+                                                                  schema: exact)
+
+        assert_equal [["12345678901234567890.50", "2026-10-25T09:30:00.123456-04:00", "09:30:00-04:00", {"a" => [1]}],
+                      [nil, nil, nil, nil]], slice.to_h["rows"]
+        copy = IOStreams.slice(JSON.parse(JSON.generate(slice.to_h)))
+
+        assert_equal slice.rows, copy.rows
+        assert_equal(-4 * 3600, copy.rows.first[1].utc_offset)
+      end
+
+      it "holds the values of rows without a header row in the positions of every field, past a field that is skipped" do
+        layout = {header: false, fields: [{name: "name"}, {name: "x", skip: true}, {name: "on", type: "date"},
+                                          {name: "amount", type: "number", decimals: 2}]}
+        slice  = IOStreams::Slice.new([["Jack", nil, Date.new(2024, 1, 2), BigDecimal("12.5")]], format: :array, schema: layout)
+
+        assert_equal [["Jack", nil, "2024-01-02", "12.50"]], slice.to_h["rows"]
+        assert_equal slice, IOStreams.slice(JSON.parse(JSON.generate(slice.to_h)))
+      end
+
+      it "holds a nil row of a slice of records as it is" do
+        slice = IOStreams::Slice.new([nil, {"on" => Date.new(2026, 1, 2)}], format: :hash, schema: schema)
+
+        assert_equal [nil, {"on" => "2026-01-02"}], slice.to_h["rows"]
+      end
+
+      it "holds a time, a date or a BigDecimal of a field of type any as its text, which comes back as text" do
+        any   = {fields: [{name: "at"}, {name: "amount"}]}
+        slice = IOStreams::Slice.new([[Time.utc(2024, 1, 2, 3, 4, 5.123r), BigDecimal("12.5")]], header: %w[at amount],
+                                                                                                  format: :array, schema: any)
+
+        assert_equal [["2024-01-02T03:04:05.123Z", "12.5"]], slice.to_h["rows"]
+      end
+
+      it "names the record and line of a value that its field cannot hold, when it is turned back" do
+        hash  = {"rows" => [{"name" => "Jack", "on" => "2026-01-02"}, {"name" => "Jill", "on" => "x"}], "format" => "hash",
+                 "schema" => schema, "record_number" => 5, "line_number" => 7}
+        error = assert_raises(IOStreams::Errors::InvalidValue) { IOStreams.slice(hash) }
+
+        assert_equal [6, 8], [error.record_number, error.line_number]
       end
 
       it "makes slices that differ by it not equal" do
@@ -251,42 +310,47 @@ class SliceTest < Minitest::Test
       end
 
       it "is kept by #drop" do
-        assert_predicate typed.drop(1), :typed?
+        assert_equal typed.schema, typed.drop(1).schema
       end
 
-      it "raises for one that is not true or false" do
-        error = assert_raises(ArgumentError) { IOStreams::Slice.new([], typed: "true") }
-        assert_equal 'The typed of a slice must be true or false: "true"', error.message
-        error = assert_raises(ArgumentError) { IOStreams.slice("rows" => [], "typed" => 1) }
-        assert_equal "The typed of a slice must be true or false: 1", error.message
+      it "raises for one that is not a valid schema" do
+        assert_raises(ArgumentError) { IOStreams::Slice.new([], format: :hash, schema: "true") }
+        assert_raises(ArgumentError) { IOStreams.slice("rows" => [], "format" => "hash", "schema" => {"fields" => 1}) }
       end
 
-      it "is only true for a format whose rows hold the values themselves, since the rows of any other are text" do
+      it "is only held by a format whose rows hold the values themselves, since the rows of any other are text" do
         %i[hash array parquet].each do |format|
-          assert_predicate IOStreams::Slice.new([], format: format, typed: true), :typed?, format
+          assert_predicate IOStreams::Slice.new([], format: format, schema: schema), :typed?, format
         end
         [:csv, :json, :fixed, :text, nil].each do |format|
-          error = assert_raises(ArgumentError, format.inspect) { IOStreams::Slice.new(["12,2026-01-02"], format: format, typed: true) }
-          assert_equal "A slice of the #{format.inspect} format cannot be typed, since its rows are text: only the rows of a " \
-                       "format whose rows hold the values themselves, such as :hash or :array, can be", error.message
+          error = assert_raises(ArgumentError, format.inspect) do
+            IOStreams::Slice.new(["12,2026-01-02"], format: format, schema: schema)
+          end
+          assert_equal "A slice of the #{format.inspect} format cannot have a schema, since its rows are text: only the " \
+                       "rows of a format whose rows hold the values themselves, such as :hash or :array, can", error.message
         end
-        assert_raises(ArgumentError) { IOStreams.slice("rows" => ["12"], "header" => ["amount"], "format" => "csv", "typed" => true) }
+        assert_raises(ArgumentError) do
+          IOStreams.slice("rows" => ["12"], "header" => ["amount"], "format" => "csv", "schema" => {"fields" => []})
+        end
       end
     end
 
     describe "#same_file?" do
-      let(:typed) { IOStreams::Slice.new([[1]], header: %w[amount], format: :array, typed: true) }
+      let(:amounts) { {fields: [{name: "amount", type: "integer"}]} }
+      let(:typed) { IOStreams::Slice.new([[1]], header: %w[amount], format: :array, schema: amounts) }
 
       it "is true for a slice whose rows are read as those of this one, whatever its rows and numbers" do
-        assert typed.same_file?(IOStreams::Slice.new([[2], [3]], header: %w[amount], format: :array, typed: true,
+        assert typed.same_file?(IOStreams::Slice.new([[2], [3]], header: %w[amount], format: :array, schema: amounts,
                                                                  record_number: 5))
       end
 
       it "is false for a slice of another header row, format, or whose blank rows or values are read otherwise" do
-        refute typed.same_file?(IOStreams::Slice.new([[1]], header: %w[total], format: :array, typed: true))
-        refute typed.same_file?(IOStreams::Slice.new([[1]], header: %w[amount], format: :hash, typed: true))
+        refute typed.same_file?(IOStreams::Slice.new([[1]], header: %w[total], format: :array, schema: amounts))
+        refute typed.same_file?(IOStreams::Slice.new([[1]], header: %w[amount], format: :hash, schema: amounts))
         refute typed.same_file?(IOStreams::Slice.new([[1]], header: %w[amount], format: :array))
-        refute typed.same_file?(IOStreams::Slice.new([[1]], header: %w[amount], format: :array, typed: true,
+        refute typed.same_file?(IOStreams::Slice.new([[1]], header: %w[amount], format: :array,
+                                                            schema: {fields: [{name: "amount", type: "number"}]}))
+        refute typed.same_file?(IOStreams::Slice.new([[1]], header: %w[amount], format: :array, schema: amounts,
                                                             blank_rows: false))
         refute typed.same_file?([[1]])
       end
@@ -294,7 +358,8 @@ class SliceTest < Minitest::Test
 
     describe "#with_rows" do
       let(:records) do
-        IOStreams::Slice.new([[nil, nil]], header: %w[name age], format: :array, blank_rows: false, typed: true,
+        IOStreams::Slice.new([[nil, nil]], header: %w[name age], format: :array, blank_rows: false,
+                                           schema: {fields: [{name: "name"}, {name: "age", type: "integer"}]},
                                            line_number: 2, record_number: 1)
       end
 

@@ -141,7 +141,7 @@ supplied in a `StringIO`.
 | --- | --- | --- | --- |
 | `.gz`, `.gzip`, `.bz2`, `.zst`, `.enc` | No temp file | No temp file | Streamed |
 | `.zip` | No temp file for a local file, otherwise a temp file holding the zip file | No temp file | A zip file lists its contents at its end, so reading one needs the whole file. Writing streams the zip file |
-| `.xlsx`, `.xlsm` | A temp file holding the rows as CSV, and when it is not a local file, a temp file holding the spreadsheet | No temp file | The `creek` gem reads a spreadsheet file, and returns its rows to a block, so they are converted into CSV for the application to read. Writing streams the spreadsheet with `xlsxtream` |
+| `.xlsx`, `.xlsm` | When it is not a local file, a temp file holding the spreadsheet, and in the `:line` mode, or a copy without a mode, a temp file holding the rows as CSV | No temp file | The `creek` gem reads a spreadsheet file, and returns its rows to a block, which its rows and records read as they are, while its lines are converted into CSV for the application to read. Writing streams the spreadsheet with `xlsxtream` |
 | `.pgp`, `.gpg` | No temp file. With `verify_first: true`, a temp file holding the decrypted data | No temp file | `gpg` reads a local file itself, and any other stream through its stdin, and writes through its stdout |
 | `.parquet` | No temp file for a local file, otherwise a temp file holding the Parquet file | A temp file holding the Parquet file, which is copied to the path once the block completes | A Parquet file records its columns at its end, and the `parquet` gem writes the whole file before it can be copied |
 
@@ -160,12 +160,12 @@ For example:
 | Path | Temp files when reading | Temp files when writing |
 | --- | --- | --- |
 | `data.csv`, `data.csv.gz`, `data.csv.zip`, `data.csv.pgp`, `data.csv.pgp.gz` | None | None |
-| `data.xlsx` | 1: the rows as CSV | None |
+| `data.xlsx` | Rows and records: none. Lines: 1, the rows as CSV | None |
 | `data.csv.pgp`, read with `verify_first: true` | 1: the decrypted data | None |
 | `data.csv.zip.pgp` | 1: the decrypted zip file | None |
 | `s3://bucket/data.csv`, `s3://bucket/data.csv.pgp` | None | None |
 | `s3://bucket/data.csv.zip` | 1: the zip file | None |
-| `s3://bucket/data.xlsx` | 2: the spreadsheet, and the rows as CSV | None |
+| `s3://bucket/data.xlsx` | Rows and records: 1, the spreadsheet. Lines: 2, the spreadsheet, and the rows as CSV | None |
 | `sftp://example.org/data.csv.zip.pgp` | 2: the download, and the decrypted zip file | 1: the upload |
 | `IOStreams.stream(StringIO.new(data)).stream(:pgp)` | None | None |
 | `IOStreams.stream(StringIO.new(data)).stream(:zip)` | 1: the zip file | None |

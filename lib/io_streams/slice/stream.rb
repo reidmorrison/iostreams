@@ -19,7 +19,7 @@ module IOStreams
     # A slice holds rows, already split and decoded, rather than bytes, and is only read, see `IOStreams::Row::Stream`.
     class Stream < IOStreams::Row::Stream
       # The modes whose readers resume at a record, see #reader.
-      RESUMABLE_MODES = %i[array hash slice].freeze
+      RESUMABLE_MODES = %i[array hash record slice].freeze
 
       # Parameters
       #   slice: [IOStreams::Slice]
@@ -36,8 +36,8 @@ module IOStreams
         "#<#{self.class.name} rows=#{io_stream.size} format=#{format.inspect}>"
       end
 
-      # Yields the reader of the supplied mode, see `IOStreams::Row::Stream#reader`. `resume_at:` in the `:array`, `:hash`
-      # and `:slice` modes is a record number that the slice holds, see `IOStreams::Slice#record_number_at`, such as
+      # Yields the reader of the supplied mode, see `IOStreams::Row::Stream#reader`. `resume_at:` in the `:array`, `:hash`,
+      # `:record` and `:slice` modes is a record number that the slice holds, see `IOStreams::Slice#record_number_at`, such as
       # the one that a job saw when it stopped, rather than a count of the rows of the slice, so the rows are read from
       # that record on, see `IOStreams::Slice#from_record`, and the slices read from them keep their numbers.
       #
@@ -91,12 +91,36 @@ module IOStreams
       # row. Without a schema, nothing then names the columns of such a slice of a format with a header row, such as CSV,
       # so that its records cannot be read, see `IOStreams::Tabular#check_records`, while its rows can.
       #
-      # The values of rows that are those of the fields, see `IOStreams::Slice#typed?`, such as those written to a store
-      # of slices in the `:hash` mode, are matched to the fields of the schema by their keys or header row, and restored
-      # to the types of the fields from the forms that the store returned them in, see
-      # `IOStreams::Schema::Field#restore`.
+      # The rows of a slice with a schema, see `IOStreams::Slice#schema`, such as of a query, a Parquet file, or written
+      # to a store of slices in the `:hash` mode, are read by that schema, as a query is read by the schema of its
+      # columns: matched to its fields by their keys or header row, and restored to the types of the fields from the
+      # forms that the store returned them in, see `IOStreams::Schema::Field#restore`. A schema or a contract set on the
+      # stream reads them instead, still restoring each value from the form that the store returned it in.
       def tabular(**)
-        super(blank_rows: io_stream.blank_rows?, headerless: !io_stream.header?, typed: io_stream.typed?, **)
+        super(default_schema: io_stream.schema, blank_rows: io_stream.blank_rows?, headerless: !io_stream.header?,
+              typed: io_stream.typed?, **)
+      end
+
+      # Returns [IOStreams::Schema] the schema of the values of the rows of the slice, see `IOStreams::Slice#schema`,
+      # otherwise that which its header row declares, see `IOStreams::Stream#declared_schema`.
+      def declared_schema
+        io_stream.schema || super
+      end
+
+      # Returns [IOStreams::Schema|Hash|String|IOStreams::Stream|nil] the schema that a copy of the rows of a slice of
+      # typed values gives a target without one, see `IOStreams::Stream#rows_schema`: the schema that was set, otherwise
+      # that of the values of its rows, see `IOStreams::Slice#schema`, or nil for a slice of text, such as CSV, whose
+      # schema, when one is set, describes its text, as that of a file of text does.
+      def rows_schema(_rows)
+        return unless io_stream.typed?
+
+        schema || io_stream.schema
+      end
+
+      # Returns [IOStreams::Schema|nil] the schema of the values of the rows of the slice, which each slice of them
+      # carries, see `IOStreams::Stream#slice_schema`.
+      def slice_schema(_rows)
+        io_stream.schema
       end
 
       # Yields [NumberedRows] the rows of the slice, after its header row, when it carries one, with the line of the file
@@ -107,15 +131,12 @@ module IOStreams
         yield NumberedRows.new(io_stream)
       end
 
-      # Returns [#each] the rows of the slice, after its header row, when it carries one, which the readers of rows and
-      # records read as the header row of a file, see `IOStreams::Tabular#read_header`.
+      # Returns [NumberedRows] the rows of the slice, after its header row, when it carries one, which the readers of rows
+      # and records read as the header row of a file, see `IOStreams::Tabular#read_header`, with the line of the file
+      # that each one starts on and its record number, so that a value that is not valid names those of its file, see
+      # `IOStreams::Row::Numbered`.
       def rows
-        slice = io_stream
-        Enumerator.new do |rows|
-          rows << slice.header if slice.header?
-          slice.each { |row, _line_number, _record_number| rows << row }
-          slice.size + (slice.header? ? 1 : 0)
-        end
+        NumberedRows.new(io_stream)
       end
 
       # The rows of a slice, after its header row, when it carries one, with the line of the file that each one starts
@@ -131,6 +152,14 @@ module IOStreams
         def each(&)
           yield(@slice.header, nil, nil) if @slice.header?
           @slice.each(&)
+        end
+
+        # Yields each row as #each does, for a reader of rows or records, see `IOStreams::Row::Numbered#each_numbered`.
+        #
+        # Returns [Integer] the number of rows yielded, the header row included, as the lines of a file count them.
+        def each_with_numbers(&)
+          each(&)
+          @slice.size + (@slice.header? ? 1 : 0)
         end
       end
       private_constant :NumberedRows

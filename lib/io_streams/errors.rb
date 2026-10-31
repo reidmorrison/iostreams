@@ -44,9 +44,75 @@ module IOStreams
     class ValueTooLong < Error
     end
 
-    # A value that is not one of the type of its field in the schema, such as `"abc"` for an integer,
-    # see `IOStreams::Stream#schema`.
+    # A value that is not one of the type of its field in the schema, such as `"abc"` for an integer, or no value for a
+    # field that is required, see `IOStreams::Stream#schema`. A value read names the record that it is in, and the line
+    # that the record starts on when the source has lines, so that the row can be found without the code that reads it
+    # adding them:
+    #
+    #   Field "amount": "N/A" is not a valid number, in record 6 on line 7
     class InvalidValue < Error
+      # Returns [String|Symbol|nil] the name of the field of the value.
+      attr_reader :field
+
+      # Returns [Object] the value, as it was read or written.
+      attr_reader :value
+
+      # Returns [Integer|nil] the line of the file that the record of the value starts on, or nil when its source has no
+      # lines, such as Parquet or a query, or it was not read.
+      attr_reader :line_number
+
+      # Returns [Integer|nil] the number of the record of the value, counting from 1 without the header row, blank rows
+      # included, or nil when it was not read.
+      attr_reader :record_number
+
+      # Parameters:
+      #   message: [String]
+      #     Why the value is not valid, see #reason.
+      #
+      #   field: [String|Symbol]
+      #     The name of the field of the value.
+      #
+      #   value: [Object]
+      #     The value.
+      def initialize(message = nil, field: nil, value: nil)
+        super(message)
+        @reason        = message
+        @field         = field
+        @value         = value
+        @line_number   = nil
+        @record_number = nil
+      end
+
+      # Returns [String] why the value is not valid, without the record that it is in, see #to_s.
+      def reason
+        @reason || self.class.name
+      end
+
+      # Sets the record that the value is in, and the line that it starts on, unless they are already set, so that an
+      # error keeps where it was first found.
+      #
+      # Returns [IOStreams::Errors::InvalidValue] itself.
+      def at(line_number: nil, record_number: nil)
+        @line_number   ||= line_number
+        @record_number ||= record_number
+        self
+      end
+
+      # Returns [String] why the value is not valid, followed by the record that it is in, and the line that it starts on,
+      # when they are known, see #at.
+      def to_s
+        location = []
+        location << "in record #{record_number}" if record_number
+        location << "on line #{line_number}" if line_number
+        location.empty? ? super : "#{super}, #{location.join(' ')}"
+      end
+    end
+
+    # A column whose type, which its source declares, such as a Parquet file, a database query, or the schema of a file,
+    # can never be the type of its field in a contract, such as a boolean for a number, see `IOStreams::Stream#as`. It
+    # is raised when the stream opens, before the first row, and is not an `InvalidHeader`, which a missing column
+    # raises, so that code that rescues `InvalidHeader` for missing columns does not rescue it.
+    class IncompatibleType < Error
     end
 
     class MalformedDataError < RuntimeError

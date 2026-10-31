@@ -130,6 +130,38 @@ source = IOStreams.path("people.csv").schema(
 IOStreams.path("people.json").copy_from(source, mode: :hash)
 ~~~
 
+A target with neither a schema nor a [contract](contracts) of its own takes the types of the rows that the copy reads,
+when the source has them: the contract that the source is read through, otherwise the schema of a source of typed rows,
+such as a Parquet file, an [Active Record query](queries#keeping-the-types-of-the-columns), or a slice of typed values.
+So a Parquet file copied to another keeps the type of each column that holds values of one type, and CSV writes each
+number with its decimals:
+
+~~~ruby
+# The source's contract gives the Parquet columns their types.
+contract = IOStreams::Contract.new(
+  fields: [
+    {name: "id", type: "integer"},
+    {name: "amount", type: "number", decimals: 2}
+  ]
+)
+source = IOStreams.path("orders.csv").as(contract)
+IOStreams.path("orders.parquet").copy_from(source, mode: :hash)
+
+# A typed source gives them its own.
+IOStreams.path("archive/orders.parquet").copy_from("orders.parquet", mode: :hash)
+~~~
+
+A file of text, such as CSV, or of values that each have their own type, such as JSON or a spreadsheet, gives nothing,
+since its types are never guessed, so a Parquet target needs a schema or a contract, and raises `ArgumentError` before
+it is opened without one, so that an existing file is kept.
+
+* The contract is handed on without what says how the source writes its text, the `format` of a date and the
+  `trueValues` and `falseValues` of a boolean, so that the target writes its own, such as a date in ISO 8601.
+* A column of a Parquet file of lists, maps or structs is an `array` or `object`, which another Parquet file holds as
+  JSON text, and a column of binary values is of type `any`, which Parquet cannot write without a schema on the target
+  that gives its type.
+* A copy in the `:line` mode copies the lines as they are, so it hands on nothing.
+
 An option that only applies when reading, such as `buffer_size:`, raises `ArgumentError` for a copy, rather than being
 ignored, see [Settings on the path, options for each call](streams#settings-on-the-path-options-for-each-call).
 

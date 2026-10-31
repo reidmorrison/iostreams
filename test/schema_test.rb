@@ -209,6 +209,76 @@ class SchemaTest < Minitest::Test
       end
     end
 
+    describe "#to_h" do
+      it "returns the schema as it was given, with Symbol keys, its properties before its fields" do
+        schema = IOStreams::Schema.new(
+          "fields"      => [{"name" => "id", "type" => "integer", "constraints" => {"required" => true}},
+                            {name: :zip, aliases: ["Zip Code"], "tool:x" => {"a" => 1}}],
+          "fieldsMatch" => "subset",
+          "title"       => "Orders"
+        )
+
+        assert_equal(
+          {fieldsMatch: "subset", title: "Orders",
+           fields: [{name: "id", type: "integer", constraints: {required: true}},
+                    {name: :zip, aliases: ["Zip Code"], "tool:x": {"a" => 1}}]},
+          schema.to_h
+        )
+      end
+
+      it "returns a new Hash each time, which can be changed without changing the schema" do
+        schema = IOStreams::Schema.new(fields: [{name: "id", type: "integer"}])
+        hash   = schema.to_h
+        hash[:fields].first[:type] = "string"
+        hash[:fields] << {name: "name"}
+
+        assert_equal({fields: [{name: "id", type: "integer"}]}, schema.to_h)
+        refute_predicate hash, :frozen?
+      end
+
+      it "makes a schema that is equal to itself" do
+        schema = IOStreams::Schema.new(fields: [{name: "id", type: "number", decimals: 2}], fieldsMatch: "partial")
+
+        assert_equal schema, IOStreams::Schema.new(schema.to_h)
+        assert_equal schema, IOStreams::Schema.new(JSON.parse(JSON.generate(schema.to_h)))
+      end
+    end
+
+    describe "#==" do
+      it "compares the properties and the fields" do
+        schema = IOStreams::Schema.new("fields" => [{"name" => "id", "type" => "integer"}])
+
+        assert_equal schema, IOStreams::Schema.new(fields: [{name: "id", type: "integer"}])
+        assert_equal schema.hash, IOStreams::Schema.new(fields: [{name: "id", type: "integer"}]).hash
+        assert schema.eql?(IOStreams::Schema.new(fields: [{name: "id", type: "integer"}]))
+        refute_equal schema, IOStreams::Schema.new(fields: [{name: "id"}])
+        refute_equal schema, IOStreams::Schema.new(fields: [{name: :id, type: "integer"}])
+        refute_equal schema, IOStreams::Schema.new(fields: [{name: "id", type: "integer"}], fieldsMatch: "subset")
+        refute_equal schema, schema.to_h
+      end
+
+      it "is eql? only for properties that are eql?, as a Hash key needs, which have the same hash" do
+        whole = IOStreams::Schema.new(fields: [{name: "id", "x:scale" => 1}])
+        float = IOStreams::Schema.new(fields: [{name: "id", "x:scale" => 1.0}])
+
+        assert_equal whole, float
+        refute whole.eql?(float)
+        assert_nil({whole => 1}[float])
+        assert_equal 1, {whole => 1}[IOStreams::Schema.new(fields: [{name: "id", "x:scale" => 1}])]
+        refute whole.fields.first.eql?(float.fields.first)
+        assert_equal whole.fields.first.hash, IOStreams::Schema.new(whole.to_h).fields.first.hash
+      end
+    end
+
+    describe "#inspect" do
+      it "shows the schema as a Hash" do
+        hash = {fields: [{name: "id", type: "integer"}]}
+
+        # Ruby 3.4 shows a Hash as `{fields: [...]}`, earlier versions as `{:fields=>[...]}`.
+        assert_equal "#<IOStreams::Schema #{hash.inspect}>", IOStreams::Schema.new(hash).inspect
+      end
+    end
+
     describe ".read" do
       it "reads the schema from a JSON file" do
         Dir.mktmpdir do |dir|
@@ -636,6 +706,22 @@ class SchemaTest < Minitest::Test
       # `IOStreams::Tabular::Parser::Json.coder`, and without one.
       let(:json_writers) { [IOStreams::Tabular::Parser::Json.coder, nil].uniq }
 
+      describe "#to_h" do
+        it "returns the properties as they were given, with Symbol keys, also within its constraints" do
+          field = field("type" => "number", "decimals" => 2, "constraints" => {"required" => true}, "title" => "Amount")
+
+          assert_equal({name: "value", type: "number", decimals: 2, constraints: {required: true}, title: "Amount"}, field.to_h)
+        end
+
+        it "compares fields by their properties" do
+          assert_equal field(type: "integer"), field("type" => "integer")
+          refute_equal field(type: "integer"), field(type: "string")
+          hash = {name: "value", type: "integer"}
+
+          assert_equal "#<IOStreams::Schema::Field #{hash.inspect}>", field(type: "integer").inspect
+        end
+      end
+
       describe "string" do
         let(:string) { field(type: "string") }
 
@@ -917,9 +1003,30 @@ class SchemaTest < Minitest::Test
           end
         end
 
-        it "converts a Date or a Time" do
-          assert_equal Date.new(2026, 10, 13), date.cast(DateTime.new(2026, 10, 13, 9, 30))
-          assert_equal Date.new(2026, 10, 13), date.cast(Time.new(2026, 10, 13, 9, 30))
+        it "converts a Time or DateTime at midnight, by its own clock, as a spreadsheet's date format reads it" do
+          assert_equal Date.new(2026, 10, 13), date.cast(DateTime.new(2026, 10, 13))
+          assert_equal Date.new(2026, 10, 13), date.cast(Time.new(2026, 10, 13, 0, 0, 0, "-05:00"))
+          assert_equal Date.new(2026, 10, 13), date.cast(Time.utc(2026, 10, 13))
+        end
+
+        it "raises for a Time or DateTime that is not midnight, rather than lose its time of day" do
+          assert_raises(IOStreams::Errors::InvalidValue) { date.cast(DateTime.new(2026, 10, 13, 9, 30)) }
+          assert_raises(IOStreams::Errors::InvalidValue) { date.cast(Time.new(2026, 10, 13, 9, 30)) }
+          assert_raises(IOStreams::Errors::InvalidValue) { date.cast(Time.utc(2026, 10, 13, 0, 0, 0.5r)) }
+        end
+
+        it "writes a Time only at midnight, as it reads one" do
+          output = StringIO.new
+          IOStreams.stream(output).file_name("dates.csv").schema(fields: [{name: "on", type: "date"}]).writer(:hash) do |io|
+            io << {"on" => Time.utc(2026, 10, 13)}
+          end
+
+          assert_equal "on\n2026-10-13\n", output.string
+          assert_raises(IOStreams::Errors::InvalidValue) do
+            IOStreams.stream(StringIO.new).file_name("dates.csv").schema(fields: [{name: "on", type: "date"}]).writer(:hash) do |io|
+              io << {"on" => Time.utc(2026, 10, 13, 9, 30)}
+            end
+          end
         end
 
         it "reads and writes the format" do

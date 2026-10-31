@@ -111,7 +111,8 @@ class RecordWriterTest < Minitest::Test
         # A block that ends with `io << record` returns the writer, which irb displays.
         records = IOStreams.stream(StringIO.new).file_name("report.xlsx").writer(:hash) { |io| io << {"name" => "Jack"} }
 
-        assert_equal "#<IOStreams::Record::Writer format=:csv>", records.inspect
+        # A spreadsheet's records are written as the values of its cells, in the :array format.
+        assert_equal "#<IOStreams::Record::Writer format=:array>", records.inspect
       end
     end
   end

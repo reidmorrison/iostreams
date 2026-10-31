@@ -16,6 +16,11 @@ module IOStreams
           true
         end
 
+        # Returns [true] each record supplies its own keys, and can leave out the key of a value that is missing.
+        def self.keys_vary?
+          true
+        end
+
         # Returns [JSON::Coder|nil] a coder that writes a record as `.json_value(record).to_json` does, in one pass over its
         # values in the json gem, rather than one pass in Ruby, then another to write them.
         #

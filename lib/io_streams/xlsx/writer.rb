@@ -19,13 +19,19 @@ module IOStreams
         %i[sheet_name auto_format use_shared_strings]
       end
 
+      # Returns [Array<Symbol>] the arguments of the rows that a stream writes, see .stream, which are not options.
+      def self.argument_names
+        %i[rows text_columns]
+      end
+
       # Raises ArgumentError for a `sheet_name` that Excel rejects, which would make it report the workbook as corrupt,
       # and LoadError when the `xlsxtream` gem is not installed, so that they raise before a path opens its output, which
       # would replace an existing file, see `IOStreams::StreamFormat#check_stream`.
       #
       # Excel rejects a name that is empty, longer than 31 characters, contains any of `[ ] : * ? / \`, or starts or
       # ends with an apostrophe.
-      def self.check(sheet_name: "Sheet1", auto_format: false, use_shared_strings: false) # rubocop:disable Lint/UnusedMethodArgument
+      # rubocop:disable-next Lint/UnusedMethodArgument -- takes the arguments of .stream, which only it uses
+      def self.check(sheet_name: "Sheet1", auto_format: false, use_shared_strings: false, rows: false, text_columns: nil)
         Utils.load_soft_dependency("xlsxtream", "Xlsx") unless defined?(Xlsxtream::Workbook)
 
         problem = sheet_name_problem(sheet_name)
@@ -71,6 +77,17 @@ module IOStreams
       #     smaller when values repeat, but holds every distinct value in memory until the workbook is complete.
       #     Default: false
       #
+      #   rows: [true|false]
+      #     Whether the block writes rows rather than CSV text, see `IOStreams::Xlsx.rows_format`: each an Array of the
+      #     values of its cells, which keep their types, see `IOStreams::Xlsx::RowsWriter`.
+      #     Default: false
+      #
+      #   text_columns: [Array<Integer>]
+      #     With `rows: true`, the positions of the columns whose values are text by their field of a schema or contract,
+      #     whose text `auto_format` leaves as it is, such as `01234`, since it only converts the values of columns
+      #     whose type is not known.
+      #     Default: none
+      #
       # The stream supplied to the block responds to the methods of an IO that write, see `IOStreams::Writable`, and
       # expects CSV text in UTF-8. Each CSV record is parsed into a row, so a quoted value can contain a newline.
       #
@@ -79,13 +96,16 @@ module IOStreams
       # The workbook is ended when the block returns, including when it leaves early, such as with `break`, so that
       # what was written is a complete workbook. It is not ended when the block raises, or its thread is killed, so
       # that the output is not a workbook that can be read.
-      def self.stream(output_stream, sheet_name: "Sheet1", auto_format: false, use_shared_strings: false)
+      def self.stream(output_stream, sheet_name: "Sheet1", auto_format: false, use_shared_strings: false, rows: false,
+                      text_columns: nil)
         check(sheet_name: sheet_name, auto_format: auto_format, use_shared_strings: use_shared_strings)
 
-        workbook  = Xlsxtream::Workbook.new(output_stream, auto_format: auto_format, use_shared_strings: use_shared_strings)
+        # Rows hold their types, so only the values of the columns whose type is not known are formatted, see RowsWriter.
+        workbook  = Xlsxtream::Workbook.new(output_stream, auto_format:        auto_format && !rows,
+                                                           use_shared_strings: use_shared_strings)
         # Rather than the block form, which ends the worksheet after its block without an `ensure`.
         worksheet = workbook.add_worksheet(name: sheet_name)
-        writer    = new(worksheet)
+        writer    = rows ? RowsWriter.new(worksheet, auto_format: auto_format, text_columns: text_columns) : new(worksheet)
         finish    = lambda do
           writer.finish
           worksheet.close

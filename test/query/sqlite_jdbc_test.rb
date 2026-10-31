@@ -74,7 +74,7 @@ class SqliteJdbcTest < Minitest::Test
       it "reads the first row before it yields, so that a failure of the first row raises before the block runs" do
         relation = orders.select(Arel.sql("abs(-9223372036854775807 - 1) AS overflow"))
         stream   = IOStreams.stream(relation)
-        stream.schema
+        stream.infer_schema
         error = assert_raises(ActiveRecord::JDBCError) { stream.reader(:hash) { |_reader| flunk "The block ran" } }
 
         assert_match(/integer overflow/, error.message)
@@ -111,7 +111,7 @@ class SqliteJdbcTest < Minitest::Test
       it "tags a database that another connection has locked as Unavailable" do
         stream = IOStreams.stream(orders)
         # The columns are described with Active Record, which raises its own exception, see QueryStreamTest.
-        stream.schema
+        stream.infer_schema
         locked = Object.new
         busy   = sqlite_error(:SQLITE_BUSY, "[SQLITE_BUSY] The database file is locked (database is locked)")
         locked.define_singleton_method(:start) { |_sql, _binds| raise busy }

@@ -217,15 +217,18 @@ class SliceWriterTest < Minitest::Test
 
     it "raises for a slice whose values or blank rows are read otherwise than those of the first one" do
       schema = {"fields" => [{"name" => "wait", "type" => "duration"}]}
-      typed  = IOStreams::Slice.new([{"wait" => 300}], format: :hash, typed: true)
+      typed  = IOStreams::Slice.new([{"wait" => 300}], format: :hash, schema: schema)
       [IOStreams::Slice.new([{"wait" => "PT5M"}], format: :hash),
-       IOStreams::Slice.new([{"wait" => 300}], format: :hash, typed: true, blank_rows: false)].each do |other|
+       IOStreams::Slice.new([{"wait" => 300}], format: :hash, schema: schema, blank_rows: false)].each do |other|
         error = assert_raises(ArgumentError) do
           IOStreams.stream(StringIO.new).schema(schema).writer(:slice) { |io| io << typed << other }
         end
+        # Ruby 3.4 shows a Hash as `{fields: [...]}`, earlier versions as `{:fields=>[...]}`.
+        shown = {fields: [{name: "wait", type: "duration"}]}.inspect
+
         assert_equal "Every slice written is of the same file as the first: a slice with the header row nil, format " \
-                     ":hash, blank_rows #{other.blank_rows?} and typed #{other.typed?} cannot follow one with the " \
-                     "header row nil, format :hash, blank_rows true and typed true", error.message
+                     ":hash, blank_rows #{other.blank_rows?} and schema #{other.schema&.to_h.inspect} cannot follow one " \
+                     "with the header row nil, format :hash, blank_rows true and schema #{shown}", error.message
       end
     end
 

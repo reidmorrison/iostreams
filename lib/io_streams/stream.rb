@@ -53,6 +53,7 @@ module IOStreams
       file_name:          "where it only chose the format, set the format on the path instead, for example: " \
                           "path.format(:json).each(:hash)",
       schema:             "set it on the path instead, for example: path.schema(\"people.json\").each(:hash)",
+      contract:           "set it on the path instead, for example: path.as(Orders::CONTRACT).each(:hash)",
       row_format_options: "set them on the path instead, for example: " \
                           "path.option(:parquet, compression: \"zstd\").writer(:hash)"
     }.freeze
@@ -287,6 +288,11 @@ module IOStreams
     #     p hash
     #   end
     #
+    # Example: Read each record as a record of a contract, see `IOStreams::Contract`
+    #   IOStreams.path("orders.csv").as(Order).each(:record) do |order|
+    #     p order.amount
+    #   end
+    #
     # Example: Read up to 100 rows at a time, as they are in the file, to parse elsewhere, see `IOStreams::Slice`
     #   IOStreams.path("people.csv").schema("people.json").each(:slice, size: 100) do |slice|
     #     p slice.header
@@ -300,7 +306,7 @@ module IOStreams
     #      applies, so this includes `:array` and `:hash` for a file name without a tabular extension.
     #   2. Or, in the `:line` mode, the `embedded_within` argument is supplied (e.g. `embedded_within: '"'`).
     # - Pass `embedded_within: nil` to read the physical lines of a quoted format in the `:line` mode.
-    #   The `:array`, `:hash` and `:slice` modes do not take `embedded_within`, since the format splits their lines
+    #   The `:array`, `:hash`, `:record` and `:slice` modes do not take `embedded_within`, since the format splits their lines
     #   where its parser expects: set the format with #format instead.
     # - The settings that describe the file, such as #format and #schema, are set on the path, and raise
     #   ArgumentError when they are supplied to a call, see PATH_SETTINGS. So does any other option that the mode does
@@ -312,14 +318,15 @@ module IOStreams
     #   carries it, and the format of its rows, so that the rows of the slice can be parsed on their own, elsewhere.
     #   With `validate: true` each row is also parsed before its slice is yielded, and raises when its values are not
     #   valid, after the slices before it, while each slice still holds the rows as they are.
-    # - The `:array`, `:hash` and `:slice` modes resume at the record of the number supplied with `resume_at:`, such as
-    #   for a job that stopped part way through the file: the records before it are read, but not parsed, counted from 1
-    #   without the header row, as the slices of the file number them, see `IOStreams::Row::Reader#initialize`.
-    # - The `:array` and `:hash` modes skip each blank row with `skip_blanks: true`, rather than yield nil for it: a line
-    #   that is empty or only whitespace, or a row or record whose every value is nil or blank text, the same way in every
-    #   format, see `IOStreams::Tabular::Mapping`. It defaults to false, so that the rows yielded count the lines of the
-    #   file. The `:slice` mode, like the `:line` mode, hands on every row as it is in the file, so that the rows of each
-    #   slice can be read with `IOStreams.stream(slice).each(:hash, skip_blanks: true)`.
+    # - The `:array`, `:hash`, `:record` and `:slice` modes resume at the record of the number supplied with
+    #   `resume_at:`, such as for a job that stopped part way through the file: the records before it are read, but not
+    #   parsed, counted from 1 without the header row, as the slices of the file number them, see
+    #   `IOStreams::Row::Reader#initialize`.
+    # - The `:array`, `:hash` and `:record` modes skip each blank row with `skip_blanks: true`, rather than yield nil for
+    #   it: a line that is empty or only whitespace, or a row or record whose every value is nil or blank text, the same
+    #   way in every format, see `IOStreams::Tabular::Mapping`. It defaults to false, so that the rows yielded count the
+    #   lines of the file. The `:slice` mode, like the `:line` mode, hands on every row as it is in the file, so that
+    #   the rows of each slice can be read with `IOStreams.stream(slice).each(:hash, skip_blanks: true)`.
     # - Lines, rows and records are read as UTF-8 text, and data that is not valid UTF-8 raises
     #   `IOStreams::Errors::InvalidEncoding`, an `Encoding::UndefinedConversionError`, with the byte offset and line
     #   number of the invalid data, once the lines before it have been read. To read text in another encoding,
@@ -342,7 +349,7 @@ module IOStreams
     # Returns a Reader for reading a file / stream
     #
     # The `:stream` mode reads bytes, so for example `read(1024)` on the stream it yields returns binary data, unless
-    # an encode stream is set. The `:line`, `:array`, `:hash` and `:slice` modes read UTF-8 text, see #each.
+    # an encode stream is set. The `:line`, `:array`, `:hash`, `:record` and `:slice` modes read UTF-8 text, see #each.
     def reader(mode = :stream, **args, &block)
       require_block!(:reader, block)
       case mode
@@ -355,6 +362,8 @@ module IOStreams
         row_reader(**args, &block)
       when :hash
         record_reader(**args, &block)
+      when :record
+        contract_record_reader(**args, &block)
       when :slice
         slice_reader(**args, &block)
       else
@@ -396,6 +405,8 @@ module IOStreams
         row_writer(**args, &block)
       when :hash
         record_writer(**args, &block)
+      when :record
+        contract_record_writer(**args, &block)
       when :slice
         slice_writer(**args, &block)
       else
@@ -449,11 +460,13 @@ module IOStreams
     # Notes:
     # - The source is opened before the target, so that the target is not changed when the source
     #   cannot be read, for example when it does not exist.
-    # - A target without a schema, see #schema, writes the rows of an Active Record query by the schema of its columns,
-    #   such as the decimals of a number, which a Parquet file needs, see `IOStreams::Query::Stream#schema`, unless the
-    #   target is a row or record writer that is already open, supplied to `IOStreams.stream`, which writes with its own
-    #   settings. The schema of a file is not given to the target, since it describes the text of that file, such as the
-    #   format of its dates.
+    # - A target with neither a schema, see #schema, nor a contract, see #as, writes the rows by the contract that the
+    #   source is read through, otherwise by the schema of a source of typed rows: the columns of an Active Record query,
+    #   see `IOStreams::Query::Stream`, the columns of a Parquet file, or the schema of a slice of typed values, such as
+    #   the decimals of a number, which a Parquet file needs, unless the target is a row or record writer that is already
+    #   open, supplied to `IOStreams.stream`, which writes with its own settings. A file of text, or of values that each
+    #   have their own type, such as JSON, gives nothing, since the schema of such a file describes its text, such as
+    #   the format of its dates, and its types are never guessed.
     def copy_from(source, convert: true, mode: nil, **args)
       unless mode.nil? || COPY_MODES.include?(mode)
         raise(ArgumentError, "Invalid mode: #{mode.inspect}. A copy converts lines, rows or records with mode: " \
@@ -504,8 +517,9 @@ module IOStreams
     # Set/get the tabular format.
     #
     # Returns [Symbol] the format that was set, otherwise the format of the text that the stream closest to the
-    # application reads and writes, when that stream decides it, such as `:csv` for a spreadsheet, whose cells are read
-    # and written as CSV, otherwise the format detected from the file name, or [nil] when none applies.
+    # application reads and writes, when that stream decides it, such as `:csv` for a spreadsheet, whose lines are CSV
+    # text, while its rows and records are the values of its cells, otherwise the format detected from the file name, or
+    # [nil] when none applies.
     #
     # Reading or writing rows, records or lines raises ArgumentError when the format that was set is not the format of
     # the text of that stream, such as `:json` for a spreadsheet, rather than read or write them in the wrong format.
@@ -532,13 +546,16 @@ module IOStreams
     # a fixed width file. See docs/formats.md, and `IOStreams::Schema` for its properties.
     #
     # Parameters:
-    #   schema: [Hash|String|IOStreams::Path]
-    #     A Frictionless Table Schema as a Hash, which is checked now, or the path or url of a JSON file that holds
-    #     one, in any store, which is read the first time that a reader or writer needs it.
-    #     nil removes the schema.
+    #   schema: [IOStreams::Schema|Hash|String|IOStreams::Path|nil]
+    #     A schema, see `IOStreams::Schema`, or a Frictionless Table Schema as a Hash, which is checked now, or the path or
+    #     url of a JSON file that holds one, in any store, which is read the first time that a reader or writer needs it.
+    #     nil sets no schema, removing one that was set, so that one line of code sets the schema that configuration
+    #     holds for a file that needs one, such as `schema(ENV["ORDERS_SCHEMA"])`, and none for a file that describes
+    #     itself, such as Parquet.
     #
-    # Returns [Hash|String|IOStreams::Path] the schema as it was set, which is frozen, so that changing the object that
-    # was supplied afterwards does not change it, or [nil] when none was set.
+    # Returns [IOStreams::Schema|Hash|String|IOStreams::Path] the schema as it was set, which is frozen, so that changing
+    # the object that was supplied afterwards does not change it, or [nil] when none was set, also for a source that
+    # declares a schema of its own, such as a query or a Parquet file, which #infer_schema returns.
     #
     # Examples:
     #
@@ -561,10 +578,179 @@ module IOStreams
 
     # Set the schema, see #schema.
     #
-    # Raises ArgumentError when the schema is not a Hash, a String or a path, or is a Hash that is not a valid schema.
+    # Raises ArgumentError when the schema is not an `IOStreams::Schema`, a Hash, a String or a path, or is a Hash that
+    # is not a valid schema.
     def schema=(schema)
       raise_if_frozen!
       tabular_settings.schema = schema
+    end
+
+    # Sets the contract that the rows and records of this stream are read and written through: the fields that the
+    # program needs, and the type of each one, so that every source yields the same records, whatever its format or
+    # store, see `IOStreams::Contract`. A schema set with #schema still describes the file, such as the position of each
+    # field of a fixed width file, and the contract meets its fields by their names.
+    #
+    # Reading rows and records through a contract:
+    # - Each record has every field of the contract, in its order, keyed by its name, or as its `keyType` forms it,
+    #   whatever the source calls its columns, and nil for a field whose column the source does not have, which
+    #   `fieldsMatch` "superset" and "partial" accept. Each row of `each(:array)` has the same values, after a header row
+    #   of those keys.
+    # - The columns of the source are matched to the fields once, before the first row, so a missing column raises
+    #   `IOStreams::Errors::InvalidHeader`, see `fieldsMatch` and `constraints` in `IOStreams::Schema`.
+    # - Each value converts at most once: text is parsed, and a value already of the type of its field passes through,
+    #   such as a BigDecimal of a Parquet file or a query, see `IOStreams::Schema::Field#cast`.
+    # The `:stream` and `:line` modes read and write bytes and lines as they are stored, so a contract converts nothing
+    # there.
+    #
+    # Writing rows and records through a contract names and orders the columns by its fields, and converts and checks
+    # each value, which the format writes in its own form, such as CSV's text or Parquet's types.
+    #
+    # Parameters:
+    #   contract: [Class|Hash|IOStreams::Schema|nil]
+    #     A contract, see `IOStreams::Contract`, or the Hash or schema of one, which it builds with
+    #     `IOStreams::Contract.new`, or nil to remove it.
+    #
+    # Returns [IOStreams::Stream] this stream.
+    #
+    # Raises ArgumentError for anything else, such as a record of a contract, or for a Hash or a schema that is not a
+    # valid contract, such as one that lays out a file, see `IOStreams::Contract`.
+    #
+    # Example:
+    #   module Orders
+    #     CONTRACT = IOStreams::Contract.new(
+    #       fieldsMatch: "partial",
+    #       fields:      [
+    #         {name: "id", type: "integer", constraints: {required: true}},
+    #         {name: "amount", type: "number", decimals: 2},
+    #         {name: "ordered_at", type: "datetime", aliases: ["created_at"]}
+    #       ]
+    #     )
+    #
+    #     def self.import(source)
+    #       source.as(CONTRACT).each(:hash) do |order|
+    #         Ledger.post(order["id"], order["amount"], order["ordered_at"])
+    #       end
+    #     end
+    #   end
+    #
+    #   Orders.import(IOStreams.path(ENV.fetch("ORDERS_URL")))   # CSV, JSON, Excel or Parquet, in any store
+    #   Orders.import(IOStreams.stream(Order.where(paid: true))) # An Active Record query
+    def as(contract)
+      raise_if_frozen!
+      tabular_settings.contract = contract
+      self
+    end
+
+    # Returns [true] when the source meets the contract set with #as, without reading its rows, such as in the web request
+    # that accepts an upload, before any job starts. It meets the contract as reading would before the first row: the
+    # columns of the source, such as the header row of a CSV file, or the keys of the first record of JSON, against the
+    # fields of the contract and its `fieldsMatch`, and the types that a source declares, such as a Parquet file or a
+    # query, against the types of the fields. It checks no value, which reading checks. A key that a JSON record leaves
+    # out is a missing value, which reading checks, so of JSON it checks only the keys that the contract does not have,
+    # and that one key is a field for `fieldsMatch` `"partial"`.
+    #
+    # With a schema of the file, set with #schema, the header row of a file with one, or the keys of the first JSON
+    # record, must match that schema first, as reading checks them, and the contract then meets the fields that the file
+    # has. An empty source has no columns, so it meets no contract that needs one, while reading it yields no records.
+    # Of an IO supplied to `IOStreams.stream`, it reads only the start, and then returns the IO to where it was, when the
+    # IO can seek, so that its rows are still read, while an IO that cannot, such as a pipe, has then been read past
+    # them; a path opens its file again to read it.
+    #
+    # Raises as reading would: `IOStreams::Errors::InvalidHeader`, naming each column that is missing, and
+    # `IOStreams::Errors::IncompatibleType` for a column whose declared type can never be that of its field. Raises
+    # ArgumentError when no contract is set.
+    def validate_contract! # rubocop:disable Naming/PredicateMethod -- raises, returning true as the docs show
+      schema = contract_schema!
+      source = contract_source
+      source.file_columns&.check_meeting(source.file_row, keyed: source.file_keyed)
+      schema.columns(every_field: true, keys_vary: source.keys_vary).check_meeting(source.labels, keyed: source.keyed)
+      schema.check_types(source.types) if source.types
+      true
+    end
+
+    # Returns [true|false] whether the source meets the contract set with #as, see #validate_contract!.
+    def contract_valid?
+      contract_errors.empty?
+    end
+
+    # Returns [Array<IOStreams::Errors::Error>] each way that the source does not meet the contract set with #as, see
+    # #validate_contract!, not raised, or an empty Array when it meets it, such as to list every problem of an upload at
+    # once: an `IOStreams::Errors::InvalidHeader` for each problem of its columns, such as the required fields that it
+    # does not have, and an `IOStreams::Errors::IncompatibleType` for each column whose declared type can never be that
+    # of its field. With a schema of the file whose header row, or first JSON record, does not match it, only those
+    # problems, since the contract meets the columns that the schema reads.
+    #
+    # Raises ArgumentError when no contract is set.
+    def contract_errors
+      schema = contract_schema!
+      source = contract_source
+      errors = source.file_columns&.meeting_errors(source.file_row, keyed: source.file_keyed) || []
+      return errors unless errors.empty?
+
+      errors = schema.columns(every_field: true, keys_vary: source.keys_vary).meeting_errors(source.labels, keyed: source.keyed)
+      source.types ? errors + schema.type_errors(source.types) : errors
+    end
+
+    # Returns [IOStreams::Schema] the schema that the rows and records of this stream are read by: the schema set with
+    # #schema, reading its file the first time, otherwise the schema that the source declares, which IOStreams never
+    # guesses:
+    # - The header row of a file with one, such as CSV, PSV or a spreadsheet, gives a field of type "string" for each
+    #   column, since its values are text, named as the keys of the records that `each(:hash)` reads, which cleanses
+    #   them, such as `ordered_at` for `Ordered At`. A column whose name cleanses to nothing, such as `#`, or an empty
+    #   one, is left out, as `each(:hash)` leaves it out, and the schema is then `fieldsMatch: "subset"`, so that it
+    #   still reads the file.
+    # - The first record of a format of keyed records, such as JSON, gives a field of type "any" for each of its keys,
+    #   since each value has a type of its own. It declares only the keys of that record, which the records after it
+    #   need not share.
+    # - A Parquet file declares the type of each column, which is read from the end of the file, and a column that cannot
+    #   be null is required, unless its values are text, which can be empty, or of type "any".
+    # - An Active Record query declares the type of each column, see `IOStreams::Query::Stream`.
+    #
+    # It reads only what describes the source, such as the header row of a CSV file, the end of a Parquet file, or a
+    # query of no rows, though a Parquet file that is not a local file is first copied whole to a temporary file, as
+    # reading it does. A file without a header row or a first record has no fields. Of an IO supplied to
+    # `IOStreams.stream`, it reads only the start, and then returns the IO to where it was, when the IO can seek, so that
+    # its rows are still read, while an IO that cannot, such as a pipe, has then been read past what this read.
+    #
+    # Raises ArgumentError for a format that declares neither the names nor the positions of its columns, such as fixed
+    # width, which needs a schema that gives the position of each field, or `:text`, whose one column has no name.
+    #
+    # Raises `IOStreams::Errors::InvalidHeader` for two columns of a header row that are the same key once cleansed, such
+    # as `Amount ($)` and `Amount (€)`, since a schema cannot hold both.
+    #
+    # With `sample:`, it drafts the types of a source that reports none, such as CSV, from a sample of its values, as a
+    # tool to run once, whose draft a person reviews, and saves as a contract, see `IOStreams::Schema#to_contract`, or as
+    # the schema of the file, never as a step of reading, see `IOStreams::Schema::Inference`:
+    # - It reads the first `sample:` records, or every record with `sample: :all`, and the fields are the keys of every
+    #   record that it reads, such as those of JSON records, which can vary from record to record.
+    # - It drafts `integer`, `number` with the most decimals seen, `boolean`, `date`, `datetime` and `time` from ISO 8601
+    #   text, and `date` with a `format` from US dates, such as `10/25/2026`. Text with a leading zero, such as `01234`,
+    #   stays `string`, and a column without a value is `any`, for a person to decide.
+    # - It sets `fieldsMatch: "subset"`, so that the draft needs these columns, and ignores columns added later, and
+    #   marks a field `required` only where the source declares it, such as a `NOT NULL` column of a query.
+    # - For a source that declares types, such as Parquet or a query, it returns that schema, drafting only the type of a
+    #   field of type `any`, such as a JSON column of a query, from its values, so it reads no rows without one.
+    #
+    # Raises ArgumentError for a `sample:` that is neither a positive Integer nor `:all`, which it checks first, or with a
+    # schema set with #schema, which already gives the types.
+    #
+    # Example:
+    #   IOStreams.path("orders.csv").infer_schema.to_h
+    #   # => {fields: [{name: "id", type: "string"}, {name: "amount", type: "string"}, {name: "ordered_at", type: "string"}]}
+    #
+    #   IOStreams.path("samples/orders.csv").infer_schema(sample: 1_000).to_h
+    #   # => {fieldsMatch: "subset", fields: [{name: "id", type: "integer"}, {name: "amount", type: "number", decimals: 2},
+    #   #                                     {name: "ordered_at", type: "datetime"}]}
+    def infer_schema(sample: nil)
+      return tabular_settings.file_schema || declared_schema if sample.nil?
+
+      IOStreams::Schema::Inference.check_sample(sample)
+      if tabular_settings.schema
+        raise(ArgumentError, "sample: drafts the types of a source that reports none, so it cannot be supplied with a " \
+                             "schema, which already gives them: call #infer_schema without it")
+      end
+
+      draft_schema(sample)
     end
 
     # Freezes this stream, so that the methods that set its streams, options, file name, format and schema raise
@@ -685,11 +871,18 @@ module IOStreams
       open_writer(&)
     end
 
-    # Returns [Hash|String|IOStreams::Path|nil] the schema that a copy of the rows of this stream gives a target without
-    # one, see #copy_from, and #rows_schema. Protected, so that the target asks the source, and defined only here, so
-    # that a target of any class can ask a source of any class.
-    def copy_schema
-      rows_schema
+    # Returns [IOStreams::Schema|Hash|String|IOStreams::Path|nil] the schema that a copy of the supplied rows of this
+    # stream gives a target with neither a schema nor a contract, see #copy_from, and #rows_schema. Protected, so that
+    # the target asks the source, and defined only here, so that a target of any class can ask a source of any class.
+    def copy_schema(rows)
+      rows_schema(rows)
+    end
+
+    # Returns [Class|nil] the contract that the rows of this stream are read through, see #as, which a copy gives a target
+    # with neither a schema nor a contract, so that it writes the records of the contract by its types, see #copy_from.
+    # Protected, see #copy_schema.
+    def copy_contract
+      tabular_settings.contract
     end
 
     # Raises ArgumentError, before the target of a copy is opened, see #copy_target, when nothing names the columns of the
@@ -758,12 +951,17 @@ module IOStreams
     # query holds an internal object for it, see `IOStreams::Query::Stream`.
     attr_reader :io_stream
 
-    # Returns [Hash|String|IOStreams::Path|nil] the schema of the rows that this stream reads, which a copy gives a target
-    # without one, see #copy_schema: none, since the schema of a file describes its text, such as the format of its
-    # dates, rather than the values that the copy writes. The stream of an Active Record query gives the schema of its
-    # columns, see `IOStreams::Query::Stream#rows_schema`.
-    def rows_schema
-      nil
+    # Returns [IOStreams::Schema|nil] the schema of the supplied rows that this stream reads, which a copy gives a target
+    # without one, see #copy_schema: that of a format whose rows hold typed values, such as Parquet, which the file
+    # declares, see `IOStreams::Parquet::Reader#declared_schema`, or that was set, which its values are read by. None for
+    # a file of text, such as CSV, or of values that each have their own type, such as JSON or a spreadsheet, since the
+    # schema of such a file describes its text, such as the format of its dates, rather than the values that the copy
+    # writes, and its types are never guessed. A source of typed rows overrides it, such as a query, see
+    # `IOStreams::Query::Stream#rows_schema`, or a slice, see `IOStreams::Slice::Stream#rows_schema`.
+    def rows_schema(rows)
+      return if IOStreams::Tabular.lines?(rows_format)
+
+      tabular_settings.file_schema || (rows.declared_schema if rows.respond_to?(:declared_schema))
     end
 
     # Returns [Hash] the options of the writer of the supplied mode that a copy writes the rows of its source with, see
@@ -789,24 +987,29 @@ module IOStreams
     # supplied mode, see #copy_rows: this stream, or a copy of it with the schema of the source, see #with_copy_schema,
     # once it checks, before it is opened, that it can write rows whose columns nothing names, see #check_unnamed_rows.
     def copy_target(source, rows, mode)
-      target = with_copy_schema(source, mode)
+      target = with_copy_schema(source, rows, mode)
       target.check_unnamed_rows(rows) if mode == :array
       target
     end
 
-    # Returns [IOStreams::Stream] this stream, unless it has no schema, and a copy of the rows of the supplied source
-    # gives it one, see #copy_schema, when it returns a copy of this stream with that schema, so that the schema of this
-    # stream is not changed. A writer of the mode that is already open, which writes with its own settings, see
-    # #open_writer?, keeps this stream as it is.
-    def with_copy_schema(source, mode)
-      return self if open_writer?(mode)
-      return self unless schema.nil?
+    # Returns [IOStreams::Stream] this stream, unless it has neither a schema nor a contract, see #as, and a copy of the
+    # supplied rows of the source gives it one, when it returns a copy of this stream with it, so that this stream is not
+    # changed: the contract that the source is read through, see #copy_contract, otherwise the schema of a source of
+    # typed rows, see #copy_schema, such as a query, a Parquet file or a slice of typed values, so that a typed target,
+    # such as Parquet, keeps their types, while text is never guessed. The contract is handed on without what says how
+    # the source writes the text of its values, such as the `format` of a date, see `IOStreams::Schema#without_text`,
+    # so that the target writes its own. A writer of the mode that is already open, which writes with its own settings,
+    # see #open_writer?, and a copy of lines, which copies them as they are, keep this stream as it is.
+    def with_copy_schema(source, rows, mode)
+      return self if mode == :line || open_writer?(mode)
+      return self unless schema.nil? && tabular_settings.contract.nil?
 
-      copied = source.copy_schema
-      return self if copied.nil?
+      contract = source.copy_contract
+      copied   = source.copy_schema(rows) unless contract
+      return self if contract.nil? && copied.nil?
 
-      copy        = dup
-      copy.schema = copied
+      copy = dup
+      contract ? copy.as(contract.schema.without_text) : copy.schema = copied
       copy
     end
 
@@ -981,25 +1184,61 @@ module IOStreams
     # `buffer_size` bytes, when it is supplied, as in the `:line` mode.
     #
     # The tabular that reads the rows takes the settings of the path, such as its format and schema, see #tabular.
-    def row_reader(delimiter: nil, buffer_size: nil, skip_blanks: false, resume_at: nil, **args)
+    def row_reader(delimiter: nil, buffer_size: nil, skip_blanks: false, resume_at: nil, on_invalid: nil, **args)
       reject_unknown_options!(:array, IOStreams::Row::Reader, args)
-      IOStreams::Row::Reader.check(skip_blanks: skip_blanks, resume_at: resume_at)
-      tabular = self.tabular
+      IOStreams::Row::Reader.check(skip_blanks: skip_blanks, resume_at: resume_at, on_invalid: on_invalid)
+      tabular = self.tabular(reading: true)
       open_rows_reader(tabular, delimiter, buffer_size) do |io|
-        yield IOStreams::Row::Reader.new(io, tabular: tabular, skip_blanks: skip_blanks, resume_at: resume_at)
+        yield IOStreams::Row::Reader.new(io, tabular: tabular, skip_blanks: skip_blanks, resume_at: resume_at,
+                                             on_invalid: on_invalid)
       end
     end
 
     # Iterate over a file / stream returning each line as a hash, one at a time.
     #
     # The lines are split where the format that parses them expects, see #row_reader.
-    def record_reader(delimiter: nil, buffer_size: nil, skip_blanks: false, resume_at: nil, **args)
+    def record_reader(delimiter: nil, buffer_size: nil, skip_blanks: false, resume_at: nil, on_invalid: nil, **args)
       reject_unknown_options!(:hash, IOStreams::Record::Reader, args)
-      tabular = self.tabular
-      IOStreams::Record::Reader.check(tabular: tabular, skip_blanks: skip_blanks, resume_at: resume_at)
+      tabular = self.tabular(reading: true)
+      IOStreams::Record::Reader.check(tabular: tabular, skip_blanks: skip_blanks, resume_at: resume_at,
+                                      on_invalid: on_invalid)
       open_rows_reader(tabular, delimiter, buffer_size) do |io|
-        yield IOStreams::Record::Reader.new(io, tabular: tabular, skip_blanks: skip_blanks, resume_at: resume_at)
+        yield IOStreams::Record::Reader.new(io, tabular: tabular, skip_blanks: skip_blanks, resume_at: resume_at,
+                                                on_invalid: on_invalid)
       end
+    end
+
+    # Yields [IOStreams::Contract::RecordReader] the records of the contract set with #as, as instances of its class,
+    # see `IOStreams::Contract#initialize`, read through it as `each(:hash)` reads its records, with the same options,
+    # see #record_reader.
+    #
+    # Raises ArgumentError when no contract is set, before the file is opened.
+    def contract_record_reader(**args)
+      reject_unknown_options!(:record, IOStreams::Record::Reader, args)
+      contract = records_contract!(:record)
+      record_reader(**args) { |reader| yield IOStreams::Contract::RecordReader.new(reader, contract) }
+    end
+
+    # Yields [IOStreams::Contract::RecordWriter] the writer of the records of the contract set with #as, see
+    # #contract_record_reader, which writes them as `writer(:hash)` writes its records, with the same options.
+    #
+    # Raises ArgumentError when no contract is set, before the file is opened.
+    def contract_record_writer(**args)
+      reject_read_options!(args, "not when writing")
+      reject_unknown_options!(:record, IOStreams::Record::Writer, args.except(:delimiter))
+      contract = records_contract!(:record)
+      record_writer(**args) { |writer| yield IOStreams::Contract::RecordWriter.new(writer, contract) }
+    end
+
+    # Returns [Class] the contract set with #as, whose records the supplied mode reads or writes.
+    #
+    # Raises ArgumentError when no contract is set.
+    def records_contract!(mode)
+      contract = tabular_settings.contract
+      return contract if contract
+
+      raise(ArgumentError, "The #{mode.inspect} mode reads and writes the records of a contract, so set one with #as, " \
+                           "such as path.as(Order), or read Hashes with the :hash mode")
     end
 
     # Iterate over a file / stream returning slices of up to `size` of its rows at a time, as they are in the file, after
@@ -1010,10 +1249,20 @@ module IOStreams
     def slice_reader(size:, validate: false, resume_at: nil, delimiter: nil, buffer_size: nil, **args)
       reject_unknown_options!(:slice, IOStreams::Slice::Reader, args)
       IOStreams::Slice::Reader.check(size: size, validate: validate, resume_at: resume_at)
-      tabular = self.tabular
+      tabular = self.tabular(reading: true)
       open_slice_rows(tabular, delimiter, buffer_size) do |rows|
-        yield IOStreams::Slice::Reader.new(rows, tabular: tabular, size: size, validate: validate, resume_at: resume_at)
+        yield IOStreams::Slice::Reader.new(rows, tabular: tabular, size: size, validate: validate, resume_at: resume_at,
+                                                 schema: slice_schema(rows))
       end
+    end
+
+    # Returns [IOStreams::Schema|nil] the schema that the source of the supplied rows declares, which each slice of them
+    # carries, see `IOStreams::Slice#schema`, since its values are typed: that of a format whose rows are not lines, such
+    # as Parquet, which its reader declares, see `IOStreams::Slice::Rows#declared_schema`, or nil for the lines of a file
+    # of text, such as CSV, which are parsed where they are read. A source of typed rows overrides it, such as a query,
+    # see `IOStreams::Query::Stream#slice_schema`.
+    def slice_schema(rows)
+      rows.declared_schema if rows.respond_to?(:declared_schema)
     end
 
     # Yields [#each] the rows of the format of the tabular, see #open_rows_reader, which a slice reader reads, see
@@ -1038,9 +1287,20 @@ module IOStreams
     # Raises ArgumentError when `delimiter` or `buffer_size` is supplied, or an encoding is set, for a format without
     # lines, see #reject_line_options!.
     def open_rows_reader(tabular, delimiter, buffer_size, &)
+      if stream_rows?
+        reject_row_options!(tabular, delimiter: delimiter, buffer_size: buffer_size)
+        decimals = (-> { tabular.decimal_positions } if tabular.schema&.decimals?)
+        return rows_stream(decimals: decimals).send(:stream_reader, &)
+      end
+
       unless tabular.lines?
         reject_line_options!(tabular, delimiter: delimiter, buffer_size: buffer_size)
-        return stream_reader { |io| tabular.read_rows(io, &) }
+        return stream_reader do |io|
+          tabular.read_rows(io) do |rows|
+            tabular.check_declared_types { rows.declared_schema }
+            yield rows
+          end
+        end
       end
 
       open_line_reader(tabular.encoding, delimiter: delimiter, embedded_within: tabular.quote_character,
@@ -1054,6 +1314,11 @@ module IOStreams
     # #reject_line_options!. Raises before the output is opened when the format cannot write the rows, such as without a
     # schema for Parquet, see `IOStreams::Tabular#check_write_rows`, so that an existing file is not replaced.
     def open_rows_writer(tabular, delimiter, &)
+      if stream_rows?
+        reject_row_options!(tabular, delimiter: delimiter)
+        return rows_stream(text_columns: tabular.text_positions).send(:open_writer, &)
+      end
+
       unless tabular.lines?
         reject_line_options!(tabular, delimiter: delimiter)
         tabular.check_write_rows
@@ -1062,6 +1327,37 @@ module IOStreams
 
       IOStreams::Line::Writer.check(delimiter: delimiter)
       open_line_writer(tabular.encoding, delimiter: delimiter, &)
+    end
+
+    # Returns [true|false] whether the rows and records of this stream are those that the stream closest to the
+    # application reads and writes itself, see `IOStreams::Builder#rows_format`, such as the typed values of the cells of
+    # a spreadsheet, rather than the lines of its text: when they are in the format of that text, see #rows_format,
+    # rather than in another that holds each line of it as it is, such as `:text`. Its lines, and its bytes, are still
+    # its text, such as the CSV of a spreadsheet.
+    def stream_rows?
+      !builder.rows_format.nil? && rows_format == text_format
+    end
+
+    # Returns [IOStreams::Stream] a copy of this stream whose stream closest to the application reads or writes its rows,
+    # with the supplied arguments, see `IOStreams::Builder#for_rows`, rather than its text, see #stream_rows?, whose own
+    # #stream_reader and #open_writer open the storage of the stream, such as a local file or an S3 object.
+    def rows_stream(**arguments)
+      copy = dup
+      copy.instance_variable_set(:@builder, builder.for_rows(**arguments))
+      copy
+    end
+
+    # Raises ArgumentError for the options of lines of a stream whose rows its stream reads and writes itself, see
+    # #stream_rows?, such as a spreadsheet, whose rows are not lines, and for an encoding, see #encoding, which applies
+    # only to its text, such as the CSV of its lines, so that a setting that has no effect on its rows is not ignored.
+    def reject_row_options!(tabular, **options)
+      names = options.compact.keys.map(&:inspect)
+      names << "#encoding" if builder.setting(:encode)
+      return if names.empty?
+
+      raise(ArgumentError, "#{names.join(', ')} cannot be used with the rows of the #{tabular.format.inspect} format of a " \
+                           "#{builder.application_stream.inspect} file, which are the values of its cells rather than " \
+                           "lines of text: read and write its lines as text with the :line mode")
     end
 
     # Options are strict: raise rather than ignore the options of lines for a format whose rows are not lines, and
@@ -1086,11 +1382,191 @@ module IOStreams
                            ":hash mode, or its bytes with the :stream mode")
     end
 
+    # Returns [IOStreams::Schema] the schema that the source of the rows declares, without a schema set, see
+    # #infer_schema: that of the columns of a format whose rows are not lines, such as Parquet, which its reader reads
+    # without reading the rows, see `IOStreams::Tabular#read_rows`, otherwise that of the first row that the rows start
+    # with, the header row or the keys of the first record, after any blank rows, as reading skips them, see
+    # `IOStreams::Tabular#declared_schema`. A source of rows
+    # that declares the types of its columns, such as a query, overrides it.
+    #
+    # Raises ArgumentError when nothing names the columns of the rows, such as for the `:text` format, see
+    # `IOStreams::Tabular#check_records`. The tabular of a fixed width file raises itself without a schema.
+    def declared_schema
+      tabular = self.tabular(contract: false)
+      tabular.check_records
+      return tabular.declared_schema(first_row(tabular)) if tabular.lines?
+
+      reading_ahead { open_rows_reader(tabular, nil, nil, &:declared_schema) }
+    end
+
+    # Returns [IOStreams::Schema] the schema that the source declares, see #declared_schema, with `fieldsMatch: "subset"`,
+    # and the type of each field that it does not declare drafted from the values of the first `sample` records that
+    # it reads, see `IOStreams::Schema::Inference`: every field of a source of text, such as CSV, or of values that each
+    # have their own type, such as JSON, whose header row, or keys, it reads with them, so that it reads the source once,
+    # and the fields of type "any" of a source that declares types, such as Parquet, which reads no record without one.
+    def draft_schema(sample)
+      tabular = self.tabular(contract: false)
+      return draft_typed_schema(tabular, sample) if tabular.field_names? || !tabular.lines?
+
+      tabular.check_records
+      inference = IOStreams::Schema::Inference.new
+      names     = nil
+      read_sample(tabular, sample) do |record|
+        names ||= declared_names(tabular)
+        inference << record
+      end
+      names ||= declared_names(tabular)
+      IOStreams::Schema.new(fieldsMatch: "subset", fields: inference.fields(names | inference.names))
+    end
+
+    # Returns [Array] the names of the fields that the header row, or the keys of the first record, that the supplied
+    # tabular has read declare, see `IOStreams::Tabular#declared_schema`, which raises for two columns that are the
+    # same key, as soon as the first record is read.
+    def declared_names(tabular)
+      tabular.declared_schema(tabular.header.row).fields.map(&:name)
+    end
+
+    # Returns [IOStreams::Schema] the schema that a source of typed columns declares, such as Parquet or a query, with
+    # `fieldsMatch: "subset"`, drafting the type of each of its fields of type "any" from the values of the sample, see
+    # #draft_schema. A format whose rows are not lines, such as Parquet, is opened once, for its declared schema and its
+    # sample, so that an IO that cannot be read twice still is, while a query describes its columns without its rows.
+    def draft_typed_schema(tabular, sample)
+      return draft_declared(declared_schema, tabular, sample) if tabular.lines?
+
+      reading_ahead do
+        open_rows_reader(tabular, nil, nil) { |rows| draft_declared(rows.declared_schema, tabular, sample, rows) }
+      end
+    end
+
+    # Returns [IOStreams::Schema] the supplied declared schema, drafting the type of each field of type "any" from the
+    # values of the sample, of the supplied rows, already open, or otherwise read, see #draft_typed_schema.
+    def draft_declared(declared, tabular, sample, rows = nil)
+      drafted   = declared.fields.select { |field| field.type == "any" }.map(&:name)
+      inference = IOStreams::Schema::Inference.new
+      unless drafted.empty?
+        if rows
+          sample_records(rows, tabular, sample) { |record| inference << record }
+        else
+          read_sample(tabular, sample) { |record| inference << record }
+        end
+      end
+      drafts = inference.fields(drafted).to_h { |field| [field[:name], field] }
+      fields = declared.fields.map { |field| drafts.fetch(field.name) { field.to_h } }
+      IOStreams::Schema.new(fieldsMatch: "subset", fields: fields)
+    end
+
+    # Yields each of the first records of the sample, see `IOStreams::Schema::Inference.size`, read by the supplied
+    # tabular, without a contract, skipping blank rows, leaving an IO supplied to `IOStreams.stream` where it was, see
+    # #reading_ahead.
+    def read_sample(tabular, sample, &)
+      reading_ahead do
+        open_rows_reader(tabular, nil, nil) { |rows| sample_records(rows, tabular, sample, &) }
+      end
+    end
+
+    # Yields each of the first records of the sample of the supplied rows, see #read_sample.
+    def sample_records(rows, tabular, sample)
+      size = IOStreams::Schema::Inference.size(sample)
+      IOStreams::Record::Reader.new(rows, tabular: tabular, skip_blanks: true).each_with_index do |record, index|
+        break if index >= size
+
+        yield record
+      end
+    end
+
+    # Returns [Array|nil] the first row that the rows of the supplied tabular start with, the header row as read, or the
+    # keys of the first record of a format of keyed records, such as JSON, after any blank rows, or nil without rows,
+    # leaving an IO supplied to `IOStreams.stream` where it was, see #reading_ahead.
+    def first_row(tabular)
+      reading_ahead do
+        open_rows_reader(tabular, nil, nil) do |rows|
+          IOStreams::Row::Reader.new(rows, tabular: tabular, skip_blanks: true).first
+        end
+      end
+    end
+
+    # Yields, then returns the IO supplied to `IOStreams.stream` to where it was, when it can seek, so that what reads
+    # the start of the rows only to describe them, such as #infer_schema, leaves them to be read. An IO that cannot seek,
+    # such as a pipe, has been read past what the block read. A path opens its file each time it is read.
+    #
+    # Returns the result of the block.
+    def reading_ahead
+      position = io_position
+      yield
+    ensure
+      io_stream.seek(position) if position
+    end
+
+    # Returns [Integer|nil] the position of the IO supplied to `IOStreams.stream`, or nil for one that cannot seek, or
+    # a stream without one, such as a path.
+    def io_position
+      io = io_stream
+      io.pos if io.respond_to?(:pos) && io.respond_to?(:seek)
+    rescue IOError, SystemCallError
+      nil
+    end
+
+    # The columns of a source as a contract meets them, see #contract_source: the names of the columns as the source
+    # holds them, the schema that declares their types, or nil when they are text or each value has its own type, and
+    # whether they are the keys of the records of a format of keyed records, such as JSON, which are matched in any
+    # order; with a schema set, the columns of the file matched to that schema, the header row or keys of the first
+    # record that they must meet first, and whether they are keys; and whether each record supplies its own keys, such
+    # as JSON read without a schema, so that a key that one leaves out is a missing value, see `IOStreams::Tabular#keys_vary?`.
+    ContractSource = Struct.new(:labels, :types, :keyed, :file_columns, :file_row, :file_keyed, :keys_vary)
+    private_constant :ContractSource
+
+    # Returns [ContractSource] the columns of the source as a contract meets them, see #contract_errors:
+    # - With a schema set with #schema, which reads the file before the contract meets it, see #file_schema_source.
+    # - The columns of a source that declares their types, such as a Parquet file or a query, see #declared_schema.
+    # - The header row as read of any other file, or the keys of its first record, see #first_row.
+    def contract_source
+      tabular = self.tabular(contract: false)
+      schema  = tabular_settings.file_schema
+      return file_schema_source(schema, tabular) if schema
+
+      if tabular.lines? && !tabular.field_names?
+        tabular.check_records
+        return ContractSource.new(first_row(tabular) || [], nil, tabular.keyed?, nil, nil, nil, tabular.keys_vary?)
+      end
+
+      declared = declared_schema
+      ContractSource.new(declared.fields.map(&:name), declared, tabular.keyed?)
+    end
+
+    # Returns [ContractSource] the columns of a source read by a schema set with #schema: the header row of a file with
+    # one, or the keys of the first record of a format of keyed records, such as JSON, must match the schema, as reading
+    # checks them, and the contract then meets the keys of the fields that the file has, see
+    # `IOStreams::Schema::ContractColumns`, or of every field of a file whose schema lays it out, such as fixed width, or
+    # whose records supply their own keys, by the types of the schema.
+    def file_schema_source(schema, tabular)
+      return ContractSource.new(schema.columns.field_keys, schema, false) unless tabular.lines?
+
+      keyed = tabular.keyed?
+      return ContractSource.new(schema.columns.field_keys, schema, false) unless keyed || tabular.requires_header?
+
+      row     = first_row(self.tabular(contract: false, schema: false)) || []
+      columns = schema.columns(every_field: true)
+      labels  = keyed ? columns.field_keys : columns.meeting_names(row)
+      ContractSource.new(labels, schema, false, columns, row, keyed)
+    end
+
+    # Returns [IOStreams::Schema] the schema of the contract set with #as.
+    #
+    # Raises ArgumentError when no contract is set.
+    def contract_schema!
+      contract = tabular_settings.contract
+      raise(ArgumentError, "No contract is set: set the one that the source must meet with #as") unless contract
+
+      contract.schema
+    end
+
     # Returns [IOStreams::Tabular] that reads or writes the rows of this stream as its tabular settings describe them, see
     # `IOStreams::Tabular::Settings#tabular`, with the options that the source of the rows supplies, such as
     # `IOStreams::Query::Stream#tabular`.
     def tabular(**)
-      tabular_settings.tabular(file_name: file_name, text_format: text_format, **)
+      return tabular_settings.tabular(file_name: file_name, text_format: text_format, **) unless stream_rows?
+
+      tabular_settings.tabular(file_name: file_name, text_format: nil, rows_format: builder.rows_format, **)
     end
 
     # Returns [Symbol|nil] the format of the rows, records and lines of this stream, see #format.
@@ -1157,7 +1633,7 @@ module IOStreams
 
       names  = options.compact.keys.map(&:inspect)
       names << "#stream, #option or #encoding" unless builder.pipeline.empty?
-      names << "#format or #schema" unless format_applies || !tabular_settings.described?
+      names << "#format, #schema or #as" unless format_applies || !tabular_settings.described?
       return true if names.empty?
 
       raise(ArgumentError, "#{names.join(', ')} cannot be applied to the #{klass.name} supplied to IOStreams.stream, " \

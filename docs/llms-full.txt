@@ -6,7 +6,7 @@
 
 The public entry points are `IOStreams.path(...)`, `IOStreams.join(...)` and `IOStreams.stream(io)`,
 which return a path or stream. Its settings describe the file: `#stream`/`#option` for compression and
-encryption, `#encoding` for its text, `#format` and `#schema` for its rows and records, and `#raw` to
+encryption, `#encoding` for its text, `#format` and `#schema` for its rows and records, `#as` for the contract that a program reads them through, and `#raw` to
 read and write it as stored. It is read and written with `#each`, `#reader`, `#writer`, `#read`,
 `#write`, `#copy_from`, `#copy_to` and `#move_to`, in the `:stream`, `:line`, `:array`, `:hash` or `:slice` mode.
 
@@ -750,6 +750,7 @@ reads or writes:
 | `:line`, the default for `#each` | Lines of text | `each(:line) { \|line\| }` | `writer(:line) { \|io\| io << line }` |
 | `:array` | Rows: an Array of the values of each line | `each(:array) { \|row\| }` | `writer(:array) { \|io\| io << row }` |
 | `:hash` | Records: a Hash of the values of each line, by column | `each(:hash) { \|record\| }` | `writer(:hash) { \|io\| io << record }` |
+| `:record` | Records of a [contract](contracts), such as an `Order` with `order.amount`, set with `#as` | `each(:record) { \|order\| }` | `writer(:record) { \|io\| io << order }` |
 | `:slice` | Slices: up to `size` rows as they are in the file, with its header row | `each(:slice, size: 100) { \|slice\| }` | `writer(:slice) { \|io\| io << slice }` |
 
 The tabular format of the file, such as CSV or JSON, says how rows and records are read from lines and written as
@@ -788,7 +789,7 @@ end
 
 `#reader` and `#writer` return the result of the block.
 
-In the `:line`, `:array`, `:hash` and `:slice` modes, the reader that `#reader` yields is `Enumerable`, and its
+In the `:line`, `:array`, `:hash`, `:record` and `:slice` modes, the reader that `#reader` yields is `Enumerable`, and its
 `#each` returns an Enumerator without a block, so methods such as `io.first(10)` and `io.each.with_index` read it.
 Use them within the block, since the file is closed once the block returns:
 
@@ -824,8 +825,8 @@ in:
   Parquet record whose every value is null.
 
 A value such as `false` or `0` is data, so a row that holds one is not blank. `each(:array)` and `each(:hash)` yield
-`nil` for each blank row, so that the rows yielded count the lines of the file, for example to report the line of a
-row that is not valid. Supply `skip_blanks: true` to skip them instead:
+`nil` for each blank row, so that the rows yielded count the records of the file. Supply `skip_blanks: true` to skip
+them instead:
 
 ~~~ruby
 IOStreams.path("people.csv").each(:hash, skip_blanks: true) do |person|
@@ -843,6 +844,49 @@ end
 * `each(:line)` and `each(:slice)` hand on every row as it is in the file, so they do not take `skip_blanks:`. Supply it
   where the rows of a slice are read, such as `IOStreams.stream(slice).each(:hash, skip_blanks: true)`.
 * A `skip_blanks` that is not true or false raises `ArgumentError` before the file is opened.
+
+### Values that are not valid
+
+A value that is not of the type of its field, of a [schema](formats#schema) or a [contract](contracts), such as `N/A`
+for a number, raises `IOStreams::Errors::InvalidValue`, which names its field, its value, the record that it is in,
+counting from 1 without the header row, and the line of the file that the record starts on, when the source has lines:
+
+~~~
+Field "amount": "N/A" is not a valid number, in record 6 on line 7
+~~~
+
+Its `#field`, `#value`, `#record_number` and `#line_number` hold them, and `#reason` the message without the record,
+so that support staff find the row without the code that reads it adding them. The rows of a slice keep the record and
+line numbers of their file, see [Slices](#slices).
+
+Supply `on_invalid:` to `each(:array)`, `each(:hash)` or `each(:record)`, or their `#reader`, to hand each bad row to a
+handler instead, and carry on with the next row, such as to list every bad row of an upload:
+
+~~~ruby
+problems = []
+IOStreams.path(upload_url).as(Order).each(:record, on_invalid: ->(row) { problems << row }) do |order|
+  Ledger.post(order.id, order.amount, order.ordered_at)
+end
+
+problems.each do |row|
+  puts "Line #{row.line_number}: #{row.errors.map(&:reason).join('; ')}"
+end
+# Line 7: Field "amount": "12.5x" is not a valid number
+# Line 12: Field "ordered_at" is required, but has no value
+~~~
+
+* The handler receives an `IOStreams::InvalidRow`: its `#line_number`, `#record_number`, the `#row` as it was read,
+  such as its line of text, and `#errors`, an `IOStreams::Errors::InvalidValue` for each field whose value is not
+  valid. The valid rows still reach the block. A file read by both a schema of its own and a contract lists the
+  errors of the fields of its schema, and, once they are valid, those of the contract.
+* Problems with the columns, such as a missing column that a schema requires, still raise before the first row; see
+  [Checking a source before the work starts](contracts#checking-a-source-before-the-work-starts) to list them first.
+* A row whose values do not fit the columns, rather than a value that is not valid, still raises where it is, such as
+  a row with a value after the last column (`IOStreams::Errors::InvalidHeader`), a fixed width line of another length
+  (`IOStreams::Errors::InvalidLineLength`), or, with a schema, a JSON record without a key that the schema requires.
+* `each(:slice, validate: true)` raises the first `IOStreams::Errors::InvalidValue`, naming its record and line too.
+* `on_invalid:` only applies when reading, so `#writer` and `#copy_from` raise `ArgumentError` for it, and so does a
+  handler that cannot be called, before the file is opened.
 
 ### Resuming at a record
 
@@ -863,7 +907,7 @@ IOStreams.path("people.csv.gz").each(:slice, size: 500, resume_at: 1_001) do |sl
 end
 ~~~
 
-* The `:array`, `:hash` and `:slice` modes take it, for a file, a query or a slice. `nil` reads every record, so the
+* The `:array`, `:hash`, `:record` and `:slice` modes take it, for a file, a query or a slice. `nil` reads every record, so the
   cursor of a job that has not started yet, which is usually `nil`, can be supplied as it is. A job that keeps the
   number of the last record that it processed resumes at the record after it.
 * The file is still read up to that record, since it cannot be read from the middle, such as when it is compressed, but
@@ -2909,33 +2953,55 @@ end
 
 ## Excel spreadsheets
 
-A spreadsheet is read as CSV, one line for each row of its first worksheet, so the `:line`, `:array` and `:hash` modes
-apply, and a [schema](#schema) can give the type of each column. The `:text` format reads the CSV text of each row as it
-is, see [Text](#text):
+The rows and records of a spreadsheet are the values of the cells of its first worksheet, each as Excel typed it, so
+that a number is a number and a date is a date, while its lines, and its bytes, are its CSV text, one line for each row,
+so the `:line` mode and a copy without a mode read that text. The `:text` format reads the CSV text of each row as it
+is, see [Text](#text). Reading needs the `creek` gem.
 
 ~~~ruby
-IOStreams.path("spreadsheet.xlsx").each(:hash) do |record|
-  p record
+IOStreams.path("orders.xlsx").each(:hash) do |order|
+  p order
+end
+# {"id" => 1001.0, "amount" => 12.5, "ordered_at" => 2026-10-25 09:30:00 UTC, "shipped_on" => #<Date: 2026-10-25>,
+#  "zip" => "01234", "paid" => true}
+~~~
+
+IOStreams types each cell from Excel's own cell type and number format, rather than as the gem that reads the workbook
+does:
+
+| Excel cell | Ruby value |
+|------------|------------|
+| Text | a `String`, keeping the zero of `01234` |
+| A number, without a date format | a `Float`, as Excel holds it, such as `1001.0` |
+| A number of a date format, such as `yyyy-mm-dd` | a `Date` |
+| A number of a date and time format | a `Time` in UTC, with the time of the clock of the cell, since Excel has no time zone |
+| A number of a time format, such as `h:mm` | a time of day, a `Time` on 2000-01-01 in UTC |
+| A boolean | `true` or `false` |
+| An empty cell, or an error, such as `#N/A` | `nil` |
+| A formula | its cached value, typed as above |
+
+A whole number is a `Float`, such as `1001.0`: an `integer` field of a [schema](#schema) or [contract](contracts)
+converts it, and raises for `1001.5`. A `number` field reads the digits that Excel displays, its 15 most significant,
+such as `0.3` rather than the `Float` `0.30000000000000004`. The lines of the spreadsheet are the text of each cell: a
+date as `2026-01-02T00:00:00Z`, a time as `2026-01-02T09:30:00Z`, and a number as `1.0` or `12.5`.
+
+The rows that `each(:slice)` reads are the values of the cells, in the `:array` format, and `slice.to_h` holds each
+`Date` and `Time` as its ISO 8601 text, which a schema or contract reads back. A `delimiter:` raises `ArgumentError` for
+the rows and records, which are cells rather than lines.
+
+Writing writes a workbook with one worksheet, with the `xlsxtream` gem. The rows and records are written as the types
+of their values, by the fields of a schema or contract when there is one, so that a number is a number cell, a `Date` a
+date, a `Time` a date and time, and text, such as `"01234"`, is text. A `BigDecimal` is written as the `Float` that Excel
+holds, and a `Hash` or an `Array` as its JSON:
+
+~~~ruby
+IOStreams.path("report.xlsx").as(Orders::CONTRACT).writer(:hash) do |io|
+  io << {"id" => 1001, "amount" => BigDecimal("12.5"), "ordered_at" => Time.utc(2026, 10, 25, 9, 30), "zip" => "01234"}
 end
 ~~~
 
-Each cell is read as its text: a date as `2026-01-02`, a time as its time of day in UTC, such as
-`2026-01-02T09:30:00Z`, since Excel holds a time without a time zone, and a number as Excel stores it, as a decimal,
-such as `1.0` or `12.5`, which an `integer` field reads as `1`. A date in a custom number format, such as one written
-with `auto_format: true`, reads as a time, such as `2026-01-02T00:00:00Z`, which a `date` field does not read: only
-Excel's built-in date formats read as a date. Reading needs the `creek` gem.
-
-Writing writes the CSV text of each row into the cells of a workbook with one worksheet, with the `xlsxtream` gem:
-
-~~~ruby
-IOStreams.path("report.xlsx").writer(:hash) do |io|
-  io << {"name" => "Jack", "zip" => "01234"}
-  io << {"name" => "Jill", "zip" => "98101"}
-end
-~~~
-
-Every cell is written as text by default, so that reading the spreadsheet returns the same values, such as the leading
-zero of `"01234"`, with these exceptions:
+Lines of CSV text, written with `writer(:line)` or copied without a mode, are written as text, one cell for each value.
+Reading the spreadsheet returns the same values, such as the leading zero of `"01234"`, with these exceptions:
 
 * Empty cells at the end of a row are not stored, so they read back as missing values, which are nil, as for CSV.
 * A row of only empty cells reads back as an empty line, which `each(:array)` and `each(:hash)` yield as nil.
@@ -2946,7 +3012,7 @@ The writer accepts these options:
 | Option | Default | Description |
 |--------|---------|-------------|
 | `sheet_name` | `"Sheet1"` | The name of the worksheet: 1 to 31 characters, without any of `[ ] : * ? / \`, and not starting or ending with an apostrophe, as Excel requires. Any other name raises `ArgumentError` before the file is opened. |
-| `auto_format` | `false` | Write values that look like numbers, dates, times or booleans, such as `"1.5"`, `"2026-10-09"` or `"true"`, as Excel numbers, dates and booleans. Such values may then read back differently, such as `"01234"` as `"1234.0"`. |
+| `auto_format` | `false` | Write text that looks like a number, date, time or boolean, such as `"1.5"`, `"2026-10-09"` or `"true"`, as an Excel number, date or boolean. Only the text of a column whose type is not known is written so: a field of type `any`, a file without a schema, or a line of CSV text, while the text of a `string` field stays text. Such text may then read back differently, such as `"01234"` as `1234.0`. |
 | `use_shared_strings` | `false` | Store each distinct value once, which makes the workbook smaller when values repeat, but holds every distinct value in memory until the workbook is complete. |
 
 ~~~ruby
@@ -2961,8 +3027,8 @@ Notes:
 * Reading ignores `auto_format` and `use_shared_strings`, since the workbook records them, and raises for `sheet_name`,
   since it always reads the first worksheet.
 * Reading a spreadsheet needs a local file, so one stored elsewhere, or within another stream, is copied into a temp
-  file first, and its rows are converted into CSV in a second temp file, since the `creek` gem returns them to a
-  block. Writing streams the workbook, without a temp file, see [When temp files are used](config#when-temp-files-are-used).
+  file first. Its lines, and its bytes, are converted into CSV in a second temp file, since the `creek` gem returns them
+  to a block, while its rows and records are read straight from the workbook. Writing streams the workbook, without a temp file, see [When temp files are used](config#when-temp-files-are-used).
 * On JRuby, `creek` reads a value that holds a line break only up to the line break, unless the workbook was written
   with `use_shared_strings: true`, as Excel does.
 
@@ -3031,12 +3097,69 @@ end
 A schema in a Hash is checked when it is set. A schema file is read the first time that a reader or writer needs it,
 so that setting it does not read the file, and the copies of a path read it once. Another stream that the file is set
 on reads it again, such as the stream of each slice of a file, so read the file once and set its Hash on each one
-instead, see [Background jobs](background_jobs). `#schema` returns the schema that was set.
+instead, see [Background jobs](background_jobs). `#schema` returns the schema that was set, or nil. `schema(nil)`
+sets no schema, so that one line of code serves a file whose configuration holds a schema and one whose configuration
+holds none, such as `schema(ENV["ORDERS_SCHEMA"])`.
 
 Like `#format`, the schema describes the file, so it is set on the path, rather than supplied to each call of
 `#each`, `#reader` or `#writer`, which raises `ArgumentError` for `schema:`. It replaces the options of each call that
 described the columns before v3.0, such as `columns:` and `allowed_columns:`, see
 [Upgrading](upgrading#the-column-options-of-each-call-are-removed).
+
+### The schema of a source
+
+`#infer_schema` returns the schema that the rows and records of a path are read by: the schema set with `#schema`,
+otherwise the schema that the source declares. IOStreams never guesses a type: it reads only what describes the
+source, such as the header row of a CSV file, the end of a Parquet file, or a query of no rows, see
+[Exporting queries](queries#keeping-the-types-of-the-columns).
+
+~~~ruby
+IOStreams.path("orders.csv").infer_schema.to_h
+# {fields: [{name: "id", type: "string"},
+#           {name: "amount", type: "string"},
+#           {name: "ordered_at", type: "string"}]}
+
+IOStreams.path("orders.parquet").infer_schema.to_h
+# {fields: [{name: "id", type: "integer", constraints: {required: true}},
+#           {name: "amount", type: "number", decimals: 2},
+#           {name: "ordered_at", type: "datetime"}]}
+~~~
+
+| Source | Its schema without one set |
+|--------|----------------------------|
+| CSV, PSV or a spreadsheet | a `string` field for each column of the header row, named as the keys of the records that `each(:hash)` reads, which cleanses them, such as `ordered_at` for `Ordered At`; a column whose name cleanses to nothing, such as `#`, or an empty one, is left out, and the schema is then `fieldsMatch: "subset"`, so that it still reads the file |
+| JSON | an `any` field for each key of its first record, since each value has a type of its own; the records after it need not have the same keys |
+| Parquet | a field of the type of each column, see [Parquet files](#parquet-files), required when the column cannot be null, unless its values are text or of type `any` |
+| An Active Record query | a field of the type of each column, see [Exporting queries](queries#keeping-the-types-of-the-columns) |
+| A slice | as its format declares it, such as by its header row |
+| Fixed width, or `:text` | none: they declare neither the names nor the positions of their columns, so `#infer_schema` raises `ArgumentError`, and they need a schema |
+
+Two columns that are the same key once cleansed, such as `Amount ($)` and `Amount (€)`, raise
+`IOStreams::Errors::InvalidHeader`, since a schema cannot hold both. A file without a header row or a first record
+has no fields.
+
+`#infer_schema` reads only what describes the source, though a Parquet file that is not a local file, such as one on
+S3, is first copied whole to a temporary file, as reading it does. Of an IO supplied to `IOStreams.stream`, it reads
+only the start, and then returns the IO to where it was, so that its rows are still read, unless the IO cannot seek,
+such as a pipe, which it has then read past.
+
+`#infer_schema(sample: 1_000)` drafts the types of a source that reports none, such as CSV, from a sample of its values,
+for a person to review and save, see [Drafting a contract](contracts#drafting-a-contract).
+
+`#infer_schema` returns an `IOStreams::Schema`, an object rather than a Hash, so that a program reads a schema without
+knowing the keys of its Hash or their defaults. `#fields` returns its fields, each of which answers `#name`, `#type`,
+`#aliases` and `#to_h`, `#fields_match` says how the columns must match them, `"exact"` unless the schema says
+otherwise, and `#to_h` returns it as a Frictionless Table Schema, with Symbol keys, to save it as JSON. `#schema` takes
+one as well as a Hash or the path of a JSON file, and `IOStreams::Schema.new(hash)` builds one, which checks it:
+
+~~~ruby
+schema = IOStreams.path("orders.parquet").infer_schema
+schema.fields.map(&:name)
+# => ["id", "amount", "ordered_at"]
+
+File.write("config/schemas/orders.json", JSON.pretty_generate(schema.to_h))
+IOStreams.path("orders.csv").schema(IOStreams::Schema.new(JSON.parse(File.read("config/schemas/orders.json"))))
+~~~
 
 ### Types
 
@@ -3046,7 +3169,7 @@ described the columns before v3.0, such as `columns:` and `allowed_columns:`, se
 | `integer` | an `Integer`, from text such as `42`, `-12` or `0042`, or a whole number with a decimal point, such as `12.0`, as a spreadsheet stores it | `42` |
 | `number` | a `BigDecimal`, from text such as `12.5`, `-1.5E3`, `NaN`, `INF` or `-INF`, or a number, including a `Rational`, or a `Float` with `floatNumber: true` | `12.5`, or `12.50` with `decimals: 2` |
 | `boolean` | `true` or `false`, from one of its `trueValues` or `falseValues` | the first of its `trueValues` or `falseValues` |
-| `date` | a `Date`, from `2026-10-13`, or text in its `format` | `2026-10-13`, or text in its `format` |
+| `date` | a `Date`, from `2026-10-13`, or text in its `format`, or a `Time` at midnight, by its own clock; any other time raises, rather than lose its time of day | `2026-10-13`, or text in its `format` |
 | `datetime` | a `Time`, from ISO 8601, such as `2026-10-13T09:30:00Z`, or text in its `format`. Text without an offset from UTC is read as UTC | ISO 8601, or text in its `format` |
 | `time` | a time of day, a `Time` on 2000-01-01, as Active Record holds a `time` column, from ISO 8601, such as `09:30:00`, `09:30:00.250` or `09:30:00-05:00`, or text in its `format`. Text without an offset from UTC is read as UTC. A `Time` on another day keeps the time of its clock and its offset | the time of its clock, such as `09:30:00`, without its offset, or text in its `format` |
 | `duration` | an `ActiveSupport::Duration`, from ISO 8601, such as `PT8H30M` or `P1M2DT3H`, keeping its months and days apart from its seconds. **Needs the `activesupport` gem**, see below | ISO 8601, such as `P1M2DT3H`, also in JSON |
@@ -3296,7 +3419,8 @@ end
 
 A file can need a column whose values can be blank, such as a middle name that must be in every upload, but that
 many people do not have. Give its field `allowBlank: true` with `required`: a header row, or JSON record, without
-the field still raises, while a value that is `nil`, or empty text, is read and written as it is:
+the field still raises, while a value that is `nil`, or empty text, is read and written as it is. A JSON record read
+through a [contract](contracts) alone is the exception: its missing key is a blank value, which the field allows:
 
 ~~~ruby
 schema = {
@@ -3450,7 +3574,9 @@ end
 With a schema, the columns are matched to its fields, and each value is converted to the type of its field, as for any
 other format, see [Schema](#schema).
 
-Writing needs a schema, since a Parquet file records the type of each of its columns. Its fields are the columns, and
+Writing needs a schema, or a [contract](contracts), since a Parquet file records the type of each of its columns; a copy
+gives one from a source of typed rows, see [Copying and moving](copy_files#choosing-the-columns). Its fields are the
+columns, and
 each type is written as:
 
 | Type | Parquet type |
@@ -3684,6 +3810,353 @@ follows it, and a line with one raises `IOStreams::Errors::InvalidLineLength`.
 
 Two more formats, `:array` and `:hash`, are for rows and records that are already Ruby objects rather than text,
 such as those that another library passes, so they are not used for files.
+
+---
+
+# Contracts
+
+A contract is the schema that a program states for its records: the fields that it needs, and the type of each one.
+With a contract, every source yields the same records, whatever its format or store: the keys of the fields of the
+contract, in its order, with values of their types. Moving a feed from CSV to Parquet then changes only a path in
+configuration, and moving it to a database query changes only the line that opens the source.
+
+A [schema](formats#schema) describes a file, such as the position of each field of a fixed width file, and is usually
+set in configuration. A contract states what the program needs, and lives with its code. A source that describes
+itself, such as a CSV file with a header row, a Parquet file or a query, needs only the contract.
+
+## Reading through a contract
+
+Set the contract with `#as`:
+
+~~~ruby
+module Orders
+  CONTRACT = IOStreams::Contract.new(
+    fieldsMatch: "partial",
+    fields:      [
+      {name: "id",         type: "integer",  constraints: {required: true}},
+      {name: "amount",     type: "number",   decimals: 2},
+      {name: "ordered_at", type: "datetime", aliases: ["created_at"]},
+      {name: "zip",        type: "string"}
+    ]
+  )
+
+  def self.import(source)
+    source.as(CONTRACT).each(:hash) do |order|
+      Ledger.post(order["id"], order["amount"], order["ordered_at"])
+    end
+  end
+end
+
+# CSV, JSON, Excel or Parquet, on local disk, S3 or SFTP, compressed or encrypted.
+Orders.import(IOStreams.path(ENV.fetch("ORDERS_URL")))
+
+# An Active Record query, of a model named Purchase here so that it is not the contract below, whose created_at
+# column the alias matches.
+Orders.import(IOStreams.stream(Purchase.where(paid: true)))
+~~~
+
+Every one of them yields the same record:
+
+~~~ruby
+{"id" => 1001, "amount" => 0.125e2, "ordered_at" => 2026-10-25 09:30:00 UTC, "zip" => "01234"}
+~~~
+
+* The keys are the names of the fields of the contract, or as its `keyType` forms them, whatever the source calls its
+  columns: the column `ID` matches the field `id`, and an alias matches `created_at`, see
+  [Matching columns to fields](formats#matching-columns-to-fields).
+* Every record has every field of the contract, in its order, `nil` for a field whose column the source does not have,
+  which `fieldsMatch` `"partial"` and `"superset"` accept. `each(:array)` yields the same values, after a header row of
+  the keys.
+* A key that a JSON record leaves out is a missing value, `nil`, as an empty CSV value is, rather than a missing
+  column, so that one contract behaves the same for JSON and CSV: a field that is required raises
+  `IOStreams::Errors::InvalidValue` for it, unless it has `allowBlank: true`, while a key that the contract does not
+  have still raises as `fieldsMatch` says. A schema set with `#schema` keeps its rule for each JSON record.
+* The columns of the source are matched to the fields once, before the first row, so a column that the contract
+  requires, and the source does not have, raises `IOStreams::Errors::InvalidHeader` before any work starts. A key that
+  a JSON record leaves out is a value instead, which reading checks, as above.
+* Each value converts at most once: text, such as that of CSV, is parsed, and a value that is already of the type of its
+  field passes through, such as a `BigDecimal` of a Parquet file or a query. A value that cannot be of the type of its
+  field, such as `N/A` for `amount`, raises `IOStreams::Errors::InvalidValue`.
+* A column whose type the source declares, such as a Parquet file, a query or the schema of a file, and which can never
+  be the type of its field, such as a `boolean` for `amount`, raises `IOStreams::Errors::IncompatibleType` before the
+  first row, see [Types that never fit](#types-that-never-fit).
+* For a `number` field, JSON reads the digits of the number exactly, rather than through a `Float`.
+* The `:stream` and `:line` modes read bytes and lines as they are stored, so a contract converts nothing there.
+
+`#as` returns the path, so that it chains, and `as(nil)` removes the contract.
+
+### Report invalid rows and carry on
+
+A value that is not valid raises `IOStreams::Errors::InvalidValue`, which names its field, its value, its record and
+the line that the record starts on, such as `Field "amount": "N/A" is not a valid number, in record 6 on line 7`. An
+upload screen needs every bad row, not just the first: `on_invalid:` hands each one to a handler, and reading carries
+on:
+
+~~~ruby
+problems = []
+IOStreams.path(upload_url).as(Order).each(:record, on_invalid: ->(row) { problems << row }) do |order|
+  Ledger.post(order.id, order.amount, order.ordered_at)
+end
+
+problems.each do |row|
+  puts "Line #{row.line_number}: #{row.errors.map(&:reason).join('; ')}"
+end
+# Line 7: Field "amount": "12.5x" is not a valid number
+# Line 12: Field "ordered_at" is required, but has no value
+~~~
+
+The handler receives an `IOStreams::InvalidRow` with an error for each field of the row whose value is not valid, see
+[Values that are not valid](streams#values-that-are-not-valid). Problems with the columns still raise before the first
+row; `#contract_errors` lists those up front. A row whose values do not fit the columns, such as one with a value after
+the last column, still raises where it is.
+
+## Checking a source before the work starts
+
+`#validate_contract!` asks whether a source meets the contract without reading its rows, such as in the web request
+that accepts an upload, before any job starts. It checks the columns, such as the header row of a CSV file or the keys
+of the first JSON record, and the types that a source declares, but not the values, which reading checks. Since a key
+that a JSON record leaves out is a missing value, it checks only the keys of JSON that the contract does not have.
+
+~~~ruby
+source = IOStreams.path(upload_url).as(Orders::CONTRACT)
+
+source.contract_valid?
+# => true or false
+
+source.validate_contract!
+# => true, or raises as reading would, such as IOStreams::Errors::InvalidHeader naming each missing column
+
+source.contract_errors
+# => every problem, or [] when there is none
+~~~
+
+`#contract_errors` returns each problem as an exception, not raised, so that an upload screen lists them all at once:
+an `IOStreams::Errors::InvalidHeader` for each problem of the columns, such as the required fields that the source
+does not have, and an `IOStreams::Errors::IncompatibleType` for each column whose declared type never fits its field.
+Each raises `ArgumentError` when no contract is set.
+
+* With a schema of the file, set with `#schema`, the header row, or the keys of the first JSON record, must match that
+  schema first, as reading checks them, and the contract then meets the fields that the file has.
+* An empty source has no columns, so it meets no contract that needs one, while reading it yields no records.
+* Of an IO supplied to `IOStreams.stream`, such as an upload, they read only the start, and then return the IO to where
+  it was, so that its rows are still read, unless the IO cannot seek, such as a pipe, which they have then read past.
+
+### Types that never fit
+
+A source that declares the type of each column, such as a Parquet file, a query or the schema of a file, meets the
+contract before the first row. A value converts only when nothing is lost, so a column whose type can never be that of
+its field raises `IOStreams::Errors::IncompatibleType`, which is not an `InvalidHeader`:
+
+| The source declares | The field's type that takes it |
+|---------------------|--------------------------------|
+| `string`, or `any` | every type, since text is parsed, and each value of type `any` is checked as it is read |
+| `integer` or `number` | `integer`, `number`, `string` or `any`, where an `integer` field raises for a value with a fraction |
+| `datetime` | `datetime`, `date`, `time`, `string` or `any` |
+| `object` or `array` | its own or `any`, since a `string` field takes neither |
+| any other type | its own, `string` or `any` |
+
+Text, such as that of a CSV file, and JSON, each of whose values has its own type, declare no types that could raise,
+so their values are checked as they are read.
+
+## Writing through a contract
+
+The same contract writes every target: it names and orders the columns by its fields, and converts and checks each
+value, which each format writes in its own form:
+
+~~~ruby
+report = IOStreams.path(ENV.fetch("REPORT_URL")).as(Orders::CONTRACT)
+report.writer(:hash) do |io|
+  io << {"id" => 1001, "amount" => BigDecimal("12.5"), "ordered_at" => Time.utc(2026, 10, 25, 9, 30), "zip" => "01234"}
+end
+~~~
+
+| Target | What it writes |
+|--------|----------------|
+| CSV | `id,amount,ordered_at,zip`, then `1001,12.50,2026-10-25T09:30:00Z,01234` |
+| JSON Lines | `{"id":1001,"amount":12.50,"ordered_at":"2026-10-25T09:30:00Z","zip":"01234"}` |
+| Parquet | columns of `int64`, `decimal(38, 2)`, `timestamp` in UTC, and `string` |
+
+A value that is not of the type of its field, such as `"x"` for `id`, raises `IOStreams::Errors::InvalidValue`. A copy
+into a target with a contract writes by it too, such as `path.as(Orders::CONTRACT).copy_from(source, mode: :hash)`, and
+a copy hands the contract of its source to a target with neither a contract nor a schema, so that a Parquet target
+takes its types, see [Copying and moving](copy_files#choosing-the-columns).
+
+## Building a contract
+
+A contract is a class, as `Struct.new` makes one. `IOStreams::Contract.new` builds one from a
+[Frictionless Table Schema](https://datapackage.org/standard/table-schema/), as a Hash, such as one saved as JSON with
+the code that depends on it:
+
+~~~ruby
+module Orders
+  CONTRACT = IOStreams::Contract.new(JSON.parse(File.read(Rails.root.join("config/contracts/orders.json"))))
+end
+~~~
+
+Or declare its fields in a class of its own:
+
+~~~ruby
+class Order < IOStreams::Contract
+  fields_match "partial"
+
+  field :id,         :integer, required: true
+  field :amount,     :number,  decimals: 2
+  field :ordered_at, :datetime, aliases: ["created_at"]
+  field :zip,        :string
+end
+
+IOStreams.path(ENV.fetch("ORDERS_URL")).as(Order).each(:hash) do |order|
+  p order
+end
+~~~
+
+* `field` takes the name of the field in Ruby, its type, and the other properties of a field, see
+  [Field properties](formats#field-properties), as Ruby names them, such as `decimals:`, `aliases:`, `format:`,
+  `true_values:` or `allow_blank:`. `required: true` is `constraints: {required: true}`, and `name:` names the field in
+  its schema, such as `name: "Ordered At"`, when it differs from its name in Ruby.
+* `fields_match`, `key_type` and `extra_columns` set `fieldsMatch`, `keyType` and `extraColumns`, see
+  [Schema properties](formats#schema-properties).
+* A subclass of a contract starts with its fields.
+* `Order.to_h` is the contract as a Frictionless Table Schema, a Hash with Symbol keys, which `JSON.generate` writes as
+  the JSON file above, and `Order.fields` its fields.
+
+`#as` takes a contract, the Hash of one, or an `IOStreams::Schema`, which it builds with `IOStreams::Contract.new`.
+
+## Records of a contract
+
+A Hash is read by lookup, as `order["amount"]`. A contract is a class, so the program can read records of it instead,
+as typed CSV libraries do, such as OpenCSV beans, CsvHelper class maps or serde structs. `each(:record)` yields an
+instance of the contract for each record, which answers the value of each field by its name in Ruby:
+
+~~~ruby
+IOStreams.path(ENV.fetch("ORDERS_URL")).as(Order).each(:record) do |order|
+  Ledger.post(order.id, order.amount, order.ordered_at)
+end
+~~~
+
+And `writer(:record)` writes them:
+
+~~~ruby
+IOStreams.path(ENV.fetch("REPORT_URL")).as(Order).writer(:record) do |io|
+  io << Order.new(id: 1001, amount: BigDecimal("12.5"), ordered_at: Time.utc(2026, 10, 25, 9, 30), zip: "01234")
+end
+~~~
+
+* `Order.new` takes the value of each field by its name in Ruby, or its name in the schema, and converts and checks each
+  value as it is set, so that a bad value raises `IOStreams::Errors::InvalidValue` where it is made, rather than when
+  the record is written. A field without a value is `nil`, and a field that the contract does not have raises
+  `ArgumentError`.
+* Each field has a reader and a writer, such as `order.amount` and `order.amount = "12.50"`, which converts and checks
+  the value too. `order[:amount]` and `order["amount"]` read it by name, `#to_h` returns the values by the names of
+  the fields in the schema, and two records of the same contract with the same values are equal.
+* Each column written is headed by the name of its field in the schema, such as `Ordered At` for
+  `field :ordered_at, :datetime, name: "Ordered At"`.
+* `each(:record)` reads the values that each record read through the contract has, so they are not converted again,
+  and yields `nil` for a blank row, as `each(:hash)` does, unless `skip_blanks: true` skips it. It takes the options of
+  `each(:hash)`, and `writer(:record)` those of `writer(:hash)`, which still read and write Hashes.
+* A field cannot be named in Ruby as a method that every record answers, such as `hash` or `to_h`, so `field :hash`
+  raises `ArgumentError`. A contract built from a Hash names such a field `hash_field`, and a field whose name is not a
+  name of a method in Ruby by its cleansed name, such as `ordered_at` for `Ordered At`, see `Order.accessors`.
+* Without a contract, the `:record` mode raises `ArgumentError` before the file is opened.
+
+The contract is code: it changes in a pull request, together with the code that relies on it. Where the source is, its
+format, and its schema when it needs one, stay in configuration.
+
+## Drafting a contract
+
+Ask a sample of the source for its types once, in development, review the draft, and save it with the program's code
+as its contract. IOStreams never guesses types while it reads, since a guess would change with the data: one file of a
+feed holds `007`, and the next `7`.
+
+`#infer_schema` without arguments returns the schema that the source declares, see
+[The schema of a source](formats#the-schema-of-a-source), which for CSV is a `string` field for each column.
+`#infer_schema(sample: 1_000)` drafts the types of a source that reports none, such as CSV, from the values of its first
+1,000 records:
+
+~~~ruby
+draft = IOStreams.path("samples/orders.csv").infer_schema(sample: 1_000)
+draft.to_h
+# {fieldsMatch: "subset", fields: [
+#   {name: "id",         type: "integer"},
+#   {name: "amount",     type: "number", decimals: 2},
+#   {name: "ordered_at", type: "datetime"},
+#   {name: "zip",        type: "string"}
+# ]}
+
+File.write("config/contracts/orders.json", JSON.pretty_generate(draft.to_contract.to_h))
+~~~
+
+* It reads the first `sample:` records, or every record with `sample: :all`. Any other value, such as `0`, a negative
+  number or a string, raises `ArgumentError`, as does `sample:` with a schema set with `#schema`, which already gives
+  the types.
+* It drafts `integer`, `number` with the most decimals seen, `boolean`, and `date`, `datetime` and `time` from ISO 8601
+  text. Anything else is `string`, and text with a leading zero, such as `01234` or `007`, stays `string`. A column
+  with no value in the sample is `any`, for a person to decide.
+* It recognizes US dates, such as `10/25/2026`, and records their format on the field, as `format: "%m/%d/%Y"`. A day
+  above 12 settles whether the month or the day is first. When every sampled date could be either, it drafts month
+  first, and says so in the field's `description`, for the reviewer.
+* For JSON, whose keys can vary from record to record, the fields are the keys of every record of the sample.
+* It sets `fieldsMatch: "subset"`, so that the draft needs these columns, and ignores columns added later, and marks a
+  field `required` only where the source declares it, such as a `NOT NULL` column of a query, since a sample cannot
+  prove that a value is always there.
+* For a source that declares its types, such as Parquet or a query, it returns that schema, drafting only the type of a
+  field of type `any`, such as a JSON column of a query, from its values.
+
+The draft is a schema: `#to_contract` returns its contract, without the `format` of a date, which describes how one file
+writes its text, and so stays in the schema of that file. A file of US dates is read with both: save the draft as the
+schema of the file too, and set it with `#schema` beside `#as`. `#to_dsl` writes the class of the contract instead, for
+a person to review and commit, with a comment for each `format` that it leaves to the schema of the file:
+
+~~~ruby
+puts IOStreams.path("samples/orders.csv").infer_schema(sample: 1_000).to_dsl("Order")
+# class Order < IOStreams::Contract
+#   fields_match "subset"
+#
+#   field :id,         :integer
+#   field :amount,     :number,   decimals: 2
+#   field :ordered_at, :datetime
+#   field :zip,        :string
+# end
+~~~
+
+The name of each field in Ruby is its name when that is a name of a method in Ruby, otherwise the name cleansed as a
+header row is, with `name:` its name in the schema, such as `field :ordered_at, :datetime, name: "Ordered At"`. A
+contract writes its own class the same way with `Order.to_dsl`.
+
+## A source that cannot describe itself
+
+A fixed width file, or a CSV file without a header row, declares no names or positions. So configuration gives it a
+schema, while the program still states its contract. The schema reads the file, and the contract meets its fields by
+their names, as it meets the columns of any other source:
+
+~~~ruby
+# Development reads a fixed width extract, production a Parquet file, which describes itself:
+#   development: ORDERS_URL=orders.fixed.gz  ORDERS_SCHEMA=config/schemas/orders_fixed.json
+#   production:  ORDERS_URL=s3://warehouse/orders.parquet
+source = IOStreams.path(ENV.fetch("ORDERS_URL")).schema(ENV["ORDERS_SCHEMA"])
+
+Orders.import(source)
+~~~
+
+where `orders_fixed.json` gives the position of each field, and how its text is written:
+
+~~~json
+{
+  "fields": [
+    {"name": "id",         "type": "integer",  "width": 10},
+    {"name": "amount",     "type": "number",   "width": 12, "decimals": 2},
+    {"name": "created_at", "type": "datetime", "width": 14, "format": "%Y%m%d%H%M%S"},
+    {"name": "zip",        "type": "string",   "width": 5}
+  ]
+}
+~~~
+
+* `schema(nil)` sets no schema, so the same line serves the Parquet file.
+* Writing through both writes each record by the contract first, then lays out the file by the schema.
+* A contract never lays out a file, so the `header` and `width` of a schema, and the `width`, `start`, `truncate` and
+  `skip` of a field, raise `ArgumentError` in one. A fixed width file without a schema raises `ArgumentError`.
+* `IOStreams::Schema#to_contract` returns a contract of what a schema says about the values of its records, without
+  what lays out its file, nor the `format` of a date or time, which describes how one file writes its text.
 
 ---
 
@@ -3966,15 +4439,16 @@ See [PGP Encryption](pgp) for creating and importing keys, signing and verifying
 
 ## Excel spreadsheets
 
-A spreadsheet, `.xlsx` or `.xlsm`, is read as CSV, one line for each row of its first worksheet, and written from CSV
-into a workbook with one worksheet. So the `:line`, `:array` and `:hash` modes apply, and the format of its rows is
-always CSV. See [Excel spreadsheets](formats#excel-spreadsheets) for the values that each cell is read as.
+A spreadsheet, `.xlsx` or `.xlsm`, is read from its first worksheet, and written into a workbook with one worksheet.
+Its rows and records, in the `:array`, `:hash`, `:record` and `:slice` modes, are the values of its cells, as Excel
+typed them, while its lines, in the `:line` mode, and its bytes, such as a copy without a mode, are CSV text, one line
+for each row. See [Excel spreadsheets](formats#excel-spreadsheets) for the values that each cell is read as.
 
 ### Reading an Excel spreadsheet
 
-Reading uses the `creek` gem, which reads a local file and returns its rows to a block, so the rows are converted into
-CSV in a temp file for your code to read. A spreadsheet on S3 or HTTP, or within another stream, is first copied into a
-temp file of its own, see [When temp files are used](config#when-temp-files-are-used). Reading takes no options, and
+Reading uses the `creek` gem, which reads a local file and returns its rows to a block. Its rows and records are read
+from the worksheet as they are, while its lines are converted into CSV in a temp file for your code to read. A
+spreadsheet on S3 or HTTP, or within another stream, is first copied into a temp file of its own, see [When temp files are used](config#when-temp-files-are-used). Reading takes no options, and
 raises `ArgumentError` for `sheet_name`, since it always reads the first worksheet.
 
 A spreadsheet is a zip file of parts, such as its worksheets. Before creek reads it, IOStreams checks the size and the
@@ -4190,6 +4664,38 @@ source = IOStreams.path("people.csv").schema(
 IOStreams.path("people.json").copy_from(source, mode: :hash)
 ~~~
 
+A target with neither a schema nor a [contract](contracts) of its own takes the types of the rows that the copy reads,
+when the source has them: the contract that the source is read through, otherwise the schema of a source of typed rows,
+such as a Parquet file, an [Active Record query](queries#keeping-the-types-of-the-columns), or a slice of typed values.
+So a Parquet file copied to another keeps the type of each column that holds values of one type, and CSV writes each
+number with its decimals:
+
+~~~ruby
+# The source's contract gives the Parquet columns their types.
+contract = IOStreams::Contract.new(
+  fields: [
+    {name: "id", type: "integer"},
+    {name: "amount", type: "number", decimals: 2}
+  ]
+)
+source = IOStreams.path("orders.csv").as(contract)
+IOStreams.path("orders.parquet").copy_from(source, mode: :hash)
+
+# A typed source gives them its own.
+IOStreams.path("archive/orders.parquet").copy_from("orders.parquet", mode: :hash)
+~~~
+
+A file of text, such as CSV, or of values that each have their own type, such as JSON or a spreadsheet, gives nothing,
+since its types are never guessed, so a Parquet target needs a schema or a contract, and raises `ArgumentError` before
+it is opened without one, so that an existing file is kept.
+
+* The contract is handed on without what says how the source writes its text, the `format` of a date and the
+  `trueValues` and `falseValues` of a boolean, so that the target writes its own, such as a date in ISO 8601.
+* A column of a Parquet file of lists, maps or structs is an `array` or `object`, which another Parquet file holds as
+  JSON text, and a column of binary values is of type `any`, which Parquet cannot write without a schema on the target
+  that gives its type.
+* A copy in the `:line` mode copies the lines as they are, so it hands on nothing.
+
 An option that only applies when reading, such as `buffer_size:`, raises `ArgumentError` for a copy, rather than being
 ignored, see [Settings on the path, options for each call](streams#settings-on-the-path-options-for-each-call).
 
@@ -4273,10 +4779,10 @@ IOStreams.path("orders.parquet").copy_from(paid_orders, mode: :hash)
 IOStreams.path("orders.xlsx").option(:xlsx, auto_format: true).copy_from(paid_orders, mode: :array)
 ~~~
 
-A spreadsheet is written with each value as text, unless `auto_format: true` writes those that look like numbers,
-dates, times or booleans as the values of Excel, so that Excel can add up the amounts, and sort by date. It applies to
-every column, so text that looks like a number, such as the zip code `01234`, is written as a number too, see
-[Excel spreadsheets](formats#excel-spreadsheets).
+A spreadsheet is written with each value as its type, by the types of the columns of the query, so that Excel can add
+up the amounts, and sort by date, while a `string` column, such as the zip code `01234`, stays text. `auto_format: true`
+also writes text that looks like a number, date, time or boolean as that value, but only in a column whose type is not
+known, see [Excel spreadsheets](formats#excel-spreadsheets).
 
 Select the columns to export with `select`, which can join other tables and compute columns, as any query can:
 
@@ -4366,31 +4872,30 @@ Every row of a query is a record, so a row whose every value is null or empty is
 
 `each(:slice)` yields the rows of a query in slices, as for a file, such as to hand them to other threads or jobs, see
 [Background jobs](background_jobs). A slice of a query holds the values of its rows as the query cast them, such as an
-`ActiveSupport::TimeWithZone` or a `BigDecimal`, rather than text, in the `:array` format. Each of its rows is a
-record, also where the slice is parsed, so a row of nulls is not read as a blank row. Read its rows with the schema of
-the query, so that each value is read as its type:
+`ActiveSupport::TimeWithZone` or a `BigDecimal`, rather than text, in the `:array` format, and carries the schema of the
+columns, see [Keeping the types of the columns](#keeping-the-types-of-the-columns), so that wherever it is read, each
+value is read as its type, without the job knowing the schema. Each of its rows is a record, also where the slice is
+parsed, so a row of nulls is not read as a blank row:
 
 ~~~ruby
 relation = Order.where(paid: true).select(:id, :amount, :created_at)
-schema   = IOStreams.stream(relation).schema
 
 IOStreams.stream(relation).each(:slice, size: 1_000) do |slice|
-  queue << slice
+  queue << slice.to_h
 end
 
-# Elsewhere, such as in another thread:
-IOStreams.stream(queue.pop).schema(schema).each(:hash) do |order|
+# Elsewhere, such as in a job:
+IOStreams.stream(IOStreams.slice(queue.pop)).each(:hash) do |order|
   p order
 end
 ~~~
 
-Since `slice.to_h` holds the values themselves, a store of slices must keep them. JSON holds a time as text: the
-`to_json` of ActiveSupport writes it to the millisecond, while `JSON.generate` writes the text of `Time#to_s`, without
-its fraction of a second, which a `datetime` field does not read. BSON keeps a time to the millisecond. So the times of
-a stored slice are read back to the millisecond at best, rather than to the microsecond that a database can hold.
-A slice of a query holds `"typed" => true`, unless the stream has a schema of its own, so that a value that a store
-keeps in another form is read back as its type: a duration, which BSON keeps as its number of seconds, is a duration
-again.
+`slice.to_h` holds the schema, and each value in a form that JSON keeps exactly, such as a number as its digits,
+`"12.50"`, and a time in ISO 8601 with its fraction of a second and offset, so that every job queue and store keeps them,
+and `IOStreams.slice` turns them back into their types. The schema adds about one row's worth of bytes to each slice,
+well under 1% of a slice of 1,000 rows. A value of a column of type `any`, such as one that the query computes, is
+held as JSON holds it, a time, a date or a BigDecimal as its text, which comes back as text, since the column does
+not say what type it is.
 
 ## One query or batches
 
@@ -4450,10 +4955,11 @@ say how it reads its rows: supply the relation, or `relation.in_batches(...)`.
 ## Keeping the types of the columns
 
 The types of the columns of the query describe the rows that it reads, as a [schema](formats#schema) does for a file.
-`#schema` returns them, such as on PostgreSQL:
+`#infer_schema` returns them, an `IOStreams::Schema`, whose `#to_h` is its Hash, such as on PostgreSQL, while `#schema`
+returns only a schema that was set, or nil, as for a path:
 
 ~~~ruby
-IOStreams.stream(Order.select(:id, :amount, :status, :created_at)).schema
+IOStreams.stream(Order.select(:id, :amount, :status, :created_at)).infer_schema.to_h
 # {fields: [{name: "id", type: "integer", constraints: {required: true}},
 #           {name: "amount", type: "number", decimals: 2, constraints: {required: true}},
 #           {name: "status", type: "string"},
@@ -4521,12 +5027,12 @@ A Parquet file needs the type of every column, so a column of `any`, or a number
 * A number without decimals, such as a sum on PostgreSQL, needs its `decimals`.
 
 To give a column a type, set the schema of the query. It replaces the schema of every column, so start from the one
-that `#schema` returns, and change the fields that need it:
+that `#infer_schema` returns, and change the fields that need it:
 
 ~~~ruby
 report = Order.select(:id, :amount, "SUM(amount) OVER (ORDER BY id) AS running_total")
 stream = IOStreams.stream(report)
-fields = stream.schema[:fields].map do |field|
+fields = stream.infer_schema.to_h[:fields].map do |field|
   field[:name] == "running_total" ? field.merge(type: "number", decimals: 2) : field
 end
 
@@ -4976,10 +5482,14 @@ slice.to_h
 * The rows and records that a program writes to a [store of slices](#a-store-of-slices) in the `:array` or `:hash`
   mode are each a record, also when every value is blank, so their slice holds `"blank_rows" => false`. With a schema,
   in the `:array` or `:hash` format, they are the values of its fields themselves, such as Integers and Dates, so
-  their slice also holds `"typed" => true`. `IOStreams.stream(slice)` then matches their keys to the schema and hands
-  the job each value in the type of its field, also when the queue changed its form: a duration that BSON keeps as its
-  seconds is a duration again, and a Date that BSON returns as a Time is a Date. To replace the rows of a slice with
-  others in the same form, `slice.with_rows(rows)` returns a new slice that keeps everything else that the slice says.
+  their slice also carries the schema, `"schema"`, with each value in a form that JSON keeps exactly, as does a slice
+  of a query or a Parquet file. `IOStreams.stream(slice)` then reads them by that schema, without the job knowing it,
+  and hands the job each value in the type of its field, also when a store of the slice itself, rather than of its
+  `#to_h`, changed its form: a duration that BSON keeps as its seconds is a duration again, and a Date that BSON
+  returns as a Time is a Date. A value of a field of type `any`, such as a computed column of a query, is held as
+  JSON holds it, a time, a date or a BigDecimal as its text, which comes back as text. To replace the rows of a slice
+  with others in the same form, `slice.with_rows(rows)` returns a new slice that keeps everything else that the slice
+  says.
 
 ### Choosing the size of a slice
 
@@ -5468,12 +5978,13 @@ store, and they are written as lines of CSV, by the types of its columns:
 
 ~~~ruby
 relation = Order.where(paid: true).select(:id, :amount, :created_at)
-schema   = IOStreams.stream(relation).schema
+schema   = IOStreams.stream(relation).infer_schema
 
 IOStreams.stream(store).copy_from(relation, mode: :hash)
 ~~~
 
-The jobs read each slice with the schema of the query, so that each value is read back as its type:
+The slices are lines of CSV, so the jobs read each one with the schema of the query, so that each value is read back as
+its type:
 
 ~~~ruby
 IOStreams.stream(slice).schema(schema).each(:hash) do |order|
@@ -5782,12 +6293,20 @@ IOStreams raises these classes itself:
     reading, a header row, or the keys of a JSON record, has columns that `fieldsMatch` does not allow, or is missing
     a required field, or a row has values after its last column that the schema does not skip, and when writing, the
     keys of a record, or the columns or values of a row, that the schema does not skip.
+  * `IOStreams::Errors::IncompatibleType`: a column whose type its source declares, such as a Parquet file, a query or
+    the schema of a file, can never be the type of its field in a [contract](contracts), such as a boolean for a
+    number. It is raised when the stream opens, before the first row, and is not an `InvalidHeader`, so that code that
+    rescues `InvalidHeader` for missing columns does not rescue it.
   * `IOStreams::Errors::TypeMismatch`: a row or record cannot be converted to the format, such as, with a schema, a
     row written that is neither a Hash nor an Array, or a JSON line that is not an object.
   * `IOStreams::Errors::DelimiterNotFound`: no line delimiter was found within the maximum line length.
   * `IOStreams::Errors::InvalidValue`: a value is not of the type of its field in the schema, or a field that is
     required has no value, see [Schema](formats#schema), or a time of day that a query reads is outside a day, or an
-    interval that it reads is infinite, see [Times of day](queries#times-of-day).
+    interval that it reads is infinite, see [Times of day](queries#times-of-day), which name the column. A value that a
+    reader of rows or records converts names the record that it is in and the line that the record starts on, such as `..., in record 6 on line 7`, which its `#record_number` and
+    `#line_number` hold, with its `#field`, `#value` and `#reason`, see
+    [Values that are not valid](streams#values-that-are-not-valid). `on_invalid:` hands each bad row to a handler
+    instead, as an `IOStreams::InvalidRow`.
   * `IOStreams::Errors::InvalidLineLength`: a fixed width line does not have the length of its schema.
   * `IOStreams::Errors::ValueTooLong`: a value does not fit within its fixed width field.
   * `IOStreams::Errors::InvalidLayout`: nothing raises it since v3.0 removed the layout of a fixed width file, which a
@@ -6869,7 +7388,7 @@ supplied in a `StringIO`.
 | --- | --- | --- | --- |
 | `.gz`, `.gzip`, `.bz2`, `.zst`, `.enc` | No temp file | No temp file | Streamed |
 | `.zip` | No temp file for a local file, otherwise a temp file holding the zip file | No temp file | A zip file lists its contents at its end, so reading one needs the whole file. Writing streams the zip file |
-| `.xlsx`, `.xlsm` | A temp file holding the rows as CSV, and when it is not a local file, a temp file holding the spreadsheet | No temp file | The `creek` gem reads a spreadsheet file, and returns its rows to a block, so they are converted into CSV for the application to read. Writing streams the spreadsheet with `xlsxtream` |
+| `.xlsx`, `.xlsm` | When it is not a local file, a temp file holding the spreadsheet, and in the `:line` mode, or a copy without a mode, a temp file holding the rows as CSV | No temp file | The `creek` gem reads a spreadsheet file, and returns its rows to a block, which its rows and records read as they are, while its lines are converted into CSV for the application to read. Writing streams the spreadsheet with `xlsxtream` |
 | `.pgp`, `.gpg` | No temp file. With `verify_first: true`, a temp file holding the decrypted data | No temp file | `gpg` reads a local file itself, and any other stream through its stdin, and writes through its stdout |
 | `.parquet` | No temp file for a local file, otherwise a temp file holding the Parquet file | A temp file holding the Parquet file, which is copied to the path once the block completes | A Parquet file records its columns at its end, and the `parquet` gem writes the whole file before it can be copied |
 
@@ -6888,12 +7407,12 @@ For example:
 | Path | Temp files when reading | Temp files when writing |
 | --- | --- | --- |
 | `data.csv`, `data.csv.gz`, `data.csv.zip`, `data.csv.pgp`, `data.csv.pgp.gz` | None | None |
-| `data.xlsx` | 1: the rows as CSV | None |
+| `data.xlsx` | Rows and records: none. Lines: 1, the rows as CSV | None |
 | `data.csv.pgp`, read with `verify_first: true` | 1: the decrypted data | None |
 | `data.csv.zip.pgp` | 1: the decrypted zip file | None |
 | `s3://bucket/data.csv`, `s3://bucket/data.csv.pgp` | None | None |
 | `s3://bucket/data.csv.zip` | 1: the zip file | None |
-| `s3://bucket/data.xlsx` | 2: the spreadsheet, and the rows as CSV | None |
+| `s3://bucket/data.xlsx` | Rows and records: 1, the spreadsheet. Lines: 2, the spreadsheet, and the rows as CSV | None |
 | `sftp://example.org/data.csv.zip.pgp` | 2: the download, and the decrypted zip file | 1: the upload |
 | `IOStreams.stream(StringIO.new(data)).stream(:pgp)` | None | None |
 | `IOStreams.stream(StringIO.new(data)).stream(:zip)` | 1: the zip file | None |
@@ -7471,6 +7990,8 @@ Start with the changes that apply to your application:
 | Reads or writes fixed width files | [Fixed width files are read and written as ASCII](#fixed-width-files-are-read-and-written-as-ascii) |
 | Sets the layout of a fixed width file with `#format_options` | [`#format_options` is replaced by `#schema`](#format_options-is-replaced-by-schema) |
 | Uses `columns:`, `allowed_columns:`, `required_columns:`, `skip_unknown:` or `cleanse_header:`, or sets `IOStreams.enforce_column_restrictions` | [The column options of each call are removed](#the-column-options-of-each-call-are-removed) |
+| Reads or writes Excel spreadsheets in the `:array`, `:hash` or `:slice` mode | [Rows of a spreadsheet are the values of its cells](#rows-of-a-spreadsheet-are-the-values-of-its-cells) |
+| Reads or writes a `Time` or `DateTime`, such as of a spreadsheet or a query, through a `date` field of a schema | [A date field takes a time only at midnight](#a-date-field-takes-a-time-only-at-midnight) |
 | Reads JSON, fixed width or Parquet files with `each(:array)` or `reader(:array)`, or uploads them to Rocket Job in its `:array` mode | [Rows of JSON, fixed width and Parquet files are Arrays](#rows-of-json-fixed-width-and-parquet-files-are-arrays) |
 | Reads rows or records that can be blank, such as CSV exports with lines of only commas, or JSON records of only nulls | [Blank rows are the same in every format](#blank-rows-are-the-same-in-every-format) |
 | Supplies options to `#option`, `#stream`, `#reader`, `#writer` or the copy methods | [Reading, writing and options](#reading-writing-and-options) |
@@ -8240,6 +8761,34 @@ file splits the lines of its rows and records, since its parser must agree with 
 the lines where CSV does not. It is still the way to choose the lines that `each(:line)` returns.
 
 Fix: set the format of the file with `#format`, such as `format(:psv)` for a pipe-delimited file named `.csv`.
+
+#### Rows of a spreadsheet are the values of its cells
+
+`each(:array)`, `each(:hash)` and `each(:slice)` of a spreadsheet return the value of each cell as Excel typed it, rather
+than its text: a number is a `Float`, such as `1001.0` where it was `"1001.0"`, a cell of a date format a `Date`, of a
+date and time format a `Time` in UTC, a boolean `true` or `false`, and an error, such as `#N/A`, `nil`, while text, such
+as `"01234"`, is still a `String`. Its lines, `each(:line)`, and a copy into a CSV file without a mode, are still its CSV
+text. A header cell of a date format is the key of its date, such as `2026_01_01` where it was `2026_01_01t000000z`.
+Writing rows and records to a spreadsheet writes each value as its type, so `1001` is a number cell, where it was the
+text `"1001"`, a time in UTC, a whole number of more than 15 digits, which Excel cannot hold, as text, and
+`auto_format` only converts the text of a column whose type is not known.
+
+Give the columns that the code reads a schema or a [contract](contracts), whose fields convert each value to their
+types, such as `{name: "id", type: "integer"}` for `1001.0`, or `{name: "zip", type: "string"}` for text. Remove a
+`delimiter:` or `buffer_size:` supplied to the rows and records of a spreadsheet, and an encoding set with `#encoding`
+when they are read or written, which now raise `ArgumentError`, since its rows are cells rather than lines of text; the
+`:line` mode still takes them.
+
+#### A date field takes a time only at midnight
+
+A `date` field of a schema reads and writes a `Time` or `DateTime` at midnight, by its own clock, as its date, such as
+the time that a spreadsheet's date format gives, and raises `IOStreams::Errors::InvalidValue` for any other time, such
+as `2026-10-13 09:30`, or `Time.now` written to a date column of an export, rather than drop its time of day, as v2.2
+does. A value converts only when nothing is lost, so that a
+date field never hides a time, nor guesses a time zone to drop it in.
+
+Give such a column the type `datetime`, or convert its values to dates in your code, by the time zone that they belong
+to, such as `time.in_time_zone("America/New_York").to_date`.
 
 ### Reading, writing and options
 
@@ -9180,6 +9729,9 @@ for each one.
 - Reading rows or records keeps a newline within a quoted CSV value in its row when CSV is the default format, such as
   for `data.txt`, a stream without a file name, or a spreadsheet, where the lines were split at the newline, which
   raised `CSV::MalformedCSVError`.
+- The message of an `IOStreams::Errors::InvalidValue` that a reader of rows or records raises ends with the record and
+  the line, such as `..., in record 6 on line 7`. `#reason` returns the message without them, for code that compares
+  the whole message.
 
 ## Upgrading to v2.2
 
@@ -9337,6 +9889,9 @@ working after an upgrade, apart from the changes that v3.0 makes to every file:
   path set as the schema, such as `schema(IOStreams.path("people_schema.json"))`, as a frozen copy only in v3.0, so a
   method that changes the path that it returns, such as `#option` or `#encoding`, raises `FrozenError`, where v2.2
   returns the path itself. Change the path before it is set as the schema, or change a copy, `path.schema.dup`.
+* A `date` field in v2.2 reads and writes a `Time` or `DateTime` as its date, dropping its time of day, while v3.0 takes
+  only one at midnight, by its own clock, as its date, and raises `IOStreams::Errors::InvalidValue` for any other, rather than lose
+  its time of day, see [A date field takes a time only at midnight](#a-date-field-takes-a-time-only-at-midnight).
 * Parquet files are only in v3.0.
 
 ### Changes in behavior in v2.2

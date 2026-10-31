@@ -232,7 +232,8 @@ class XlsxWriterTest < Minitest::Test
         records = []
         IOStreams.path(file_name).each(:hash) { |record| records << record }
 
-        assert_equal [{"name" => "Jack", "amount" => "1.5"}], records
+        # A number is written as a number, and read back as the Float that Excel holds.
+        assert_equal [{"name" => "Jack", "amount" => 1.5}], records
       end
 
       it "writes hashes with a header row" do
@@ -256,8 +257,9 @@ class XlsxWriterTest < Minitest::Test
         rows = []
         path.each(:array) { |row| rows << row }
 
-        # A number written with auto_format is read back as a float.
-        assert_equal [%w[a 1234.0]], rows
+        # Text written without a schema with auto_format, whose type is not known, is written as the number that it looks
+        # like, and read back as the Float that Excel holds.
+        assert_equal [["a", 1234.0]], rows
       end
 
       it "keeps an existing file when the name of the worksheet is rejected" do
@@ -291,17 +293,13 @@ class XlsxWriterTest < Minitest::Test
         assert_equal [%w[a b], %w[c d], %w[e f]], rows
       end
 
-      it "writes rows delimited by a carriage return and newline, or a carriage return" do
+      it "raises for a delimiter of the rows written, which are cells rather than lines" do
         ["\r\n", "\r"].each do |delimiter|
-          IOStreams.path(file_name).writer(:array, delimiter: delimiter) do |io|
-            io << %w[a b]
-            io << %w[c d]
+          error = assert_raises(ArgumentError) do
+            IOStreams.path(file_name).writer(:array, delimiter: delimiter) { |io| io << %w[a b] }
           end
 
-          rows = []
-          IOStreams.path(file_name).each(:array) { |row| rows << row }
-
-          assert_equal [%w[a b], %w[c d]], rows, delimiter.inspect
+          assert_includes error.message, "rather than lines of text"
         end
       end
 
@@ -335,7 +333,8 @@ class XlsxWriterTest < Minitest::Test
           io << [1, "Smith, Jack"]
         end
 
-        assert_equal [%w[id name], ["1", "Smith, Jack"]], read_rows(File.binread(path.to_s))
+        # The Integer is a number cell, which reading as CSV text gives as the Float that Excel holds.
+        assert_equal [%w[id name], ["1.0", "Smith, Jack"]], read_rows(File.binread(path.to_s))
       end
 
       it "reads each cell as a value, whatever format the file name names before the extension" do

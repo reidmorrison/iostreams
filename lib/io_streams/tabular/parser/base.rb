@@ -21,6 +21,26 @@ module IOStreams
           :text
         end
 
+        # Returns [String] the type of field of the values that this format reads without a schema, which the schema
+        # that a file declares gives each of its columns, see `IOStreams::Stream#infer_schema`: "string" for a format
+        # of text, such as CSV, otherwise "any", such as for JSON, each of whose values has a type of its own.
+        def self.value_type
+          value_form == :text ? "string" : "any"
+        end
+
+        # Returns [true|false] whether each record supplies its own keys, and leaves out the key of a value that is missing,
+        # such as JSON, so that a schema reads a key that a record leaves out as a missing value, nil, rather than a
+        # missing column, see `IOStreams::Schema::Columns#initialize`: false for a format of columns, such as CSV.
+        def self.keys_vary?
+          false
+        end
+
+        # Returns [true|false] whether the format takes the position of each value of a line from a schema, such as fixed
+        # width, which a contract never gives, see `IOStreams::Contract`, rather than from the line itself.
+        def self.layout?
+          false
+        end
+
         # Returns [String] the quote character within which field delimiters and embedded
         # newlines may appear for this format, or [nil] when the format has no such quoting.
         #

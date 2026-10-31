@@ -74,16 +74,34 @@ module IOStreams
   # no effect, as are the properties of other tools, whose names include a `:`, such as `"mytool:owner"`. Any other
   # property raises `ArgumentError`, including those of Frictionless that IOStreams does not support yet, such as
   # `primaryKey`, so that a schema never appears to apply a rule that it does not.
+  #
+  # A schema is an object, which `IOStreams::Stream#infer_schema` returns, and `IOStreams::Stream#schema` takes, as
+  # well as a Hash or the path of a JSON file. Its public methods are .new, .read, #fields, #fields_match, #to_h,
+  # #==, and those of its fields, see `IOStreams::Schema::Field`, so that a program reads a schema without knowing the
+  # keys of its Hash or their defaults:
+  #
+  #   schema = IOStreams.path("orders.parquet").infer_schema
+  #   schema.fields_match                   # => "exact"
+  #   schema.fields.map(&:name)             # => ["id", "amount", "ordered_at"]
+  #   File.write("orders.json", JSON.pretty_generate(schema.to_h))
+  #
+  # Its other methods are used by the readers and writers of IOStreams, which can change them.
   class Schema
     autoload :Columns,     "io_streams/schema/columns"
     autoload :Constraints, "io_streams/schema/constraints"
+    autoload :ContractColumns, "io_streams/schema/contract_columns"
     autoload :Field,       "io_streams/schema/field"
+    autoload :Inference,   "io_streams/schema/inference"
     autoload :JsonNumber,  "io_streams/schema/json_number"
     autoload :Keys,        "io_streams/schema/keys"
     autoload :Source,      "io_streams/schema/source"
 
     # The properties of a schema that IOStreams supports.
     PROPERTIES = %w[fields fieldsMatch header width keyType extraColumns].freeze
+
+    # The properties of a schema that lay out a file, whether it has a header row and the width of its lines, which a
+    # contract never has, see `IOStreams::Contract`. Those of a field are `IOStreams::Schema::Field::LAYOUT_PROPERTIES`.
+    LAYOUT_PROPERTIES = %w[header width].freeze
 
     # The properties of a schema that only describe it to people.
     DESCRIPTIVE_PROPERTIES = %w[$schema title description].freeze
@@ -193,7 +211,40 @@ module IOStreams
       @loose        = build_loose { |name| self.class.match_key(name) }
       @cleansed     = build_loose { |name| self.class.match_key(self.class.cleansed(name)) }
       @decimals     = @fields.any?(&:decimal?)
+      @properties   = Utils.frozen_copy(descriptor.except("fields").transform_keys(&:to_sym))
+      @hash         = [self.class, @properties, @fields].hash
       freeze
+    end
+
+    # Returns [Hash] the schema as a Frictionless Table Schema, as it was given: its properties, then its fields, each
+    # as `IOStreams::Schema::Field#to_h` returns it, with Symbol keys, whether they were given as Strings or Symbols.
+    # A new Hash each time, which the caller can change, such as to save it as JSON, or to set a changed copy:
+    #
+    #   IOStreams.path("orders.parquet").infer_schema.to_h
+    #   # => {fields: [{name: "id", type: "integer", constraints: {required: true}},
+    #   #              {name: "amount", type: "number", decimals: 2}]}
+    def to_h
+      Utils.deep_copy(@properties).merge(fields: fields.map(&:to_h))
+    end
+
+    # Returns [true|false] whether the other is a schema of the same properties and fields, see #to_h.
+    def ==(other)
+      equal?(other) || (other.instance_of?(self.class) && properties == other.properties && fields == other.fields)
+    end
+
+    # Returns [true|false] whether the other is a schema of the same properties and fields, compared by `eql?`, as a
+    # Hash key is.
+    def eql?(other)
+      equal?(other) || (other.instance_of?(self.class) && properties.eql?(other.properties) && fields.eql?(other.fields))
+    end
+
+    # Returns [Integer] the hash of the properties and fields of the schema, worked out once, since a schema never
+    # changes.
+    attr_reader :hash
+
+    # Returns [String] the class and the schema as a Hash, see #to_h, rather than every instance variable.
+    def inspect
+      "#<#{self.class.name} #{to_h.inspect}>"
     end
 
     # Returns [true|false] whether a field is a number that keeps every digit, see `IOStreams::Schema::Field#decimal?`,
@@ -225,9 +276,54 @@ module IOStreams
     end
 
     # Returns [IOStreams::Schema::Columns] a new matcher of the columns of one file to these fields, which a reader or
-    # writer holds while it reads or writes the file.
-    def columns(typed: false)
-      Columns.new(self, typed: typed)
+    # writer holds while it reads or writes the file. With `every_field`, each record and row read has every field, nil
+    # for a field that the file does not have, as a contract reads them, see `IOStreams::Contract`, and with `keys_vary`
+    # a key that a record leaves out is a missing value, see `IOStreams::Schema::Columns#initialize`.
+    def columns(typed: false, every_field: false, keys_vary: false)
+      Columns.new(self, typed: typed, every_field: every_field, keys_vary: keys_vary)
+    end
+
+    # Returns [Array<String>] the properties of this schema that lay out a file, see LAYOUT_PROPERTIES, each as it
+    # applies, such as `"width"` or `"width of the field \"id\""`, which a contract rejects, see `IOStreams::Contract`.
+    def layout_properties
+      LAYOUT_PROPERTIES.select { |name| @properties.key?(name.to_sym) } +
+        fields.flat_map { |field| field.layout_properties.map { |name| "#{name} of the field #{field.name.to_s.inspect}" } }
+    end
+
+    # Returns [Class] a new contract, see `IOStreams::Contract`, of what this schema says about the values of the
+    # records, without what lays out the file: its `header` and `width`, the `width`, `start` and `truncate` of each
+    # field, the fields that only hold the place of a column, `skip: true`, and the `format` of a date, datetime or
+    # time, since how a file writes its text stays in its schema, so that a contract drafted from one file reads the
+    # same records from any other, such as from a schema that `IOStreams::Stream#infer_schema` drafted.
+    def to_contract
+      descriptor = to_h.except(*LAYOUT_PROPERTIES.map(&:to_sym))
+      descriptor[:fields] = fields.reject(&:skip?).map(&:to_contract_h)
+      IOStreams::Contract.new(descriptor)
+    end
+
+    # Returns [IOStreams::Schema] a schema of the same properties and fields, without what says how a file writes the
+    # text of their values, such as the `format` of a date, see `IOStreams::Schema::Field::TEXT_PROPERTIES`, so that the
+    # target of a copy that takes the types of its source writes its own text, see `IOStreams::Stream#copy_from`.
+    def without_text
+      self.class.new(to_h.merge(fields: fields.map(&:without_text_h)))
+    end
+
+    # Returns [String] the Ruby of a class that declares the contract of this schema, see #to_contract, for a person to
+    # review and commit, such as of a schema that `IOStreams::Stream#infer_schema` drafted, see
+    # `IOStreams::Contract.to_dsl`. The `format` of a field, which the contract leaves to the schema of the file, is a
+    # comment, so that the reviewer sets it there:
+    #
+    #   # The schema of the file reads "ordered_on" with format "%m/%d/%Y", which this contract leaves to it
+    def to_dsl(class_name = "Contract")
+      lines = to_contract.to_dsl(class_name).lines
+      notes = fields.reject(&:skip?).filter_map do |field|
+        format = field.to_h[:format]
+        next unless format
+
+        "  # The schema of the file reads #{field.name.to_s.inspect} with format #{format.inspect}, which this contract " \
+          "leaves to it\n"
+      end
+      [lines.first, *notes, *lines.drop(1)].join
     end
 
     # Returns [IOStreams::Schema::Field] the field that the supplied column of a header row, or key of a record, names:
@@ -272,25 +368,51 @@ module IOStreams
     #
     #   noun: [String]
     #     What the columns are, "column" or "key", for the message.
-    def check_columns(found, unknown, ordered:, noun:)
-      problems = []
-      problems << unknown_problem(unknown, noun) unless unknown.empty? || skip_unknown?
-      missing = fields - found
-      if every_field? && !missing.empty?
-        problems << "missing the #{plural('field', missing)} #{names_of(missing)}, which fieldsMatch #{fields_match.inspect} " \
-                    "requires; \"superset\" and \"partial\" accept missing fields"
-      else
-        required = missing.select(&:required?)
-        problems << "missing the required #{plural('field', required)} #{names_of(required)}" unless required.empty?
-      end
-      if fields_match == "partial" && found.empty?
-        problems << "no #{noun} is a field of the schema, but fieldsMatch \"partial\" needs at least one"
-      end
-      if ordered && fields_match == "exact" && problems.empty? && found != fields
-        problems << "the #{noun}s are not in the order of the fields, #{names_of(fields)}, which fieldsMatch \"exact\" " \
-                    "requires; \"equal\" accepts any order"
-      end
+    #
+    #   missing: [true|false]
+    #     Whether a field that is not one of the columns is a problem, as `fieldsMatch` and `constraints` say, rather
+    #     than a missing value, as a key that a JSON record leaves out is, see `IOStreams::Schema::Columns#initialize`.
+    def check_columns(found, unknown, ordered:, noun:, missing: true)
+      problems = column_problems(found, unknown, ordered: ordered, noun: noun, missing: missing)
       raise(IOStreams::Errors::InvalidHeader, "#{subject(noun)} #{problems.join('; ')}") unless problems.empty?
+    end
+
+    # Returns [Array<IOStreams::Errors::InvalidHeader>] each way that the columns of a header row, or the keys of a
+    # record, do not match the fields, see #check_columns, which raises them as one, not raised, so that every problem
+    # can be listed at once, such as for an upload screen, see `IOStreams::Stream#contract_errors`.
+    def column_errors(found, unknown, ordered:, noun:, missing: true)
+      column_problems(found, unknown, ordered: ordered, noun: noun, missing: missing).map do |problem|
+        IOStreams::Errors::InvalidHeader.new("#{subject(noun)} #{problem}")
+      end
+    end
+
+    # Raises `IOStreams::Errors::IncompatibleType` for each column of the supplied schema of a source, such as that of
+    # a Parquet file or a database query, whose declared type can never be the type of its field, such as a boolean for
+    # a number, see `IOStreams::Schema::Field#converts?`, before the first row is read, see `IOStreams::Stream#as`.
+    def check_types(source)
+      errors = type_errors(source)
+      raise(IOStreams::Errors::IncompatibleType, errors.map(&:message).join("; ")) unless errors.empty?
+    end
+
+    # Returns [Array<IOStreams::Errors::IncompatibleType>] each column of the supplied schema of a source whose declared
+    # type can never be the type of its field, see #check_types, not raised. A column that is no field, or several,
+    # is left to the matching of the columns, see #column_errors.
+    def type_errors(source)
+      source.fields.filter_map do |column|
+        next if column.skip?
+
+        field = begin
+          field_for(column.name)
+        rescue IOStreams::Errors::InvalidHeader
+          nil
+        end
+        next if field.nil? || field.converts?(column.type)
+
+        IOStreams::Errors::IncompatibleType.new(
+          "The column #{column.name.to_s.inspect} holds values of type #{column.type}, which the #{field.type} field " \
+          "#{field.name.to_s.inspect} never accepts"
+        )
+      end
     end
 
     # Raises `IOStreams::Errors::InvalidHeader` when a record or row that is written has columns, keys or values that
@@ -403,7 +525,44 @@ module IOStreams
       @keep_extra
     end
 
+    protected
+
+    # Returns [Hash] the frozen properties of the schema, other than its fields, for #== and #eql?, without the copy that
+    # #to_h makes.
+    attr_reader :properties
+
     private
+
+    # Returns [Array<IOStreams::Schema::Field>] the fields that are not among those found, which are fields of this
+    # schema, compared by identity, since a field equals another of the same properties, see Field#==, which costs more
+    # for each record that this checks.
+    def missing_fields(found)
+      found = found.each_with_object({}.compare_by_identity) { |field, set| set[field] = true }
+      fields.reject { |field| found.key?(field) }
+    end
+
+    # Returns [Array<String>] each way that the columns of a header row, or the keys of a record, do not match the
+    # fields, see #check_columns.
+    def column_problems(found, unknown, ordered:, noun:, missing: true)
+      problems = []
+      problems << unknown_problem(unknown, noun) unless unknown.empty? || skip_unknown?
+      absent = missing ? missing_fields(found) : []
+      if every_field? && !absent.empty?
+        problems << "missing the #{plural('field', absent)} #{names_of(absent)}, which fieldsMatch #{fields_match.inspect} " \
+                    "requires; \"superset\" and \"partial\" accept missing fields"
+      else
+        required = absent.select(&:required?)
+        problems << "missing the required #{plural('field', required)} #{names_of(required)}" unless required.empty?
+      end
+      if fields_match == "partial" && found.empty?
+        problems << "no #{noun} is a field of the schema, but fieldsMatch \"partial\" needs at least one"
+      end
+      if ordered && fields_match == "exact" && problems.empty? && found != fields
+        problems << "the #{noun}s are not in the order of the fields, #{names_of(fields)}, which fieldsMatch \"exact\" " \
+                    "requires; \"equal\" accepts any order"
+      end
+      problems
+    end
 
     # Returns [true|false] whether every field must be one of the columns.
     def every_field?

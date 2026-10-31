@@ -245,7 +245,7 @@ class PostgresqlCursorTest < Minitest::Test
       it "ends a read that is interrupted while it fetches, at once, rather than once the fetch finishes" do
         skip "PgJDBC blocks in Java while it fetches, which a Timeout interrupts once the fetch returns" if jdbc
         stream = IOStreams.stream(slow_last_row(db.order, 4))
-        stream.schema
+        stream.infer_schema
         started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
         assert_raises(Timeout::Error) { Timeout.timeout(1.5) { each(stream) } }
 
@@ -324,7 +324,7 @@ class PostgresqlCursorTest < Minitest::Test
       it "raises the failure of a fetch, tagged as Unavailable, which rolls back only its savepoint of an open transaction" do
         relation = db.order.select("pg_sleep(0.3)::text AS slept")
         stream   = IOStreams.stream(relation)
-        stream.schema
+        stream.infer_schema
         pinned do
           execute("SET LOCAL statement_timeout = '100ms'")
           error = assert_raises(ActiveRecord::QueryCanceled) { each(stream) }
@@ -346,7 +346,7 @@ class PostgresqlCursorTest < Minitest::Test
       it "tags a table that the user may not read as PermissionDenied" do
         reader = db.record.with_connection { |connection| connection.quote_column_name(role) }
         stream = IOStreams.stream(orders)
-        stream.schema
+        stream.infer_schema
         pinned do
           execute("SET LOCAL ROLE #{reader}")
           error = assert_raises(ActiveRecord::StatementInvalid) { each(stream) }
@@ -502,7 +502,7 @@ class PostgresqlCursorTest < Minitest::Test
         assert_equal [{name: "id", type: "integer", constraints: {required: true}},
                       {name: "tags", type: "array", constraints: {required: true}},
                       {name: "starts", type: "date", constraints: {required: true}}, {name: "note", type: "string"}],
-                     IOStreams.stream(model.all).schema[:fields]
+                     IOStreams.stream(model.all).infer_schema.to_h[:fields]
         assert_equal [{"tags" => [], "starts" => Date.new(2026, 10, 21), "note" => ""}],
                      each(IOStreams.stream(model.select(:tags, :starts, :note)))
       ensure
@@ -589,7 +589,7 @@ class PostgresqlCursorTest < Minitest::Test
             {name: "closes", type: jdbc ? "any" : "string"}
           ]
 
-          assert_equal expected, IOStreams.stream(model.all).schema[:fields]
+          assert_equal expected, IOStreams.stream(model.all).infer_schema.to_h[:fields]
         end
 
         it "reads the values as pluck does, but an address as the text that PostgreSQL returns, with its prefix" do
@@ -616,19 +616,24 @@ class PostgresqlCursorTest < Minitest::Test
           assert_equal (jdbc ? Time.utc(2000, 1, 1, 17) : "17:00:00+02"), record["closes"]
         end
 
-        it "reads an interval of its slices as a duration, also once a store keeps its seconds, as BSON does" do
-          relation = model.select(:id, :wait)
-          slices   = []
-          IOStreams.stream(relation).each(:slice, size: 5) { |slice| slices << slice }
-          hash     = slices.first.to_h
-          # BSON keeps an ActiveSupport::Duration as its number of seconds.
-          stored   = IOStreams.slice(hash.merge("rows" => hash["rows"].map { |id, wait| [id, wait.to_i] }))
-          records  = []
-          IOStreams.stream(stored).schema(IOStreams.stream(relation).schema).each(:hash) { |record| records << record }
+        it "reads an interval of its slices as a duration, by the schema that they carry, also once a store keeps its seconds" do
+          slices = []
+          IOStreams.stream(model.select(:id, :wait)).each(:slice, size: 5) { |slice| slices << slice }
+          hash = slices.first.to_h
 
-          assert_predicate stored, :typed?
-          assert_instance_of ActiveSupport::Duration, records.first["wait"]
-          assert_equal({months: 1, days: 1, hours: 2}, records.first["wait"].parts)
+          # A slice holds a duration as ISO 8601, which keeps its months and days apart from its seconds.
+          assert_equal "P1M1DT2H", hash["rows"].first.last
+          # A store that keeps a duration as its number of seconds, as BSON keeps an ActiveSupport::Duration.
+          seconds = hash.merge("rows" => hash["rows"].map { |id, wait| [id, ActiveSupport::Duration.parse(wait).to_i] })
+          [hash, seconds].each do |stored|
+            slice   = IOStreams.slice(stored)
+            records = []
+            IOStreams.stream(slice).each(:hash) { |record| records << record }
+
+            assert_predicate slice, :typed?
+            assert_instance_of ActiveSupport::Duration, records.first["wait"]
+            assert_equal({months: 1, days: 1, hours: 2}, records.first["wait"].parts)
+          end
         end
 
         it "keeps the values that pg casts of columns that Active Record casts as they are, but whose types it knows" do
@@ -644,11 +649,11 @@ class PostgresqlCursorTest < Minitest::Test
           cte    = model.with(t: model.select(:id, "whole AS n", "seen AS at")).joins("JOIN t ON t.id = pg_types.id")
           stream = IOStreams.stream(cte.select("pg_types.id", "t.n", "t.at"))
 
-          assert_equal [{name: "id", type: "integer"}, {name: "n", type: "any"}, {name: "at", type: "any"}], stream.schema[:fields]
+          assert_equal [{name: "id", type: "integer"}, {name: "n", type: "any"}, {name: "at", type: "any"}], stream.infer_schema.to_h[:fields]
           assert_equal [{"id" => model.first.id, "n" => 42, "at" => Time.utc(2026, 10, 20, 10, 30)}], each(stream)
           stream = IOStreams.stream(scored.select("whole * 2 AS score"))
 
-          assert_equal [{name: "score", type: "any"}], stream.schema[:fields]
+          assert_equal [{name: "score", type: "any"}], stream.infer_schema.to_h[:fields]
           assert_equal [{"score" => 84}], each(stream)
         end
 
@@ -665,7 +670,7 @@ class PostgresqlCursorTest < Minitest::Test
           Dir.mktmpdir do |dir|
             path = IOStreams.path(dir, "types.parquet")
             path.copy_from(relation, mode: :hash)
-            record = each(path.schema(IOStreams.stream(relation).schema)).first
+            record = each(path.schema(IOStreams.stream(relation).infer_schema)).first
 
             assert_equal Time.utc(2000, 1, 1, 4, 15), record["opens"]
             assert_equal({months: 1, days: 1, hours: 2}, record["wait"].parts)
@@ -682,7 +687,7 @@ class PostgresqlCursorTest < Minitest::Test
 
           assert_equal(
             [{name: "opens", type: "time", constraints: {required: true}}, wait],
-            IOStreams.stream(model.select(:opens, :wait)).schema[:fields]
+            IOStreams.stream(model.select(:opens, :wait)).infer_schema.to_h[:fields]
           )
         end
 
@@ -752,7 +757,7 @@ class PostgresqlCursorTest < Minitest::Test
           # The results of AR-JDBC have no types, so the computed columns are of any type, whose values its driver casts.
           types = jdbc ? %w[any any any] : %w[number integer date]
 
-          assert_equal(%w[total orders latest].zip(types).map { |name, type| {name: name, type: type} }, stream.schema[:fields])
+          assert_equal(%w[total orders latest].zip(types).map { |name, type| {name: name, type: type} }, stream.infer_schema.to_h[:fields])
           assert_equal [{"total" => BigDecimal("115.75"), "orders" => 3, "latest" => Date.new(2026, 10, 1)}], each(stream)
         end
       end
@@ -793,7 +798,7 @@ class PostgresqlCursorTest < Minitest::Test
           record   = each(IOStreams.stream(relation)).first
 
           assert_equal [{name: "reminders", type: "array"}, {name: "labels", type: "array"}],
-                       IOStreams.stream(relation).schema[:fields]
+                       IOStreams.stream(relation).infer_schema.to_h[:fields]
           assert_equal relation.pluck(:reminders, :labels).first, record.values_at("reminders", "labels")
           assert_equal [ActiveSupport::TimeWithZone], record["reminders"].map(&:class).uniq
           assert_equal Time.utc(2026, 10, 20, 12, 30), record["reminders"].first
@@ -805,7 +810,7 @@ class PostgresqlCursorTest < Minitest::Test
           record   = each(IOStreams.stream(relation)).first
 
           assert_equal [{name: "hosts", type: "array"}, {name: "networks", type: "array"}, {name: "address", type: "string"}],
-                       IOStreams.stream(relation).schema[:fields]
+                       IOStreams.stream(relation).infer_schema.to_h[:fields]
           assert_equal({"hosts" => %w[10.0.0.0/8 192.168.1.5/24], "networks" => %w[10.0.0.0/8 192.168.1.0/24],
                         "address" => "192.168.1.5/24"}, record)
 
@@ -824,7 +829,7 @@ class PostgresqlCursorTest < Minitest::Test
           json     = StringIO.new
           IOStreams.stream(csv).format(:csv).copy_from(relation, mode: :hash)
           IOStreams.stream(json).format(:json).copy_from(relation, mode: :hash)
-          schema   = IOStreams.stream(relation).schema
+          schema   = IOStreams.stream(relation).infer_schema
           records  = [[csv, :csv], [json, :json]].map do |output, format|
             each(IOStreams.stream(StringIO.new(output.string)).format(format).schema(schema)).first
           end

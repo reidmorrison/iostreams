@@ -33,9 +33,30 @@ module IOStreams
       #     its field from the form that a store returned it in, see #read_value, rather than read as text. Their
       #     columns are matched to the fields either way.
       #     Default: false
-      def initialize(schema, typed: false)
+      #
+      #   every_field: [true|false]
+      #     Whether each record and row read has every field, in the order of the fields, nil for a field whose column
+      #     the file does not have, which `fieldsMatch` "superset" and "partial" accept, as the records that a contract
+      #     reads do, see `IOStreams::Contract`. Without it, a record has only the fields of the columns of the file.
+      #     Default: false
+      #
+      #   keys_vary: [true|false]
+      #     Whether each record supplies its own keys, which can leave out the key of a field whose value is missing, such
+      #     as JSON, see `IOStreams::Tabular::Parser::Base.keys_vary?`, so that such a key is a missing value, nil, as an
+      #     empty value of CSV is, rather than a missing column: the record has the field, and a field whose value is
+      #     required raises `IOStreams::Errors::InvalidValue`, as an empty value does, unless it allows blank values,
+      #     while the keys that are not fields still raise as `fieldsMatch` says, as a contract reads them, see
+      #     `IOStreams::Contract`. A format whose records are all keyed by the same columns, such as Parquet, checks a
+      #     missing column as CSV does, and so does a schema of a file without a contract, as in v2.2.
+      #     Default: false
+      def initialize(schema, typed: false, every_field: false, keys_vary: false)
         @schema       = schema
         @typed        = typed
+        @every_field  = every_field
+        @keys_vary    = keys_vary
+        # The column that each field matched, by the field, see #match, so that a contract that reads the records of
+        # another schema renders the values of those columns, see `IOStreams::Schema::ContractColumns`.
+        @labels       = nil
         @keep_extra   = schema.keep_extra?
         # The fields whose values the rows and records read have, those that are not skipped, see
         # `IOStreams::Schema::Field#skip?`, in order, and whether any is skipped.
@@ -81,11 +102,67 @@ module IOStreams
         found, unknown, positions = find_fields(labels, "column")
         @schema.check_columns(found, unknown, ordered: true, noun: "column")
         @matched = @schema.fields.filter_map do |field|
-          [field, positions[field], @schema.key(field)] if positions.key?(field) && !field.skip?
+          [field, positions[field], @schema.key(field)] if (@every_field || positions.key?(field)) && !field.skip?
         end
+        @labels  = positions.to_h { |field, index| [field, labels[index]] }.compare_by_identity
         @extra   = extra_columns(labels, positions, "column")
         @width   = labels.size
         names
+      end
+
+      # Raises as reading would when the supplied columns of a source do not match the fields, see #match, or for the keys
+      # of a record of a format whose records supply their own keys, such as JSON, see #check_keys, without reading a row,
+      # see `IOStreams::Stream#validate_contract!`.
+      def check_meeting(labels, keyed:)
+        keyed ? check_keys(labels) : match(labels)
+        nil
+      end
+
+      # Returns [Array<IOStreams::Errors::InvalidHeader>] each way that the supplied columns of a source, or the keys of
+      # a record of a format whose records supply their own keys, do not match the fields, see #check_meeting, not
+      # raised, see `IOStreams::Stream#contract_errors`.
+      def meeting_errors(labels, keyed:)
+        noun   = keyed ? "key" : "column"
+        labels = named(labels) unless keyed
+        found, unknown, positions = find_fields(labels, noun)
+        @schema.column_errors(found, unknown, ordered: !keyed, noun: noun, missing: !(keyed && @keys_vary)) +
+          extra_column_errors(labels, positions, noun)
+      rescue IOStreams::Errors::InvalidHeader => e
+        [e]
+      end
+
+      # Returns [Array<String|Symbol>] the keys of the records that the supplied header row reads, see #found_names, or
+      # an empty Array when it does not match the fields, see #meeting_errors.
+      def meeting_names(labels)
+        match(labels)
+        found_names
+      rescue IOStreams::Errors::InvalidHeader
+        []
+      end
+
+      # Returns [Array<IOStreams::Errors::InvalidValue>] an error for each field whose value of the supplied values of a row
+      # of the columns is not valid, see #record, which raises the first, not raised, so that a reader can report every
+      # field of a bad row, see `IOStreams::InvalidRow`.
+      def value_errors(values)
+        matched.filter_map { |field, index| value_error(field, index && values[index]) }
+      end
+
+      # Returns [Array<IOStreams::Errors::InvalidValue>] an error for each field whose value of a record of a format
+      # whose records supply their own keys, such as JSON, is not valid, see #read_hash and #value_errors.
+      def hash_errors(hash)
+        read_plan(hash.keys).filter_map { |field, key, _name| field && value_error(field, key.nil? ? nil : hash[key]) }
+      end
+
+      # Returns [Array<String|Symbol>] the key of each field whose values the rows and records read have, in the order of
+      # the fields, see `IOStreams::Schema#key`, whatever the columns of a file are.
+      def field_keys
+        @values.map { |field| @schema.key(field) }
+      end
+
+      # Returns [Hash<IOStreams::Schema::Field, String|Symbol>] the column that each field matched, by the field, once the
+      # columns are matched, see #match, without the fields that the file does not have.
+      def labels
+        @labels || raise(IOStreams::Errors::MissingHeader, "The columns must be known before they can be named")
       end
 
       # Matches the columns of a file without a header row, of a format that has one, such as CSV, which are the
@@ -148,6 +225,31 @@ module IOStreams
         names
       end
 
+      # Returns [Array<Integer>|nil] the position of each value of a row read whose field keeps the digits of its numbers,
+      # see `IOStreams::Schema::Field#decimal?`: of the columns that the fields matched, once they are matched, see
+      # #match, otherwise nil, or with `in_order: true`, of the fields in order, as a file without a header row holds
+      # them, see #match_in_order, so that they are known before its first row.
+      def decimal_positions(in_order: false)
+        return @schema.fields.each_index.select { |index| @schema.fields[index].decimal? } if in_order
+        return unless matched?
+
+        matched.filter_map { |field, index, _key| index if index && field.decimal? }
+      end
+
+      # Returns [Array<Integer>] the position of each value of a row rendered whose field is a `string`, see #render: every
+      # field, in order, a field that only holds the place of a column included.
+      def text_positions
+        @schema.fields.each_index.select { |index| @schema.fields[index].type == "string" }
+      end
+
+      # Returns [Array<String|Symbol>] the keys of the fields that the columns of the file matched, see #names, without
+      # the fields that the file does not have, which the records read still have when every field is read, see #initialize.
+      def found_names
+        names = matched.filter_map { |_field, index, key| key.dup unless index.nil? }
+        @extra.each { |extra| names << extra.last.dup }
+        names
+      end
+
       # Returns [Array] the values of a row read, in the order of the columns, converted to the type of each field,
       # in the order of the fields, without the columns that the schema does not list, unless it keeps them, see
       # #extra_columns, whose values follow, as they are.
@@ -156,7 +258,7 @@ module IOStreams
       def row(values)
         columns = matched
         check_extra(values, @width, "column")
-        row = columns.map { |field, index| read_value(field, values[index]) }
+        row = columns.map { |field, index| read_value(field, index && values[index]) }
         @extra.each { |extra| row << values[extra.first] }
         row
       end
@@ -170,7 +272,7 @@ module IOStreams
         columns = matched
         check_extra(values, @width, "column")
         record = {}
-        columns.each { |field, index, key| record[key] = read_value(field, values[index]) }
+        columns.each { |field, index, key| record[key] = read_value(field, index && values[index]) }
         @extra.each { |index, key| record[key] = values[index] }
         record
       end
@@ -183,7 +285,10 @@ module IOStreams
       # `IOStreams::Schema#check_columns`.
       def read_hash(hash)
         record = {}
-        read_plan(hash.keys).each { |field, key, name| record[name] = field ? read_value(field, hash[key]) : hash[key] }
+        read_plan(hash.keys).each do |field, key, name|
+          value        = hash[key] unless key.nil?
+          record[name] = field ? read_value(field, value) : value
+        end
         record
       end
 
@@ -204,7 +309,7 @@ module IOStreams
 
         keys = hash.keys
         plan = keys.eql?(@row_keys) ? @row_plan : row_plan(keys)
-        plan.map { |field, key| key.nil? ? nil : read_value(field, hash[key]) }
+        plan.map { |field, key| read_value(field, key.nil? ? nil : hash[key]) }
       end
 
       # Returns [Array|Hash] the value of each field of the schema, in order, in the form that the format writes it, see
@@ -253,6 +358,14 @@ module IOStreams
       # it from the form that a store returned it in, see `IOStreams::Schema::Field#restore`.
       def read_value(field, value)
         @typed ? field.restore(value) : field.cast(value)
+      end
+
+      # Returns [IOStreams::Errors::InvalidValue|nil] the error of the value of the field, or nil when it is valid.
+      def value_error(field, value)
+        read_value(field, value)
+        nil
+      rescue IOStreams::Errors::InvalidValue => e
+        e
       end
 
       # Returns [Array] the columns of a header row up to the last one with a name, without the columns without a name
@@ -376,6 +489,15 @@ module IOStreams
         extra.freeze
       end
 
+      # Returns [Array<IOStreams::Errors::InvalidHeader>] the columns that the schema keeps besides its fields, see
+      # #extra_columns, that are the same key, not raised.
+      def extra_column_errors(labels, positions, noun)
+        extra_columns(labels, positions, noun)
+        []
+      rescue IOStreams::Errors::InvalidHeader => e
+        [e]
+      end
+
       # Returns [true|false] whether the label is the name or key of the field itself, see #find_fields.
       def own_label?(label, field)
         label.eql?(field.name) || label.eql?(@schema.key(field))
@@ -391,10 +513,13 @@ module IOStreams
 
         @read_plan = @read_plans.fetch(keys) do
           found, unknown, positions = find_fields(keys, "key")
-          @schema.check_columns(found, unknown, ordered: false, noun: "key")
+          @schema.check_columns(found, unknown, ordered: false, noun: "key", missing: !@keys_vary)
           @read_plans.clear if @read_plans.size >= PLANS
           plan = @schema.fields.filter_map do |field|
-            [field, keys[positions[field]], @schema.key(field)] if positions.key?(field) && !field.skip?
+            next if field.skip?
+            next [field, keys[positions[field]], @schema.key(field)] if positions.key?(field)
+
+            [field, nil, @schema.key(field)] if @every_field || @keys_vary
           end
           extra_columns(keys, positions, "key").each { |index, name| plan << [nil, keys[index], name] }
           @read_plans[keys] = plan

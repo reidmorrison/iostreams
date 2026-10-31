@@ -226,7 +226,7 @@ class ColumnTypesTest < Minitest::Test
 
       # Returns [Hash] the field of the schema of the query of the column, by its name.
       def field(relation, name)
-        IOStreams.stream(relation.select(:id, name)).schema[:fields].find { |field| field[:name] == name.to_s }
+        IOStreams.stream(relation.select(:id, name)).infer_schema.to_h[:fields].find { |field| field[:name] == name.to_s }
       end
 
       # Returns [Array<Hash>] the records of the query.
@@ -268,7 +268,7 @@ class ColumnTypesTest < Minitest::Test
         relation = purchases.select(:id, :items, :price, :gift, :due_on)
 
         assert_empty IOStreams::Query::SqliteStatement.requirable_types
-        assert_empty(IOStreams.stream(relation).schema[:fields].select { |field| field[:constraints] })
+        assert_empty(IOStreams.stream(relation).infer_schema.to_h[:fields].select { |field| field[:constraints] })
         assert_equal relation.pluck(:id, :items, :price, :gift, :due_on), records(relation).map(&:values)
         assert_equal [nil, nil, nil, nil], relation.pluck(:items, :price, :gift, :due_on).last
       end
@@ -361,7 +361,7 @@ class ColumnTypesTest < Minitest::Test
           path = IOStreams.path(dir, "purchases.parquet")
           path.copy_from(relation, mode: :hash)
           records = []
-          path.schema(IOStreams.stream(relation).schema).each(:hash) { |record| records << record }
+          path.schema(IOStreams.stream(relation).infer_schema).each(:hash) { |record| records << record }
 
           assert_equal [{"quantity" => 10**19, "units" => 123_456_789_012_345_678}], records
         end

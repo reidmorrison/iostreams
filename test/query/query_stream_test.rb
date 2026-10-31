@@ -190,7 +190,7 @@ class QueryStreamTest < Minitest::Test
         it "describes the columns once for each stream, with a query of no rows" do
           stream = IOStreams.stream(orders)
           names  = statements do
-            stream.schema
+            stream.infer_schema
             each(stream)
             each(stream, :array)
           end
@@ -205,7 +205,7 @@ class QueryStreamTest < Minitest::Test
 
           assert_equal [2, 1], slices.map(&:size)
           assert_equal %w[id name], slices.first.header
-          assert_equal [{"id" => slices.last[0].first, "name" => "c"}], each(IOStreams.stream(slices.last).schema(IOStreams.stream(orders.select(:id, :name)).schema))
+          assert_equal [{"id" => slices.last[0].first, "name" => "c"}], each(IOStreams.stream(slices.last).schema(IOStreams.stream(orders.select(:id, :name)).infer_schema))
         end
 
         it "reads a row whose every value is null or empty text, which is a record, not a blank line" do
@@ -365,7 +365,7 @@ class QueryStreamTest < Minitest::Test
 
         it "tags a connection that cannot be checked out as Unavailable" do
           stream = IOStreams.stream(orders)
-          stream.schema
+          stream.infer_schema
           error = assert_raises(ActiveRecord::ConnectionTimeoutError) do
             db.pool.stub(:checkout, ->(*) { raise ActiveRecord::ConnectionTimeoutError, "no connection free" }) do
               each(stream)
@@ -471,7 +471,7 @@ class QueryStreamTest < Minitest::Test
         end
       end
 
-      describe "#schema" do
+      describe "#infer_schema" do
         # Yields while every source says that a column that is never null always has a value once cast, when it is of
         # one of the types, see `IOStreams::Query::SqliteStatement.requirable_types`.
         def with_requirable_types(types, sources = sources_defining(:requirable_types), &)
@@ -499,16 +499,16 @@ class QueryStreamTest < Minitest::Test
             ]
           }
 
-          with_requirable_types(REQUIRABLE_TYPES) { assert_equal expected, IOStreams.stream(orders).schema }
+          with_requirable_types(REQUIRABLE_TYPES) { assert_equal expected, IOStreams.stream(orders).infer_schema.to_h }
         end
 
         it "is frozen" do
-          assert_predicate IOStreams.stream(orders).schema, :frozen?
+          assert_predicate IOStreams.stream(orders).infer_schema, :frozen?
         end
 
         it "requires the columns of the table that are never null, when the query only selects columns of the table" do
           required = lambda do |relation|
-            IOStreams.stream(relation).schema[:fields].select { |field| field[:constraints] }.map { |field| field[:name] }
+            IOStreams.stream(relation).infer_schema.to_h[:fields].select { |field| field[:constraints] }.map { |field| field[:name] }
           end
 
           with_requirable_types(REQUIRABLE_TYPES) do
@@ -529,7 +529,7 @@ class QueryStreamTest < Minitest::Test
             db.order.group(Arel.sql("id, amount")).select(:id, :amount),
             db.order.with(paid_orders: db.order.where(paid: true)).select(:id, :amount)
           ].each do |relation|
-            fields = with_requirable_types(REQUIRABLE_TYPES) { IOStreams.stream(relation).schema[:fields] }
+            fields = with_requirable_types(REQUIRABLE_TYPES) { IOStreams.stream(relation).infer_schema.to_h[:fields] }
 
             assert_equal [], fields.select { |field| field[:constraints] }, relation.to_sql
           end
@@ -537,8 +537,63 @@ class QueryStreamTest < Minitest::Test
 
         it "returns the schema that was set instead" do
           schema = {fields: [{name: "id", type: "integer"}, {name: "data", type: "object"}]}
+          stream = IOStreams.stream(orders.select(:id, :data).limit(1)).schema(schema)
 
-          assert_equal schema, IOStreams.stream(orders.select(:id, :data).limit(1)).schema(schema).schema
+          assert_equal schema, stream.schema
+          assert_equal IOStreams::Schema.new(schema), stream.infer_schema
+        end
+
+        it "leaves #schema to return only the schema that was set, nil without one, as for a path" do
+          stream = IOStreams.stream(orders.select(:id))
+
+          assert_nil stream.schema
+          assert_equal([{name: "id", type: "integer"}], stream.infer_schema.to_h[:fields].map { |field| field.except(:constraints) })
+          assert_nil stream.schema
+        end
+
+        it "reads the rows through a contract, whose aliases match the columns, with every field in its order" do
+          contract = IOStreams::Contract.new(
+            fieldsMatch: "partial",
+            fields:      [
+              {name: "total", type: "number", decimals: 2, aliases: ["amount"]},
+              {name: "label", type: "string", aliases: ["name"]},
+              {name: "missing", type: "integer"}
+            ]
+          )
+          records = each(IOStreams.stream(orders.select(:id, :name, :amount)).as(contract))
+
+          assert_equal [{"total" => BigDecimal("12.5"), "label" => "a", "missing" => nil},
+                        {"total" => BigDecimal("3"), "label" => "b", "missing" => nil},
+                        {"total" => BigDecimal("100.25"), "label" => "c", "missing" => nil}], records
+          assert(records.all? { |record| record["total"].is_a?(BigDecimal) })
+        end
+
+        it "copies the records of a contract to a target without a schema, by the types of the contract" do
+          contract = IOStreams::Contract.new(
+            fieldsMatch: "partial",
+            fields:      [{name: "total", type: "number", decimals: 2, aliases: ["amount"]}, {name: "label", aliases: ["name"]}]
+          )
+          output = StringIO.new
+          IOStreams.stream(output).format(:csv).copy_from(IOStreams.stream(orders.select(:id, :name, :amount)).as(contract), mode: :hash)
+
+          assert_equal "total,label\n12.50,a\n3.00,b\n100.25,c\n", output.string
+        end
+
+        it "raises IncompatibleType before the first row for a column whose type never fits its field of a contract" do
+          contract = IOStreams::Contract.new(fields: [{name: "paid", type: "number"}])
+          stream   = IOStreams.stream(orders.select(:paid)).as(contract)
+
+          error = assert_raises(IOStreams::Errors::IncompatibleType) { each(stream) }
+          assert_includes error.message, "boolean"
+          assert_equal [IOStreams::Errors::IncompatibleType], stream.contract_errors.map(&:class)
+          assert_raises(IOStreams::Errors::IncompatibleType) { stream.validate_contract! }
+          assert IOStreams.stream(orders.select(:paid)).as(fields: [{name: "paid", type: "boolean"}]).validate_contract!
+        end
+
+        it "raises before the first row for a required field of a contract that the query has no column for" do
+          contract = IOStreams::Contract.new(fieldsMatch: "partial", fields: [{name: "zip", constraints: {required: true}}])
+
+          assert_raises(IOStreams::Errors::InvalidHeader) { each(IOStreams.stream(orders.select(:id)).as(contract)) }
         end
 
         it "reads the rows by the schema that was set" do
@@ -557,7 +612,7 @@ class QueryStreamTest < Minitest::Test
 
         it "raises for two columns of the same name, which a record cannot hold" do
           relation = db.order.joins(:customer).select("orders.name, customers.name")
-          error    = assert_raises(ArgumentError) { IOStreams.stream(relation).schema }
+          error    = assert_raises(ArgumentError) { IOStreams.stream(relation).infer_schema }
 
           assert_equal "The query has more than one column named \"name\": give each column a name of its own, such " \
                        "as with `AS`", error.message
@@ -644,7 +699,7 @@ class QueryStreamTest < Minitest::Test
             path = IOStreams.path(dir, "orders.parquet")
             path.copy_from(orders.select(:name, :amount, :shipped_on, :paid_at, :paid, :weight), mode: :hash)
             records = []
-            path.schema(IOStreams.stream(orders.select(:name, :amount, :shipped_on, :paid_at, :paid, :weight)).schema)
+            path.schema(IOStreams.stream(orders.select(:name, :amount, :shipped_on, :paid_at, :paid, :weight)).infer_schema)
             path.each(:hash) { |record| records << record }
 
             assert_equal(%w[a b c], records.map { |record| record["name"] })
@@ -678,7 +733,7 @@ class QueryStreamTest < Minitest::Test
         it "raises without a mode, since a query holds rows rather than bytes" do
           error = assert_raises(ArgumentError) { IOStreams.stream(StringIO.new).copy_from(orders) }
 
-          assert_equal "A query is read in the :array, :hash or :slice mode, not :stream, since it holds rows rather " \
+          assert_equal "A query is read in the :array, :hash, :record or :slice mode, not :stream, since it holds rows rather " \
                        "than bytes or lines", error.message
         end
       end
@@ -804,7 +859,7 @@ class QueryStreamTest < Minitest::Test
 
         it "raises when the columns of the query change after it is described" do
           stream = IOStreams.stream(db.order.order(:id))
-          stream.schema
+          stream.infer_schema
           db.record.with_connection { |connection| connection.add_column(:orders, :extra, :string) }
           begin
             error = assert_raises(IOStreams::Errors::InvalidHeader) { each(stream) }

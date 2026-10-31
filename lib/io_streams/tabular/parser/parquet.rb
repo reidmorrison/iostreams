@@ -12,6 +12,12 @@ module IOStreams
           IOStreams::Parquet
         end
 
+        # Returns [false] the records of a Parquet file all have the keys of its columns, so a missing column is checked
+        # as for CSV, see `IOStreams::Tabular::Parser::Base.keys_vary?`.
+        def self.keys_vary?
+          false
+        end
+
         # Returns [Hash] the record supplied, or the row supplied, an Array that is already parsed, as it is, see
         # `IOStreams::Tabular#record_parse`.
         def parse(row)

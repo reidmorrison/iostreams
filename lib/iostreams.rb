@@ -8,8 +8,10 @@ module IOStreams
   autoload :Builder,             "io_streams/builder"
   autoload :BytesOutput,         "io_streams/bytes_output"
   autoload :ChunkReader,         "io_streams/chunk_reader"
+  autoload :Contract,            "io_streams/contract"
   autoload :Deprecation,         "io_streams/deprecation"
   autoload :Errors,              "io_streams/errors"
+  autoload :InvalidRow,          "io_streams/invalid_row"
   autoload :Path,                "io_streams/path"
   autoload :Query,               "io_streams/query"
   autoload :Reader,              "io_streams/reader"
@@ -56,6 +58,7 @@ module IOStreams
 
   module Row
     autoload :HeaderRow, "io_streams/row/header_row"
+    autoload :Numbered,  "io_streams/row/numbered"
     autoload :Reader, "io_streams/row/reader"
     autoload :Stream, "io_streams/row/stream"
     autoload :WithoutBytes, "io_streams/row/without_bytes"

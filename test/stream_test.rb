@@ -1459,6 +1459,21 @@ class StreamTest < Minitest::Test
         assert_nil stream.schema
       end
 
+      it "takes a schema, which it returns as it was set" do
+        schema = IOStreams::Schema.new(people)
+
+        assert_same schema, stream.schema(schema).schema
+        assert_equal [record], read(csv, schema: schema)
+        assert_equal schema, stream.infer_schema
+      end
+
+      it "sets no schema with nil, so that one line serves a file whose configuration has a schema, and one without" do
+        read_with = ->(configured) { read(csv, schema: configured) }
+
+        assert_equal [record], read_with.call(people)
+        assert_equal [{"id" => "0042", "pay" => "12.5", "joined" => "2026-10-13", "active" => "true"}], read_with.call(nil)
+      end
+
       it "keeps the schema as it was set, when the Hash supplied is changed afterwards" do
         supplied = {fields: [{name: "id", type: "integer"}]}
         stream.schema(supplied)
@@ -1499,7 +1514,7 @@ class StreamTest < Minitest::Test
 
       it "raises when the schema is not a Hash, or a path or url" do
         error = assert_raises(ArgumentError) { stream.schema([{name: "id"}]) }
-        assert_match(/\AA schema must be a Hash, or the path or url of a JSON file/, error.message)
+        assert_match(/\AA schema must be a Hash, or the path or url of a JSON file, or an IOStreams::Schema: /, error.message)
       end
 
       it "raises for a frozen path" do
@@ -1545,7 +1560,7 @@ class StreamTest < Minitest::Test
 
       it "raises for a value that is not of the type of its field" do
         error = assert_raises(IOStreams::Errors::InvalidValue) { read("id\n12-\n", schema: people.merge(fieldsMatch: "partial")) }
-        assert_equal 'Field "id": "12-" is not a valid integer', error.message
+        assert_equal 'Field "id": "12-" is not a valid integer, in record 1 on line 2', error.message
       end
 
       it "writes each value in the text form of its type" do
@@ -2286,7 +2301,7 @@ class StreamTest < Minitest::Test
         it "raises for a value that is empty" do
           assert_equal [{"id" => 1, "email" => "j@x.com"}], read("id,email\n1,j@x.com\n", schema: schema)
           error = assert_raises(IOStreams::Errors::InvalidValue) { read("id,email\n1,\n", schema: schema) }
-          assert_equal 'Field "email" is required, but has no value', error.message
+          assert_equal 'Field "email" is required, but has no value, in record 1 on line 2', error.message
         end
 
         it "raises for a JSON record without the key, or with null" do
@@ -2575,7 +2590,7 @@ class StreamTest < Minitest::Test
           error = assert_raises(IOStreams::Errors::InvalidValue) do
             read_fixed("N/A\n", schema: {fields: [{name: "id", type: "integer", width: 3}]})
           end
-          assert_equal 'Field "id": "N/A" is not a valid integer', error.message
+          assert_equal 'Field "id": "N/A" is not a valid integer, in record 1 on line 1', error.message
         end
 
         it "accepts lines of any length with a schema width of remainder" do
@@ -2731,7 +2746,7 @@ class StreamTest < Minitest::Test
           end
 
           assert_equal "Unknown option :embedded_within for the #{mode.inspect} mode. Valid options: :delimiter, " \
-                       ":buffer_size, :skip_blanks, :resume_at.", error.message
+                       ":buffer_size, :skip_blanks, :resume_at, :on_invalid.", error.message
         end
         assert_raises(ArgumentError) do
           IOStreams::Stream.new(StringIO.new(quoted_newline_csv)).each(:slice, size: 1, embedded_within: '"') { |slice| slice }

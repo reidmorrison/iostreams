@@ -22,6 +22,7 @@ reads or writes:
 | `:line`, the default for `#each` | Lines of text | `each(:line) { \|line\| }` | `writer(:line) { \|io\| io << line }` |
 | `:array` | Rows: an Array of the values of each line | `each(:array) { \|row\| }` | `writer(:array) { \|io\| io << row }` |
 | `:hash` | Records: a Hash of the values of each line, by column | `each(:hash) { \|record\| }` | `writer(:hash) { \|io\| io << record }` |
+| `:record` | Records of a [contract](contracts), such as an `Order` with `order.amount`, set with `#as` | `each(:record) { \|order\| }` | `writer(:record) { \|io\| io << order }` |
 | `:slice` | Slices: up to `size` rows as they are in the file, with its header row | `each(:slice, size: 100) { \|slice\| }` | `writer(:slice) { \|io\| io << slice }` |
 
 The tabular format of the file, such as CSV or JSON, says how rows and records are read from lines and written as
@@ -60,7 +61,7 @@ end
 
 `#reader` and `#writer` return the result of the block.
 
-In the `:line`, `:array`, `:hash` and `:slice` modes, the reader that `#reader` yields is `Enumerable`, and its
+In the `:line`, `:array`, `:hash`, `:record` and `:slice` modes, the reader that `#reader` yields is `Enumerable`, and its
 `#each` returns an Enumerator without a block, so methods such as `io.first(10)` and `io.each.with_index` read it.
 Use them within the block, since the file is closed once the block returns:
 
@@ -96,8 +97,8 @@ in:
   Parquet record whose every value is null.
 
 A value such as `false` or `0` is data, so a row that holds one is not blank. `each(:array)` and `each(:hash)` yield
-`nil` for each blank row, so that the rows yielded count the lines of the file, for example to report the line of a
-row that is not valid. Supply `skip_blanks: true` to skip them instead:
+`nil` for each blank row, so that the rows yielded count the records of the file. Supply `skip_blanks: true` to skip
+them instead:
 
 ~~~ruby
 IOStreams.path("people.csv").each(:hash, skip_blanks: true) do |person|
@@ -115,6 +116,49 @@ end
 * `each(:line)` and `each(:slice)` hand on every row as it is in the file, so they do not take `skip_blanks:`. Supply it
   where the rows of a slice are read, such as `IOStreams.stream(slice).each(:hash, skip_blanks: true)`.
 * A `skip_blanks` that is not true or false raises `ArgumentError` before the file is opened.
+
+### Values that are not valid
+
+A value that is not of the type of its field, of a [schema](formats#schema) or a [contract](contracts), such as `N/A`
+for a number, raises `IOStreams::Errors::InvalidValue`, which names its field, its value, the record that it is in,
+counting from 1 without the header row, and the line of the file that the record starts on, when the source has lines:
+
+~~~
+Field "amount": "N/A" is not a valid number, in record 6 on line 7
+~~~
+
+Its `#field`, `#value`, `#record_number` and `#line_number` hold them, and `#reason` the message without the record,
+so that support staff find the row without the code that reads it adding them. The rows of a slice keep the record and
+line numbers of their file, see [Slices](#slices).
+
+Supply `on_invalid:` to `each(:array)`, `each(:hash)` or `each(:record)`, or their `#reader`, to hand each bad row to a
+handler instead, and carry on with the next row, such as to list every bad row of an upload:
+
+~~~ruby
+problems = []
+IOStreams.path(upload_url).as(Order).each(:record, on_invalid: ->(row) { problems << row }) do |order|
+  Ledger.post(order.id, order.amount, order.ordered_at)
+end
+
+problems.each do |row|
+  puts "Line #{row.line_number}: #{row.errors.map(&:reason).join('; ')}"
+end
+# Line 7: Field "amount": "12.5x" is not a valid number
+# Line 12: Field "ordered_at" is required, but has no value
+~~~
+
+* The handler receives an `IOStreams::InvalidRow`: its `#line_number`, `#record_number`, the `#row` as it was read,
+  such as its line of text, and `#errors`, an `IOStreams::Errors::InvalidValue` for each field whose value is not
+  valid. The valid rows still reach the block. A file read by both a schema of its own and a contract lists the
+  errors of the fields of its schema, and, once they are valid, those of the contract.
+* Problems with the columns, such as a missing column that a schema requires, still raise before the first row; see
+  [Checking a source before the work starts](contracts#checking-a-source-before-the-work-starts) to list them first.
+* A row whose values do not fit the columns, rather than a value that is not valid, still raises where it is, such as
+  a row with a value after the last column (`IOStreams::Errors::InvalidHeader`), a fixed width line of another length
+  (`IOStreams::Errors::InvalidLineLength`), or, with a schema, a JSON record without a key that the schema requires.
+* `each(:slice, validate: true)` raises the first `IOStreams::Errors::InvalidValue`, naming its record and line too.
+* `on_invalid:` only applies when reading, so `#writer` and `#copy_from` raise `ArgumentError` for it, and so does a
+  handler that cannot be called, before the file is opened.
 
 ### Resuming at a record
 
@@ -135,7 +179,7 @@ IOStreams.path("people.csv.gz").each(:slice, size: 500, resume_at: 1_001) do |sl
 end
 ~~~
 
-* The `:array`, `:hash` and `:slice` modes take it, for a file, a query or a slice. `nil` reads every record, so the
+* The `:array`, `:hash`, `:record` and `:slice` modes take it, for a file, a query or a slice. `nil` reads every record, so the
   cursor of a job that has not started yet, which is usually `nil`, can be supplied as it is. A job that keeps the
   number of the last record that it processed resumes at the record after it.
 * The file is still read up to that record, since it cannot be read from the middle, such as when it is compressed, but

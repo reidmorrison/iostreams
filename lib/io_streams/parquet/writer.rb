@@ -72,8 +72,8 @@ module IOStreams
       # found by its name, so no column needs a place held.
       def self.columns_of(schema)
         unless schema
-          raise(ArgumentError, "Writing Parquet needs a schema, set with #schema on the path, since a Parquet file records " \
-                               "the type of each of its columns")
+          raise(ArgumentError, "Writing Parquet needs a schema, set with #schema on the path, or a contract, set with #as, " \
+                               "since a Parquet file records the type of each of its columns")
         end
 
         schema.fields.reject(&:skip?).map { |field| Column.new(field) }

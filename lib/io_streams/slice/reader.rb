@@ -58,7 +58,12 @@ module IOStreams
       #     The number of the record that reading resumes at, so that the first slice starts with it, such as to resume
       #     the work of a job that processed the slices before it, see `IOStreams::Slice::Collector#initialize`.
       #     Default: nil, every row
-      def initialize(rows, tabular:, size:, validate: false, resume_at: nil)
+      #
+      #   schema: [IOStreams::Schema|nil]
+      #     The schema that the source of the rows declares, which each slice carries, see `IOStreams::Slice#schema`,
+      #     such as that of a Parquet file or a query, see `IOStreams::Stream#slice_schema`.
+      #     Default: nil, see `IOStreams::Slice::Collector#initialize`.
+      def initialize(rows, tabular:, size:, validate: false, resume_at: nil, schema: nil)
         self.class.check(size: size, validate: validate, resume_at: resume_at)
         unless rows.respond_to?(:each)
           raise(ArgumentError, "Rows must implement #each, yielding each row with its line number, such as " \
@@ -70,6 +75,7 @@ module IOStreams
         @size     = size
         @validate = validate
         @resume_at = resume_at
+        @schema    = schema
       end
 
       # Returns [Array<String>] the header row of the file, as it was read, once it has been read, which every slice
@@ -89,7 +95,8 @@ module IOStreams
       def each(&)
         return enum_for(:each) unless block_given?
 
-        collector = Collector.new(tabular: @tabular, size: @size, validate: @validate, resume_at: @resume_at, &)
+        collector = Collector.new(tabular: @tabular, size: @size, validate: @validate, resume_at: @resume_at,
+                                  schema: @schema, &)
         # The rows of a slice also give the record number of each row, which the collector keeps, see #initialize.
         @rows.each { |row, line_number, *record_number| collector.add(row, line_number, *record_number) }
         collector.finish

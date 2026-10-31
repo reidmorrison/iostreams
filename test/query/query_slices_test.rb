@@ -9,7 +9,7 @@ class QuerySlicesTest < Minitest::Test
     describe "the slices of #{IOStreams::Query::Stream.name} on #{database.name}" do
       let(:db) { database }
       let(:relation) { db.order.order(:id).select(:shipped_on, :weight) }
-      let(:schema) { IOStreams.stream(relation).schema }
+      let(:schema) { IOStreams.stream(relation).infer_schema }
       # The second order has neither a date shipped nor a weight, so every value of its row is null.
       let(:expected) do
         [{"shipped_on" => Date.new(2026, 10, 1), "weight" => 1.5}, {"shipped_on" => nil, "weight" => nil},
@@ -41,19 +41,20 @@ class QuerySlicesTest < Minitest::Test
         assert_equal(expected, slices.flat_map { |slice| each(IOStreams.stream(slice).schema(schema), :hash, skip_blanks: true) })
       end
 
-      it "holds that the values of its rows are those of the fields of the columns, which Active Record cast" do
+      it "carries the schema of the columns, which Active Record cast the values of its rows to, through JSON" do
         slices = stored_slices
 
-        assert_equal [true, true], slices.map(&:typed?)
+        assert_equal [schema, schema], slices.map(&:schema)
+        assert_equal(expected, slices.flat_map { |slice| each(IOStreams.stream(slice)) })
         assert_equal(expected, slices.flat_map { |slice| each(IOStreams.stream(slice).schema(schema)) })
       end
 
-      it "holds that the values are not typed by a schema that was set, which converts them where they are read" do
+      it "carries the schema of the columns also with a schema that was set, since it describes the values of its rows" do
         own    = {"fields" => [{"name" => "shipped_on", "type" => "string"}, {"name" => "weight", "type" => "string"}]}
         slices = []
         IOStreams.stream(relation).schema(own).each(:slice, size: 5) { |slice| slices << slice }
 
-        assert_equal [false], slices.map(&:typed?)
+        assert_equal [schema], slices.map(&:schema)
       end
 
       it "resumes the slices and records of the query at a record, as a job that resumes them reads them" do
@@ -101,13 +102,13 @@ class QuerySlicesTest < Minitest::Test
                      %({"shipped_on":"1969-12-31","weight":null}\n), output.string
       end
 
-      it "holds blank_rows: false and typed: true in the Hash of each slice" do
+      it "holds blank_rows: false and the schema of the columns in the Hash of each slice" do
         hashes = []
         IOStreams.stream(relation).each(:slice, size: 5) { |slice| hashes << slice.to_h }
 
-        assert_equal [%w[rows header format blank_rows typed record_number]], hashes.map(&:keys)
+        assert_equal [%w[rows header format blank_rows schema record_number]], hashes.map(&:keys)
         refute hashes.first["blank_rows"]
-        assert hashes.first["typed"]
+        assert_equal IOStreams::Utils.string_keys(schema.to_h), hashes.first["schema"]
       end
 
       it "is written as JSON by ActiveSupport, which applies the options of as_json to it as to a Hash" do
@@ -117,7 +118,7 @@ class QuerySlicesTest < Minitest::Test
 
         assert_equal slice.to_h.as_json, slice.as_json
         assert_equal({"rows" => slice.to_h["rows"].as_json}, slice.as_json(only: "rows"))
-        assert_equal %w[rows format blank_rows typed record_number], slice.as_json(except: "header").keys
+        assert_equal %w[rows format blank_rows schema record_number], slice.as_json(except: "header").keys
       end
 
       it "copies a row whose every value is null from the slice that holds it" do

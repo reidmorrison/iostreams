@@ -93,6 +93,14 @@ module IOStreams
 
       private
 
+      # Parses the supplied line of a row, see `IOStreams::Tabular#validate_line`, raising an
+      # `IOStreams::Errors::InvalidValue` that names the record that it is in and the line that it starts on.
+      def validate(line, line_number, record_number)
+        @reader.validate_line(line)
+      rescue IOStreams::Errors::InvalidValue => e
+        raise e.at(line_number: line_number, record_number: record_number)
+      end
+
       # Decides how the slices are written, by the first one, see the class, and reads its header row, which is written
       # once, before its rows.
       def start(slice)
@@ -125,9 +133,9 @@ module IOStreams
       # for it, see `IOStreams::Tabular#written_line`, so that the text of a row of `:text` that holds a line break, such
       # as the CSV text of a row of a spreadsheet, is one line of a file of plain text, as `#writer(:array)` writes it.
       def write_as_is(slice)
-        slice.each do |row, _line_number, _record_number|
+        slice.each do |row, line_number, record_number|
           @reader.read_line(row) do |line|
-            @reader.validate_line(line) if @validate
+            validate(line, line_number, record_number) if @validate
             @output << @tabular.written_line(line)
           end
         end
@@ -155,7 +163,7 @@ module IOStreams
       # Returns [String] what describes how the rows of the slice are read, see #check_same_file.
       def described(slice)
         "with the header row #{slice.header.inspect}, format #{slice.format.inspect}, blank_rows " \
-          "#{slice.blank_rows?} and typed #{slice.typed?}"
+          "#{slice.blank_rows?} and schema #{slice.schema&.to_h.inspect}"
       end
     end
   end

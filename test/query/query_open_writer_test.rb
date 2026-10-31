@@ -47,7 +47,7 @@ class QueryOpenWriterTest < Minitest::Test
           error = assert_raises(ArgumentError) do
             IOStreams.stream(records).schema(fields: [{name: "id"}]).copy_from(relation, mode: :hash)
           end
-          assert_match(/\A#format or #schema cannot be applied to the IOStreams::Record::Writer/, error.message)
+          assert_match(/\A#format, #schema or #as cannot be applied to the IOStreams::Record::Writer/, error.message)
         end
       end
 

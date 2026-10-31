@@ -10,7 +10,8 @@ module IOStreams
     #     Whether the field must have a value: a value that is nil, or empty text, raises
     #     `IOStreams::Errors::InvalidValue`, see #no_value, unless the field allows blank values, see `allowBlank` in
     #     `IOStreams::Schema::Field`. A header row or record without the field raises `IOStreams::Errors::InvalidHeader`,
-    #     see `IOStreams::Schema#check_columns`, whether or not it allows blank values.
+    #     see `IOStreams::Schema#check_columns`, whether or not it allows blank values, apart from a JSON record read
+    #     through a contract alone, whose missing key is a value of nil, see `IOStreams::Schema::Columns.new(keys_vary:)`.
     #     Default: false
     #
     # The other constraints of Frictionless, such as `maxLength`, are not supported yet, so they raise ArgumentError,
@@ -53,17 +54,19 @@ module IOStreams
       end
 
       # Returns nil, the value of a field that has none, unless each value of the field must be present, see
-      # #value_required?, which raises `IOStreams::Errors::InvalidValue`.
-      def no_value
+      # #value_required?, which raises `IOStreams::Errors::InvalidValue`, holding the value as it was read, such as nil or
+      # blank text, see `IOStreams::Errors::InvalidValue#value`.
+      def no_value(value = nil)
         return unless value_required?
 
-        raise(IOStreams::Errors::InvalidValue, "Field #{@name.inspect} is required, but has no value")
+        message = "Field #{@name.inspect} is required, but has no value"
+        raise(IOStreams::Errors::InvalidValue.new(message, field: @name, value: value))
       end
 
       # Returns [String] the empty text of a field whose type keeps it as its value, such as a string, unless the field is
       # required, which raises `IOStreams::Errors::InvalidValue`, since Frictionless treats empty text as no value.
       def no_text(text)
-        no_value
+        no_value(text)
         text
       end
 

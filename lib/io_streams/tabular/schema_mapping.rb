@@ -28,14 +28,35 @@ module IOStreams
       #     store returned them in, see `IOStreams::Schema::Columns#initialize`.
       #     Default: false
       #
+      #   every_field: [true|false]
+      #     Whether each record and row read has every field, nil for a field whose column the file does not have, as a
+      #     contract reads them when it is the schema, see `IOStreams::Schema::Columns#initialize`, which also reads a key
+      #     that a record of a format whose records supply their own keys, such as JSON, leaves out as a missing value.
+      #     Default: false
+      #
+      #   contract: [IOStreams::Schema|nil]
+      #     The schema of a contract that meets the fields of the schema, which lays out the file, by their names, so
+      #     that the records and rows read and written are those of the contract, see
+      #     `IOStreams::Schema::ContractColumns`.
+      #     Default: nil
+      #
       #   See `IOStreams::Tabular::Mapping#initialize` for the others.
       #
       # Raises ArgumentError when the rows of a format with a header row, such as CSV, have none, and the schema cannot
       # describe them, see `IOStreams::Schema#check_fields_in_order`.
-      def initialize(schema, header:, parser:, format:, blank_rows: true, headerless: nil, typed: false)
+      def initialize(schema, header:, parser:, format:, blank_rows: true, headerless: nil, typed: false, every_field: false,
+                     contract: nil)
         super(header: header, parser: parser, format: format, blank_rows: blank_rows)
         @schema          = schema
-        @columns         = schema.columns(typed: typed)
+        @columns         =
+          if contract
+            IOStreams::Schema::ContractColumns.new(schema.columns(typed: typed, every_field: true),
+                                                   contract.columns(every_field: true))
+          else
+            # A contract reads a key that a record leaves out as a missing value, while a schema of the file keeps the
+            # rule of `fieldsMatch` for each record, as in v2.2.
+            schema.columns(typed: typed, every_field: every_field, keys_vary: every_field && parser.class.keys_vary?)
+          end
         @requires_header = parser.requires_header? && (headerless.nil? ? schema.header? : !headerless)
         # Whether each row is a record whose keys are its columns, such as JSON, rather than the values in the order of
         # the columns, see `IOStreams::Tabular::Parser::Base.keyed?`, and the form in which the format writes the values
@@ -147,6 +168,34 @@ module IOStreams
       # Returns [false] the fields of the schema name the columns of the rows, see `IOStreams::Tabular#unnamed_columns?`.
       def unnamed_columns?
         false
+      end
+
+      # Returns [IOStreams::Schema] the schema, which describes the file, whatever its first row, see
+      # `IOStreams::Tabular#declared_schema`.
+      def declared_schema(_row)
+        @schema
+      end
+
+      # Returns [Array<Integer>|nil] the positions of the values of the rows read whose field keeps the digits of its
+      # numbers, see `IOStreams::Schema::Columns#decimal_positions`: those of the fields in order of a file without a
+      # header row, otherwise nil until the header row is matched to the fields.
+      def decimal_positions
+        @columns.decimal_positions(in_order: !@requires_header)
+      end
+
+      # Returns [Array<Integer>] the positions of the values of the rows rendered whose field is a `string`, see
+      # `IOStreams::Schema::Columns#text_positions`.
+      def text_positions
+        @columns.text_positions
+      end
+
+      # Returns [Array<IOStreams::Errors::InvalidValue>] an error for each field whose value of the line is not valid, see
+      # `IOStreams::Tabular#value_errors`, or none for a blank line.
+      def value_errors(line)
+        values = parse(line)
+        return [] if values.nil?
+
+        values.is_a?(::Hash) ? @columns.hash_errors(values) : @columns.value_errors(values)
       end
 
       # Matches the keys of the first record of a format of keyed records, such as JSON or Parquet, that is not blank to

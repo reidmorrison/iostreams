@@ -15,6 +15,11 @@ module IOStreams
           true
         end
 
+        # Returns [true] each record supplies its own keys, and can leave out the key of a value that is missing.
+        def self.keys_vary?
+          true
+        end
+
         # Returns [Hash] the record supplied, or the row supplied, an Array that is already parsed, as it is, see
         # `IOStreams::Tabular#record_parse`.
         def parse(row)

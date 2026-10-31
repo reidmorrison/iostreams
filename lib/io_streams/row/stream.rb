@@ -17,8 +17,8 @@ module IOStreams
     class Stream < IOStreams::Stream
       include WithoutBytes
 
-      # Yields the reader of the rows in the supplied mode, see `IOStreams::Stream#reader`: `:array`, `:hash`, or
-      # `:slice`, which reads them in slices.
+      # Yields the reader of the rows in the supplied mode, see `IOStreams::Stream#reader`: `:array`, `:hash`, `:record`,
+      # or `:slice`, which reads them in slices.
       #
       # Raises ArgumentError for the `:stream` and `:line` modes, since the source holds rows rather than bytes or lines:
       # its rows are already split, and its header row is not a line. Raises ArgumentError for the options of lines,
@@ -26,8 +26,8 @@ module IOStreams
       # built, which describes the columns of a query, since the rows are already split.
       def reader(mode = :stream, **args, &)
         if %i[stream line].include?(mode)
-          message = "A #{source_name} is read in the :array, :hash or :slice mode, not #{mode.inspect}, since it holds " \
-                    "rows rather than bytes or lines"
+          message = "A #{source_name} is read in the :array, :hash, :record or :slice mode, not #{mode.inspect}, since it " \
+                    "holds rows rather than bytes or lines"
           message = "#{message}: #{rows_hint}" if rows_hint
           raise(ArgumentError, message)
         end

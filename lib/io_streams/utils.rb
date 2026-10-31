@@ -500,6 +500,16 @@ module IOStreams
       end
     end
 
+    # Returns a copy of the value whose Hashes, within it too, have String keys, such as a schema to store as JSON or BSON
+    # holds it, see `IOStreams::Slice#to_h`.
+    def self.string_keys(value)
+      case value
+      when Hash then value.to_h { |key, item| [key.is_a?(Symbol) ? key.name : key, string_keys(item)] }
+      when Array then value.map { |item| string_keys(item) }
+      else value
+      end
+    end
+
     # Returns a frozen copy of the value, whose Hashes, Arrays and Strings are frozen copies too, so that freezing an
     # object that holds options does not freeze the objects that the caller supplied. Any other value, such as a Proc
     # or a Symbol, is returned as it is.

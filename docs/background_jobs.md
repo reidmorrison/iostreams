@@ -125,10 +125,14 @@ slice.to_h
 * The rows and records that a program writes to a [store of slices](#a-store-of-slices) in the `:array` or `:hash`
   mode are each a record, also when every value is blank, so their slice holds `"blank_rows" => false`. With a schema,
   in the `:array` or `:hash` format, they are the values of its fields themselves, such as Integers and Dates, so
-  their slice also holds `"typed" => true`. `IOStreams.stream(slice)` then matches their keys to the schema and hands
-  the job each value in the type of its field, also when the queue changed its form: a duration that BSON keeps as its
-  seconds is a duration again, and a Date that BSON returns as a Time is a Date. To replace the rows of a slice with
-  others in the same form, `slice.with_rows(rows)` returns a new slice that keeps everything else that the slice says.
+  their slice also carries the schema, `"schema"`, with each value in a form that JSON keeps exactly, as does a slice
+  of a query or a Parquet file. `IOStreams.stream(slice)` then reads them by that schema, without the job knowing it,
+  and hands the job each value in the type of its field, also when a store of the slice itself, rather than of its
+  `#to_h`, changed its form: a duration that BSON keeps as its seconds is a duration again, and a Date that BSON
+  returns as a Time is a Date. A value of a field of type `any`, such as a computed column of a query, is held as
+  JSON holds it, a time, a date or a BigDecimal as its text, which comes back as text. To replace the rows of a slice
+  with others in the same form, `slice.with_rows(rows)` returns a new slice that keeps everything else that the slice
+  says.
 
 ### Choosing the size of a slice
 
@@ -617,12 +621,13 @@ store, and they are written as lines of CSV, by the types of its columns:
 
 ~~~ruby
 relation = Order.where(paid: true).select(:id, :amount, :created_at)
-schema   = IOStreams.stream(relation).schema
+schema   = IOStreams.stream(relation).infer_schema
 
 IOStreams.stream(store).copy_from(relation, mode: :hash)
 ~~~
 
-The jobs read each slice with the schema of the query, so that each value is read back as its type:
+The slices are lines of CSV, so the jobs read each one with the schema of the query, so that each value is read back as
+its type:
 
 ~~~ruby
 IOStreams.stream(slice).schema(schema).each(:hash) do |order|

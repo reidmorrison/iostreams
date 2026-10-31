@@ -78,7 +78,7 @@ class SqliteStatementTest < Minitest::Test
       it "steps to the first row before it yields, so that a failure of the first row raises before the block runs" do
         relation = orders.select(Arel.sql("abs(-9223372036854775807 - 1) AS overflow"))
         stream   = IOStreams.stream(relation)
-        stream.schema
+        stream.infer_schema
         error = assert_raises(SQLite3::SQLException) { stream.reader(:hash) { |_reader| flunk "The block ran" } }
 
         assert_equal "integer overflow", error.message
@@ -109,7 +109,7 @@ class SqliteStatementTest < Minitest::Test
       it "tags a database that another connection has locked as Unavailable" do
         stream = IOStreams.stream(orders)
         # The columns are described with Active Record, which raises its own exception, see QueryStreamTest.
-        stream.schema
+        stream.infer_schema
         error = assert_raises(SQLite3::BusyException) do
           SQLite3::Statement.stub(:new, ->(_raw, _sql) { raise SQLite3::BusyException, "database is locked" }) do
             stream.each(:hash) { |_order| nil }

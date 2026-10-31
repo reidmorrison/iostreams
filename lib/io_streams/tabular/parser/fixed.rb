@@ -91,6 +91,11 @@ module IOStreams
           false
         end
 
+        # Returns [true] the position of each value of a line is that of its field in the schema.
+        def self.layout?
+          true
+        end
+
         private
 
         # Returns [Integer] the length of every line, see #line_length, once it works out where each field is.

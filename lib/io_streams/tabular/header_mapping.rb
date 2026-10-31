@@ -98,6 +98,30 @@ module IOStreams
         !@requires_header && !@keyed
       end
 
+      # Returns [IOStreams::Schema] the schema that the file declares by the supplied first row that its rows start with,
+      # its header row as read, or the keys of the first record of a format of keyed records, or nil for a file without
+      # rows, see `IOStreams::Tabular#declared_schema`: a field for each key of the records that #record_parse reads,
+      # the columns of the header row once cleansed, or the keys of a format of keyed records as they are, leaving out a
+      # column without a name, such as one that cleanses to nothing, as the records do, each of the type of the values
+      # that the parser reads, see `IOStreams::Tabular::Parser::Base.value_type`. When it leaves out such a column, the
+      # schema is `fieldsMatch: "subset"`, which reads past the columns that are not fields, so that it still reads the
+      # file that it describes.
+      #
+      # Raises `IOStreams::Errors::InvalidHeader` for two columns that are the same key, such as `Amount ($)` and
+      # `Amount (€)`, which both cleanse to `amount_`, of which the records keep only one, since a schema cannot hold
+      # both.
+      def declared_schema(row)
+        columns = Header.new
+        columns.columns = row || []
+        columns.cleanse! unless @keyed
+        named = columns.columns.each_with_index.reject { |key, _index| IOStreams::Utils.blank?(key) }
+        check_declared_keys(named, row)
+        type       = @parser.class.value_type
+        descriptor = {fields: named.map { |key, _index| {name: key, type: type} }}
+        descriptor = {fieldsMatch: "subset", **descriptor} if named.size < columns.columns.size
+        IOStreams::Schema.new(descriptor)
+      end
+
       # Returns [Array] the header row parsed from the line, which becomes the columns of the header, before it is
       # cleansed, see `IOStreams::Tabular#parse_header`. For a format of keyed records, such as JSON, the keys of the
       # record of the line, or of a row of keys, which become the columns of the rows, see #parse_keys.
@@ -271,6 +295,17 @@ module IOStreams
           "Read the records with each(:hash), or describe the columns with a schema whose fields are every key, with " \
           "fieldsMatch \"superset\" when a record can leave out a key"
         )
+      end
+
+      # Raises `IOStreams::Errors::InvalidHeader` for two columns of the row that are the same key, see #declared_schema.
+      def check_declared_keys(named, row)
+        indexes = named.group_by(&:first).values.find { |pairs| pairs.size > 1 }
+        return unless indexes
+
+        labels = indexes.map { |_key, index| row[index].inspect }
+        raise(IOStreams::Errors::InvalidHeader,
+              "The columns #{labels.join(' and ')} are the same key, #{indexes.first.first.inspect}, once cleansed, so " \
+              "a schema cannot hold both: rename one of them, or set a schema whose fields name each one")
       end
     end
   end

@@ -90,13 +90,23 @@ module IOStreams
       #     called for a file without a header row, see `IOStreams::Tabular#requires_header?`.
       #     Default: nil
       #
+      #   schema: [IOStreams::Schema|nil]
+      #     The schema that the values of the rows are those of the fields of, which each slice carries, see
+      #     `IOStreams::Slice#schema`, such as that which a Parquet file or a query declares.
+      #     Default: nil, the schema of the tabular when its values are those of its fields, see
+      #     `IOStreams::Tabular#typed?`, otherwise none, for rows of text.
+      #
       # Yields [IOStreams::Slice] each slice, once it holds `size` rows, and the last one when #finish is called.
       #
       # The caller checks the options before anything is opened, see .check. `resume_at` is checked again, since #add
       # compares each record number with it.
-      def initialize(tabular:, size:, validate: false, resume_at: nil, on_header: nil, &on_slice)
+      def initialize(tabular:, size:, validate: false, resume_at: nil, on_header: nil, schema: nil, &on_slice)
         self.class.check_resume_at(resume_at)
         @tabular   = tabular
+        # The schema that the values of the rows are those of the fields of, which each slice carries, see
+        # `IOStreams::Slice#schema`: the one supplied, that a source of typed rows declares, otherwise that of a tabular
+        # whose values are those of its fields, see `IOStreams::Tabular#typed?`.
+        @schema    = schema || (tabular.schema if tabular.typed?)
         @size      = size
         @validate  = validate
         # The record that the slices start at, the first unless `resume_at` says otherwise: the records before it are
@@ -142,9 +152,8 @@ module IOStreams
           number         = record_number.equal?(NEXT_RECORD) ? @record_number + 1 : record_number
           @record_number = number if number
           @count        += 1
-          @tabular.validate_line(text) if @validate
-          @slice ||= Slice.new(header: header, format: @tabular.format, blank_rows: @tabular.blank_rows?,
-                               typed: @tabular.typed?)
+          validate(text, line_number, number) if @validate
+          @slice ||= Slice.new(header: header, format: @tabular.format, blank_rows: @tabular.blank_rows?, schema: @schema)
           @slice.add(text, line_number: line_number, record_number: number)
           flush if @slice.size >= @size
         end
@@ -174,6 +183,14 @@ module IOStreams
       end
 
       private
+
+      # Parses the supplied line of a row, see `IOStreams::Tabular#validate_line`, raising an
+      # `IOStreams::Errors::InvalidValue` that names the record that it is in and the line that it starts on.
+      def validate(line, line_number, record_number)
+        @tabular.validate_line(line)
+      rescue IOStreams::Errors::InvalidValue => e
+        raise e.at(line_number: line_number, record_number: record_number)
+      end
 
       # Counts a record before `resume_at`, see #initialize, which it skips without parsing it, nor checking its keys: a
       # line is a record once the tabular no longer expects the header row, see `IOStreams::Tabular#header?`.

@@ -403,7 +403,7 @@ class Mysql2StreamTest < Minitest::Test
         skip "Only AR-JDBC has jdbc_fetch_size" unless jdbc
 
         stream = IOStreams.stream(db.orders_at("Fetching", jdbc_fetch_size: 100).order(:id))
-        stream.schema
+        stream.infer_schema
         error = nil
         names = statements { error = assert_raises(ArgumentError) { each(stream) } }
 
@@ -485,7 +485,7 @@ class Mysql2StreamTest < Minitest::Test
       it "types the computed columns as any, since mysql2 reports no types, while their values are typed" do
         stream = IOStreams.stream(db.order.select("SUM(amount) AS total, COUNT(*) AS orders"))
 
-        assert_equal [{name: "total", type: "any"}, {name: "orders", type: "any"}], stream.schema[:fields]
+        assert_equal [{name: "total", type: "any"}, {name: "orders", type: "any"}], stream.infer_schema.to_h[:fields]
         assert_equal [{"total" => BigDecimal("115.75"), "orders" => 3}], each(stream)
       end
 
@@ -578,7 +578,7 @@ class Mysql2StreamTest < Minitest::Test
         it "is a number without decimals, since a 64-bit integer cannot hold all of its values" do
           stream = IOStreams.stream(model.order(:id).select(:serial))
 
-          assert_equal [{name: "serial", type: "number", decimals: 0}], stream.schema[:fields]
+          assert_equal [{name: "serial", type: "number", decimals: 0}], stream.infer_schema.to_h[:fields]
           serials = each(stream).map { |row| row["serial"] }
 
           assert_equal [BigDecimal("18446744073709551615"), BigDecimal(1)], serials
@@ -621,7 +621,7 @@ class Mysql2StreamTest < Minitest::Test
         it "is a time, of the clock of the app" do
           stream = IOStreams.stream(model.order(:id).select(:starts_at, :ends_at))
 
-          assert_equal [{name: "starts_at", type: "time"}, {name: "ends_at", type: "time"}], stream.schema[:fields]
+          assert_equal [{name: "starts_at", type: "time"}, {name: "ends_at", type: "time"}], stream.infer_schema.to_h[:fields]
           csv = StringIO.new
           IOStreams.stream(csv).format(:csv).copy_from(stream, mode: :hash)
 
