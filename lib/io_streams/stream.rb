@@ -356,6 +356,8 @@ module IOStreams
         row_reader(**args, &block)
       when :hash
         record_reader(**args, &block)
+      when :record
+        contract_record_reader(**args, &block)
       when :slice
         slice_reader(**args, &block)
       else
@@ -397,6 +399,8 @@ module IOStreams
         row_writer(**args, &block)
       when :hash
         record_writer(**args, &block)
+      when :record
+        contract_record_writer(**args, &block)
       when :slice
         slice_writer(**args, &block)
       else
@@ -1173,6 +1177,39 @@ module IOStreams
       open_rows_reader(tabular, delimiter, buffer_size) do |io|
         yield IOStreams::Record::Reader.new(io, tabular: tabular, skip_blanks: skip_blanks, resume_at: resume_at)
       end
+    end
+
+    # Yields [IOStreams::Contract::RecordReader] the records of the contract set with #as, as instances of its class,
+    # see `IOStreams::Contract#initialize`, read through it as `each(:hash)` reads its records, with the same options,
+    # see #record_reader.
+    #
+    # Raises ArgumentError when no contract is set, before the file is opened.
+    def contract_record_reader(**args)
+      reject_unknown_options!(:record, IOStreams::Record::Reader, args)
+      contract = records_contract!(:record)
+      record_reader(**args) { |reader| yield IOStreams::Contract::RecordReader.new(reader, contract) }
+    end
+
+    # Yields [IOStreams::Contract::RecordWriter] the writer of the records of the contract set with #as, see
+    # #contract_record_reader, which writes them as `writer(:hash)` writes its records, with the same options.
+    #
+    # Raises ArgumentError when no contract is set, before the file is opened.
+    def contract_record_writer(**args)
+      reject_read_options!(args, "not when writing")
+      reject_unknown_options!(:record, IOStreams::Record::Writer, args.except(:delimiter))
+      contract = records_contract!(:record)
+      record_writer(**args) { |writer| yield IOStreams::Contract::RecordWriter.new(writer, contract) }
+    end
+
+    # Returns [Class] the contract set with #as, whose records the supplied mode reads or writes.
+    #
+    # Raises ArgumentError when no contract is set.
+    def records_contract!(mode)
+      contract = tabular_settings.contract
+      return contract if contract
+
+      raise(ArgumentError, "The #{mode.inspect} mode reads and writes the records of a contract, so set one with #as, " \
+                           "such as path.as(Order), or read Hashes with the :hash mode")
     end
 
     # Iterate over a file / stream returning slices of up to `size` of its rows at a time, as they are in the file, after

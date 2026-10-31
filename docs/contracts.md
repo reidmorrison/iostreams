@@ -185,6 +185,43 @@ end
 
 `#as` takes a contract, the Hash of one, or an `IOStreams::Schema`, which it builds with `IOStreams::Contract.new`.
 
+## Records of a contract
+
+A Hash is read by lookup, as `order["amount"]`. A contract is a class, so the program can read records of it instead,
+as typed CSV libraries do, such as OpenCSV beans, CsvHelper class maps or serde structs. `each(:record)` yields an
+instance of the contract for each record, which answers the value of each field by its name in Ruby:
+
+~~~ruby
+IOStreams.path(ENV.fetch("ORDERS_URL")).as(Order).each(:record) do |order|
+  Ledger.post(order.id, order.amount, order.ordered_at)
+end
+~~~
+
+And `writer(:record)` writes them:
+
+~~~ruby
+IOStreams.path(ENV.fetch("REPORT_URL")).as(Order).writer(:record) do |io|
+  io << Order.new(id: 1001, amount: BigDecimal("12.5"), ordered_at: Time.utc(2026, 10, 25, 9, 30), zip: "01234")
+end
+~~~
+
+* `Order.new` takes the value of each field by its name in Ruby, or its name in the schema, and converts and checks each
+  value as it is set, so that a bad value raises `IOStreams::Errors::InvalidValue` where it is made, rather than when
+  the record is written. A field without a value is `nil`, and a field that the contract does not have raises
+  `ArgumentError`.
+* Each field has a reader and a writer, such as `order.amount` and `order.amount = "12.50"`, which converts and checks
+  the value too. `order[:amount]` and `order["amount"]` read it by name, `#to_h` returns the values by the names of
+  the fields in the schema, and two records of the same contract with the same values are equal.
+* Each column written is headed by the name of its field in the schema, such as `Ordered At` for
+  `field :ordered_at, :datetime, name: "Ordered At"`.
+* `each(:record)` reads the values that each record read through the contract has, so they are not converted again,
+  and yields `nil` for a blank row, as `each(:hash)` does, unless `skip_blanks: true` skips it. It takes the options of
+  `each(:hash)`, and `writer(:record)` those of `writer(:hash)`, which still read and write Hashes.
+* A field cannot be named in Ruby as a method that every record answers, such as `hash` or `to_h`, so `field :hash`
+  raises `ArgumentError`. A contract built from a Hash names such a field `hash_field`, and a field whose name is not a
+  name of a method in Ruby by its cleansed name, such as `ordered_at` for `Ordered At`, see `Order.accessors`.
+* Without a contract, the `:record` mode raises `ArgumentError` before the file is opened.
+
 The contract is code: it changes in a pull request, together with the code that relies on it. Where the source is, its
 format, and its schema when it needs one, stay in configuration.
 

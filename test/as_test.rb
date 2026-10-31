@@ -105,7 +105,7 @@ class AsTest < Minitest::Test
       end
 
       it "raises for anything else, such as a record of a contract, IOStreams::Contract itself, or the path of a file" do
-        [Order.new, IOStreams::Contract, String, "orders.json", [{name: "id"}]].each do |contract|
+        [Order.new(id: 1), IOStreams::Contract, String, "orders.json", [{name: "id"}]].each do |contract|
           assert_raises(ArgumentError, contract.inspect) { text("id\n1\n").as(contract) }
         end
       end

@@ -36,6 +36,9 @@ module IOStreams
   # itself, such as a fixed width file, has a schema too, which lays it out, and the contract meets it by the names of
   # its fields, see `IOStreams::Schema::ContractColumns`.
   class Contract
+    autoload :RecordReader, "io_streams/contract/record_reader"
+    autoload :RecordWriter, "io_streams/contract/record_writer"
+
     # The names in Ruby of the properties of a contract that its class declares, see .fields_match.
     DSL_PROPERTIES = {fieldsMatch: "fields_match", keyType: "key_type", extraColumns: "extra_columns"}.freeze
 
@@ -105,8 +108,9 @@ module IOStreams
                                "field #{accessor.inspect}, #{properties[:type].to_sym.inspect}")
         end
 
-        add_field(field_descriptor(name, type, required, properties))
+        check_accessor(accessor, name)
         @accessors = (@accessors || {}).merge(name => accessor)
+        add_field(field_descriptor(name, type, required, properties))
         accessor
       end
 
@@ -197,6 +201,24 @@ module IOStreams
         fields.zip(own).map { |field, accessor| accessor || unused_accessor(accessor_of(field.name), used) }
       end
 
+      # Returns [Hash<Symbol, IOStreams::Schema::Field>] the field of each accessor of the records of the contract, see
+      # .accessors, in order.
+      def record_fields
+        @record_fields ||= accessors.zip(fields).to_h.freeze
+      end
+
+      # Returns [IOStreams::Contract] a record of the contract of the values of a record read through it, by their keys
+      # in the records read, see `IOStreams::Schema#key`, which its fields already converted, so that they are not
+      # converted again. The keys of the columns that the contract keeps besides its fields are left out. For the readers
+      # of IOStreams, see `IOStreams::Contract::RecordReader`.
+      def from_record(record)
+        values = {}
+        schema.fields.each { |field| values[field.name] = record[schema.key(field)] }
+        instance = allocate
+        instance.instance_variable_set(:@values, values)
+        instance
+      end
+
       # Returns [String] the name of the class, or for a contract built from a Hash, its schema.
       def inspect
         name || "#<IOStreams::Contract #{@schema ? to_h.inspect : '{}'}>"
@@ -229,10 +251,11 @@ module IOStreams
       # would start with a digit, or is empty.
       def accessor_of(name)
         text = name.to_s
-        return text.to_sym if ACCESSOR.match?(text)
+        return text.to_sym if ACCESSOR.match?(text) && !reserved?(text.to_sym)
 
         cleansed = IOStreams::Tabular::Header.cleanse_column(text)
         cleansed = "field_#{cleansed}" unless ACCESSOR.match?(cleansed)
+        cleansed = "#{cleansed}_field" if reserved?(cleansed.to_sym)
         cleansed.to_sym
       end
 
@@ -253,6 +276,37 @@ module IOStreams
         accessor = :"#{base}_#{count += 1}" while used.key?(accessor)
         used[accessor] = true
         accessor
+      end
+
+      # Returns [true|false] whether every record answers a method of the name, see #to_h, such as `hash` or `display`,
+      # so that a field cannot be named so in Ruby.
+      def reserved?(accessor)
+        Contract.method_defined?(accessor) || Contract.private_method_defined?(accessor) ||
+          Contract.method_defined?(:"#{accessor}=")
+      end
+
+      # Raises ArgumentError for an accessor of a field that every record answers, see #reserved?, or that another field
+      # of the contract has.
+      def check_accessor(accessor, name)
+        if reserved?(accessor)
+          raise(ArgumentError, "A field of a contract cannot be named #{accessor.inspect} in Ruby, which every record " \
+                               "answers: name it otherwise in Ruby, and #{name.to_s.inspect} with name:")
+        end
+        return unless @accessors&.value?(accessor)
+
+        raise(ArgumentError, "The contract already has a field named #{accessor.inspect} in Ruby")
+      end
+
+      # Defines a reader and a writer of each field of the records of the contract, see #record_fields, that it does not
+      # already have. The writer converts and checks the value, as .new does.
+      def define_accessors
+        record_fields.each do |accessor, field|
+          name = field.name
+          next if method_defined?(accessor, false)
+
+          define_method(accessor) { @values[name] }
+          define_method(:"#{accessor}=") { |value| @values[name] = self.class.record_fields.fetch(accessor).cast(value) }
+        end
       end
 
       # Returns [String] the line of the class that declares a property of the contract, see #to_dsl.
@@ -287,8 +341,10 @@ module IOStreams
                                "the schema of the file, with #schema, which the contract meets by the names of its fields")
         end
 
-        @descriptor = schema.to_h.freeze
-        @schema     = schema
+        @descriptor    = schema.to_h.freeze
+        @schema        = schema
+        @record_fields = nil
+        define_accessors
       end
 
       def add_field(field)
@@ -321,6 +377,69 @@ module IOStreams
       def property_name(property)
         property.to_s.gsub(/_([a-z])/) { Regexp.last_match(1).upcase }.to_sym
       end
+    end
+
+    # Returns [IOStreams::Contract] a record of the contract, of the supplied value of each field, by its name in Ruby,
+    # or its name in the schema, each converted to the type of its field and checked as it is set, so that a bad value
+    # raises where it is made, rather than when the record is written, see `IOStreams::Schema::Field#cast`. A field
+    # without a value is nil. `#each(:record)` yields the records read through a contract, and `writer(:record)` takes
+    # them, see `IOStreams::Stream#as`.
+    #
+    #   order = Order.new(id: 1001, amount: BigDecimal("12.5"), ordered_at: Time.utc(2026, 10, 25, 9, 30))
+    #   order.amount   # => 0.125e2
+    #   order.zip = 1234
+    #   order.zip      # => "1234"
+    #
+    # Raises ArgumentError for a value of a field that the contract does not have, and
+    # `IOStreams::Errors::InvalidValue` for a value that is not of the type of its field, or no value for a field that is
+    # required.
+    def initialize(**values)
+      fields = self.class.record_fields
+      by_key = values.transform_keys { |key| record_accessor(fields, key) }
+      @values = {}
+      fields.each { |accessor, field| @values[field.name] = field.cast(by_key[accessor]) }
+    end
+
+    # Returns [Object] the value of the field of the supplied name in Ruby, or its name in the schema.
+    #
+    # Raises ArgumentError for a field that the contract does not have.
+    def [](key)
+      @values[self.class.record_fields.fetch(record_accessor(self.class.record_fields, key)).name]
+    end
+
+    # Returns [Hash] the value of each field, by its name in the schema, in order, which `writer(:hash)` takes.
+    def to_h
+      @values.dup
+    end
+
+    # Returns [true|false] whether the other is a record of the same contract, with the same values.
+    def ==(other)
+      other.instance_of?(self.class) && to_h == other.to_h
+    end
+    alias eql? ==
+
+    def hash
+      [self.class, @values].hash
+    end
+
+    # Returns [String] the class and the value of each field, by its name in Ruby.
+    def inspect
+      values = self.class.record_fields.map { |accessor, field| "#{accessor}=#{@values[field.name].inspect}" }
+      "#<#{self.class.inspect} #{values.join(', ')}>"
+    end
+
+    private
+
+    # Returns [Symbol] the name in Ruby of the field of the supplied key, its name in Ruby or in the schema.
+    def record_accessor(fields, key)
+      symbol = key.to_sym if key.respond_to?(:to_sym)
+      return symbol if fields.key?(symbol)
+
+      found = fields.find { |_accessor, field| field.name == key || field.name.to_s == key.to_s }
+      return found.first if found
+
+      raise(ArgumentError, "#{self.class.inspect} has no field #{key.inspect}: its fields are " \
+                           "#{fields.keys.map(&:inspect).join(', ')}")
     end
   end
 end

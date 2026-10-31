@@ -22,6 +22,7 @@ reads or writes:
 | `:line`, the default for `#each` | Lines of text | `each(:line) { \|line\| }` | `writer(:line) { \|io\| io << line }` |
 | `:array` | Rows: an Array of the values of each line | `each(:array) { \|row\| }` | `writer(:array) { \|io\| io << row }` |
 | `:hash` | Records: a Hash of the values of each line, by column | `each(:hash) { \|record\| }` | `writer(:hash) { \|io\| io << record }` |
+| `:record` | Records of a [contract](contracts), such as an `Order` with `order.amount`, set with `#as` | `each(:record) { \|order\| }` | `writer(:record) { \|io\| io << order }` |
 | `:slice` | Slices: up to `size` rows as they are in the file, with its header row | `each(:slice, size: 100) { \|slice\| }` | `writer(:slice) { \|io\| io << slice }` |
 
 The tabular format of the file, such as CSV or JSON, says how rows and records are read from lines and written as
