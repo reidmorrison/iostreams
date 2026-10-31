@@ -88,6 +88,13 @@ module Paths
 
           assert_equal expected.sort, actual.sort
         end
+
+        it "finds no files for a pattern that is a Pathname that matches none, rather than raising NoMethodError" do
+          file_path
+
+          # In upper case, so that the case-insensitive retry downcases it.
+          assert_empty root.children(Pathname.new("**/*.CSV"))
+        end
       end
 
       describe "#mkpath" do
