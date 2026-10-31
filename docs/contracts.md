@@ -76,6 +76,30 @@ Every one of them yields the same record:
 
 `#as` returns the path, so that it chains, and `as(nil)` removes the contract.
 
+### Report invalid rows and carry on
+
+A value that is not valid raises `IOStreams::Errors::InvalidValue`, which names its field, its value, its record and
+the line that the record starts on, such as `Field "amount": "N/A" is not a valid number, in record 6 on line 7`. An
+upload screen needs every bad row, not just the first: `on_invalid:` hands each one to a handler, and reading carries
+on:
+
+~~~ruby
+problems = []
+IOStreams.path(upload_url).as(Order).each(:record, on_invalid: ->(row) { problems << row }) do |order|
+  Ledger.post(order.id, order.amount, order.ordered_at)
+end
+
+problems.each do |row|
+  puts "Line #{row.line_number}: #{row.errors.map(&:reason).join('; ')}"
+end
+# Line 7: Field "amount": "12.5x" is not a valid number
+# Line 12: Field "ordered_at" is required, but has no value
+~~~
+
+The handler receives an `IOStreams::InvalidRow` with an error for each field of the row whose value is not valid, see
+[Values that are not valid](streams#values-that-are-not-valid). Problems with the columns still raise before the first
+row; `#contract_errors` lists those up front.
+
 ## Checking a source before the work starts
 
 `#validate_contract!` asks whether a source meets the contract without reading its rows, such as in the web request

@@ -894,7 +894,8 @@ module IOStreams
       def invalid(value)
         text = value.inspect
         text = "#{text[0, 60]}..." if text.length > 63
-        raise(IOStreams::Errors::InvalidValue, "Field #{name.inspect}: #{text} is not a valid #{type}")
+        raise(IOStreams::Errors::InvalidValue.new("Field #{name.inspect}: #{text} is not a valid #{type}", field: name,
+                                                                                                           value: value))
       end
     end
   end

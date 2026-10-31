@@ -128,6 +128,19 @@ module IOStreams
         []
       end
 
+      # Returns [Array<IOStreams::Errors::InvalidValue>] an error for each field whose value of the supplied values of a row
+      # of the columns is not valid, see #record, which raises the first, not raised, so that a reader can report every
+      # field of a bad row, see `IOStreams::InvalidRow`.
+      def value_errors(values)
+        matched.filter_map { |field, index| value_error(field, index && values[index]) }
+      end
+
+      # Returns [Array<IOStreams::Errors::InvalidValue>] an error for each field whose value of a record of a format
+      # whose records supply their own keys, such as JSON, is not valid, see #read_hash and #value_errors.
+      def hash_errors(hash)
+        read_plan(hash.keys).filter_map { |field, key, _name| field && value_error(field, key.nil? ? nil : hash[key]) }
+      end
+
       # Returns [Array<String|Symbol>] the key of each field whose values the rows and records read have, in the order of
       # the fields, see `IOStreams::Schema#key`, whatever the columns of a file are.
       def field_keys
@@ -313,6 +326,14 @@ module IOStreams
       # it from the form that a store returned it in, see `IOStreams::Schema::Field#restore`.
       def read_value(field, value)
         @typed ? field.restore(value) : field.cast(value)
+      end
+
+      # Returns [IOStreams::Errors::InvalidValue|nil] the error of the value of the field, or nil when it is valid.
+      def value_error(field, value)
+        read_value(field, value)
+        nil
+      rescue IOStreams::Errors::InvalidValue => e
+        e
       end
 
       # Returns [Array] the columns of a header row up to the last one with a name, without the columns without a name

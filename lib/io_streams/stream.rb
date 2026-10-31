@@ -1164,24 +1164,27 @@ module IOStreams
     # `buffer_size` bytes, when it is supplied, as in the `:line` mode.
     #
     # The tabular that reads the rows takes the settings of the path, such as its format and schema, see #tabular.
-    def row_reader(delimiter: nil, buffer_size: nil, skip_blanks: false, resume_at: nil, **args)
+    def row_reader(delimiter: nil, buffer_size: nil, skip_blanks: false, resume_at: nil, on_invalid: nil, **args)
       reject_unknown_options!(:array, IOStreams::Row::Reader, args)
-      IOStreams::Row::Reader.check(skip_blanks: skip_blanks, resume_at: resume_at)
+      IOStreams::Row::Reader.check(skip_blanks: skip_blanks, resume_at: resume_at, on_invalid: on_invalid)
       tabular = self.tabular(reading: true)
       open_rows_reader(tabular, delimiter, buffer_size) do |io|
-        yield IOStreams::Row::Reader.new(io, tabular: tabular, skip_blanks: skip_blanks, resume_at: resume_at)
+        yield IOStreams::Row::Reader.new(io, tabular: tabular, skip_blanks: skip_blanks, resume_at: resume_at,
+                                             on_invalid: on_invalid)
       end
     end
 
     # Iterate over a file / stream returning each line as a hash, one at a time.
     #
     # The lines are split where the format that parses them expects, see #row_reader.
-    def record_reader(delimiter: nil, buffer_size: nil, skip_blanks: false, resume_at: nil, **args)
+    def record_reader(delimiter: nil, buffer_size: nil, skip_blanks: false, resume_at: nil, on_invalid: nil, **args)
       reject_unknown_options!(:hash, IOStreams::Record::Reader, args)
       tabular = self.tabular(reading: true)
-      IOStreams::Record::Reader.check(tabular: tabular, skip_blanks: skip_blanks, resume_at: resume_at)
+      IOStreams::Record::Reader.check(tabular: tabular, skip_blanks: skip_blanks, resume_at: resume_at,
+                                      on_invalid: on_invalid)
       open_rows_reader(tabular, delimiter, buffer_size) do |io|
-        yield IOStreams::Record::Reader.new(io, tabular: tabular, skip_blanks: skip_blanks, resume_at: resume_at)
+        yield IOStreams::Record::Reader.new(io, tabular: tabular, skip_blanks: skip_blanks, resume_at: resume_at,
+                                                on_invalid: on_invalid)
       end
     end
 

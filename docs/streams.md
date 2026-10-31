@@ -97,8 +97,8 @@ in:
   Parquet record whose every value is null.
 
 A value such as `false` or `0` is data, so a row that holds one is not blank. `each(:array)` and `each(:hash)` yield
-`nil` for each blank row, so that the rows yielded count the lines of the file, for example to report the line of a
-row that is not valid. Supply `skip_blanks: true` to skip them instead:
+`nil` for each blank row, so that the rows yielded count the records of the file. Supply `skip_blanks: true` to skip
+them instead:
 
 ~~~ruby
 IOStreams.path("people.csv").each(:hash, skip_blanks: true) do |person|
@@ -116,6 +116,44 @@ end
 * `each(:line)` and `each(:slice)` hand on every row as it is in the file, so they do not take `skip_blanks:`. Supply it
   where the rows of a slice are read, such as `IOStreams.stream(slice).each(:hash, skip_blanks: true)`.
 * A `skip_blanks` that is not true or false raises `ArgumentError` before the file is opened.
+
+### Values that are not valid
+
+A value that is not of the type of its field, of a [schema](formats#schema) or a [contract](contracts), such as `N/A`
+for a number, raises `IOStreams::Errors::InvalidValue`, which names its field, its value, the record that it is in,
+counting from 1 without the header row, and the line of the file that the record starts on, when the source has lines:
+
+~~~
+Field "amount": "N/A" is not a valid number, in record 6 on line 7
+~~~
+
+Its `#field`, `#value`, `#record_number` and `#line_number` hold them, and `#reason` the message without the record,
+so that support staff find the row without the code that reads it adding them. The rows of a slice keep the record and
+line numbers of their file, see [Slices](#slices).
+
+Supply `on_invalid:` to `each(:array)`, `each(:hash)` or `each(:record)`, or their `#reader`, to hand each bad row to a
+handler instead, and carry on with the next row, such as to list every bad row of an upload:
+
+~~~ruby
+problems = []
+IOStreams.path(upload_url).as(Order).each(:record, on_invalid: ->(row) { problems << row }) do |order|
+  Ledger.post(order.id, order.amount, order.ordered_at)
+end
+
+problems.each do |row|
+  puts "Line #{row.line_number}: #{row.errors.map(&:reason).join('; ')}"
+end
+# Line 7: Field "amount": "12.5x" is not a valid number
+# Line 12: Field "ordered_at" is required, but has no value
+~~~
+
+* The handler receives an `IOStreams::InvalidRow`: its `#line_number`, `#record_number`, the `#row` as it was read,
+  such as its line of text, and `#errors`, an `IOStreams::Errors::InvalidValue` for each field whose value is not
+  valid. The valid rows still reach the block.
+* Problems with the columns, such as a missing column that a schema requires, still raise before the first row; see
+  [Checking a source before the work starts](contracts#checking-a-source-before-the-work-starts) to list them first.
+* `on_invalid:` only applies when reading, so `#writer` and `#copy_from` raise `ArgumentError` for it, and so does a
+  handler that cannot be called, before the file is opened.
 
 ### Resuming at a record
 

@@ -94,13 +94,13 @@ class StreamOptionsTest < Minitest::Test
 
         error = assert_raises(ArgumentError) { missing.each(:hash, original_file_name: "a.json") { |row| row } }
         assert_equal "Unknown option :original_file_name for the :hash mode. Valid options: :delimiter, :buffer_size, " \
-                     ":skip_blanks, :resume_at.", error.message
+                     ":skip_blanks, :resume_at, :on_invalid.", error.message
         error = assert_raises(ArgumentError) { missing.each(:line, skip_blanks: false, bogus: 1) { |line| line } }
         assert_equal "Unknown options :skip_blanks, :bogus for the :line mode. Valid options: :delimiter, :buffer_size, " \
                      ":embedded_within.", error.message
         error = assert_raises(ArgumentError) { missing.reader(:array, bogus: 1) { |rows| rows } }
-        assert_equal "Unknown option :bogus for the :array mode. Valid options: :delimiter, :buffer_size, :skip_blanks, :resume_at.",
-                     error.message
+        assert_equal "Unknown option :bogus for the :array mode. Valid options: :delimiter, :buffer_size, :skip_blanks, " \
+                     ":resume_at, :on_invalid.", error.message
       end
 
       it "raises before the file is opened when writing, so that an existing file is kept" do
@@ -479,7 +479,7 @@ class StreamOptionsTest < Minitest::Test
       end
 
       it "gives the options that only apply when reading, apart from validate:, which writing slices takes too" do
-        assert_equal %i[buffer_size embedded_within resume_at size skip_blanks], IOStreams::Stream.read_option_names.sort
+        assert_equal %i[buffer_size embedded_within on_invalid resume_at size skip_blanks], IOStreams::Stream.read_option_names.sort
       end
     end
 

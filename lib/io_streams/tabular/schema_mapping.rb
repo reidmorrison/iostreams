@@ -173,6 +173,15 @@ module IOStreams
         @schema
       end
 
+      # Returns [Array<IOStreams::Errors::InvalidValue>] an error for each field whose value of the line is not valid, see
+      # `IOStreams::Tabular#value_errors`, or none for a blank line.
+      def value_errors(line)
+        values = parse(line)
+        return [] if values.nil?
+
+        values.is_a?(::Hash) ? @columns.hash_errors(values) : @columns.value_errors(values)
+      end
+
       # Matches the keys of the first record of a format of keyed records, such as JSON or Parquet, that is not blank to
       # the fields, as #record_parse would, without converting its values, so that a file whose records do not match the
       # schema raises before its rows are handed on without being parsed, see `IOStreams::Tabular#read_line`. The keys of

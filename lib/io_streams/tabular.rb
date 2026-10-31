@@ -391,6 +391,13 @@ module IOStreams
       @mapping.read_header(line)
     end
 
+    # Returns [Array<IOStreams::Errors::InvalidValue>] an error for each field whose value of the supplied line of a row
+    # or record is not valid, rather than raise the first, as reading it does, so that a reader reports every field of a
+    # bad row, see `IOStreams::InvalidRow`.
+    def value_errors(line)
+      @mapping.value_errors(line)
+    end
+
     # Raises `IOStreams::Errors::IncompatibleType` for a column of the schema that the block returns, which a source
     # declares when it is opened, such as a Parquet file, whose type can never be that of its field of the contract that
     # its rows are read through, without a schema, see `IOStreams::Schema#check_types`. The block is called only then,

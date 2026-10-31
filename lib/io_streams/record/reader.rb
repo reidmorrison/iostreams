@@ -7,21 +7,23 @@ module IOStreams
     # `IOStreams::Tabular.new`.
     class Reader
       include Enumerable
+      include IOStreams::Row::Numbered
 
       # Returns [Array<Symbol>] the options of each call that reads records, see `IOStreams::Stream#reader`, which raises
       # for any other: those of the lines that it reads, see `IOStreams::Row::Reader.line_option_names`, whether to skip
       # the blank records, and the record that reading resumes at, see #initialize. The tabular that parses them takes
       # the settings of the path instead, such as its schema.
       def self.option_names
-        [*IOStreams::Row::Reader.line_option_names, :skip_blanks, :resume_at]
+        [*IOStreams::Row::Reader.line_option_names, :skip_blanks, :resume_at, :on_invalid]
       end
 
       # Raises ArgumentError for a `skip_blanks` that is not true or false, or a `resume_at` that is neither nil nor a
       # positive Integer, see #initialize, or when nothing names the keys of the records that the tabular parses, see
       # `IOStreams::Tabular#check_records`, so that a call raises before the file is opened, see `IOStreams::Stream#each`.
-      def self.check(tabular:, skip_blanks: false, resume_at: nil)
+      def self.check(tabular:, skip_blanks: false, resume_at: nil, on_invalid: nil)
         IOStreams::Utils.check_boolean(:skip_blanks, skip_blanks)
         IOStreams::Utils.check_record_number(:resume_at, resume_at)
+        IOStreams::Row::Numbered.check_on_invalid(on_invalid)
         tabular.check_records
       end
 
@@ -49,9 +51,16 @@ module IOStreams
       #     not parsed.
       #     Default: nil, every record
       #
+      #   on_invalid: [#call|nil]
+      #     Called with an `IOStreams::InvalidRow` for each record whose values are not all valid for their fields, which
+      #     holds an error for each such field, rather than raise `IOStreams::Errors::InvalidValue` for the first, so that
+      #     reading carries on with the next record, such as to list every bad row of an upload. The valid records are
+      #     still yielded.
+      #     Default: nil, which raises `IOStreams::Errors::InvalidValue`, naming the record and its line.
+      #
       # Raises ArgumentError for options that cannot read records, see .check.
-      def initialize(line_reader, tabular:, skip_blanks: false, resume_at: nil)
-        self.class.check(tabular: tabular, skip_blanks: skip_blanks, resume_at: resume_at)
+      def initialize(line_reader, tabular:, skip_blanks: false, resume_at: nil, on_invalid: nil)
+        self.class.check(tabular: tabular, skip_blanks: skip_blanks, resume_at: resume_at, on_invalid: on_invalid)
         unless line_reader.respond_to?(:each)
           raise(ArgumentError, "Stream must be a IOStreams::Line::Reader or implement #each")
         end
@@ -59,6 +68,7 @@ module IOStreams
         @tabular     = tabular
         @line_reader = line_reader
         @skip_blanks = skip_blanks
+        @on_invalid  = on_invalid
         # The number of records before `resume_at`, which #each reads without parsing.
         @skip        = resume_at ? resume_at - 1 : 0
       end
@@ -66,15 +76,41 @@ module IOStreams
       # Yields each record, after the header row, which names their keys, see `IOStreams::Tabular#read_record_line`.
       #
       # A blank record is yielded as nil, unless `skip_blanks` is true, which skips it, see #initialize. With `resume_at`,
-      # the records start with that one, see #initialize.
+      # the records start with that one, without parsing the records before it: a line is a record once the tabular no
+      # longer expects the header row, see `IOStreams::Tabular#header?`. A value that is not valid raises
+      # `IOStreams::Errors::InvalidValue`, naming its record and line, unless `on_invalid:` takes the record, see
+      # `IOStreams::Row::Numbered#invalid`.
       #
       # Returns an Enumerator of the records without a block.
-      def each(&block)
-        return enum_for(:each) unless block
-        return each_resumed(&block) if @skip.positive?
-        return @line_reader.each { |line| @tabular.read_record_line(line, &block) } unless @skip_blanks
+      def each
+        return enum_for(:each) unless block_given?
 
-        @line_reader.each { |line| @tabular.read_record_line(line) { |record| yield record unless record.nil? } }
+        skip    = @skip
+        records = 0
+        # Whether the header row is read, or the file has none, after which every line is a record.
+        started = false
+        each_numbered do |line, line_number, record_number|
+          unless started
+            if @tabular.header?
+              @tabular.read_record_line(line) { nil }
+              next
+            end
+            started = true
+          end
+
+          records += 1
+          if skip.positive?
+            skip -= 1
+            next
+          end
+
+          begin
+            record = @tabular.record_parse(line)
+          rescue IOStreams::Errors::InvalidValue => e
+            next invalid(e, line, line_number, record_number || records)
+          end
+          yield(record) unless @skip_blanks && record.nil?
+        end
       end
 
       # Writes each record to the writer, see `IOStreams::Record::Writer`, as a copy does, see
@@ -91,21 +127,6 @@ module IOStreams
       # block returns, shows what the documentation describes.
       def inspect
         "#<#{self.class.name} format=#{@tabular.format.inspect}>"
-      end
-
-      private
-
-      # Yields the records from `resume_at` on, see #initialize, without parsing the records before it: a line is a
-      # record once the tabular no longer expects the header row, see `IOStreams::Tabular#header?`.
-      def each_resumed
-        skip = @skip
-        @line_reader.each do |line|
-          if skip.positive? && !@tabular.header?
-            skip -= 1
-          else
-            @tabular.read_record_line(line) { |record| yield(record) unless @skip_blanks && record.nil? }
-          end
-        end
       end
     end
   end

@@ -57,7 +57,7 @@ module IOStreams
       def no_value
         return unless value_required?
 
-        raise(IOStreams::Errors::InvalidValue, "Field #{@name.inspect} is required, but has no value")
+        raise(IOStreams::Errors::InvalidValue.new("Field #{@name.inspect} is required, but has no value", field: @name))
       end
 
       # Returns [String] the empty text of a field whose type keeps it as its value, such as a string, unless the field is

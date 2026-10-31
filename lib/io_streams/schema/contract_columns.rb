@@ -88,6 +88,20 @@ module IOStreams
         @contract.read_row(@source.read_hash(hash))
       end
 
+      # Returns [Array<IOStreams::Errors::InvalidValue>] an error for each field of the file whose value of the supplied row
+      # is not valid, otherwise for each field of the contract, see `IOStreams::Schema::Columns#value_errors`.
+      def value_errors(values)
+        errors = @source.value_errors(values)
+        errors.empty? ? @contract.value_errors(@source.row(values)) : errors
+      end
+
+      # Returns [Array<IOStreams::Errors::InvalidValue>] an error for each field whose value of a record of a format whose
+      # records supply their own keys, such as JSON, is not valid, see #value_errors.
+      def hash_errors(hash)
+        errors = @source.hash_errors(hash)
+        errors.empty? ? @contract.hash_errors(@source.read_hash(hash)) : errors
+      end
+
       # Returns [Array|Hash] the values of a row or record written, converted to the fields of the contract, see
       # `IOStreams::Schema::Columns#render`, then rendered by the schema of the file, in the column of the field of the
       # file that each field of the contract matched, in the supplied form.

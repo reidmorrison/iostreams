@@ -31,7 +31,7 @@ module IOStreams
     #   `IOStreams::Tabular#read_line`, and answers whether nothing names the columns of its rows, `#unnamed_columns?`,
     #   see `IOStreams::Tabular#unnamed_columns?`.
     # * Answers the schema that the file declares by the first row that its rows start with, `#declared_schema`, see
-    #   `IOStreams::Tabular#declared_schema`.
+    #   `IOStreams::Tabular#declared_schema`, and the error of each value of a bad row, `#value_errors`.
     #
     # Each row is an Array, whatever the format: the values of the columns of the rows, in order, which a parser of
     # keyed records, such as JSON, gives by their keys. A row already read, an Array, is read as such, see
@@ -155,6 +155,12 @@ module IOStreams
 
       def declared_schema(_row)
         raise(NotImplementedError, "#{self.class.name} does not implement #declared_schema")
+      end
+
+      # Returns [Array<IOStreams::Errors::InvalidValue>] an error for each field whose value of the line is not valid,
+      # see `IOStreams::Tabular#value_errors`: none without a schema, which converts no value.
+      def value_errors(_line)
+        []
       end
 
       private

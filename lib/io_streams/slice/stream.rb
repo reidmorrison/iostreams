@@ -107,15 +107,12 @@ module IOStreams
         yield NumberedRows.new(io_stream)
       end
 
-      # Returns [#each] the rows of the slice, after its header row, when it carries one, which the readers of rows and
-      # records read as the header row of a file, see `IOStreams::Tabular#read_header`.
+      # Returns [NumberedRows] the rows of the slice, after its header row, when it carries one, which the readers of rows
+      # and records read as the header row of a file, see `IOStreams::Tabular#read_header`, with the line of the file
+      # that each one starts on and its record number, so that a value that is not valid names those of its file, see
+      # `IOStreams::Row::Numbered`.
       def rows
-        slice = io_stream
-        Enumerator.new do |rows|
-          rows << slice.header if slice.header?
-          slice.each { |row, _line_number, _record_number| rows << row }
-          slice.size + (slice.header? ? 1 : 0)
-        end
+        NumberedRows.new(io_stream)
       end
 
       # The rows of a slice, after its header row, when it carries one, with the line of the file that each one starts
@@ -131,6 +128,14 @@ module IOStreams
         def each(&)
           yield(@slice.header, nil, nil) if @slice.header?
           @slice.each(&)
+        end
+
+        # Yields each row as #each does, for a reader of rows or records, see `IOStreams::Row::Numbered#each_numbered`.
+        #
+        # Returns [Integer] the number of rows yielded, the header row included, as the lines of a file count them.
+        def each_with_numbers(&)
+          each(&)
+          @slice.size + (@slice.header? ? 1 : 0)
         end
       end
       private_constant :NumberedRows
