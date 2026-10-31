@@ -284,8 +284,10 @@ A whole number is a `Float`, such as `1001.0`: an `integer` field of a [schema](
 converts it, and raises for `1001.5`. A `number` field reads the digits that Excel displays, its 15 most significant,
 such as `0.3` rather than the `Float` `0.30000000000000004`. The lines of the spreadsheet are the text of each cell, the
 same in every process: a date as `2026-01-02`, a date and time as its time in UTC, such as `2026-01-02T09:30:00Z`, a
-time of day as its clock, such as `09:30:00`, so that a field of its type reads it, and a number as its text, such as
-`12.5`, or a whole number as `1001`, or `1001.0` for a cell that has the type of a number, as IOStreams writes it.
+cell of a time format as the time of its clock, which Excel shows, such as `09:30:00`, so that a field of its type
+reads it, and a number as the workbook holds it, such as `1001` or `12.5`, whatever its format shows. A number of a date
+or time format that is not a date that Excel holds, such as a negative number, which Excel shows as `####`, is its
+number, in the lines and in the rows.
 
 The rows that `each(:slice)` reads are the values of the cells, in the `:array` format, and `slice.to_h` holds each
 `Date` and `Time` as its ISO 8601 text, which a schema or contract reads back. A `delimiter:` raises `ArgumentError` for

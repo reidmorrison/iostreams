@@ -104,21 +104,6 @@ class XlsxReaderTest < Minitest::Test
       end
     end
 
-    describe ".cell_text" do
-      it "is the text of a field of type any, such as a BigDecimal as a plain decimal" do
-        assert_equal "12.5", IOStreams::Xlsx::Reader.cell_text(BigDecimal("12.5"))
-        assert_equal "2026-01-02", IOStreams::Xlsx::Reader.cell_text("2026-01-02")
-      end
-
-      it "is the text that CSV writes for any other value" do
-        assert_nil IOStreams::Xlsx::Reader.cell_text(nil)
-        assert_equal "1", IOStreams::Xlsx::Reader.cell_text(1)
-        assert_equal "1.5", IOStreams::Xlsx::Reader.cell_text(1.5)
-        assert_equal "true", IOStreams::Xlsx::Reader.cell_text(true)
-        assert_equal "a b", IOStreams::Xlsx::Reader.cell_text("a b")
-      end
-    end
-
     describe "a cell of a date and time" do
       let :dir do
         Dir.mktmpdir("iostreams")

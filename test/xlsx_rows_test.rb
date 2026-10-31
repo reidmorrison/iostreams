@@ -76,7 +76,7 @@ class XlsxRowsTest < Minitest::Test
       it "still reads the lines and bytes of the spreadsheet as CSV text" do
         lines = read(IOStreams.path(file_name), :line)
 
-        assert_equal "1001.0,12.5,2026-10-25T09:30:00Z,2026-10-25,01234,true,,0.30000000000000004", lines.last
+        assert_equal "1001,12.5,2026-10-25T09:30:00Z,2026-10-25,01234,true,,0.30000000000000004", lines.last
         assert_equal "#{lines.join("\n")}\n", IOStreams.path(file_name).read
       end
 
@@ -180,47 +180,15 @@ class XlsxRowsTest < Minitest::Test
       end
     end
 
-    describe "the CSV text of a cell of a date or a time" do
-      # A column of each number format, as Excel and xlsxtream write them, and the text of its number: Excel's short
-      # date, which creek reads as a date, custom formats of a date, which creek reads as a time in the time zone of
-      # the process, a date and time, with a fraction of a second, times of day, a number without a cell type, and a
-      # number of a custom format whose text has a `d`. The dates are those whose midnight, or 02:30, a change to
-      # daylight saving time skips in Santiago and New York.
-      let :columns do
-        [
-          ["short", 14, nil, "46271"],
-          ["iso", 164, "yyyy\\-mm\\-dd", "46271"],
-          ["dmy", 165, "dd/mm/yyyy", "46271"],
-          ["at", 22, nil, "46089.104166666667"],
-          ["at_ms", 166, "yyyy-mm-dd hh:mm:ss.000", "46089.104172453706"],
-          ["clock", 20, nil, "0.39583333333333331"],
-          ["shift", 167, "hh:mm", "0.39583333333333331"],
-          ["count", 0, nil, "1001"],
-          ["items", 168, '0" items"', "5"]
-        ]
-      end
-
-      let :contract do
-        Class.new(IOStreams::Contract) do
-          field :short, :date
-          field :iso,   :date
-          field :dmy,   :date
-          field :at,    :datetime
-          field :at_ms, :datetime
-          field :clock, :time
-          field :shift, :time
-          field :count, :integer
-          field :items, :integer
-        end
-      end
-
-      before do
+    describe "the CSV text of a cell" do
+      # Writes a workbook of one row of numbers, as Excel writes them, without a cell type, each in the style of its
+      # column, `[name, number format id, custom format code or nil, number]`.
+      def format_cells(columns)
         IOStreams.path(file_name).writer(:array) { |io| io << %w[a] }
         replace_styles(columns.map { |_name, id, code, _number| [id, code] })
         header = columns.each_with_index.map do |(name, *), index|
           %(<c r="#{('A'.ord + index).chr}1" t="inlineStr"><is><t>#{name}</t></is></c>)
         end
-        # Each number as Excel writes it, without a cell type, in the style of its column.
         cells = columns.each_with_index.map do |(*, number), index|
           %(<c r="#{('A'.ord + index).chr}2" s="#{index + 1}"><v>#{number}</v></c>)
         end
@@ -237,25 +205,112 @@ class XlsxRowsTest < Minitest::Test
         ENV["TZ"] = original
       end
 
-      it "is the date, the time in UTC, or the time of day that the rows read, in every time zone" do
-        rows = read(IOStreams.path(file_name), :array).last
+      describe "of a date or a time" do
+        # A column of each number format, as Excel and xlsxtream write them: Excel's short date, which creek reads as a
+        # date, custom formats of a date, which creek reads as a time in the time zone of the process, a date and time,
+        # with a fraction of a second, times of day, a number without a cell type, and a number of a custom format whose
+        # text has a `d`. The dates are those whose midnight, or 02:30, a change to daylight saving time skips in
+        # Santiago and New York.
+        let :columns do
+          [
+            ["short", 14, nil, "46271"],
+            ["iso", 164, "yyyy\\-mm\\-dd", "46271"],
+            ["dmy", 165, "dd/mm/yyyy", "46271"],
+            ["at", 22, nil, "46089.104166666667"],
+            ["at_ms", 166, "yyyy-mm-dd hh:mm:ss.000", "46089.104172453706"],
+            ["clock", 20, nil, "0.39583333333333331"],
+            ["shift", 167, "hh:mm", "0.39583333333333331"],
+            ["count", 0, nil, "1001"],
+            ["items", 168, '0" items"', "5"]
+          ]
+        end
 
-        assert_equal [Date.new(2026, 9, 6), Date.new(2026, 9, 6), Date.new(2026, 9, 6), Time.utc(2026, 3, 8, 2, 30),
-                      Time.utc(2026, 3, 8, 2, 30, 0.5), Time.utc(2000, 1, 1, 9, 30), Time.utc(2000, 1, 1, 9, 30), 1001.0, 5.0],
-                     rows
-        %w[UTC America/Santiago America/New_York].each do |zone|
-          in_time_zone(zone) do
-            assert_equal "2026-09-06,2026-09-06,2026-09-06,2026-03-08T02:30:00Z,2026-03-08T02:30:00.500Z,09:30:00,09:30:00,1001,5",
-                         read(IOStreams.path(file_name), :line).last, zone
+        let :contract do
+          Class.new(IOStreams::Contract) do
+            field :short, :date
+            field :iso,   :date
+            field :dmy,   :date
+            field :at,    :datetime
+            field :at_ms, :datetime
+            field :clock, :time
+            field :shift, :time
+            field :count, :integer
+            field :items, :integer
           end
+        end
+
+        before { format_cells(columns) }
+
+        it "is the date, the time in UTC, or the time of day that the rows read, in every time zone" do
+          rows = read(IOStreams.path(file_name), :array).last
+
+          assert_equal [Date.new(2026, 9, 6), Date.new(2026, 9, 6), Date.new(2026, 9, 6), Time.utc(2026, 3, 8, 2, 30),
+                        Time.utc(2026, 3, 8, 2, 30, 0.5), Time.utc(2000, 1, 1, 9, 30), Time.utc(2000, 1, 1, 9, 30), 1001.0, 5.0],
+                       rows
+          %w[UTC America/Santiago America/New_York].each do |zone|
+            in_time_zone(zone) do
+              assert_equal "2026-09-06,2026-09-06,2026-09-06,2026-03-08T02:30:00Z,2026-03-08T02:30:00.500Z,09:30:00,09:30:00,1001,5",
+                           read(IOStreams.path(file_name), :line).last, zone
+            end
+          end
+        end
+
+        it "reads back through a contract as the same values as the rows of the workbook, once copied to a CSV file" do
+          csv = File.join(dir, "copy.csv")
+          IOStreams.path(csv).copy_from(file_name)
+
+          assert_equal read(IOStreams.path(file_name).as(contract)), read(IOStreams.path(csv).as(contract))
         end
       end
 
-      it "reads back through a contract as the same values as the rows of the workbook, once copied to a CSV file" do
-        csv = File.join(dir, "copy.csv")
+      it "is the time of its clock for a cell of a time format that holds a date too, which Excel shows" do
+        format_cells([["late", 20, nil, "46089.104166666667"]])
+        contract = Class.new(IOStreams::Contract) { field :late, :time }
+        csv      = File.join(dir, "copy.csv")
         IOStreams.path(csv).copy_from(file_name)
 
+        assert_equal "02:30:00", read(IOStreams.path(file_name), :line).last
+        assert_equal [{"late" => Time.utc(2000, 1, 1, 2, 30)}], read(IOStreams.path(csv).as(contract))
         assert_equal read(IOStreams.path(file_name).as(contract)), read(IOStreams.path(csv).as(contract))
+      end
+
+      it "is the number of a date or a time that Excel does not hold, such as a negative one, or one of a huge exponent" do
+        format_cells([["date", 14, nil, "-1.5"], ["time", 21, nil, "-1.5"], ["huge", 14, nil, "1e10000"]])
+
+        assert_equal "-1.5,-1.5,1e10000", read(IOStreams.path(file_name), :line).last
+        assert_equal [-1.5, -1.5, Float::INFINITY], read(IOStreams.path(file_name), :array).last
+      end
+
+      it "is midnight for a time of day that rounds to a whole day, as the rows read it" do
+        format_cells([["clock", 20, nil, "0.99999999999"]])
+
+        assert_equal "00:00:00", read(IOStreams.path(file_name), :line).last
+        assert_equal [Time.utc(2000, 1, 1)], read(IOStreams.path(file_name), :array).last
+      end
+
+      it "is the number as the workbook holds it, also for a format of a whole number, which Excel shows rounded" do
+        format_cells([["whole", 1, nil, "12.5"], ["grouped", 3, nil, "1001.5"], ["decimals", 2, nil, "1001"]])
+
+        assert_equal "12.5,1001.5,1001", read(IOStreams.path(file_name), :line).last
+      end
+
+      it "is the error that Excel shows, the text of a formula, and nothing for an empty cell" do
+        IOStreams.path(file_name).writer(:array) { |io| io << %w[a b] }
+        replace_sheet('<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>' \
+                      '<row r="1"><c r="A1" t="inlineStr"><is><t>a</t></is></c><c r="B1" t="inlineStr"><is><t>b</t></is></c>' \
+                      '<c r="C1" t="inlineStr"><is><t>c</t></is></c><c r="D1" t="inlineStr"><is><t>d</t></is></c></row>' \
+                      '<row r="2"><c r="A2" t="e"><v>#N/A</v></c><c r="B2" t="str"><f>CONCAT("x","y")</f><v>xy</v></c>' \
+                      '<c r="D2" t="b"><v>1</v></c></row></sheetData></worksheet>')
+
+        assert_equal "#N/A,xy,,true", read(IOStreams.path(file_name), :line).last
+      end
+
+      it "is read from a workbook without styles, as its rows are" do
+        workbook(%w[a b], [1, 2.5])
+        Zip::File.open(file_name) { |zip| zip.remove("xl/styles.xml") }
+
+        assert_equal ["a,b", "1,2.5"], read(IOStreams.path(file_name), :line)
+        assert_equal [1.0, 2.5], read(IOStreams.path(file_name), :array).last
       end
     end
 

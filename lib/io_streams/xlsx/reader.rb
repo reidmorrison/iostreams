@@ -91,16 +91,13 @@ module IOStreams
         @worksheet = workbook.sheets[0]
       end
 
-      # Returns each [Array] row from the spreadsheet, with the text of each value, see .cell_text: the text of a cell of
-      # a date or a time as `IOStreams::Xlsx::Cells.text` gives it, the same in every process, so that the lines and the
-      # rows of the workbook agree on which cells hold one, and any other cell as creek converts it, see #creek_value.
+      # Returns each [Array] row from the spreadsheet, with the text of each cell, as `IOStreams::Xlsx::Cells.text` gives
+      # it, the same in every process, so that the lines and the rows of the workbook agree on which cells hold a date or
+      # a time, or nil for an empty cell.
       def each
         formats = self.class.number_formats(@worksheet)
-        styles  = @worksheet.book.style_types
-        self.class.convert_cells(@worksheet) do |text, type, style, options|
-          Cells.text(text, type, formats[style], options) || creek_value(text, type, styles[style], options)
-        end
-        @worksheet.rows.each { |row| yield(row.values.map { |value| self.class.cell_text(value) }) }
+        self.class.convert_cells(@worksheet) { |text, type, style, options| Cells.text(text, type, formats[style], options) }
+        @worksheet.rows.each { |row| yield(row.values) }
       end
 
       # Replaces creek's conversion of each cell of a worksheet, `Creek::Sheet#convert`, with the block, which it calls
@@ -201,24 +198,6 @@ module IOStreams
 
       # Returns [Creek::Sheet] the first worksheet of the workbook, which #each reads.
       attr_reader :worksheet
-
-      # Returns [String|nil] the text of the value of a cell, as a field of type "any" writes it, see
-      # `IOStreams::Schema::Field.any_text`: a BigDecimal as a plain decimal, such as "12.5", where `Array#to_csv` wrote
-      # "0.125e2", and the text of a date or a time, which `IOStreams::Xlsx::Cells.text` gives, as it is. An empty cell
-      # is nil, and any other value, such as a String, an Integer or a Float, has the text that `Array#to_csv` gives it.
-      def self.cell_text(value)
-        Schema::Field.any_text(value) unless value.nil?
-      end
-
-      private
-
-      # Returns the value that creek converts a cell to, see `Creek::Styles::Converter.call`, as v2 read it, apart from
-      # a cell whose style creek takes for a date or a time, which `IOStreams::Xlsx::Cells` does not, such as a number
-      # of the custom format `0" items"`, in which creek finds a `d`, and which is its number.
-      def creek_value(text, type, style, options)
-        style = :unsupported if Creek::Styles::Converter::DATE_TYPES.include?(style)
-        Creek::Styles::Converter.call(text, type, style, options)
-      end
     end
   end
 end
