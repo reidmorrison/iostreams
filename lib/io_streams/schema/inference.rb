@@ -1,6 +1,5 @@
 # frozen_string_literal: true
 
-require "bigdecimal"
 require "date"
 
 module IOStreams
@@ -136,7 +135,7 @@ module IOStreams
           when ::Array then :array
           when Time, DateTime then :datetime
           when Date then :date
-          else decimal?(value) ? float_kind(value) : :text
+          else value.is_a?(::BigDecimal) ? float_kind(value) : :text
           end
         end
 
@@ -168,10 +167,6 @@ module IOStreams
           :number
         rescue ArgumentError
           :number
-        end
-
-        def decimal?(value)
-          value.is_a?(::BigDecimal)
         end
 
         # Returns [true|false] whether the text is an ISO 8601 date or datetime of a day that exists.

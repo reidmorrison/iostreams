@@ -1,7 +1,6 @@
 # frozen_string_literal: true
 
 require_relative "test_helper"
-require "bigdecimal"
 require "json"
 
 class SchemaTest < Minitest::Test

@@ -1,5 +1,8 @@
 # frozen_string_literal: true
 
+# A dependency of the gem, so that an application can build the BigDecimal values of a number field once it requires
+# IOStreams.
+require "bigdecimal"
 require "io_streams/version"
 # @formatter:off
 module IOStreams
