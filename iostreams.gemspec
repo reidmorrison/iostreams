@@ -37,4 +37,9 @@ Gem::Specification.new do |s|
   # CSV is the default tabular format. It was a Ruby default gem through 3.3, but became a
   # bundled gem in Ruby 3.4, so it must be declared to remain loadable under Bundler.
   s.add_dependency "csv"
+
+  # The `number` fields of a schema are BigDecimals. bigdecimal is a bundled gem from Ruby 3.4, so it must also be
+  # declared to be loadable under Bundler. Bundler installs the newest release within these bounds, not the one that
+  # Ruby includes.
+  s.add_dependency "bigdecimal", ">= 3.1", "< 5"
 end

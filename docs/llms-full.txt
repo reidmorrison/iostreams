@@ -349,7 +349,6 @@ gems of the features that your application uses:
 | Symmetric Encryption | `symmetric-encryption` |
 | Parquet | `parquet`, which is not available on JRuby |
 | [Active Record queries](queries) | `activerecord` 7.2 or later, and the driver of the database: `pg`, `mysql2` or `sqlite3` |
-| The `number` fields of a schema | `bigdecimal`, a bundled gem from Ruby 3.4 |
 
 When a gem is missing, the feature that needs it raises `LoadError`, naming the gem to install.
 
@@ -553,9 +552,7 @@ with `each(:hash)` returns the same records.
 ## Describe the file with a schema
 
 Every value of a CSV file is text. A [schema](formats#schema) gives each column a name and a type, so that reading
-returns each value as its type, and writing writes each value in the text form of its type. A `number` field, such
-as `salary` below, needs the `bigdecimal` gem: with Bundler on Ruby 3.4 or later, add `gem "bigdecimal"` to the
-Gemfile, since it is a bundled gem.
+returns each value as its type, and writing writes each value in the text form of its type.
 
 ~~~ruby
 path = IOStreams.path("sample/people.csv").schema(
@@ -3196,9 +3193,6 @@ as itself, and every other value as text, such as a date, including in an applic
 writes JSON. Reading JSON keeps all of the digits of a `number` too, rather than reading it through a `Float`, while
 the numbers of the other fields are a `Float`, as they are without a schema. The `:hash` and `:array` formats keep the
 values themselves.
-
-A `number` field needs the `bigdecimal` gem, which is a bundled gem from Ruby 3.4, so add `gem "bigdecimal"` to the
-Gemfile, or set `floatNumber: true` to read a `Float` instead.
 
 **A `duration` field needs the `activesupport` gem**, since its values are `ActiveSupport::Duration`s, which keep the
 months and days of a duration, such as a PostgreSQL `interval`, apart from its seconds, as neither has a fixed number of

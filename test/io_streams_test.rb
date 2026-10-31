@@ -10,6 +10,13 @@ require "rbconfig"
 module IOStreams
   class IOStreamsTest < Minitest::Test
     describe IOStreams do
+      it "loads BigDecimal, so that an application can build the values of a number field" do
+        script = %(require "iostreams"; print BigDecimal("12.5").to_s("F"))
+        output, = Open3.capture2e(RbConfig.ruby, "-I", File.expand_path("../lib", __dir__), "-e", script)
+
+        assert_equal "12.5", output
+      end
+
       let :records do
         [
           {"name" => "Jack Jones", "login" => "jjones"},

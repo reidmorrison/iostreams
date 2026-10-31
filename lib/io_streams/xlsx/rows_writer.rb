@@ -61,7 +61,7 @@ module IOStreams
         when nil, true, false, Date then value
         when Integer, Float then number(value)
         when String then @auto_format && !@text_columns.key?(index) ? auto_format(value) : value
-        else decimal?(value) ? number(value) : IOStreams::Schema::Field.any_text(value)
+        else value.is_a?(::BigDecimal) ? number(value) : IOStreams::Schema::Field.any_text(value)
         end
       end
 
@@ -81,11 +81,6 @@ module IOStreams
         return value.to_i.to_s if value.abs >= EXACT
 
         value.is_a?(Integer) ? value : value.to_f
-      end
-
-      # Returns [true|false] whether the value is a BigDecimal.
-      def decimal?(value)
-        defined?(::BigDecimal) && value.is_a?(::BigDecimal)
       end
 
       # Returns the number, date, time or boolean that the text looks like, or the text, as `xlsxtream` formats it.
