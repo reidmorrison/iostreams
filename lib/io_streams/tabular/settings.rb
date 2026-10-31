@@ -3,9 +3,9 @@
 module IOStreams
   class Tabular
     # The settings of a stream that describe its rows and records: the tabular format set with `IOStreams::Stream#format`,
-    # the schema set with `IOStreams::Stream#schema`, and the options of the rows of each tabular format whose rows are
-    # not lines of text, such as `option(:parquet, compression: "zstd")`, which its format reads and writes, see
-    # `IOStreams::Tabular#read_rows`.
+    # the schema set with `IOStreams::Stream#schema`, the contract set with `IOStreams::Stream#as`, and the options of
+    # the rows of each tabular format whose rows are not lines of text, such as `option(:parquet, compression: "zstd")`,
+    # which its format reads and writes, see `IOStreams::Tabular#read_rows`.
     #
     # It checks each one when it is set, decides the format of the rows, and builds the `IOStreams::Tabular` that reads
     # or writes them, see #tabular.
@@ -18,6 +18,7 @@ module IOStreams
         @format        = nil
         @schema        = nil
         @schema_source = nil
+        @contract      = nil
         @row_options   = nil
       end
 
@@ -100,10 +101,44 @@ module IOStreams
         @schema        = schema
       end
 
-      # Returns [true|false] whether a format or a schema is set, which describe the rows of the file, unlike the options
-      # of the rows of a tabular format, see #merge_row_options.
+      # Returns [Class|nil] the contract that the rows and records are read and written through, see #contract=, or nil
+      # when none was set.
+      attr_reader :contract
+
+      # Sets the contract that the rows and records are read and written through, see `IOStreams::Stream#as`: a contract,
+      # see `IOStreams::Contract`, or a Hash or an `IOStreams::Schema` of one, which it builds, or nil to remove it.
+      #
+      # Raises ArgumentError for anything else, such as a record of a contract, or for a Hash or a schema that is not a
+      # valid contract, such as one that lays out a file.
+      def contract=(contract)
+        @contract =
+          case contract
+          when nil then nil
+          when ::Hash, IOStreams::Schema then IOStreams::Contract.new(contract)
+          when Class
+            unless contract < IOStreams::Contract
+              raise(ArgumentError, "A contract must be a subclass of IOStreams::Contract, a Hash or an IOStreams::Schema: " \
+                                   "#{contract.inspect}")
+            end
+
+            contract.schema
+            contract
+          else
+            raise(ArgumentError, "A contract must be a subclass of IOStreams::Contract, a Hash or an IOStreams::Schema, " \
+                                 "rather than #{contract.class.name}: #{contract.inspect}")
+          end
+      end
+
+      # Returns [true|false] whether a format, a schema or a contract is set, which describe the rows of the file, unlike
+      # the options of the rows of a tabular format, see #merge_row_options.
       def described?
-        !(@format.nil? && @schema.nil?)
+        !(@format.nil? && @schema.nil? && @contract.nil?)
+      end
+
+      # Returns [true|false] whether a schema or a contract is set, which the rows are read by, rather than the schema
+      # that a source of typed rows declares, see `IOStreams::Query::Stream#tabular`.
+      def schema_or_contract?
+        !(@schema.nil? && @contract.nil?)
       end
 
       # Validates the options of the rows of the tabular format of the supplied name, such as `:parquet`, see
@@ -137,15 +172,18 @@ module IOStreams
       #     The format of the text of the stream closest to the application, see `IOStreams::Builder#text_format`.
       #
       #   default_schema: [IOStreams::Schema|nil]
-      #     The schema of the rows when none is set, which the source of the rows describes, such as that of the columns
-      #     of a database query, see `IOStreams::Query::Stream`.
+      #     The schema of the rows when neither a schema nor a contract is set, which the source of the rows describes,
+      #     such as that of the columns of a database query, see `IOStreams::Query::Stream`. A contract reads its typed
+      #     values instead, each of which passes through when it is of the type of its field, see
+      #     `IOStreams::Schema::Field#cast`.
       #
       #   The other options are those that the source of the rows supplies, see
       #   `IOStreams::Tabular::SOURCE_OPTION_NAMES`.
       def tabular(file_name:, text_format:, default_schema: nil, **)
         format = rows_format(file_name, text_format)
         row_format_options = (format && @row_options&.[](format.to_sym)) || {}
-        IOStreams::Tabular.new(file_name: file_name, format: format, schema: file_schema || default_schema,
+        schema = file_schema || (default_schema unless @contract)
+        IOStreams::Tabular.new(file_name: file_name, format: format, schema: schema, contract: @contract&.schema,
                                row_format_options: row_format_options, text_format: text_format, **)
       end
 

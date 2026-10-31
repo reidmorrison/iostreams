@@ -28,14 +28,32 @@ module IOStreams
       #     store returned them in, see `IOStreams::Schema::Columns#initialize`.
       #     Default: false
       #
+      #   every_field: [true|false]
+      #     Whether each record and row read has every field, nil for a field whose column the file does not have, as a
+      #     contract reads them when it is the schema, see `IOStreams::Schema::Columns#initialize`.
+      #     Default: false
+      #
+      #   contract: [IOStreams::Schema|nil]
+      #     The schema of a contract that meets the fields of the schema, which lays out the file, by their names, so
+      #     that the records and rows read and written are those of the contract, see
+      #     `IOStreams::Schema::ContractColumns`.
+      #     Default: nil
+      #
       #   See `IOStreams::Tabular::Mapping#initialize` for the others.
       #
       # Raises ArgumentError when the rows of a format with a header row, such as CSV, have none, and the schema cannot
       # describe them, see `IOStreams::Schema#check_fields_in_order`.
-      def initialize(schema, header:, parser:, format:, blank_rows: true, headerless: nil, typed: false)
+      def initialize(schema, header:, parser:, format:, blank_rows: true, headerless: nil, typed: false, every_field: false,
+                     contract: nil)
         super(header: header, parser: parser, format: format, blank_rows: blank_rows)
         @schema          = schema
-        @columns         = schema.columns(typed: typed)
+        @columns         =
+          if contract
+            IOStreams::Schema::ContractColumns.new(schema.columns(typed: typed, every_field: true),
+                                                   contract.columns(every_field: true))
+          else
+            schema.columns(typed: typed, every_field: every_field)
+          end
         @requires_header = parser.requires_header? && (headerless.nil? ? schema.header? : !headerless)
         # Whether each row is a record whose keys are its columns, such as JSON, rather than the values in the order of
         # the columns, see `IOStreams::Tabular::Parser::Base.keyed?`, and the form in which the format writes the values

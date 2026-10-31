@@ -57,7 +57,7 @@ module IOStreams
     # The options of #initialize that describe the format of the file, which reading and writing both accept. They are
     # set on the path, see `IOStreams::Tabular::Settings`, so that a call to read or write the rows cannot supply them,
     # see `IOStreams::Stream::PATH_SETTINGS`.
-    FORMAT_OPTION_NAMES = %i[format file_name schema default_format row_format_options].freeze
+    FORMAT_OPTION_NAMES = %i[format file_name schema contract default_format row_format_options].freeze
 
     # The options of #initialize that the stream supplies, rather than the path or a call: those of a source of rows
     # that is not a file, whether a row whose every value is blank is a blank row, which the rows of a database query
@@ -85,6 +85,16 @@ module IOStreams
     #     of each field.
     #     Without a schema, the header row names the columns, which are cleansed, see `IOStreams::Tabular::Header#cleanse!`,
     #     and name the keys of each record read, and the first row or record written gives the columns written.
+    #     Optional. Default: nil
+    #
+    #   contract: [IOStreams::Schema]
+    #     The schema of a contract, see `IOStreams::Contract`, which states the fields of the records that the program
+    #     needs: each record and row read has every field of the contract, in its order, nil for a field whose column
+    #     the file does not have, see `IOStreams::Schema::Columns.new`, and each value is converted to the type of its
+    #     field, at most once. Without a schema, the contract is the schema that the file is read and written by, apart
+    #     from what only lays out a file, such as the position of each field of a fixed width file, which needs a schema.
+    #     With one, the schema reads the file, and the contract meets its fields by their names, see
+    #     `IOStreams::Schema::ContractColumns`.
     #     Optional. Default: nil
     #
     #   default_format: [Symbol]
@@ -129,7 +139,7 @@ module IOStreams
     #     Default: nil, the lines are those of the format of the rows.
     #
     # Raises ArgumentError for a `headerless` that is not true, false or nil, or a `typed` that is not true or false.
-    def initialize(format: nil, file_name: nil, schema: nil, default_format: :csv, row_format_options: nil,
+    def initialize(format: nil, file_name: nil, schema: nil, contract: nil, default_format: :csv, row_format_options: nil,
                    blank_rows: true, headerless: nil, typed: false, text_format: nil)
       @format = file_name && format.nil? ? self.class.format_from_file_name(file_name) : format
       @format ||= default_format
@@ -139,7 +149,9 @@ module IOStreams
       end
       raise(ArgumentError, "typed must be true or false: #{typed.inspect}") unless [true, false].include?(typed)
 
-      @schema             = schema
+      @file_schema        = schema
+      @contract           = contract
+      @schema             = schema || contract
       @typed              = typed
       @row_format_options = row_format_options || {}
       @text_format        = text_format
@@ -155,7 +167,8 @@ module IOStreams
     # `headerless:` of #initialize. Without a schema, nothing names the columns of rows that have no header row, see
     # #unnamed_columns?, so the writer checks that this tabular can write them, see #check_unnamed_rows.
     def for_format(format, headerless:, blank_rows: true, typed: false)
-      self.class.new(format: format, schema: @schema, blank_rows: blank_rows, headerless: headerless, typed: typed)
+      self.class.new(format: format, schema: @file_schema, contract: @contract, blank_rows: blank_rows,
+                     headerless: headerless, typed: typed)
     end
 
     # Returns [IOStreams::Tabular::Header] the columns of the file: the header row read, or the keys of the first record,
@@ -680,11 +693,13 @@ module IOStreams
     # spreadsheet, which writes the text of each row as one of its rows.
     def build_parser
       parser_class = self.class.parser_class(@format)
-      return parser_class.new(schema: @schema) unless parser_class.verbatim?
+      # A contract never lays out a file, so a format that a schema lays out, such as fixed width, takes only a schema.
+      schema       = parser_class.layout? ? @file_schema : @schema
+      return parser_class.new(schema: schema) unless parser_class.verbatim?
 
       line_format = self.class.line_format(@format, text_format: @text_format)
       lines       = self.class.parser_class(line_format) unless line_format == @format
-      parser_class.new(schema: @schema, lines: lines)
+      parser_class.new(schema: schema, lines: lines)
     end
 
     # Returns [IOStreams::Tabular::Mapping] the mapping of the columns of the file, see #mapping: by the fields of the
@@ -695,7 +710,8 @@ module IOStreams
       header = Header.new
       if @schema
         SchemaMapping.new(@schema, header: header, parser: parser, format: format, blank_rows: blank_rows,
-                                   headerless: headerless, typed: typed)
+                                   headerless: headerless, typed: typed, every_field: !@contract.nil?,
+                                   contract: (@contract if @file_schema))
       else
         HeaderMapping.new(header: header, parser: parser, format: format, blank_rows: blank_rows, headerless: headerless)
       end

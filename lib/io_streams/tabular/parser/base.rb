@@ -28,6 +28,12 @@ module IOStreams
           value_form == :text ? "string" : "any"
         end
 
+        # Returns [true|false] whether the format takes the position of each value of a line from a schema, such as fixed
+        # width, which a contract never gives, see `IOStreams::Contract`, rather than from the line itself.
+        def self.layout?
+          false
+        end
+
         # Returns [String] the quote character within which field delimiters and embedded
         # newlines may appear for this format, or [nil] when the format has no such quoting.
         #

@@ -53,6 +53,7 @@ module IOStreams
       file_name:          "where it only chose the format, set the format on the path instead, for example: " \
                           "path.format(:json).each(:hash)",
       schema:             "set it on the path instead, for example: path.schema(\"people.json\").each(:hash)",
+      contract:           "set it on the path instead, for example: path.as(Orders::CONTRACT).each(:hash)",
       row_format_options: "set them on the path instead, for example: " \
                           "path.option(:parquet, compression: \"zstd\").writer(:hash)"
     }.freeze
@@ -571,6 +572,62 @@ module IOStreams
       tabular_settings.schema = schema
     end
 
+    # Sets the contract that the rows and records of this stream are read and written through: the fields that the
+    # program needs, and the type of each one, so that every source yields the same records, whatever its format or
+    # store, see `IOStreams::Contract`. A schema set with #schema still describes the file, such as the position of each
+    # field of a fixed width file, and the contract meets its fields by their names.
+    #
+    # Reading rows and records through a contract:
+    # - Each record has every field of the contract, in its order, keyed by its name, or as its `keyType` forms it,
+    #   whatever the source calls its columns, and nil for a field whose column the source does not have, which
+    #   `fieldsMatch` "superset" and "partial" accept. Each row of `each(:array)` has the same values, after a header row
+    #   of those keys.
+    # - The columns of the source are matched to the fields once, before the first row, so a missing column raises
+    #   `IOStreams::Errors::InvalidHeader`, see `fieldsMatch` and `constraints` in `IOStreams::Schema`.
+    # - Each value converts at most once: text is parsed, and a value already of the type of its field passes through,
+    #   such as a BigDecimal of a Parquet file or a query, see `IOStreams::Schema::Field#cast`.
+    # The `:stream` and `:line` modes read and write bytes and lines as they are stored, so a contract converts nothing
+    # there.
+    #
+    # Writing rows and records through a contract names and orders the columns by its fields, and converts and checks
+    # each value, which the format writes in its own form, such as CSV's text or Parquet's types.
+    #
+    # Parameters:
+    #   contract: [Class|Hash|IOStreams::Schema|nil]
+    #     A contract, see `IOStreams::Contract`, or the Hash or schema of one, which it builds with
+    #     `IOStreams::Contract.new`, or nil to remove it.
+    #
+    # Returns [IOStreams::Stream] this stream.
+    #
+    # Raises ArgumentError for anything else, such as a record of a contract, or for a Hash or a schema that is not a
+    # valid contract, such as one that lays out a file, see `IOStreams::Contract`.
+    #
+    # Example:
+    #   module Orders
+    #     CONTRACT = IOStreams::Contract.new(
+    #       fieldsMatch: "partial",
+    #       fields:      [
+    #         {name: "id", type: "integer", constraints: {required: true}},
+    #         {name: "amount", type: "number", decimals: 2},
+    #         {name: "ordered_at", type: "datetime", aliases: ["created_at"]}
+    #       ]
+    #     )
+    #
+    #     def self.import(source)
+    #       source.as(CONTRACT).each(:hash) do |order|
+    #         Ledger.post(order["id"], order["amount"], order["ordered_at"])
+    #       end
+    #     end
+    #   end
+    #
+    #   Orders.import(IOStreams.path(ENV.fetch("ORDERS_URL")))   # CSV, JSON, Excel or Parquet, in any store
+    #   Orders.import(IOStreams.stream(Order.where(paid: true))) # An Active Record query
+    def as(contract)
+      raise_if_frozen!
+      tabular_settings.contract = contract
+      self
+    end
+
     # Returns [IOStreams::Schema] the schema that the rows and records of this stream are read by: the schema set with
     # #schema, reading its file the first time, otherwise the schema that the source declares, which IOStreams never
     # guesses:
@@ -832,13 +889,13 @@ module IOStreams
       target
     end
 
-    # Returns [IOStreams::Stream] this stream, unless it has no schema, and a copy of the rows of the supplied source
-    # gives it one, see #copy_schema, when it returns a copy of this stream with that schema, so that the schema of this
-    # stream is not changed. A writer of the mode that is already open, which writes with its own settings, see
-    # #open_writer?, keeps this stream as it is.
+    # Returns [IOStreams::Stream] this stream, unless it has neither a schema nor a contract, see #as, and a copy of the
+    # rows of the supplied source gives it one, see #copy_schema, when it returns a copy of this stream with that schema,
+    # so that the schema of this stream is not changed. A writer of the mode that is already open, which writes with its
+    # own settings, see #open_writer?, keeps this stream as it is.
     def with_copy_schema(source, mode)
       return self if open_writer?(mode)
-      return self unless schema.nil?
+      return self unless schema.nil? && tabular_settings.contract.nil?
 
       copied = source.copy_schema
       return self if copied.nil?

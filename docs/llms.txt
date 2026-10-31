@@ -6,7 +6,7 @@
 
 The public entry points are `IOStreams.path(...)`, `IOStreams.join(...)` and `IOStreams.stream(io)`,
 which return a path or stream. Its settings describe the file: `#stream`/`#option` for compression and
-encryption, `#encoding` for its text, `#format` and `#schema` for its rows and records, and `#raw` to
+encryption, `#encoding` for its text, `#format` and `#schema` for its rows and records, `#as` for the contract that a program reads them through, and `#raw` to
 read and write it as stored. It is read and written with `#each`, `#reader`, `#writer`, `#read`,
 `#write`, `#copy_from`, `#copy_to` and `#move_to`, in the `:stream`, `:line`, `:array`, `:hash` or `:slice` mode.
 
@@ -17,6 +17,7 @@ read and write it as stored. It is read and written with `#each`, `#reader`, `#w
 - [Reading and Writing](https://iostreams.reidmorrison.com/streams): the `:stream`, `:line`, `:array` and `:hash` modes, what a failed write keeps, lines, text encodings with `#encoding`, `#raw`, and the streams that a file name implies.
 - [Paths](https://iostreams.reidmorrison.com/path): where a file is stored (local disk, S3, Google Cloud Storage with `gs://`, which is experimental, SFTP, HTTP), the options of each store, and the operations on a path, such as listing, joining and deleting.
 - [Tabular Formats](https://iostreams.reidmorrison.com/formats): CSV, PSV, JSON Lines, fixed width, Excel and Parquet files, plain text, how the format is chosen, and schemas with typed fields, fieldsMatch and required fields.
+- [Contracts](https://iostreams.reidmorrison.com/contracts): reading the same records from any source with a contract, the fields that a program needs and their types, set with `#as`: `IOStreams::Contract`, built from a Hash or declared as a class, every field in its order, missing columns raising before the first row, writing through a contract, and a file with a schema of its own, such as fixed width.
 - [Compression and Encryption](https://iostreams.reidmorrison.com/extensions): the gzip, bzip2, zip, Zstandard, PGP and Symmetric Encryption streams and their options.
 - [Copying and Moving](https://iostreams.reidmorrison.com/copy_files): `#copy_from`, `#copy_to` and `#move_to`, converting compression, encryption and format on the way, and what a failed copy leaves.
 - [Exporting Queries](https://iostreams.reidmorrison.com/queries): exporting the rows of an Active Record query to any format and store with `copy_from(relation, mode: :hash)`, reading them with `IOStreams.stream(relation)`, one query or `in_batches`, the schema of the types of its columns and the columns that need a type, such as JSON for Parquet, the connection of its own that a query is read on, how PostgreSQL, MySQL and SQLite stream a query, and its failures.

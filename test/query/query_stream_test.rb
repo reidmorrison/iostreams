@@ -551,6 +551,29 @@ class QueryStreamTest < Minitest::Test
           assert_nil stream.schema
         end
 
+        it "reads the rows through a contract, whose aliases match the columns, with every field in its order" do
+          contract = IOStreams::Contract.new(
+            fieldsMatch: "partial",
+            fields:      [
+              {name: "total", type: "number", decimals: 2, aliases: ["amount"]},
+              {name: "label", type: "string", aliases: ["name"]},
+              {name: "missing", type: "integer"}
+            ]
+          )
+          records = each(IOStreams.stream(orders.select(:id, :name, :amount)).as(contract))
+
+          assert_equal [{"total" => BigDecimal("12.5"), "label" => "a", "missing" => nil},
+                        {"total" => BigDecimal("3"), "label" => "b", "missing" => nil},
+                        {"total" => BigDecimal("100.25"), "label" => "c", "missing" => nil}], records
+          assert(records.all? { |record| record["total"].is_a?(BigDecimal) })
+        end
+
+        it "raises before the first row for a required field of a contract that the query has no column for" do
+          contract = IOStreams::Contract.new(fieldsMatch: "partial", fields: [{name: "zip", constraints: {required: true}}])
+
+          assert_raises(IOStreams::Errors::InvalidHeader) { each(IOStreams.stream(orders.select(:id)).as(contract)) }
+        end
+
         it "reads the rows by the schema that was set" do
           stream = IOStreams.stream(orders.select(:id, :name, :data))
           stream.schema(fieldsMatch: "partial", fields: [{name: "label", aliases: ["name"]}, {name: "data", type: "any"}])
