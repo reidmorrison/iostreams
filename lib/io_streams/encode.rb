@@ -143,6 +143,53 @@ module IOStreams
     end
     private_class_method :converter?
 
+    # Returns [Array(String, IOStreams::Errors::InvalidEncoding)] for text that UTF-8 cannot hold as it is: the text
+    # before its first character that is not valid, or that UTF-8 does not have, as UTF-8, and the error for that
+    # character, at the byte offset of that UTF-8 text. Binary text is the UTF-8 text of its bytes, and text in another
+    # encoding is converted, as `String#encode` converts it.
+    #
+    # Parameters
+    #   place: [String]
+    #     Where the text is, which the error starts with, such as "a key or value written to JSON".
+    def self.utf8_failure(text, place: nil)
+      if [Encoding::UTF_8, Encoding::BINARY].include?(text.encoding)
+        utf8   = text.encoding == Encoding::UTF_8 ? text : text.dup.force_encoding(Encoding::UTF_8)
+        before = utf8.byteslice(0, valid_utf8_size(utf8))
+        bytes  = utf8.byteslice(before.bytesize..).scrub { |sequence| break sequence }
+        reason = "#{bytes.b.dump} is not valid UTF-8"
+      else
+        converter = Encoding::Converter.new(text.encoding, Encoding::UTF_8)
+        before    = String.new(encoding: Encoding::UTF_8)
+        result    = converter.primitive_convert(text.dup, before, nil, nil)
+        _result, source, _destination, bytes = converter.primitive_errinfo
+        reason =
+          if result == :undefined_conversion
+            "#{bytes.b.dump} in #{source} has no UTF-8 character"
+          else
+            "#{bytes.b.dump} is not valid #{source}"
+          end
+      end
+      # The bytes of binary and UTF-8 text are checked as UTF-8, as `IOStreams::Encode::Converter` checks them.
+      checked_as = [Encoding::UTF_8, Encoding::BINARY].include?(text.encoding) ? Encoding::BINARY : text.encoding
+      error      = Errors::InvalidEncoding.new(
+        place ? "In #{place}, #{reason}" : reason, byte_offset: before.bytesize, error_char: bytes.b,
+                                                   source_encoding: checked_as, destination_encoding: Encoding::UTF_8
+      )
+      [before, error]
+    end
+
+    # Returns [Integer] the number of bytes of the valid characters at the start of the UTF-8 text.
+    def self.valid_utf8_size(text)
+      size = 0
+      text.each_char do |char|
+        break unless char.valid_encoding?
+
+        size += char.bytesize
+      end
+      size
+    end
+    private_class_method :valid_utf8_size
+
     # Returns [true|false] whether data in this format is compressed.
     def self.compressed?
       false

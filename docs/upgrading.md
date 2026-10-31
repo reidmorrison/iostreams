@@ -527,9 +527,10 @@ Fix: to write another form, convert the value to text before writing it.
 #### Text written to JSON is UTF-8
 
 JSON holds only UTF-8 text, so the JSON format writes a binary String, such as one read with `encoding("BINARY")`,
-as the UTF-8 text of its bytes, in a key or a value, as v2.2 does with a schema, and raises
-`IOStreams::Errors::InvalidEncoding` for text that is not valid UTF-8, also in the JSON of a `Hash` or an `Array`
-value in another format. Previously, without a schema, text that is not valid UTF-8 raised the json gem's
+as the UTF-8 text of its bytes, in a key or a value, as v2.2 does with a schema, converts text in another encoding,
+and raises `IOStreams::Errors::InvalidEncoding` for text that is not valid UTF-8, or a character that UTF-8 does not
+have, also in the JSON of a `Hash` or an `Array` value in another format, naming the byte offset within the key or
+value. Previously, without a schema, text that is not valid UTF-8 raised the json gem's
 `JSON::GeneratorError`, as binary text did with some versions of the json gem, such as 3.1, while others wrote it,
 some with a warning, and JRuby's json 2 could write the bytes of text that is not valid UTF-8, which is not valid JSON.
 

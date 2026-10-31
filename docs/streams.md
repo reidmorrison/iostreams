@@ -340,8 +340,8 @@ returns up to 128 bytes of binary data, whether the file is plain, compressed or
 Writing writes the bytes of each String as they are, unless an encoding is set. Fixed width files and JSON are the
 exceptions: fixed width files are written as ASCII, and JSON, which holds only UTF-8 text, writes a binary String,
 such as one read with `encoding("BINARY")`, as the UTF-8 text of its bytes, also as a key, and within the JSON of a
-Hash or an Array value in another format, such as CSV, while text that is not valid UTF-8 raises
-`IOStreams::Errors::InvalidEncoding`.
+Hash or an Array value in another format, such as CSV, and converts text in another encoding, while text that is not
+valid UTF-8, or a character that UTF-8 does not have, raises `IOStreams::Errors::InvalidEncoding`.
 
 ### Character encoding
 

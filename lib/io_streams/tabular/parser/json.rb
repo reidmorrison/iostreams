@@ -16,8 +16,8 @@ module IOStreams
           true
         end
 
-        # Returns [JSON::Coder|nil] a coder that writes a record as `IOStreams::Schema::Field.any_json(record).to_json`
-        # does, in one pass over its values in the json gem, rather than one pass in Ruby, then another to write them.
+        # Returns [JSON::Coder|nil] a coder that writes a record as `.json_value(record).to_json` does, in one pass over its
+        # values in the json gem, rather than one pass in Ruby, then another to write them.
         #
         # Returns nil before json 2.10, which added `JSON::Coder`, for a version whose coder does not write a key that is
         # not a String the same way, or does not hand its block the text that it does not write as it is, see .hands_text?,
@@ -81,10 +81,10 @@ module IOStreams
           coder ? coder.dump(value) : json_value(value).to_json
         end
 
-        # Returns the record or value as the JSON format writes it: each of its keys and String values as UTF-8 text, see
-        # .json_text, and any other value that JSON does not hold as it is, such as a BigDecimal or a Date, as
-        # `IOStreams::Schema::Field.any_json` converts it, see .generate. Returns the value itself, or a Hash or an Array
-        # within it, when none of its values needs it, as `IOStreams::Schema::Field.any_json` does.
+        # Returns the record or value as the JSON format writes it: each of its keys, String values and Symbol values as
+        # UTF-8 text, see .json_text, and any other value that JSON does not hold as it is, such as a BigDecimal or a
+        # Date, as `IOStreams::Schema::Field.any_json` converts it, see .generate. Returns the value itself, or a Hash or
+        # an Array within it, when none of its values needs it, so that the record is copied only where it changes.
         #
         # Raises `IOStreams::Errors::InvalidEncoding` for text that is not valid, see .json_text.
         def self.json_value(value)
@@ -93,6 +93,8 @@ module IOStreams
           when ::Array then json_array(value)
           when String then json_text(value)
           when Integer, Float, true, false, nil then value
+          # JSON writes a Symbol as the text of its name.
+          when Symbol then json_name(value)
           else
             json = IOStreams::Schema::Field.any_json(value)
             json.is_a?(String) ? json_text(json) : json
@@ -101,25 +103,47 @@ module IOStreams
 
         # Returns [String] the text as JSON holds it, which is UTF-8: the text itself when it is already UTF-8, or ASCII,
         # the UTF-8 text of the bytes of binary text, such as a value read with `encoding("BINARY")`, as IOStreams 2.2
-        # writes it with a schema, or text in another encoding converted to UTF-8, see `IOStreams::Encode::Converter`.
+        # writes it with a schema, or text in another encoding converted to UTF-8.
         #
-        # Raises `IOStreams::Errors::InvalidEncoding` for text that is not valid, such as binary text that is not valid
-        # UTF-8, naming its first invalid bytes and their byte offset within the text, rather than the
-        # `JSON::GeneratorError` of the json gem, since callers rescue the exceptions of IOStreams, never those of a gem.
+        # Raises `IOStreams::Errors::InvalidEncoding` for a character that is not valid, such as in binary text that is
+        # not valid UTF-8, or that UTF-8 does not have, rather than the `JSON::GeneratorError` of the json gem, or the
+        # `Encoding::UndefinedConversionError` of Ruby, since callers rescue the exceptions of IOStreams. The text is
+        # checked a key or value at a time, before its line is written, so the error names its first invalid bytes and
+        # their byte offset within that key or value, see `IOStreams::Encode.utf8_failure`.
         def self.json_text(text)
           return text if text.ascii_only? || (text.encoding == ::Encoding::UTF_8 && text.valid_encoding?)
 
-          IOStreams::Encode::Converter.new(encoding: ::Encoding::UTF_8, replace: nil).convert(text, final: true)
+          utf8_text(text) || raise(IOStreams::Encode.utf8_failure(text, place: "a key or value written to JSON").last)
         end
+
+        # Returns [String|nil] the UTF-8 text of the bytes of binary text, or the text in another encoding converted to
+        # UTF-8, or nil when it holds a character that is not valid, or that UTF-8 does not have, see .json_text.
+        def self.utf8_text(text)
+          case text.encoding
+          when ::Encoding::UTF_8
+            nil
+          when ::Encoding::BINARY
+            utf8 = text.dup.force_encoding(::Encoding::UTF_8)
+            utf8 if utf8.valid_encoding?
+          else
+            text.encode(::Encoding::UTF_8)
+          end
+        rescue ::Encoding::InvalidByteSequenceError, ::Encoding::UndefinedConversionError
+          nil
+        end
+        private_class_method :utf8_text
 
         # Returns [Hash] the hash as the JSON format writes it, see .json_value, or the hash itself when none of its keys
         # and values needs it. A key that is not text, such as an Integer, is kept, which JSON writes with `to_s`.
+        #
+        # A key or value that JSON writes as it is, such as ASCII text or a number, see .plain?, is taken as it is
+        # without converting it, since most are.
         def self.json_hash(hash)
           copy  = nil
           index = 0
           hash.each_pair do |key, item|
-            name = json_key(key)
-            json = json_value(item)
+            name = key.is_a?(String) && key.ascii_only? ? key : json_name(key)
+            json = plain?(item) ? item : json_value(item)
             copy ||= hash.first(index).to_h unless name.equal?(key) && json.equal?(item)
             copy[name] = json if copy
             index += 1
@@ -133,6 +157,8 @@ module IOStreams
         def self.json_array(array)
           copy = nil
           array.each_with_index do |item, index|
+            next if plain?(item)
+
             json = json_value(item)
             (copy ||= array.dup)[index] = json unless json.equal?(item)
           end
@@ -140,18 +166,33 @@ module IOStreams
         end
         private_class_method :json_array
 
-        # Returns the key itself, or the UTF-8 text of a key whose text, which JSON writes, is not UTF-8, see .json_text.
-        def self.json_key(key)
+        # Returns [true|false] whether JSON writes the value as it is: nil, true, false, an Integer, a Float, or ASCII
+        # text, see .json_value. Ruby keeps what it found the first time that it checked the text, which the json gem
+        # asks again as it writes it.
+        def self.plain?(value)
+          case value
+          when String then value.ascii_only?
+          when Integer, Float, true, false, nil then true
+          else false
+          end
+        end
+        private_class_method :plain?
+
+        # Returns the key or Symbol value itself, or the UTF-8 text of one whose text, which JSON writes, is not UTF-8,
+        # see .json_text. JSON writes a Symbol as its name, and a key that is neither text nor a Symbol with `to_s`, such
+        # as an Integer, whose text is ASCII.
+        def self.json_name(name)
           text =
-            case key
-            when String then key
-            when Symbol then key.name
-            else key.to_s
+            case name
+            when String then name
+            when Symbol then name.name
+            when Integer, Float, true, false, nil then return name
+            else name.to_s
             end
           json = json_text(text)
-          json.equal?(text) ? key : json
+          json.equal?(text) ? name : json
         end
-        private_class_method :json_key
+        private_class_method :json_name
 
         # The most keys whose fields it keeps, see #decimal_key?.
         DECIMAL_KEYS = 1000

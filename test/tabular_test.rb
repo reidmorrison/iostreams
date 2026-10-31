@@ -1542,8 +1542,38 @@ class TabularTest < Minitest::Test
             ].each do |record|
               error = assert_raises(IOStreams::Errors::InvalidEncoding, "#{way} #{record.inspect}") { render_json(record, way) }
               assert_equal "\xE9".b, error.error_char
-              assert_match(/\A"\\xE9" is not valid UTF-8 at byte offset \d\z/, error.message)
+              assert_match(/\AIn a key or value written to JSON, "\\xE9" is not valid UTF-8 at byte offset \d\z/, error.message)
             end
+          end
+        end
+
+        it "names the byte offset within the key or value, which is checked before its line is written" do
+          ways.each do |way|
+            error = assert_raises(IOStreams::Errors::InvalidEncoding, way.to_s) { render_json({"id" => 1, "name" => "Jos\xE9".b}, way) }
+            assert_equal 3, error.byte_offset, way
+            assert_nil error.line_number, way
+          end
+        end
+
+        it "raises InvalidEncoding for a character that UTF-8 does not have, rather than an error of Ruby" do
+          ways.each do |way|
+            [
+              {"name" => (+"caf\x81").force_encoding(Encoding::WINDOWS_1252)},
+              {(+"caf\x81").force_encoding(Encoding::WINDOWS_1252) => 1}
+            ].each do |record|
+              error = assert_raises(IOStreams::Errors::InvalidEncoding, "#{way} #{record.inspect}") { render_json(record, way) }
+              assert_equal 'In a key or value written to JSON, "\x81" in WINDOWS-1252 has no UTF-8 character at byte offset 3',
+                           error.message, way
+              assert_equal "\x81".b, error.error_char
+              assert_equal Encoding::WINDOWS_1252, error.source_encoding
+              assert_equal Encoding::UTF_8, error.destination_encoding
+            end
+          end
+        end
+
+        it "writes a Symbol value as the UTF-8 text of its name" do
+          ways.each do |way|
+            assert_equal %({"city":"Zürich","state":"open"}), render_json({"city" => "Zürich".b.to_sym, "state" => :open}, way), way
           end
         end
 

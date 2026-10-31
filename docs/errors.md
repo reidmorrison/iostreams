@@ -154,6 +154,9 @@ IOStreams raises these classes itself:
   is read a line at a time, such as with `each(:line)` or `each(:hash)`, where the lines before it are read first.
   Lines written to a store of slices with `writer(:line)` raise it at the byte offset and on the line that reading
   them from a file would, also for a character that UTF-8 does not have, see [Slices](background_jobs#writing-to-a-store-of-slices).
+  The JSON format checks the text of each key and value that it writes, before its line is written, so it raises it
+  at the byte offset within that key or value, without a line, such as
+  `In a key or value written to JSON, "\xE9" is not valid UTF-8 at byte offset 3`.
   For example `"\xE9" is not valid UTF-8 at byte offset 1043 on line 12`. As an `Encoding::UndefinedConversionError`,
   its `#error_char` is the invalid bytes, and its `#source_encoding` and `#destination_encoding` the encodings that
   they were read and checked as.
