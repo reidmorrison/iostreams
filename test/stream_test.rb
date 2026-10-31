@@ -1451,6 +1451,23 @@ class StreamTest < Minitest::Test
         end
       end
 
+      it "returns each part that a read of a length reads, and the whole of the data, as text in that encoding" do
+        Dir.mktmpdir do |dir|
+          latin = "name\nJos\xE9\n".b
+
+          %w[people.csv people.csv.gz people.csv.bz2].each do |name|
+            IOStreams.path(dir, name).write(latin)
+            path  = IOStreams.path(dir, name).encoding("ISO-8859-1")
+            parts = path.reader { |io| [io.read(3), io.read(3)] }
+
+            assert_equal %W[nam e\nJ], parts, name
+            # On MRI the whole of a .gz file is still converted from Encoding.default_external, as before, which v3.0
+            # changes.
+            assert_equal "name\nJosé\n".encode("ISO-8859-1"), path.read, name unless name.end_with?(".gz")
+          end
+        end
+      end
+
       it "works for a stream without a file name" do
         io = StringIO.new("New M\xE9xico\n".b)
 

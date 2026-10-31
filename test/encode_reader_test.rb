@@ -175,7 +175,7 @@ class EncodeReaderTest < Minitest::Test
           chunks = []
           IOStreams::Encode::Reader.stream(input, encoding: "ISO-8859-1", **) do |io|
             while (chunk = io.read(4))
-              chunks << chunk.dup
+              chunks << chunk
             end
           end
           chunks
@@ -201,12 +201,23 @@ class EncodeReaderTest < Minitest::Test
           assert_equal "name\nJos?\n", chunks(OneArgReader.new(StringIO.new(latin)), replace: "?").join
         end
 
-        it "are still converted when the whole of the data is read" do
-          input = OneArgReader.new(StringIO.new(latin))
+        it "are text in its encoding when the whole of the data is read too" do
+          [OneArgReader, BinaryBufferReader].each do |reader|
+            text = IOStreams::Encode::Reader.stream(reader.new(StringIO.new(latin)), encoding: "ISO-8859-1", &:read)
 
-          assert_raises(::Encoding::UndefinedConversionError) do
-            IOStreams::Encode::Reader.stream(input, encoding: "ISO-8859-1", &:read)
+            assert_equal "name\nJosé\n".encode("ISO-8859-1"), text, reader.name
           end
+        end
+
+        it "leaves the String that the input stream returned as it is, which the stream can still hold" do
+          held  = latin.dup
+          input = Object.new
+          input.define_singleton_method(:read) { |_size = nil| held }
+
+          chunk = IOStreams::Encode::Reader.stream(input, encoding: "ISO-8859-1") { |io| io.read(4) }
+
+          assert_equal "name\nJosé\n".encode("ISO-8859-1"), chunk
+          assert_equal Encoding::BINARY, held.encoding
         end
       end
 
