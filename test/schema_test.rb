@@ -256,6 +256,18 @@ class SchemaTest < Minitest::Test
         refute_equal schema, IOStreams::Schema.new(fields: [{name: "id", type: "integer"}], fieldsMatch: "subset")
         refute_equal schema, schema.to_h
       end
+
+      it "is eql? only for properties that are eql?, as a Hash key needs, which have the same hash" do
+        whole = IOStreams::Schema.new(fields: [{name: "id", "x:scale" => 1}])
+        float = IOStreams::Schema.new(fields: [{name: "id", "x:scale" => 1.0}])
+
+        assert_equal whole, float
+        refute whole.eql?(float)
+        assert_nil({whole => 1}[float])
+        assert_equal 1, {whole => 1}[IOStreams::Schema.new(fields: [{name: "id", "x:scale" => 1}])]
+        refute whole.fields.first.eql?(float.fields.first)
+        assert_equal whole.fields.first.hash, IOStreams::Schema.new(whole.to_h).fields.first.hash
+      end
     end
 
     describe "#inspect" do

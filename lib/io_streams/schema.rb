@@ -206,6 +206,7 @@ module IOStreams
       @cleansed     = build_loose { |name| self.class.match_key(self.class.cleansed(name)) }
       @decimals     = @fields.any?(&:decimal?)
       @properties   = Utils.frozen_copy(descriptor.except("fields").transform_keys(&:to_sym))
+      @hash         = [self.class, @properties, @fields].hash
       freeze
     end
 
@@ -221,10 +222,19 @@ module IOStreams
     end
 
     # Returns [true|false] whether the other is a schema of the same properties and fields, see #to_h.
-    def ==(other) = other.instance_of?(self.class) && to_h == other.to_h
-    alias eql? ==
+    def ==(other)
+      equal?(other) || (other.instance_of?(self.class) && properties == other.properties && fields == other.fields)
+    end
 
-    def hash = to_h.hash
+    # Returns [true|false] whether the other is a schema of the same properties and fields, compared by `eql?`, as a
+    # Hash key is.
+    def eql?(other)
+      equal?(other) || (other.instance_of?(self.class) && properties.eql?(other.properties) && fields.eql?(other.fields))
+    end
+
+    # Returns [Integer] the hash of the properties and fields of the schema, worked out once, since a schema never
+    # changes.
+    attr_reader :hash
 
     # Returns [String] the class and the schema as a Hash, see #to_h, rather than every instance variable.
     def inspect
@@ -310,7 +320,7 @@ module IOStreams
     def check_columns(found, unknown, ordered:, noun:)
       problems = []
       problems << unknown_problem(unknown, noun) unless unknown.empty? || skip_unknown?
-      missing = fields - found
+      missing = missing_fields(found)
       if every_field? && !missing.empty?
         problems << "missing the #{plural('field', missing)} #{names_of(missing)}, which fieldsMatch #{fields_match.inspect} " \
                     "requires; \"superset\" and \"partial\" accept missing fields"
@@ -438,7 +448,21 @@ module IOStreams
       @keep_extra
     end
 
+    protected
+
+    # Returns [Hash] the frozen properties of the schema, other than its fields, for #== and #eql?, without the copy that
+    # #to_h makes.
+    attr_reader :properties
+
     private
+
+    # Returns [Array<IOStreams::Schema::Field>] the fields that are not among those found, which are fields of this
+    # schema, compared by identity, since a field equals another of the same properties, see Field#==, which costs more
+    # for each record that this checks.
+    def missing_fields(found)
+      found = found.each_with_object({}.compare_by_identity) { |field, set| set[field] = true }
+      fields.reject { |field| found.key?(field) }
+    end
 
     # Returns [true|false] whether every field must be one of the columns.
     def every_field?

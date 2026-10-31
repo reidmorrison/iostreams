@@ -207,6 +207,7 @@ module IOStreams
         @constraints  = Constraints.new(descriptor["constraints"], @name,
                                         allow_blank: check_flag("allowBlank", descriptor["allowBlank"]))
         @properties   = properties_of(descriptor)
+        @hash         = [self.class, @properties].hash
         require_bigdecimal if @type == "number" && !@float
         require_duration if @type == "duration"
         freeze
@@ -221,13 +222,16 @@ module IOStreams
 
       # Returns [true|false] whether the other is a field of the same properties, see #to_h.
       def ==(other)
-        other.instance_of?(self.class) && to_h == other.to_h
+        equal?(other) || (other.instance_of?(self.class) && properties == other.properties)
       end
-      alias eql? ==
 
-      def hash
-        to_h.hash
+      # Returns [true|false] whether the other is a field of the same properties, compared by `eql?`, as a Hash key is.
+      def eql?(other)
+        equal?(other) || (other.instance_of?(self.class) && properties.eql?(other.properties))
       end
+
+      # Returns [Integer] the hash of the properties of the field, worked out once, since a field never changes.
+      attr_reader :hash
 
       # Returns [String] the class and the properties of the field, see #to_h, rather than every instance variable.
       def inspect
@@ -417,6 +421,11 @@ module IOStreams
 
         text(value)
       end
+
+      protected
+
+      # Returns [Hash] the frozen properties of the field, for #== and #eql?, without the copy that #to_h makes.
+      attr_reader :properties
 
       private
 

@@ -60,6 +60,30 @@ class InferSchemaTest < Minitest::Test
         assert_equal(%w[id name], fields(text("id,#,name\n1,2,3\n", "orders.csv")).map { |field| field[:name] })
       end
 
+      it "reads the file that it describes, past the columns and keys without a name that it leaves out" do
+        [["id,#,name\n1,2,3\n", "orders.csv"], ["id,,name\n1,2,3\n", "orders.csv"], ["id,name,\n1,3,\n", "orders.csv"],
+         [%({"":2,"id":"1","name":"3"}\n), "orders.json"]].each do |data, file_name|
+          schema  = text(data, file_name).infer_schema
+          records = []
+          text(data, file_name).schema(schema).each(:hash) { |record| records << record }
+
+          assert_equal "subset", schema.fields_match, data
+          assert_equal [{"id" => "1", "name" => "3"}], records, data
+        end
+        assert_equal "exact", text("id,name\n1,3\n", "orders.csv").infer_schema.fields_match
+      end
+
+      it "returns an IO that it reads to where it was, so that its rows are still read" do
+        io = StringIO.new("id,name\n1,Jack\n")
+        io.gets
+        stream = IOStreams.stream(io).file_name("people.csv")
+        stream.infer_schema
+        records = []
+        stream.each(:array) { |row| records << row }
+
+        assert_equal [%w[1 Jack]], records
+      end
+
       it "raises for two columns that are the same key once cleansed, since a schema cannot hold both" do
         error = assert_raises(IOStreams::Errors::InvalidHeader) { text("Amount ($),Amount (€)\n1,2\n", "orders.csv").infer_schema }
 
@@ -141,6 +165,15 @@ class InferSchemaTest < Minitest::Test
             ]
 
             assert_equal expected, fields(IOStreams.path(dir, "orders.parquet"))
+          end
+        end
+
+        it "raises for an encoding, as reading does, rather than decode the bytes of the file" do
+          Dir.mktmpdir do |dir|
+            IOStreams.path(dir, "orders.parquet").schema(fields: [{name: "id", type: "integer"}]).writer(:hash) { |io| io << {"id" => 1} }
+            error = assert_raises(ArgumentError) { IOStreams.path(dir, "orders.parquet").encoding("UTF-8").infer_schema }
+
+            assert_includes error.message, "#encoding cannot be used with the :parquet format"
           end
         end
 

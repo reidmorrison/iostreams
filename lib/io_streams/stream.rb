@@ -576,16 +576,21 @@ module IOStreams
     # guesses:
     # - The header row of a file with one, such as CSV, PSV or a spreadsheet, gives a field of type "string" for each
     #   column, since its values are text, named as the keys of the records that `each(:hash)` reads, which cleanses
-    #   them, such as `ordered_at` for `Ordered At`. A column whose name cleanses to nothing, such as `#`, is left out,
-    #   as `each(:hash)` leaves it out.
+    #   them, such as `ordered_at` for `Ordered At`. A column whose name cleanses to nothing, such as `#`, or an empty
+    #   one, is left out, as `each(:hash)` leaves it out, and the schema is then `fieldsMatch: "subset"`, so that it
+    #   still reads the file.
     # - The first record of a format of keyed records, such as JSON, gives a field of type "any" for each of its keys,
-    #   since each value has a type of its own.
+    #   since each value has a type of its own. It declares only the keys of that record, which the records after it
+    #   need not share.
     # - A Parquet file declares the type of each column, which is read from the end of the file, and a column that cannot
-    #   be null is required, unless its values are text, which can be empty.
+    #   be null is required, unless its values are text, which can be empty, or of type "any".
     # - An Active Record query declares the type of each column, see `IOStreams::Query::Stream`.
     #
     # It reads only what describes the source, such as the header row of a CSV file, the end of a Parquet file, or a
-    # query of no rows. A file without rows has no fields.
+    # query of no rows, though a Parquet file that is not a local file is first copied whole to a temporary file, as
+    # reading it does. A file without a header row or a first record has no fields. Of an IO supplied to
+    # `IOStreams.stream`, it reads only the start, and then returns the IO to where it was, when the IO can seek, so that
+    # its rows are still read, while an IO that cannot, such as a pipe, has then been read past what this read.
     #
     # Raises ArgumentError for a format that declares neither the names nor the positions of its columns, such as fixed
     # width, which needs a schema that gives the position of each field, or `:text`, whose one column has no name.
@@ -1131,12 +1136,34 @@ module IOStreams
     def declared_schema
       tabular = self.tabular
       tabular.check_records
-      return stream_reader { |io| tabular.read_rows(io, &:declared_schema) } unless tabular.lines?
+      reading_ahead do
+        open_rows_reader(tabular, nil, nil) do |rows|
+          next rows.declared_schema unless tabular.lines?
 
-      first = open_rows_reader(tabular, nil, nil) do |io|
-        IOStreams::Row::Reader.new(io, tabular: tabular, skip_blanks: true).first
+          tabular.declared_schema(IOStreams::Row::Reader.new(rows, tabular: tabular, skip_blanks: true).first)
+        end
       end
-      tabular.declared_schema(first)
+    end
+
+    # Yields, then returns the IO supplied to `IOStreams.stream` to where it was, when it can seek, so that what reads
+    # the start of the rows only to describe them, such as #infer_schema, leaves them to be read. An IO that cannot seek,
+    # such as a pipe, has been read past what the block read. A path opens its file each time it is read.
+    #
+    # Returns the result of the block.
+    def reading_ahead
+      position = io_position
+      yield
+    ensure
+      io_stream.seek(position) if position
+    end
+
+    # Returns [Integer|nil] the position of the IO supplied to `IOStreams.stream`, or nil for one that cannot seek, or
+    # a stream without one, such as a path.
+    def io_position
+      io = io_stream
+      io.pos if io.respond_to?(:pos) && io.respond_to?(:seek)
+    rescue IOError, SystemCallError
+      nil
     end
 
     # Returns [IOStreams::Tabular] that reads or writes the rows of this stream as its tabular settings describe them, see

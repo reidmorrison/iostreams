@@ -103,7 +103,9 @@ module IOStreams
       # rows, see `IOStreams::Tabular#declared_schema`: a field for each key of the records that #record_parse reads,
       # the columns of the header row once cleansed, or the keys of a format of keyed records as they are, leaving out a
       # column without a name, such as one that cleanses to nothing, as the records do, each of the type of the values
-      # that the parser reads, see `IOStreams::Tabular::Parser::Base.value_type`.
+      # that the parser reads, see `IOStreams::Tabular::Parser::Base.value_type`. When it leaves out such a column, the
+      # schema is `fieldsMatch: "subset"`, which reads past the columns that are not fields, so that it still reads the
+      # file that it describes.
       #
       # Raises `IOStreams::Errors::InvalidHeader` for two columns that are the same key, such as `Amount ($)` and
       # `Amount (€)`, which both cleanse to `amount_`, of which the records keep only one, since a schema cannot hold
@@ -114,8 +116,10 @@ module IOStreams
         columns.cleanse! unless @keyed
         named = columns.columns.each_with_index.reject { |key, _index| IOStreams::Utils.blank?(key) }
         check_declared_keys(named, row)
-        type = @parser.class.value_type
-        IOStreams::Schema.new(fields: named.map { |key, _index| {name: key, type: type} })
+        type       = @parser.class.value_type
+        descriptor = {fields: named.map { |key, _index| {name: key, type: type} }}
+        descriptor = {fieldsMatch: "subset", **descriptor} if named.size < columns.columns.size
+        IOStreams::Schema.new(descriptor)
       end
 
       # Returns [Array] the header row parsed from the line, which becomes the columns of the header, before it is

@@ -406,15 +406,21 @@ IOStreams.path("orders.parquet").infer_schema.to_h
 
 | Source | Its schema without one set |
 |--------|----------------------------|
-| CSV, PSV or a spreadsheet | a `string` field for each column of the header row, named as the keys of the records that `each(:hash)` reads, which cleanses them, such as `ordered_at` for `Ordered At`; a column whose name cleanses to nothing, such as `#`, is left out |
-| JSON | an `any` field for each key of its first record, since each value has a type of its own |
-| Parquet | a field of the type of each column, see [Parquet files](#parquet-files), required when the column cannot be null, unless its values are text |
+| CSV, PSV or a spreadsheet | a `string` field for each column of the header row, named as the keys of the records that `each(:hash)` reads, which cleanses them, such as `ordered_at` for `Ordered At`; a column whose name cleanses to nothing, such as `#`, or an empty one, is left out, and the schema is then `fieldsMatch: "subset"`, so that it still reads the file |
+| JSON | an `any` field for each key of its first record, since each value has a type of its own; the records after it need not have the same keys |
+| Parquet | a field of the type of each column, see [Parquet files](#parquet-files), required when the column cannot be null, unless its values are text or of type `any` |
 | An Active Record query | a field of the type of each column, see [Exporting queries](queries#keeping-the-types-of-the-columns) |
 | A slice | as its format declares it, such as by its header row |
 | Fixed width, or `:text` | none: they declare neither the names nor the positions of their columns, so `#infer_schema` raises `ArgumentError`, and they need a schema |
 
 Two columns that are the same key once cleansed, such as `Amount ($)` and `Amount (€)`, raise
-`IOStreams::Errors::InvalidHeader`, since a schema cannot hold both. A file without rows has no fields.
+`IOStreams::Errors::InvalidHeader`, since a schema cannot hold both. A file without a header row or a first record
+has no fields.
+
+`#infer_schema` reads only what describes the source, though a Parquet file that is not a local file, such as one on
+S3, is first copied whole to a temporary file, as reading it does. Of an IO supplied to `IOStreams.stream`, it reads
+only the start, and then returns the IO to where it was, so that its rows are still read, unless the IO cannot seek,
+such as a pipe, which it has then read past.
 
 `#infer_schema` returns an `IOStreams::Schema`, an object rather than a Hash, so that a program reads a schema without
 knowing the keys of its Hash or their defaults. `#fields` returns its fields, each of which answers `#name`, `#type`,
