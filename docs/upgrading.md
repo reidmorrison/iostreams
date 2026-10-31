@@ -20,8 +20,10 @@ and the security issues to check. For every change in each release, see the
 
 v3.0 is a major release. It reads text as UTF-8 by default, makes the breaking changes that were postponed from v2.1,
 and fixes bugs whose fixes change behavior that existing code may depend on. In v2.1 BZip2 logged a warning via
-`IOStreams.logger` for each option that it ignored, so check your logs from v2.1 for those warnings before
-upgrading, see [BZip2 options are strict](#bzip2-options-are-strict). v2.2 reports a deprecation warning for most of what v3.0 removes, so upgrade to v2.2 first and run your tests, see [Upgrading to v2.2](#upgrading-to-v22). Every change is
+`IOStreams.logger` for each option that it ignored, and reading records logged one when `allowed_columns` or
+`required_columns` would have changed the records read, so check your logs from v2.1 for those warnings before
+upgrading, see [BZip2 options are strict](#bzip2-options-are-strict) and
+[The column options of each call are removed](#the-column-options-of-each-call-are-removed). v2.2 reports a deprecation warning for most of what v3.0 removes, so upgrade to v2.2 first and run your tests, see [Upgrading to v2.2](#upgrading-to-v22). Every change is
 listed in the
 [CHANGELOG](https://github.com/reidmorrison/iostreams/blob/main/CHANGELOG.md); this section describes those that
 may need a change to your application, grouped by what they affect, each with its fix.
