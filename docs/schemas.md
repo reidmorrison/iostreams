@@ -192,6 +192,39 @@ parts of ActiveSupport that it needs, but not ActiveSupport's JSON, so it does n
 JSON. A duration is read only from ISO 8601
 text, so a number, such as `30600`, raises, since it does not say what it counts.
 
+### Formats of dates and times
+
+The `format` of a `date`, `datetime` or `time` field is a pattern of Python's strptime, as Frictionless defines it, which
+reads the text of each value, and writes it. Ruby reads and writes the same directives, apart from these, which
+IOStreams reads as Python does:
+
+| Directive | Reads | Writes |
+|-----------|-------|--------|
+| `%Y` | the year, exactly 4 digits, such as `2026`, so that `31/10/26` raises `IOStreams::Errors::InvalidValue` for `%d/%m/%Y`, rather than read the year 26 | 4 digits |
+| `%y` | the year, 2 digits, such as `26` for 2026 | 2 digits |
+| `%f` | the microseconds of the second, 1 to 6 digits, such as `5` for half a second | 6 digits, such as `500000` |
+
+A `format` that starts with `fmt:`, as Data Package v0 wrote it, such as `"fmt:%d/%m/%Y"`, has the prefix removed, as
+Frictionless requires.
+
+Ruby's own directives also work, such as `%N` and `%L` for the fraction of a second, and `%s` for the seconds since
+1970, but other Frictionless tools do not read them, so prefer the directives of Python in a schema that other tools
+read.
+
+~~~ruby
+path = IOStreams.path("visits.csv").schema(
+  fields: [
+    {name: "visited_on", type: "date", format: "%d/%m/%Y"},
+    {name: "visited_at", type: "datetime", format: "%Y-%m-%d %H:%M:%S.%f"}
+  ]
+)
+path.each(:hash) do |visit|
+  p visit
+end
+# "visited_on,visited_at\n31/10/2026,2026-10-31 09:30:00.5\n" =>
+# {"visited_on" => #<Date: 2026-10-31 ...>, "visited_at" => 2026-10-31 09:30:00.5 UTC}
+~~~
+
 ## Matching columns to fields
 
 Each column of the header row, or key of a JSON record, is matched to the field:
@@ -492,7 +525,7 @@ and `#copy_to`, whose options only apply to the target.
 * `type` See [Types](#types). Default: `any`
 * `constraints` `{required: true}` for a field that must have a value, see [Required fields](#required-fields).
 * `format` For a `date`, a `datetime` or a `time`, the strptime pattern of its text, such as `"%d/%m/%Y"`, `"%Y%m%d"`
-  or `"%I:%M %p"` for `9:30 PM`. Default: ISO 8601.
+  or `"%I:%M %p"` for `9:30 PM`, see [Formats of dates and times](#formats-of-dates-and-times). Default: ISO 8601.
 * `trueValues` and `falseValues` For a `boolean`, the text that is true and false.
   Default: `["true", "True", "TRUE", "1"]` and `["false", "False", "FALSE", "0"]`
 * `floatNumber` For a `number`, `true` to read a `Float` rather than a `BigDecimal`, as frictionless-py does.

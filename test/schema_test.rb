@@ -1037,6 +1037,37 @@ class SchemaTest < Minitest::Test
           assert_equal "13/10/2026", pattern.render(Date.new(2026, 10, 13), :json)
         end
 
+        it "reads exactly 4 digits of a year with %Y, as Python's strptime does, rather than the year 26 of 2 digits" do
+          pattern = field(type: "date", format: "%d/%m/%Y")
+
+          ["31/10/26", "31/10/026", "31/10/20260", "31/10/+2026", "31/10/-2026"].each do |text|
+            error = assert_raises(IOStreams::Errors::InvalidValue, text) { pattern.cast(text) }
+            assert_equal "Field \"value\": #{text.inspect} is not a valid date", error.message
+          end
+          assert_equal Date.new(26, 10, 31), pattern.cast("31/10/0026")
+          assert_equal "31/10/0026", pattern.render(Date.new(26, 10, 31), :text)
+          assert_equal Date.new(2026, 10, 31), field(type: "date", format: "%d/%m/%y").cast("31/10/26")
+        end
+
+        it "reads 4 digits of a year with %Y that digits follow, as the start of a date without separators" do
+          pattern = field(type: "date", format: "%Y%m%d")
+
+          assert_equal Date.new(2026, 10, 13), pattern.cast("20261013")
+          assert_raises(IOStreams::Errors::InvalidValue) { pattern.cast("261013") }
+          assert_equal Date.new(2026, 10, 13), field(type: "date", format: "%d %m %Y").cast("13 10 2026")
+          assert_raises(IOStreams::Errors::InvalidValue) { field(type: "date", format: "%d %m %Y").cast("13 10 26") }
+        end
+
+        it "removes the prefix fmt: of a format, the spelling of Data Package v0, and keeps the format as it was given" do
+          pattern = field(type: "date", format: "fmt:%d/%m/%Y")
+
+          assert_equal Date.new(2026, 10, 13), pattern.cast("13/10/2026")
+          assert_equal "13/10/2026", pattern.render(Date.new(2026, 10, 13), :text)
+          assert_equal "fmt:%d/%m/%Y", pattern.to_h[:format]
+          assert_raises(ArgumentError) { field(type: "date", format: "fmt:") }
+          assert_raises(ArgumentError) { field(type: "date", format: "fmt:dd/mm/yyyy") }
+        end
+
         it "renders ISO 8601" do
           assert_equal "2026-10-13", date.render(Date.new(2026, 10, 13), :text)
         end
@@ -1118,6 +1149,29 @@ class SchemaTest < Minitest::Test
 
           assert_equal Time.utc(2026, 10, 13, 9, 30), pattern.cast("20261013093000+0000")
           assert_equal "20261013093000+0000", pattern.render(Time.utc(2026, 10, 13, 9, 30), :text)
+        end
+
+        it "reads the microseconds of %f, as Python's strptime does, 1 to 6 digits, and writes 6" do
+          pattern = field(type: "datetime", format: "%Y-%m-%d %H:%M:%S.%f")
+
+          assert_equal Time.utc(2026, 10, 13, 9, 30, 0.5r), pattern.cast("2026-10-13 09:30:00.5")
+          assert_equal Time.utc(2026, 10, 13, 9, 30, 0.123456r), pattern.cast("2026-10-13 09:30:00.123456")
+          ["2026-10-13 09:30:00.1234567", "2026-10-13 09:30:00.", "2026-10-13 09:30:00"].each do |text|
+            assert_raises(IOStreams::Errors::InvalidValue, text) { pattern.cast(text) }
+          end
+          assert_equal "2026-10-13 09:30:00.500000", pattern.render(Time.utc(2026, 10, 13, 9, 30, 0.5r), :text)
+          assert_equal "2026-10-13 09:30:00.000000", pattern.render(Time.utc(2026, 10, 13, 9, 30), :text)
+          assert_equal "%f 2026", field(type: "date", format: "%%f %Y").render(Date.new(2026, 1, 2), :text)
+        end
+
+        it "reads and writes Ruby's own directives, which are not portable, such as %N, %L and %s" do
+          nanoseconds = field(type: "datetime", format: "%Y-%m-%d %H:%M:%S.%N")
+          millis      = field(type: "datetime", format: "%Y-%m-%d %H:%M:%S.%L")
+
+          assert_equal Time.utc(2026, 10, 13, 9, 30, 0.123456789r), nanoseconds.cast("2026-10-13 09:30:00.123456789")
+          assert_equal "2026-10-13 09:30:00.123456789", nanoseconds.render(Time.utc(2026, 10, 13, 9, 30, 0.123456789r), :text)
+          assert_equal "2026-10-13 09:30:00.250", millis.render(Time.utc(2026, 10, 13, 9, 30, 0.25r), :text)
+          assert_equal Time.utc(2026, 10, 13, 9, 30), field(type: "datetime", format: "%s").cast("1791883800")
         end
 
         it "writes a time in UTC with a format without a zone, which reads it back as UTC, as the same time" do
@@ -1205,6 +1259,14 @@ class SchemaTest < Minitest::Test
           ["13:30 PM", "9:30", "9:30 PM extra"].each do |text|
             assert_raises(IOStreams::Errors::InvalidValue, text) { pattern.cast(text) }
           end
+        end
+
+        it "reads and writes the microseconds of %f" do
+          pattern = field(type: "time", format: "%H:%M:%S.%f")
+
+          assert_equal Time.utc(2000, 1, 1, 9, 30, 0.25r), pattern.cast("09:30:00.25")
+          assert_equal "09:30:00.250000", pattern.render(Time.utc(2000, 1, 1, 9, 30, 0.25r), :text)
+          assert_raises(IOStreams::Errors::InvalidValue) { pattern.cast("09:30:00.2500000") }
         end
 
         it "reads a zone of the format at its offset, raises for a zone whose offset is not known, and for 24:00" do
