@@ -1110,10 +1110,33 @@ class SchemaTest < Minitest::Test
 
           # The exact Float, which is that of its text.
           assert_equal Float("12.35"), float.cast("12.346")
-          assert_equal Float("12.34"), float.cast("12.345"), "the Float 12.345 is below 12.345, as format rounds it"
+          assert_equal Float("12.34"), float.cast("12.345"), "12.345 ends in 5, which format rounds to the even digit"
           assert_equal Float("1"), float.cast(1.005)
           assert_equal Float(float.render("2.675", :text)), float.cast("2.675")
           assert_equal Float("12.345"), field(type: "number", floatNumber: true).cast("12.345")
+        end
+
+        it "rounds a Float whose text ends in 5 to the even digit, whatever its binary value, as format does" do
+          assert_equal Float("2"), field(type: "number", floatNumber: true, decimals: 0).cast("2.5")
+          assert_equal Float("4"), field(type: "number", floatNumber: true, decimals: 0).cast("3.5")
+          assert_equal Float("0.12"), field(type: "number", floatNumber: true, decimals: 2).cast("0.125")
+          # The Float 0.025 is above 0.025, and 2.675 below 2.675.
+          assert_equal Float("0.02"), field(type: "number", floatNumber: true, decimals: 2).cast("0.025")
+          assert_equal Float("2.68"), field(type: "number", floatNumber: true, decimals: 2).cast("2.675")
+          assert_equal BigDecimal("0.13"), field(type: "number", decimals: 2).cast("0.125")
+        end
+
+        it "rounds a negative number to zero, rather than -0.0" do
+          float   = field(type: "number", floatNumber: true, decimals: 2)
+          decimal = field(type: "number", decimals: 2)
+
+          # The text of -0.0 is "-0.0", for a Float and for a BigDecimal.
+          [float.cast("-0.001"), decimal.cast("-0.001"), field(type: "number", decimals: 0).cast("-0.4")].each do |zero|
+            assert_equal "0.0", zero.to_s, zero.inspect
+          end
+          assert_equal "0.00", float.render("-0.001", :text)
+          assert_equal "0.00", decimal.render("-0.001", :text)
+          assert_equal "0.00", json(float, -0.001)
         end
 
         it "keeps every digit of a number read without decimals" do

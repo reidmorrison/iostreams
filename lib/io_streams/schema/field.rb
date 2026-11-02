@@ -189,7 +189,7 @@ module IOStreams
       # Returns [Integer|nil] the position of the first character of the field in a fixed width file, counting from 1.
       attr_reader :start
 
-      # Returns [Integer|nil] for a number, the number of digits written after the decimal point, see `decimals` above.
+      # Returns [Integer|nil] for a number, the number of digits after the decimal point, see `decimals` above.
       attr_reader :decimals
 
       # Returns [Array<String>] the other names of the column of this field, see `aliases` above.
@@ -473,13 +473,16 @@ module IOStreams
       end
 
       # Returns [Numeric] the number, of the type of this field, see #cast, rounded to its decimals as its text is
-      # written, see #render: a BigDecimal half up, and a Float as Ruby's `format` rounds it, to the nearest of its binary
-      # value, so that a record read, and a format that holds the number itself, such as `:hash`, hold the number that
-      # CSV writes. A number that is not finite, or of a field without decimals, is returned as it is.
+      # written, see #render: a BigDecimal half up, and a Float as Ruby's `format` writes it, which rounds a Float whose
+      # text ends in 5 to the even digit, whatever its binary value, such as 0.12 for 0.125, 0.02 for 0.025 and 2.68 for
+      # 2.675, so that a record read, and a format that holds the number itself, such as `:hash`, hold the number that
+      # CSV writes. A number that rounds to zero is zero, rather than -0.0, which CSV would write as "-0.00". A number
+      # that is not finite, or of a field without decimals, is returned as it is.
       def round(number)
         return number if @decimals.nil? || !number.finite?
 
-        number.is_a?(Float) ? Float(float_text(number)) : number.round(@decimals, :half_up)
+        rounded = number.is_a?(Float) ? Float(float_text(number)) : number.round(@decimals, :half_up)
+        rounded.zero? ? rounded.abs : rounded
       end
 
       # Returns the value converted to the type of this field, see #cast, in the form that the supplied format of
@@ -817,16 +820,15 @@ module IOStreams
         return self.class.special_text(value) unless value.finite?
         return (@decimals ? float_text(value) : value.to_s) if value.is_a?(Float)
         return value.to_s("F") unless @decimals
+        # The value is already rounded to the decimals, see #cast.
+        return value.to_i.to_s if @decimals.zero?
 
-        rounded = round(value)
-        return rounded.to_i.to_s if @decimals.zero?
-
-        whole, fraction = rounded.to_s("F").split(".")
+        whole, fraction = value.to_s("F").split(".")
         "#{whole}.#{fraction.ljust(@decimals, '0')[0, @decimals]}"
       end
 
-      # Returns [String] the text of a finite Float with the decimals of this field, which `format` rounds to the nearest
-      # of its binary value.
+      # Returns [String] the text of a finite Float with the decimals of this field, which `format` rounds as its text
+      # reads, a Float whose text ends in 5 to the even digit, whatever its binary value, see #round.
       def float_text(value)
         format("%.#{@decimals}f", value)
       end

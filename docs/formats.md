@@ -336,9 +336,10 @@ or `datetime` that does not exist, such as `2026-02-30`.
 JSON writes integers, numbers and booleans as JSON numbers and booleans, with all of the digits of a `number`, and the
 digits after the decimal point that its `decimals` give, such as `12.50`, the same as CSV, an `object` or an `array`
 as itself, and every other value as text, such as a date, including in an application that uses ActiveSupport, as
-Rails does, which replaces how Ruby writes JSON. Reading JSON keeps all of the digits of a `number` too, rather than reading it through a `Float`, while
-the numbers of the other fields are a `Float`, as they are without a schema. The `:hash` and `:array` formats keep the
-values themselves.
+Rails does, which replaces how Ruby writes JSON. Reading JSON keeps all of the digits of a `number` too, rather than
+reading it through a `Float`, rounded to its `decimals` when it has them, while the numbers of the other fields are a
+`Float`, as they are without a schema. The `:hash` and `:array` formats keep the values themselves, apart from a
+`number` with `decimals`, which is rounded to them, both when reading and when writing.
 
 A `number` field needs the `bigdecimal` gem, which is a bundled gem from Ruby 3.4, so add `gem "bigdecimal"` to the
 Gemfile, or set `floatNumber: true` to read a `Float` instead.
@@ -666,10 +667,13 @@ and `#copy_to`, whose options only apply to the target.
   text, while the file must still have its column, see [Required fields](#required-fields). Text of only whitespace is
   not blank, so it is still read as the type of the field, see [Types](#types). IOStreams adds this property.
 * `decimals` For a `number`, the number of digits after the decimal point, rounding a `BigDecimal` half up, and a
-  `Float`, with `floatNumber: true`, as Ruby's `format` does, to the nearest of its binary value, as the layouts of
-  fixed width files always have. It rounds the number read too, such as `12.35` for `12.345` with `decimals: 2`, also
-  a number that is not text, such as one of JSON, so that a record read holds the number that is written. IOStreams
-  adds this property.
+  `Float`, with `floatNumber: true`, as Ruby's `format` writes it, as the layouts of fixed width files always have,
+  which rounds a `Float` whose text ends in 5 to the even digit, whatever its binary value, such as `0.12` for `0.125`,
+  `0.02` for `0.025` and `2.68` for `2.675` with `decimals: 2`, and `2.0` for `2.5` with `decimals: 0`. It rounds the
+  number read too, such as the
+  `BigDecimal` `12.35` for `12.345` with `decimals: 2`, also a number that is not text, such as one of JSON, and the
+  number written to the `:hash` and `:array` formats, so that a record read holds the number that is written. A
+  number that rounds to zero is zero, rather than `-0.0`. IOStreams adds this property.
 * `skip` `true` for a field that only holds the place of its column, such as a column of a file without a header row
   that the code does not read: reading leaves it out of the rows and records, and writing writes an empty value in its
   column, or leaves it out of a JSON record. It takes only the properties that place its column, `name`, `aliases`,
