@@ -85,7 +85,9 @@ module IOStreams
         # `IOStreams::Tabular::SchemaMapping#render`.
         #
         # A BigDecimal, Date or Time is written as its text, see `IOStreams::Schema::Field.any_json`, such as "12.5"
-        # rather than "0.125e2", so that a BigDecimal keeps all of its digits.
+        # rather than "0.125e2", so that a BigDecimal keeps all of its digits. A Float that JSON cannot hold, such as
+        # `Float::NAN`, never reaches it, since the field of its value raises `IOStreams::Errors::InvalidValue` for it,
+        # see `IOStreams::Schema::Field#render`.
         def render(row, _header)
           @coder ? @coder.dump(row) : IOStreams::Schema::Field.any_json(row).to_json
         end

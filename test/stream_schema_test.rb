@@ -75,6 +75,33 @@ class StreamSchemaTest < Minitest::Test
         end
       end
 
+      it "raises IOStreams::Errors::InvalidValue for a Float that is not finite within a value written to JSON, naming the field, with and without JSON::Coder" do
+        schema = {fields: [{name: "id", type: "integer"}, {name: "prefs", type: "object"}]}
+        write_nan = -> { write([{"id" => 1, "prefs" => {"limit" => [Float::NAN]}}], file_name: "people.json", schema: schema) }
+
+        error = assert_raises(IOStreams::Errors::InvalidValue) { write_nan.call }
+        assert_equal %(Field "prefs": JSON cannot hold a number that is not finite: NaN), error.message
+        IOStreams::Tabular::Parser::JsonFields.stub(:coder, nil) do
+          error = assert_raises(IOStreams::Errors::InvalidValue) { write_nan.call }
+          assert_equal %(Field "prefs": JSON cannot hold a number that is not finite: NaN), error.message
+        end
+      end
+
+      it "still raises JSON::GeneratorError for text that is not valid UTF-8 written to JSON, within an object or in a string field, as before" do
+        schema = {fields: [{name: "name", type: "string"}, {name: "prefs", type: "object"}]}
+        bad    = "caf\xC3".dup.force_encoding("UTF-8")
+
+        assert_raises(JSON::GeneratorError) { write([{"name" => bad, "prefs" => nil}], file_name: "people.json", schema: schema) }
+        %w[people.json people.csv].each do |file_name|
+          assert_raises(JSON::GeneratorError, file_name) { write([{"name" => "a", "prefs" => {"a" => bad}}], file_name: file_name, schema: schema) }
+        end
+      end
+
+      it "still raises JSON::GeneratorError for a Float that is not finite written to JSON without a schema, as before" do
+        out = StringIO.new
+        assert_raises(JSON::GeneratorError) { IOStreams.stream(out).format(:json).writer(:hash) { |io| io << {"a" => {"b" => Float::NAN}} } }
+      end
+
       it "copies the rows of JSON into a file with a header row of the names of the fields, and into JSON again" do
         Dir.mktmpdir do |dir|
           source = IOStreams.path(dir, "people.json").schema(people)

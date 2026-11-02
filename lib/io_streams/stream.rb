@@ -796,8 +796,11 @@ module IOStreams
     # Iterate over a file / stream returning each line as a hash, one at a time.
     #
     # Supplying `embedded_within:` is deprecated, see #row_reader.
+    #
+    # Records read from a header row whose columns are the same key, such as `a,a,b`, are deprecated, and report a
+    # deprecation warning, while deprecation warnings are on, see `IOStreams::Record::Reader#warn_repeated_key`.
     def record_reader(delimiter: nil, embedded_within: :auto, **args, &)
-      rows_reader(IOStreams::Record::Reader, delimiter, embedded_within, args, &)
+      rows_reader(IOStreams::Record::Reader, delimiter, embedded_within, args, report_repeated_key: Deprecation.on?, &)
     end
 
     # Yields the reader of the rows or records of this stream, an instance of the supplied class, with the options of
@@ -806,13 +809,15 @@ module IOStreams
     # With a schema, an option that the call cannot supply raises before a deprecation warning is reported for any of
     # its other options, so that a call that fails reports only its failure, see #schema_tabular. Then each deprecated
     # option of the call reports a deprecation warning, see #warn_read_options.
-    def rows_reader(klass, delimiter, embedded_within, args)
+    #
+    # The supplied reporting options, such as `report_repeated_key:`, are passed to the reader.
+    def rows_reader(klass, delimiter, embedded_within, args, **reporting)
       tabular = schema_tabular(args)
       warn_read_options(embedded_within, args)
       warn_text_file_format(args)
       warn_cell_rows(delimiter)
       line_reader(delimiter: delimiter, embedded_within: embedded_within) do |io|
-        yield klass.new(io, **tabular_options(tabular, args))
+        yield klass.new(io, **tabular_options(tabular, args), **reporting)
       end
     end
 
@@ -1050,8 +1055,13 @@ module IOStreams
       end
     end
 
+    # Yields the writer of the rows of this stream, see #rows_writer.
+    #
+    # Rows written to a format whose rows are records, such as JSON, under a header row whose columns are the same key
+    # are deprecated, and report a deprecation warning, while deprecation warnings are on, see
+    # `IOStreams::Row::Writer#warn_repeated_key`.
     def row_writer(**args, &)
-      rows_writer(IOStreams::Row::Writer, args, &)
+      rows_writer(IOStreams::Row::Writer, args, report_repeated_key: Deprecation.on?, &)
     end
 
     def record_writer(**args, &)
@@ -1064,7 +1074,7 @@ module IOStreams
     #
     # As with a reader, see #rows_reader, with a schema an option that the call cannot supply raises before a deprecation
     # warning is reported for any of its other options, see #warn_write_options.
-    def rows_writer(klass, args, &block)
+    def rows_writer(klass, args, **reporting, &block)
       return supplied_writer(klass, args, &block) if supplied_io.is_a?(klass)
 
       options = args.except(:delimiter)
@@ -1072,7 +1082,7 @@ module IOStreams
       warn_write_options(options)
       warn_text_file_format(options)
       rows_line_writer(args.slice(:delimiter)) do |io|
-        klass.stream(io, **tabular_options(tabular, options), &block)
+        klass.stream(io, **tabular_options(tabular, options), **reporting, &block)
       end
     end
 

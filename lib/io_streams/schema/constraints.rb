@@ -60,13 +60,6 @@ module IOStreams
         raise(IOStreams::Errors::InvalidValue, "Field #{@name.inspect} is required, but has no value")
       end
 
-      # Returns [String] the empty text of a field whose type keeps it as its value, such as a string, unless the field is
-      # required, which raises `IOStreams::Errors::InvalidValue`, since Frictionless treats empty text as no value.
-      def no_text(text)
-        no_value
-        text
-      end
-
       private
 
       # Returns [true|false] whether the field is required, the only constraint that IOStreams supports yet.

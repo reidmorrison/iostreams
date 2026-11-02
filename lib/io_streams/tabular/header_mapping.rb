@@ -83,6 +83,12 @@ module IOStreams
         nil
       end
 
+      # Returns [String|nil] the key of a record that two columns of the header are, see
+      # `IOStreams::Tabular::Header#repeated_key`, of which a record holds the value of only the last column.
+      def repeated_key
+        header.repeated_key
+      end
+
       # Returns [Array] the header row/line after parsing.
       # Returns `nil` if the row/line is blank, or a header is not required for the supplied format (:json, :hash).
       #

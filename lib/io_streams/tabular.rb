@@ -229,6 +229,15 @@ module IOStreams
       @mapping.record_rows?
     end
 
+    # Returns [String|nil] the key of a record that two columns of the file are, such as "a" for a header row of `a,a,b`
+    # without a schema, of which each record read, and each row written to a format whose rows are records, such as
+    # JSON, holds the value of only the last column, see `IOStreams::Tabular::Header#repeated_key`. Returns nil when each
+    # column is its own key, as with a schema, which raises `IOStreams::Errors::InvalidHeader` for two columns of the
+    # same field. IOStreams v3.0 raises `IOStreams::Errors::InvalidHeader` without a schema too.
+    def repeated_key
+      @mapping.repeated_key
+    end
+
     # Returns [Array<String|Symbol>] the columns of the rows of a file without a header row, which #read_row yields as
     # their header row, so that a copy can give them to the target, see #start_copy: the names of the fields of a
     # schema, see `IOStreams::Schema#header?`, such as of fixed width or JSON.

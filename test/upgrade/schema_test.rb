@@ -90,6 +90,294 @@ class UpgradeSchemaTest < Minitest::Test
         end
       end
 
+      describe "missing values" do
+        let(:schema) { {fields: [{name: "name", type: "string"}, {name: "age", type: "integer"}, {name: "note"}]} }
+
+        it "reads empty text as nil in every type, as Frictionless' default missingValues does" do
+          assert_equal [{"name" => nil, "age" => 21, "note" => nil}], read(%(name,age,note\n"",21,""\n), schema: schema)
+          assert_equal [{"name" => nil, "age" => 21, "note" => nil}],
+                       read(%({"name":"","age":21,"note":""}\n), file_name: "people.json", schema: schema)
+        end
+
+        it "keeps text of only whitespace in a string or any field" do
+          assert_equal [{"name" => "  ", "age" => 21, "note" => " "}], read(%(name,age,note\n"  ",21," "\n), schema: schema)
+        end
+
+        it "raises for text of only whitespace in any other type" do
+          assert_raises(IOStreams::Errors::InvalidValue) { read(%(name,age,note\nJack,"  ",x\n), schema: schema) }
+          assert_raises(IOStreams::Errors::InvalidValue) { read(%({"name":"Jack","age":" ","note":"x"}\n), file_name: "people.json", schema: schema) }
+        end
+
+        it "still removes the whitespace around a value" do
+          assert_equal [{"name" => " Jack ", "age" => 21, "note" => nil}], read(%(name,age,note\n Jack , 21 ,\n), schema: schema)
+        end
+
+        it "still reads a row whose every value is blank, including text of only whitespace, as a blank row" do
+          assert_equal [nil, {"name" => "Jack", "age" => 21, "note" => nil}], read(%(name,age,note\n"  ", ,\nJack,21,\n), schema: schema)
+        end
+
+        it "raises for empty text in a required field, as for nil" do
+          required = {fields: [{name: "name", type: "string", constraints: {required: true}}, {name: "age", type: "integer"}]}
+
+          assert_raises(IOStreams::Errors::InvalidValue) { read(%(name,age\n"",21\n), schema: required) }
+          assert_equal [{"name" => " ", "age" => 21}], read(%(name,age\n" ",21\n), schema: required)
+        end
+
+        it "writes empty text as a missing value, nil, which CSV writes as an empty value and JSON as null" do
+          assert_equal %({"name":null,"age":21,"note":null}\n),
+                       write([{"name" => "", "age" => 21, "note" => ""}], file_name: "people.json", schema: schema)
+          assert_equal "name,age,note\n,21,\n", write([{"name" => "", "age" => 21, "note" => ""}], schema: schema)
+        end
+
+        it "raises for text of only whitespace written to any other type" do
+          assert_raises(IOStreams::Errors::InvalidValue) { write([{"name" => "Jack", "age" => "  ", "note" => "x"}], schema: schema) }
+          assert_raises(IOStreams::Errors::InvalidValue) { write([["Jack", " ", "x"]], :array, schema: schema) }
+          assert_equal "name,age,note\nJack,21, \n", write([["Jack", 21, " "]], :array, schema: schema)
+        end
+      end
+
+      describe "numbers that are not finite" do
+        let(:schema) { {fields: [{name: "pay", type: "number"}, {name: "rate", type: "number", floatNumber: true}, {name: "note"}]} }
+
+        it "reads NaN, INF and -INF, as the Frictionless spec spells them, and Infinity and -Infinity, as frictionless-py also reads them, whatever their case" do
+          rows = read("pay,rate,note\nNaN,inf,x\nINF,-INF,x\nInfinity,-infinity,x\n-INFINITY,Infinity,x\n", schema: schema)
+
+          assert_predicate rows[0]["pay"], :nan?
+          assert_equal Float::INFINITY, rows[0]["rate"]
+          assert_equal [BigDecimal("Infinity"), -Float::INFINITY], rows[1].values_at("pay", "rate")
+          assert_equal [BigDecimal("Infinity"), -Float::INFINITY], rows[2].values_at("pay", "rate")
+          assert_equal [BigDecimal("-Infinity"), Float::INFINITY], rows[3].values_at("pay", "rate")
+        end
+
+        it "writes them as NaN, INF and -INF, in a number field and a field without a type" do
+          records = [
+            {"pay" => BigDecimal("NaN"), "rate" => Float::INFINITY, "note" => -Float::INFINITY},
+            {"pay" => "-Infinity", "rate" => "NaN", "note" => BigDecimal("Infinity")}
+          ]
+
+          assert_equal "pay,rate,note\nNaN,INF,-INF\n-INF,NaN,INF\n", write(records, schema: schema)
+        end
+
+        it "writes a BigDecimal that is not finite inside a value of a field without a type to JSON as its text" do
+          written = write([{"pay" => BigDecimal("2.5"), "rate" => 1.5, "note" => {"x" => BigDecimal("-Infinity")}}], file_name: "people.json", schema: schema)
+
+          assert_equal %({"pay":2.5,"rate":1.5,"note":{"x":"-INF"}}\n), written
+        end
+
+        it "raises for a number that is not finite written to JSON, which cannot hold it" do
+          [
+            {"pay" => BigDecimal("NaN"), "rate" => 1.5, "note" => "x"},
+            {"pay" => "INF", "rate" => 1.5, "note" => "x"},
+            {"pay" => 1, "rate" => -Float::INFINITY, "note" => "x"},
+            {"pay" => 1, "rate" => 1.5, "note" => Float::NAN},
+            {"pay" => 1, "rate" => 1.5, "note" => BigDecimal("-Infinity")}
+          ].each do |record|
+            assert_raises(IOStreams::Errors::InvalidValue, record.inspect) { write([record], file_name: "people.json", schema: schema) }
+          end
+        end
+
+        it "raises for a Float that is not finite inside an object, an array or a value without a type, which JSON cannot hold, in every format" do
+          schema  = {fields: [{name: "prefs", type: "object"}, {name: "tags", type: "array"}, {name: "note"}]}
+          records = [
+            {"prefs" => {"limit" => Float::NAN}, "tags" => [], "note" => nil},
+            {"prefs" => {}, "tags" => [1, Float::INFINITY], "note" => nil},
+            {"prefs" => {}, "tags" => [], "note" => {"x" => [-Float::INFINITY]}}
+          ]
+          records.each do |record|
+            %w[people.csv people.psv people.json].each do |file_name|
+              assert_raises(IOStreams::Errors::InvalidValue, "#{file_name} #{record.inspect}") { write([record], file_name: file_name, schema: schema) }
+            end
+          end
+        end
+      end
+
+      it "rounds the number read to the decimals of its field, so that a record holds the number that is written" do
+        schema = {fields: [{name: "pay", type: "number", decimals: 2}, {name: "rate", type: "number"}]}
+
+        assert_equal [{"pay" => BigDecimal("12.35"), "rate" => BigDecimal("12.345")}], read("pay,rate\n12.345,12.345\n", schema: schema)
+        assert_equal [{"pay" => BigDecimal("2.68"), "rate" => BigDecimal("2.675")}],
+                     read(%({"pay":2.675,"rate":2.675}\n), file_name: "people.json", schema: schema)
+        written = write([{"pay" => BigDecimal("12.345"), "rate" => BigDecimal("12.345")}], schema: schema)
+
+        assert_equal "pay,rate\n12.35,12.345\n", written
+        assert_equal [{"pay" => BigDecimal("12.35"), "rate" => BigDecimal("12.345")}], read(written, schema: schema)
+      end
+
+      it "rounds a negative number to zero, rather than -0.0, both when reading and when writing" do
+        schema = {fields: [{name: "pay", type: "number", decimals: 2}, {name: "rate", type: "number", floatNumber: true, decimals: 2}]}
+        record = read("pay,rate\n-0.001,-0.001\n", schema: schema).first
+
+        assert_equal ["0.0", "0.0"], record.values.map(&:to_s)
+        assert_equal "pay,rate\n0.00,0.00\n", write([{"pay" => BigDecimal("-0.001"), "rate" => -0.001}], schema: schema)
+      end
+
+      describe "whole numbers" do
+        let(:numbers) do
+          {fields: [{name: "a", type: "number"}, {name: "b", type: "number"}, {name: "c", type: "number", floatNumber: true},
+                    {name: "d", type: "number"}, {name: "e", type: "number", decimals: 2}]}
+        end
+
+        let(:record) { {"a" => 42, "b" => "3", "c" => 42.0, "d" => 1.5, "e" => 42} }
+
+        it "writes a whole number of a number field without a decimal point, unless the field has decimals" do
+          assert_equal "a,b,c,d,e\n42,3,42,1.5,42.00\n", write([record], schema: numbers)
+          assert_equal "a|b|c|d|e\n42|3|42|1.5|42.00\n", write([record], file_name: "people.psv", schema: numbers)
+          assert_equal %({"a":42,"b":3,"c":42,"d":1.5,"e":42.00}\n), write([record], file_name: "people.json", schema: numbers)
+        end
+
+        it "reads back the numbers written" do
+          written = write([record], schema: numbers)
+
+          assert_equal [{"a" => BigDecimal("42"), "b" => BigDecimal("3"), "c" => 42.0, "d" => BigDecimal("1.5"), "e" => BigDecimal("42")}],
+                       read(written, schema: numbers)
+        end
+
+        it "writes every digit of a large whole number" do
+          assert_equal "a\n100000000000000000000\n", write([{"a" => BigDecimal("1E20")}], schema: {fields: [{name: "a", type: "number"}]})
+        end
+      end
+
+      it "reads the number 1 of a boolean field as true and 0 as false" do
+        schema = {fields: [{name: "id", type: "integer"}, {name: "active", type: "boolean"}]}
+        json   = %({"id":1,"active":1}\n{"id":2,"active":0}\n{"id":3,"active":1.0}\n{"id":4,"active":0.0}\n)
+
+        active = read(json, file_name: "people.json", schema: schema).map { |record| record["active"] }
+
+        assert_equal [true, false, true, false], active
+        assert_raises(IOStreams::Errors::InvalidValue) { read(%({"id":1,"active":2}\n), file_name: "people.json", schema: schema) }
+      end
+
+      describe "the text of a datetime without a format" do
+        let(:schema) { {fields: [{name: "at", type: "datetime"}]} }
+
+        it "reads a space in place of the T, and an offset from UTC with or without a colon" do
+          rows = read("at\n2026-10-31 09:30:00\n2026-10-31T09:30:00+0530\n2026-10-31 09:30:00.5-05:00\n2026-10-31T09:30:00Z\n", schema: schema)
+
+          times = rows.map { |row| row["at"] }
+
+          assert_equal [Time.utc(2026, 10, 31, 9, 30), Time.utc(2026, 10, 31, 4, 0), Time.utc(2026, 10, 31, 14, 30, 0.5r), Time.utc(2026, 10, 31, 9, 30)], times
+          assert_equal [0, 19_800, -18_000, 0], times.map(&:utc_offset)
+        end
+
+        it "reads an offset of hours alone, such as +05" do
+          time = read("at\n2026-10-31 09:30:00+05\n", schema: schema).first["at"]
+
+          assert_equal Time.utc(2026, 10, 31, 4, 30), time
+          assert_equal 18_000, time.utc_offset
+        end
+
+        it "still raises without seconds, or without a time" do
+          assert_raises(IOStreams::Errors::InvalidValue) { read("at\n2026-10-31 09:30\n", schema: schema) }
+          assert_raises(IOStreams::Errors::InvalidValue) { read("at\n2026-10-31\n", schema: schema) }
+        end
+
+        it "raises for minutes of an offset, or seconds, of 60 or more" do
+          assert_raises(IOStreams::Errors::InvalidValue) { read("at\n2026-10-31 09:30:00+0560\n", schema: schema) }
+          assert_raises(IOStreams::Errors::InvalidValue) { read("at\n2026-10-31 23:59:60Z\n", schema: schema) }
+        end
+
+        it "raises for the hour 24, rather than read the next day" do
+          assert_raises(IOStreams::Errors::InvalidValue) { read("at\n2026-10-31T24:00:00Z\n", schema: schema) }
+          assert_raises(IOStreams::Errors::InvalidValue) { read("at\n2026-10-31 24:00:00\n", schema: schema) }
+          assert_raises(IOStreams::Errors::InvalidValue) { write([{"at" => "2026-10-31T24:00:00Z"}], schema: schema) }
+        end
+
+        it "still writes ISO 8601, with a T, and an offset with a colon, or Z" do
+          written = write([{"at" => "2026-10-31 09:30:00+0530"}, {"at" => "2026-10-31 09:30:00"}], schema: schema)
+
+          assert_equal "at\n2026-10-31T09:30:00+05:30\n2026-10-31T09:30:00Z\n", written
+        end
+
+        it "writes a DateTime at UTC with Z, as a Time in UTC" do
+          records = [{"at" => DateTime.new(2026, 10, 31, 9, 30)}, {"at" => Time.utc(2026, 10, 31, 9, 30)}]
+
+          assert_equal "at\n2026-10-31T09:30:00Z\n2026-10-31T09:30:00Z\n", write(records, schema: schema)
+          assert_equal %({"at":"2026-10-31T09:30:00Z"}\n), write(records.first(1), file_name: "people.json", schema: schema)
+        end
+      end
+
+      describe "the format of a date or datetime" do
+        let(:dates) { {fields: [{name: "joined", type: "date", format: "%d/%m/%Y"}]} }
+
+        it "reads exactly 4 digits for %Y, as Python's strptime does" do
+          assert_equal [{"joined" => Date.new(2026, 10, 31)}], read("joined\n31/10/2026\n", schema: dates)
+          assert_raises(IOStreams::Errors::InvalidValue) { read("joined\n31/10/26\n", schema: dates) }
+          assert_raises(IOStreams::Errors::InvalidValue) { read("joined\n31/10/20261\n", schema: dates) }
+        end
+
+        it "reads exactly 4 digits for the year of %F" do
+          schema = {fields: [{name: "joined", type: "date", format: "%F"}]}
+
+          assert_equal [{"joined" => Date.new(2026, 10, 31)}], read("joined\n2026-10-31\n", schema: schema)
+          assert_raises(IOStreams::Errors::InvalidValue) { read("joined\n26-10-31\n", schema: schema) }
+        end
+
+        it "reads exactly 2 digits for %y" do
+          schema = {fields: [{name: "joined", type: "date", format: "%d/%m/%y"}]}
+
+          assert_equal [{"joined" => Date.new(2026, 10, 31)}], read("joined\n31/10/26\n", schema: schema)
+          assert_raises(IOStreams::Errors::InvalidValue) { read("joined\n1/2/5\n", schema: schema) }
+        end
+
+        it "raises for a datetime that is not on a clock, the hour 24 of %H or a leap second, as Python's strptime does" do
+          schema = {fields: [{name: "at", type: "datetime", format: "%Y-%m-%d %H:%M:%S"}]}
+
+          assert_equal [{"at" => Time.utc(2026, 10, 31, 23, 59, 59)}], read("at\n2026-10-31 23:59:59\n", schema: schema)
+          assert_raises(IOStreams::Errors::InvalidValue) { read("at\n2026-10-31 24:00:00\n", schema: schema) }
+          assert_raises(IOStreams::Errors::InvalidValue) { read("at\n2026-10-31 23:59:60\n", schema: schema) }
+        end
+
+        it "raises for a date whose format has a time that is not on a clock, the hour 24 of %H or a leap second" do
+          schema = {fields: [{name: "joined", type: "date", format: "%Y-%m-%d %H:%M:%S"}]}
+
+          assert_equal [{"joined" => Date.new(2026, 10, 31)}], read("joined\n2026-10-31 23:59:59\n", schema: schema)
+          assert_raises(IOStreams::Errors::InvalidValue) { read("joined\n2026-10-31 24:00:00\n", schema: schema) }
+          assert_raises(IOStreams::Errors::InvalidValue) { read("joined\n2026-10-31 23:59:60\n", schema: schema) }
+        end
+
+        it "removes the prefix fmt: that Data Package v0 wrote before a pattern" do
+          schema = {fields: [{name: "joined", type: "date", format: "fmt:%d/%m/%Y"}]}
+
+          assert_equal [{"joined" => Date.new(2026, 10, 31)}], read("joined\n31/10/2026\n", schema: schema)
+          assert_equal "joined\n31/10/2026\n", write([{"joined" => Date.new(2026, 10, 31)}], schema: schema)
+        end
+
+        it "reads fmt:default as the default form" do
+          schema = {fields: [{name: "joined", type: "date", format: "fmt:default"}]}
+
+          assert_equal [{"joined" => Date.new(2026, 10, 31)}], read("joined\n2026-10-31\n", schema: schema)
+          assert_equal "joined\n2026-10-31\n", write([{"joined" => Date.new(2026, 10, 31)}], schema: schema)
+        end
+
+        it "reads 1 to 6 digits of microseconds for %f, and writes 6" do
+          schema = {fields: [{name: "at", type: "datetime", format: "%Y-%m-%d %H:%M:%S.%f"}]}
+
+          assert_equal [{"at" => Time.utc(2026, 10, 31, 9, 30, 0.5r)}, {"at" => Time.utc(2026, 10, 31, 9, 30, 0.123456r)}],
+                       read("at\n2026-10-31 09:30:00.5\n2026-10-31 09:30:00.123456\n", schema: schema)
+          assert_raises(IOStreams::Errors::InvalidValue) { read("at\n2026-10-31 09:30:00.1234567\n", schema: schema) }
+          assert_equal "at\n2026-10-31 09:30:00.500000\n", write([{"at" => Time.utc(2026, 10, 31, 9, 30, 0.5r)}], schema: schema)
+        end
+
+        it "reads a datetime whose format has no date, or only part of one, on 1900-01-01, as Python's strptime does" do
+          schema = {fields: [{name: "at", type: "datetime", format: "%H:%M"}, {name: "on", type: "datetime", format: "%m/%d %H:%M"}]}
+
+          assert_equal [{"at" => Time.utc(1900, 1, 1, 9, 30), "on" => Time.utc(1900, 7, 1, 9, 30)}],
+                       read("at,on\n09:30,07/01 09:30\n", schema: schema)
+          assert_raises(IOStreams::Errors::InvalidValue) { read("at,on\n09:30,02/29 09:30\n", schema: schema) }
+        end
+
+        it "keeps an offset of zero that the text says, such as +0000, as without a format, while Z is UTC" do
+          schema = {fields: [{name: "at", type: "datetime", format: "%Y-%m-%d %H:%M %z"}]}
+          times  = read("at\n2026-10-31 09:30 +0000\n2026-10-31 09:30 Z\n", schema: schema).map { |record| record["at"] }
+
+          assert_equal [Time.utc(2026, 10, 31, 9, 30)] * 2, times
+          assert_equal [0, 0], times.map(&:utc_offset)
+          assert_equal [false, true], times.map(&:utc?)
+          assert_equal "at\n2026-10-31T09:30:00+00:00\n2026-10-31T09:30:00Z\n",
+                       write(times.map { |time| {"at" => time} }, schema: {fields: [{name: "at", type: "datetime"}]})
+        end
+      end
+
       it "returns the schema that was set" do
         assert_nil stream.schema
         assert_same stream, stream.schema(people)
@@ -886,7 +1174,7 @@ class UpgradeSchemaTest < Minitest::Test
 
           it "writes a record without a value, and a blank record" do
             assert_equal "id,email\n1,\n", write([{"id" => 1}], schema: schema)
-            assert_equal %({"id":1,"email":null}\n{"id":2,"email":""}\n),
+            assert_equal %({"id":1,"email":null}\n{"id":2,"email":null}\n),
                          write([{"id" => 1, "email" => nil}, {"id" => 2, "email" => ""}], file_name: "people.json", schema: schema)
             assert_equal "id,email\n\n", write([{}], schema: schema)
           end
@@ -994,6 +1282,14 @@ class UpgradeSchemaTest < Minitest::Test
         it "writes a number right justified and zero filled, and a missing number as zero" do
           assert_equal "Jack    12345-0012.50   \nJill    0000000000.00   \n",
                        write_fixed({"name" => "Jack", "zip" => 12_345, "pay" => BigDecimal("-12.5")}, {name: "Jill"})
+        end
+
+        it "writes a whole number of a number field without decimals right justified and zero filled, without a decimal point" do
+          schema = {fields: [{name: "a", type: "number", width: 6}, {name: "b", type: "number", width: 6, decimals: 2}]}
+
+          assert_equal "000042042.00\n-00003000.00\n000000000.00\n",
+                       write_fixed({"a" => 42, "b" => 42.0}, {"a" => "-3"}, {"a" => nil}, schema: schema)
+          assert_equal [{"a" => BigDecimal("42"), "b" => BigDecimal("42")}], read_fixed("000042042.00\n", schema: schema)
         end
 
         it "raises for a string that is too long, unless its field truncates it" do

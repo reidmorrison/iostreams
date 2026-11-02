@@ -106,6 +106,23 @@ class UpgradeFormatsTest < Minitest::Test
       end
     end
 
+    # The records of a header row whose columns are the same key, such as a,a,b, are deprecated in v2.2, since v3.0
+    # raises IOStreams::Errors::InvalidHeader for them, and the deprecation warning recommends reading the rows.
+    describe "a header row whose columns are the same key" do
+      it "reads every column of the rows" do
+        store("people.csv", "a,a,b\n1,2,3\n")
+
+        assert_equal [%w[a a b], %w[1 2 3]], read(path("people.csv"), :array)
+      end
+
+      it "copies every column of the rows to a format whose rows are Arrays" do
+        store("people.csv", "a,a,b\n1,2,3\n")
+        path("copy.csv").copy_from(path("people.csv"), mode: :array)
+
+        assert_equal "a,a,b\n1,2,3\n", path("copy.csv").read
+      end
+    end
+
     describe "embedded_within: with each(:line)" do
       it "keeps a line break within a quoted value in its line" do
         store("notes.txt", %(name,note\nJack,"a\nb"\n))

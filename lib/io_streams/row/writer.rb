@@ -39,8 +39,15 @@ module IOStreams
       #     The tabular that renders each row, such as one with a schema, see `IOStreams::Stream#schema`, in place of the
       #     other options, which create it.
       #
+      #   report_repeated_key: [true|false]
+      #     Whether to report a deprecation warning when the header row of the rows written to a format whose rows are
+      #     records, such as JSON, has two columns of the same key, see #warn_repeated_key, which
+      #     `IOStreams::Stream#writer` asks for, rather than another gem that creates a writer, which its users cannot
+      #     change.
+      #     Default: false
+      #
       #   For all other parameters, see Tabular::Header.new
-      def initialize(line_writer, columns: nil, original_file_name: nil, tabular: nil, **args)
+      def initialize(line_writer, columns: nil, original_file_name: nil, tabular: nil, report_repeated_key: false, **args)
         raise(ArgumentError, "Stream must be a IOStreams::Line::Writer or implement #<<") unless line_writer.respond_to?(:<<)
 
         if tabular && (columns || original_file_name || !args.empty?)
@@ -48,8 +55,9 @@ module IOStreams
         end
 
         IOStreams::Tabular.check_write_options(args)
-        @tabular     = tabular || IOStreams::Tabular.new(columns: columns, file_name: original_file_name, **args)
-        @line_writer = line_writer
+        @tabular             = tabular || IOStreams::Tabular.new(columns: columns, file_name: original_file_name, **args)
+        @line_writer         = line_writer
+        @report_repeated_key = report_repeated_key
 
         # Render header line when `columns` is supplied, or with a schema the names of its fields, see
         # `IOStreams::Tabular#start_rows`.
@@ -79,7 +87,27 @@ module IOStreams
       # Returns self, so that calls can be chained.
       def write_header(columns)
         @tabular.render_header_row(columns) { |line| @line_writer << line }
+        warn_repeated_key if @report_repeated_key
         self
+      end
+
+      private
+
+      # Reports a deprecation warning when two columns of the header row are the same key, see
+      # `IOStreams::Tabular#repeated_key`, such as a header row of `a,a,b`, and the format writes each row as a record,
+      # see `IOStreams::Tabular#record_rows?`, such as JSON, since each record holds the value of only the last of them,
+      # while IOStreams v3.0 raises `IOStreams::Errors::InvalidHeader` for them, rather than lose the others. A format
+      # whose rows are Arrays, such as CSV, writes every column.
+      def warn_repeated_key
+        return unless @tabular.record_rows?
+
+        key = @tabular.repeated_key
+        return if key.nil?
+
+        Deprecation.warn("rows written to a format whose rows are records, such as JSON, under a header row whose " \
+                         "columns are the same key, #{key.inspect}, are deprecated, since each record holds the value " \
+                         "of only the last of them, and v3.0 raises IOStreams::Errors::InvalidHeader for them: rename " \
+                         "the columns")
       end
     end
   end

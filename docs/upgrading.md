@@ -136,7 +136,8 @@ deprecation warning that names another way to write it, which gives the same res
 | `IOStreams::Pgp.export(email: nil)` without a `key_id:`, and `IOStreams::Pgp.set_trust` without an `email:` or `key_id:`, which raise `IOStreams::Pgp::Failure`, where v3.0 raises `ArgumentError` | The email or key id of the key |
 | The rows and records of a file named `.text`, such as `ids.text`, which are read and written as CSV, where v3.0 reads and writes them in its `:text` format, as the text of each line | `format(:csv)`, or the format of an extension before `.text`, such as `format(:json)` for `people.json.text` |
 | `each(:array)` and `reader(:array)` of JSON without a schema, which yield each record as a Hash, where v3.0 yields each row as an Array, after a header row of the keys of the first record | `each(:hash)` to read the records, or a schema, with which v2.2 reads the rows as v3.0 does |
-| The rows and records of a spreadsheet read without a type for each column, by `#each`, `#reader` or a copy in the `:array` or `:hash` mode: without a schema, or with a field of type `any`, or with `extraColumns: "keep"`, which read the text of each cell, such as `"1001.0"`, where v3.0 reads its value, as Excel typed it, such as the `Float` `1001.0`, a `Date` or `true` | A schema that gives each column that is read a type, such as `{name: "id", type: "integer"}`, which reads `1001` in both, `{name: "zip", type: "string"}` for the text of a column such as `01234`, or `{name: "ok", type: "boolean"}`. v2.2 cannot report two differences that remain: v3.0 reads the text of a cell of a date and time in UTC in ISO 8601, such as `2026-10-25T09:30:00Z` where v2.2 reads `2026-10-25 09:30:00 -0400`, and a `number` field reads the 15 digits that Excel displays, such as `0.3` where v2.2 reads `0.30000000000000004` |
+| Records read without a schema, by `each(:hash)`, `reader(:hash)` or a copy in the `:hash` mode, from a header row whose columns are the same key, such as `a,a,b`, or `A` and `a`, which are cleansed to the same key, and rows written to JSON under an `IOStreams::Row::HeaderRow` whose columns are the same key, each record of which holds the value of only the last of them, where v3.0 raises `IOStreams::Errors::InvalidHeader` | Columns of names of their own, or `each(:array)`, which reads every column, in both |
+| The rows and records of a spreadsheet read without a type for each column, by `#each`, `#reader` or a copy in the `:array` or `:hash` mode: without a schema, or with a field of type `any`, or with `extraColumns: "keep"`, which read the text of each cell, such as `"1001.0"` without a schema, or `"1001"` with one, where v3.0 reads its value, as Excel typed it, such as the `Float` `1001.0`, a `Date` or `true` | A schema that gives each column that is read a type, such as `{name: "id", type: "integer"}`, which reads `1001` in both, `{name: "zip", type: "string"}` for the text of a column such as `01234`, or of a number, such as `2134`, which both read as the number that the cell holds, rather than `2134.0`, `{name: "ok", type: "boolean"}`, `{name: "at", type: "datetime"}` for a cell of a date and time, which both read at the time of its clock in UTC, or `{name: "opens", type: "string"}` for a cell of a time of day, which both read as the time of its clock, such as `09:30:00` |
 | A `Time` or `DateTime` that is not at midnight, by its own clock, such as `Time.now`, converted by a `date` field of a schema, which drops its time of day, where v3.0 raises `IOStreams::Errors::InvalidValue` for it, while it takes one at midnight as its date. It is reported once for each field | A `Date`, converted in the time zone that the time belongs to, such as `time.to_date`, or the type `datetime` for the field, to keep its time |
 | An SFTP or HTTP(S) url without a path, such as `sftp://host` or `https://host?a=1`, to which v3.0 adds a `/`, which changes its `#to_s` and `#path`, and the directory that SFTP `#each_child` lists, from the login directory to `/` | The url with the `/`, such as `sftp://host/` or `https://host/?a=1` |
 | A name that starts with `/` joined to an S3 bucket, such as `IOStreams.path("s3://bucket").join("/exports/a.csv")`, which is the key `/exports/a.csv`, where v3.0 joins it as the key `exports/a.csv` | The name without the leading `/`, or for an object whose key starts with `/`, its url, such as `IOStreams.path("s3://bucket//exports/a.csv")` |
@@ -216,21 +217,30 @@ the files of the application before it replaces the layout. What reads different
   the layout truncates it, while a whole number with a decimal point, such as `12.0`, is still read as `12`.
 * A `number` field reads `NaN` and `Inf`, which the layout writes for a `Float` that is not finite, as `Float::NAN`
   and `Float::INFINITY`, where the layout reads them as `0.0`.
+* A `number` field with `decimals` rounds the number read to them, such as `12.35` for `12.346` with `decimals: 2`,
+  where the layout reads all of its digits.
 * A line whose fields are all blank, even where a filler holds text, is a blank row, `nil`, which a copy skips, where
   the layout reads a record of blank values, such as `{name: "", zip: nil}`.
+* A `string` field of only spaces is `nil`, a missing value, where the layout reads empty text, `""`, see
+  [Types](formats#types).
 * `each(:array)` yields the names of the fields first, as an `IOStreams::Row::HeaderRow`, and then an Array of the
   values of each line, where the layout yields a Hash for each line, as `each(:hash)` does.
 
 What writes differently:
 
 * An `integer` or `number` field raises `IOStreams::Errors::InvalidValue` for a value that is not a number, such as
-  `"abc"`, and an `integer` field for a fraction, such as `12.7`, where the layout writes zeros, or truncates the
-  fraction.
+  `"abc"`, or text of only spaces, such as `"  "`, and an `integer` field for a fraction, such as `12.7`, where the
+  layout writes zeros, or truncates the fraction.
 * A `string` field writes a `BigDecimal` as `12.5`, and a `Time` in ISO 8601, such as `2026-10-13T09:30:00Z`, where
   the layout writes their `to_s`, such as `0.125e2` and `2026-10-13 09:30:00 UTC`. It raises
   `IOStreams::Errors::InvalidValue` for a `Hash` or an `Array`, where the layout writes their `to_s`: to write their
   JSON text, such as `{"a":1}`, give the field the type `object` or `array`.
-* A `number` field writes infinity as `INF`, where the layout writes `Inf`.
+* A `number` field with `decimals` writes a negative number that rounds to zero, such as `-0.001` with `decimals: 2`,
+  as zero, without a minus sign, where the layout writes one, such as `-0000.00`.
+* A `number` field that takes the remainder of the line, without `decimals`, writes a whole number without a decimal
+  point, such as `12`, where the layout writes `12.0`.
+* A `number` field writes infinity as `INF`, where the layout writes `Inf`, and a `string` field writes a `Float` that
+  is not finite as `NaN`, `INF` or `-INF`, where the layout writes `NaN`, `Infinity` or `-Infinity`.
 * A filler is written as spaces, also where the layout gives it a `type:` of `:integer` or `:float`, which writes
   zeros.
 * A record whose keys are Strings, such as `"name"`, is written to fields named with Symbols, such as `:name`, and
@@ -349,6 +359,9 @@ A schema reads the same records as the options it replaces, named as above, as i
 * A value after the last column, which is not blank, raises `IOStreams::Errors::InvalidHeader` unless `fieldsMatch`
   is `"subset"` or `"partial"`, where it was dropped.
 * The text read is UTF-8, see [Schemas in IOStreams 2.2 and 3.0](formats#schemas-in-iostreams-22-and-30).
+* Empty text, such as a quoted `""` in CSV or `""` in JSON, is a missing value, `nil`, where the column options read
+  it as it is, see [Types](formats#types). Writing works the same way: empty text is written as a missing value, an
+  empty value in CSV and `null` in JSON, where the column options wrote `""`.
 * `IOStreams.enforce_column_restrictions` does not apply, since a schema applies to every input. So a schema applies
   its fields to what the column options were not applied to, while `enforce_column_restrictions` is false, the
   default: the keys of JSON records, the `columns:` of a file without a header row, and a header row read with

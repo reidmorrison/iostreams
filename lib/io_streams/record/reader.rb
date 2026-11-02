@@ -68,10 +68,16 @@ module IOStreams
       #     The tabular that parses each line, such as one with a schema, see `IOStreams::Stream#schema`, in place of the
       #     other options, which create it.
       #
+      #   report_repeated_key: [true|false]
+      #     Whether to report a deprecation warning, before the first record, when two columns of the header row are the
+      #     same key, see #warn_repeated_key, which `IOStreams::Stream#each` and `#reader` ask for, rather than another
+      #     gem that creates a reader, which its users cannot change.
+      #     Default: false
+      #
       # Note:
       # * `allowed_columns`, `required_columns` and `skip_unknown` only apply to every input, including JSON records,
       #   supplied `columns` and `cleanse_header: false`, when `IOStreams.enforce_column_restrictions?` is true.
-      def initialize(line_reader, original_file_name: nil, tabular: nil, **args)
+      def initialize(line_reader, original_file_name: nil, tabular: nil, report_repeated_key: false, **args)
         unless line_reader.respond_to?(:each)
           raise(ArgumentError, "Stream must be a IOStreams::Line::Reader or implement #each")
         end
@@ -80,8 +86,9 @@ module IOStreams
           raise(ArgumentError, "Supply either tabular: or the options that create it, not both")
         end
 
-        @tabular     = tabular || IOStreams::Tabular.new(file_name: original_file_name, **args)
-        @line_reader = line_reader
+        @tabular             = tabular || IOStreams::Tabular.new(file_name: original_file_name, **args)
+        @line_reader         = line_reader
+        @report_repeated_key = report_repeated_key
 
         # Supplied columns take the place of a header row, so apply the allowed and required columns to them.
         @tabular.restrict_columns
@@ -89,6 +96,8 @@ module IOStreams
 
       # Yields each record, after the header row, which names their keys, see `IOStreams::Tabular#read_record_line`.
       def each(&block)
+        return each_reporting(&block) if @report_repeated_key
+
         @line_reader.each { |line| @tabular.read_record_line(line, &block) }
       end
 
@@ -99,6 +108,34 @@ module IOStreams
       # Returns the result of #each.
       def copy_to(writer)
         each { |record| writer << record unless record.nil? }
+      end
+
+      private
+
+      # Yields each record, as #each does, after reporting a deprecation warning before the first one when two columns
+      # of the header row are the same key, see #warn_repeated_key.
+      def each_reporting
+        @line_reader.each do |line|
+          @tabular.read_record_line(line) do |record|
+            warn_repeated_key if @report_repeated_key
+            yield record
+          end
+        end
+      end
+
+      # Reports a deprecation warning, once, when two columns of the header row are the same key, see
+      # `IOStreams::Tabular#repeated_key`, such as a header row of `a,a,b`, or of `A` and `a`, which are cleansed to the
+      # same key, since each record holds the value of only the last of them, while IOStreams v3.0 raises
+      # `IOStreams::Errors::InvalidHeader` for them, rather than lose the others.
+      def warn_repeated_key
+        @report_repeated_key = false
+        key = @tabular.repeated_key
+        return if key.nil?
+
+        Deprecation.warn("records read from a header row whose columns are the same key, #{key.inspect}, are " \
+                         "deprecated, since each record holds the value of only the last of them, and v3.0 raises " \
+                         "IOStreams::Errors::InvalidHeader for them: rename the columns, or read the rows with " \
+                         "each(:array), which holds every column")
       end
     end
   end

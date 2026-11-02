@@ -23,20 +23,34 @@ module IOStreams
     #     "string":   a String. Any other value is written as its text, except a Hash or an Array, which raise.
     #     "integer":  an Integer, such as `-12` or `0042`.
     #     "number":   a BigDecimal, such as `12.50`, `-1.5E3`, `NaN`, `INF` or `-INF`, or a Float with `floatNumber`.
-    #     "boolean":  true or false, see `trueValues` and `falseValues`.
+    #                 `Infinity` and `-Infinity`, as Ruby and JavaScript write them, are read too, whatever their case,
+    #                 as frictionless-py also reads them, while one that is not finite is written as the Frictionless
+    #                 spec spells it, `NaN`, `INF` or `-INF`, except to JSON, which cannot hold it, so that it raises.
+    #                 A whole number is written without a decimal point, such as `42`, unless `decimals` is set.
+    #     "boolean":  true or false, see `trueValues` and `falseValues`, or the number 1 or 0, or 1.0 or 0.0, of JSON,
+    #                 which IOStreams adds, since Frictionless reads only text, and true or false.
     #     "date":     a Date, written as `2026-10-13` unless `format` is set. A Time or DateTime is its date, dropping its
     #                 time of day, which is deprecated for one that is not at midnight, by its own clock, since v3.0 raises
     #                 for it rather than lose its time of day, see #cast.
-    #     "datetime": a Time, written as `2026-10-13T09:30:00Z` unless `format` is set.
+    #     "datetime": a Time, written as `2026-10-13T09:30:00Z` unless `format` is set. Without a format it reads ISO 8601
+    #                 with seconds, with a space in place of the T, such as `2026-10-13 09:30:00`, and an offset from UTC
+    #                 with or without a colon, or of hours alone, such as `+05:30`, `+0530` or `+05`, see #cast_datetime.
     #     "object":   a Hash, read from the text of a JSON object, such as `{"a":1}`, and written as that text, or by a
-    #                 format of JSON as an object.
+    #                 format of JSON as an object. A Hash is what JSON holds of it, see .json_data, so that its keys are
+    #                 Strings, which IOStreams adds, since Frictionless keeps a dict as it is.
     #     "array":    an Array, read from the text of a JSON array, such as `[1,2]`, and written as that text, or by a
-    #                 format of JSON as an array.
+    #                 format of JSON as an array. An Array is what JSON holds of it, see .json_data.
     #     "any":      the value as it is read, without converting it.
     #     Default: "any"
+    #     Empty text is a missing value, nil, in every type, and text of only whitespace raises in every type but a
+    #     string or any, which keep it, see #cast.
     #
     #   format: [String]
-    #     For a date or datetime, the strptime pattern of its text, such as "%d/%m/%Y" or "%Y%m%d%H%M%S".
+    #     For a date or datetime, the strptime pattern of its text, such as "%d/%m/%Y" or "%Y%m%d%H%M%S", in the syntax
+    #     of Python's strptime, whose `%Y` reads exactly 4 digits and `%f` microseconds, see
+    #     `IOStreams::Schema::Pattern`. A pattern that starts with `fmt:`, as Data Package v0 wrote it, such as
+    #     "fmt:%d/%m/%Y", has that prefix removed, as Frictionless says an implementation must, so that "fmt:default" is
+    #     the default form.
     #     Default: "default", the ISO 8601 form above.
     #
     #   trueValues: [Array<String>]
@@ -57,16 +71,18 @@ module IOStreams
     #     Default: []
     #
     #   allowBlank: [true|false]
-    #     For a field whose `constraints` are `required`, whether its values can be blank: nil, or empty text. The
-    #     header row, or each JSON record, must still have the field, as the deprecated `required_columns:` checked, but
-    #     a value is not required, both when reading and when writing. A property of the field rather than a constraint,
+    #     For a field whose `constraints` are `required`, whether its values can be blank: nil, or empty text, while text
+    #     of only whitespace is not blank, so it is still read as the type of the field, see #cast. The header row, or
+    #     each JSON record, must still have the field, as the deprecated `required_columns:` checked, but a value is not
+    #     required, both when reading and when writing. A property of the field rather than a constraint,
     #     since Frictionless defines `required` as a boolean, and a tool reports an error for a constraint that it does
     #     not support, while it accepts other properties of a field. Raises ArgumentError for a field that is not
     #     required, whose values can be blank anyway.
     #     Default: false
     #
     #   decimals: [Integer]
-    #     For a number, the number of digits written after the decimal point, rounding the value to them.
+    #     For a number, the number of digits after the decimal point, rounding the value to them, both when reading and
+    #     when writing, so that a record read holds the number that is written, see #round.
     #     Default: as many as the value has.
     #
     #   width: [Integer|"remainder"]
@@ -127,12 +143,25 @@ module IOStreams
       DEFAULT_TRUE_VALUES  = %w[true True TRUE 1].freeze
       DEFAULT_FALSE_VALUES = %w[false False FALSE 0].freeze
 
-      # The text of the numbers that are not finite, whose case does not matter.
-      SPECIAL_NUMBERS = {"nan" => Float::NAN, "inf" => Float::INFINITY, "-inf" => -Float::INFINITY}.freeze
+      # The text of the numbers that are not finite, whose case does not matter: `NaN`, `INF` and `-INF`, as the
+      # Frictionless spec spells them, and `Infinity` and `-Infinity`, as Ruby and JavaScript write them, which
+      # frictionless-py also reads.
+      SPECIAL_NUMBERS = {
+        "nan"       => Float::NAN,
+        "inf"       => Float::INFINITY,
+        "-inf"      => -Float::INFINITY,
+        "infinity"  => Float::INFINITY,
+        "-infinity" => -Float::INFINITY
+      }.freeze
 
       # The types whose values are numbers. A constant, so that using it does not create an Array each time, as an
       # Array literal does.
       NUMERIC_TYPES = %w[integer number].freeze
+
+      # The most Hashes and Arrays within each other that the value of an object or array field can have, as the json
+      # gem's `max_nesting` reads and writes them, so that a deeper one, such as a Hash that holds itself, raises
+      # `IOStreams::Errors::InvalidValue`, rather than overflow the stack, see .json_data.
+      MAX_NESTING = 100
 
       INTEGER  = /\A[+-]?\d+\z/
       # A whole number with a decimal point, such as "12.0", since a spreadsheet stores every number as a double, and the
@@ -143,9 +172,16 @@ module IOStreams
       # `Float()` and `BigDecimal()` raise for before Ruby 3.4.
       BARE_POINT = /\.(?=[eE]|\z)/
       DATE     = /\A\d{4}-\d{2}-\d{2}\z/
-      DATETIME = /\A\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})?\z/
-      # The offset from UTC at the end of the text of a datetime that DATETIME matches.
-      OFFSET   = /(?:Z|[+-]\d{2}:\d{2})\z/
+      # The text of a datetime without a format: ISO 8601 with seconds, on a clock, its hour below 24 and its minute and
+      # second below 60, rather than the `24:00:00` that ISO 8601 allows for the end of a day, which `Time.iso8601` reads
+      # as the midnight of the next day, with a T or a space between its date and its time, and an offset from UTC, Z, or
+      # the hours, with or without minutes, below 60, with or without a colon between them, such as `+05:30`, `+0530` or
+      # `+05`, as PostgreSQL writes it, or none, which is UTC. The date, the time and the offset are captured.
+      DATETIME = /\A(\d{4}-\d{2}-\d{2})[T ]((?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d+)?)(Z|[+-]\d{2}(?::?[0-5]\d)?)?\z/
+      # The zones of text read with a format that are UTC, rather than an offset of zero, such as `+00:00` or `+0000`,
+      # which a time keeps, as `Time.iso8601` reads them, see #cast_datetime: `Z`, `UTC`, `UT`, and `-00:00`, `-0000` or
+      # `-00`, which RFC 3339 and RFC 2822 give a time in UTC whose local offset is not known.
+      UTC_ZONE = /\A(?:Z|UTC?|-00(?::?00)?)\z/i
 
       # Returns [String|Symbol] the name of the field, as it was given.
       attr_reader :name
@@ -159,7 +195,7 @@ module IOStreams
       # Returns [Integer|nil] the position of the first character of the field in a fixed width file, counting from 1.
       attr_reader :start
 
-      # Returns [Integer|nil] for a number, the number of digits written after the decimal point, see `decimals` above.
+      # Returns [Integer|nil] for a number, the number of digits after the decimal point, see `decimals` above.
       attr_reader :decimals
 
       # Returns [Array<String>] the other names of the column of this field, see `aliases` above.
@@ -188,7 +224,7 @@ module IOStreams
         @skip = check_skip(descriptor)
         check_properties(descriptor)
         @format       = check_format(descriptor["format"])
-        @utc          = @type == "datetime" && !@format.nil? && !format_zone?
+        @utc          = @type == "datetime" && !@format.nil? && !@format.zone?
         @width        = check_width(descriptor["width"])
         @start        = check_positive("start", descriptor["start"])
         @truncate     = check_flag("truncate", descriptor["truncate"])
@@ -205,18 +241,24 @@ module IOStreams
         freeze
       end
 
-      # Returns [Time] the time of the DateTime, at its offset from UTC.
+      # Returns [Time] the time of the DateTime, at its offset from UTC, in UTC when its offset is zero, since a DateTime
+      # does not tell UTC from another zone at that offset, so that it is written as a Time in UTC is, with `Z`.
       #
       # Unlike `DateTime#to_time` in ActiveSupport 7, which converts it to the local time zone of the server, unless
       # `ActiveSupport.to_time_preserves_timezone` is set.
       def self.time_of(datetime)
         seconds = datetime.sec + datetime.sec_fraction
+        if datetime.offset.zero?
+          return Time.utc(datetime.year, datetime.month, datetime.day, datetime.hour, datetime.minute, seconds)
+        end
+
         Time.new(datetime.year, datetime.month, datetime.day, datetime.hour, datetime.minute, seconds,
                  (datetime.offset * 86_400).to_i)
       end
 
       # Returns [String] the text of a value whose type is not known, as a field of type "any" writes it: a BigDecimal
-      # as a plain decimal, such as "12.5" rather than "0.125e2", a Time or DateTime in ISO 8601, such as
+      # as a plain decimal, such as "12.5" rather than "0.125e2", a Float or BigDecimal that is not finite as the
+      # Frictionless spec spells it, "NaN", "INF" or "-INF", see .special_text, a Time or DateTime in ISO 8601, such as
       # "2026-10-13T09:30:00Z", with as many digits of its fraction of a second as it needs, a Date in ISO 8601, such as
       # "2026-10-13", a Hash or an Array as JSON, such as `{"a":1}` or `[1,2]`, which is what the JSON format writes
       # for it, see .any_json, and any other value with `to_s`.
@@ -224,21 +266,30 @@ module IOStreams
       # Formats of text, such as CSV, write each value that has no field this way, as they do every value of a file
       # without a schema.
       #
-      # A Hash or an Array that holds a value that JSON cannot hold, such as `Float::NAN`, is handled as writing it to a
-      # JSON file handles it: the json gem raises, while ActiveSupport, which replaces how Ruby writes JSON, writes null.
+      # Raises `IOStreams::Errors::InvalidValue` for a Hash or an Array that holds a Float that JSON cannot hold, such as
+      # `Float::NAN`, see .any_json, which a field raises naming itself, see #json_text.
       def self.any_text(value)
         return value if value.is_a?(String)
         # The most common values first, so that they skip the checks below.
-        return value.to_s if value.is_a?(Integer) || value.is_a?(Float)
+        return value.to_s if value.is_a?(Integer)
+        return value.finite? ? value.to_s : special_text(value) if value.is_a?(Float)
         # `is_a?` rather than `case`, which an `ActiveSupport::TimeWithZone` does not match.
         return time_text(value) if value.is_a?(Time)
         return time_text(time_of(value)) if value.is_a?(DateTime)
         return value.iso8601 if value.is_a?(Date)
-        return value.to_s("F") if defined?(::BigDecimal) && value.is_a?(::BigDecimal)
+        return value.finite? ? value.to_s("F") : special_text(value) if defined?(::BigDecimal) && value.is_a?(::BigDecimal)
         # The JSON that the JSON format writes, rather than `to_s`, whose text only Ruby reads, and which Ruby 3.4 changed.
         return any_json(value).to_json if value.is_a?(::Hash) || value.is_a?(::Array)
 
         value.to_s
+      end
+
+      # Returns [String] the text of a number that is not finite, as the Frictionless spec spells it: "NaN", "INF" or
+      # "-INF", rather than Ruby's "Infinity".
+      def self.special_text(number)
+        return "NaN" if number.nan?
+
+        number.positive? ? "INF" : "-INF"
       end
 
       # Returns the value as JSON holds it when its type is not known, as a field of type "any" writes it: a
@@ -247,11 +298,16 @@ module IOStreams
       # writes with all of its digits, see #render, which is an `IOStreams::Schema::JsonNumber`, so that a library that
       # replaces how Ruby writes JSON, such as ActiveSupport, writes it as it is too. The values within a Hash or an
       # Array are converted too, in a copy, and the value itself is returned when none of them needs it.
+      #
+      # Raises `IOStreams::Errors::InvalidValue` for a Float that is not finite, such as `Float::NAN`, which JSON cannot
+      # hold, also within a Hash or an Array, rather than leave it to the JSON writer, where the json gem raises its own
+      # exception, and ActiveSupport writes null. A field names itself in the message, see #any_json and #json_text.
       def self.any_json(value)
         case value
         when ::Hash then json_hash(value)
         when ::Array then json_array(value)
-        when String, Integer, Float, true, false, nil then value
+        when String, Integer, true, false, nil then value
+        when Float then finite_json(value)
         else
           return any_text(value) if textual?(value)
           return JsonNumber.new(value.json) if defined?(::JSON::Fragment) && value.is_a?(::JSON::Fragment)
@@ -260,13 +316,23 @@ module IOStreams
         end
       end
 
+      # Returns [Float] the number, when it is finite.
+      #
+      # Raises `IOStreams::Errors::InvalidValue` for a number that is not finite, such as NaN, which JSON cannot hold.
+      def self.finite_json(number)
+        return number if number.finite?
+
+        raise(IOStreams::Errors::InvalidValue, "JSON cannot hold a number that is not finite: #{special_text(number)}")
+      end
+
       # Returns [Hash] a copy of the hash with each of its values converted, see .any_json, or the hash itself when none
       # of them needs it.
       def self.json_hash(hash)
         copy = nil
         hash.each_pair do |key, item|
           # Skips the call for a value that JSON holds as it is, see .any_json.
-          next if item.nil? || item.is_a?(String) || item.is_a?(Integer) || item.is_a?(Float) || item == true || item == false
+          next if item.nil? || item.is_a?(String) || item.is_a?(Integer) || (item.is_a?(Float) && item.finite?) ||
+                  item == true || item == false
 
           json = any_json(item)
           (copy ||= hash.dup)[key] = json unless json.equal?(item)
@@ -280,12 +346,73 @@ module IOStreams
         copy = nil
         array.each_with_index do |item, index|
           # Skips the call for a value that JSON holds as it is, see .any_json.
-          next if item.nil? || item.is_a?(String) || item.is_a?(Integer) || item.is_a?(Float) || item == true || item == false
+          next if item.nil? || item.is_a?(String) || item.is_a?(Integer) || (item.is_a?(Float) && item.finite?) ||
+                  item == true || item == false
 
           json = any_json(item)
           (copy ||= array.dup)[index] = json unless json.equal?(item)
         end
         copy || array
+      end
+
+      # Returns the value as JSON holds it, so that an object or array field reads the same value from a format whose
+      # rows are Ruby objects, such as `:hash`, as from JSON, or the text of JSON: a Hash with String keys, such as "a"
+      # for the key `:a`, a Symbol as its text, a BigDecimal, Date, Time or DateTime as the text that IOStreams writes
+      # for it to JSON, see .any_json, such as "12.5" or "2026-10-13", and any other value as it is, so that a value of
+      # another class, such as a Rational, can differ from the value that its JSON text reads. The values within a Hash
+      # or an Array are converted too, in a copy, and the value itself is returned when none of them needs it.
+      #
+      # Raises `JSON::NestingError`, which #cast_json rescues, for Hashes and Arrays nested more than MAX_NESTING deep,
+      # such as one that holds itself.
+      def self.json_data(value, depth = 0)
+        case value
+        when ::Hash then data_hash(value, depth + 1)
+        when ::Array then data_array(value, depth + 1)
+        when String, Integer, Float, true, false, nil then value
+        when Symbol then value.to_s
+        else textual?(value) ? any_text(value) : value
+        end
+      end
+
+      # Returns [Hash] a copy of the hash with String keys and each of its values converted, see .json_data, or the hash
+      # itself when none of them needs it.
+      def self.data_hash(hash, depth)
+        nesting(depth)
+        return hash.to_h { |key, item| [key.to_s, json_data(item, depth)] } unless hash.each_key.all?(String)
+
+        copy = nil
+        hash.each_pair do |key, item|
+          # The values that JSON holds as they are, without a call of .json_data for each one.
+          case item
+          when String, Integer, Float, true, false, nil then next
+          end
+
+          data = json_data(item, depth)
+          (copy ||= hash.dup)[key] = data unless data.equal?(item)
+        end
+        copy || hash
+      end
+
+      # Returns [Array] a copy of the array with each of its values converted, see .json_data, or the array itself when
+      # none of them needs it.
+      def self.data_array(array, depth)
+        nesting(depth)
+        copy = nil
+        array.each_with_index do |item, index|
+          # The values that JSON holds as they are, without a call of .json_data for each one.
+          case item
+          when String, Integer, Float, true, false, nil then next
+          end
+
+          data = json_data(item, depth)
+          (copy ||= array.dup)[index] = data unless data.equal?(item)
+        end
+        copy || array
+      end
+
+      # Raises `JSON::NestingError` when a Hash or an Array is nested deeper than MAX_NESTING.
+      def self.nesting(depth)
+        raise(JSON::NestingError, "nesting of #{depth} is too deep") if depth > MAX_NESTING
       end
 
       # Returns [true|false] whether JSON holds the value as its text, see .any_json.
@@ -304,7 +431,8 @@ module IOStreams
           end
         value.iso8601(digits)
       end
-      private_class_method :time_text, :json_hash, :json_array, :textual?
+      private_class_method :time_text, :finite_json, :json_hash, :json_array, :data_hash, :data_array, :nesting,
+                           :textual?
 
       # Returns [true|false] whether the values of this field are numbers, which a fixed width file zero fills.
       def numeric?
@@ -338,27 +466,32 @@ module IOStreams
       def value_required? = @constraints.value_required?
 
       # Returns the value converted to the type of this field, such as the Integer `12` for the text `"0012"`, or nil
-      # when the value is nil, or is text that is empty once its leading and trailing whitespace is removed, except
-      # for a string or any field, which returns the text as it is.
+      # when the value is missing: nil, or empty text, which Frictionless' default `missingValues`, `[""]`, makes a
+      # missing value in every type, including a string. Text of only whitespace is not missing: a string or any field
+      # keeps it as the text, and any other type raises for it, as it does for text that is not one of its values. The
+      # leading and trailing whitespace of any other text is removed before it is read, except by a string or any field,
+      # which keeps the text as it is.
       #
       # Raises `IOStreams::Errors::InvalidValue` when the value is not one of this type, or when a required field has
       # no value: nil, or empty text.
       def cast(value)
-        return @constraints.no_value if value.nil?
+        return @constraints.no_value if value.nil? || (value.is_a?(String) && value.empty?)
 
         case type
-        when "any" then return value == "" ? @constraints.no_text(value) : value
-        when "string" then return value == "" ? @constraints.no_text(value) : cast_string(value)
+        when "any" then return value
+        when "string" then return cast_string(value)
         end
 
         if value.is_a?(String)
-          value = value.strip
-          return @constraints.no_value if value.empty?
+          text = value.strip
+          return invalid(value) if text.empty?
+
+          value = text
         end
 
         case type
         when "integer" then cast_integer(value)
-        when "number" then cast_number(value)
+        when "number" then round(cast_number(value))
         when "boolean" then cast_boolean(value)
         when "date" then cast_date(value)
         when "object" then cast_json(value, ::Hash)
@@ -368,14 +501,16 @@ module IOStreams
       end
 
       # Returns [Numeric] the number, of the type of this field, see #cast, rounded to its decimals as its text is
-      # written, see #render: a BigDecimal half up, which is an Integer with no decimals, and a Float as Ruby's `format`
-      # rounds it, to the nearest of its binary value, so that a format that holds the number itself, such as `:hash`,
-      # holds the number that CSV writes. A number that is not finite, or of a field without decimals, is returned as it
-      # is.
+      # written, see #render: a BigDecimal half up, and a Float as Ruby's `format` writes it, which rounds a Float whose
+      # text ends in 5 to the even digit, whatever its binary value, such as 0.12 for 0.125, 0.02 for 0.025 and 2.68 for
+      # 2.675, so that a record read, and a format that holds the number itself, such as `:hash`, hold the number that
+      # CSV writes. A number that rounds to zero is zero, rather than -0.0, which CSV would write as "-0.00". A number
+      # that is not finite, or of a field without decimals, is returned as it is.
       def round(number)
         return number if @decimals.nil? || !number.finite?
 
-        number.is_a?(Float) ? Float(float_text(number)) : number.round(@decimals)
+        rounded = number.is_a?(Float) ? Float(float_text(number)) : number.round(@decimals, :half_up)
+        rounded.zero? ? rounded.abs : rounded
       end
 
       # Returns the value converted to the type of this field, see #cast, in the form that the supplied format of
@@ -403,16 +538,33 @@ module IOStreams
         case type
         when "number" then number_text(value)
         when "boolean" then value ? @true_values.first : @false_values.first
-        when "date" then @format ? value.strftime(@format) : self.class.any_text(value)
+        when "date" then @format ? @format.strftime(value) : self.class.any_text(value)
         when "datetime" then @format ? datetime_text(value) : self.class.any_text(value)
-        else self.class.any_text(value)
+        else json_text(value)
         end
+      end
+
+      # Returns [String] the text of a value of an object, array or any field, see .any_text, such as the JSON text of a
+      # Hash or an Array.
+      #
+      # Raises `IOStreams::Errors::InvalidValue`, naming the field, for a Hash or an Array that holds a Float that JSON
+      # cannot hold, such as `Float::NAN`, see .any_json, as writing it to a JSON file does, see #any_json.
+      def json_text(value)
+        self.class.any_text(value)
+      rescue IOStreams::Errors::InvalidValue => e
+        named(e)
+      end
+
+      # Raises [IOStreams::Errors::InvalidValue] the error of a value of this field that a class method raised, such as
+      # .any_json, which does not know the field, with the name of this field.
+      def named(error)
+        raise(IOStreams::Errors::InvalidValue, "Field #{name.inspect}: #{error.message}")
       end
 
       # Returns [String] the time in the format of this field. Text without a zone is read as UTC, see #parse_time, so a
       # time is written in UTC with a format without a zone, so that it reads back as the same time.
       def datetime_text(time)
-        (@utc ? time.getutc : time).strftime(@format)
+        @format.strftime(@utc ? time.getutc : time)
       end
 
       def check_type
@@ -446,15 +598,18 @@ module IOStreams
         end
       end
 
-      # Returns [String|nil] the strptime pattern of a date or datetime, or nil for the default form.
+      # Returns [IOStreams::Schema::Pattern|nil] the strptime pattern of a date or datetime, without the prefix `fmt:`
+      # that Data Package v0 wrote before it, or nil for the default form, also after that prefix, as frictionless-py
+      # reads `fmt:default`.
       def check_format(format)
-        return if format.nil? || format == "default"
+        pattern = format.is_a?(String) ? format.delete_prefix("fmt:") : format
+        return if pattern.nil? || pattern == "default"
 
-        unless %w[date datetime].include?(type) && format.is_a?(String) && format.include?("%")
+        unless %w[date datetime].include?(type) && pattern.is_a?(String) && pattern.include?("%")
           raise(ArgumentError, "Field #{name.inspect}: the format #{format.inspect} is not supported for a #{type} field")
         end
 
-        format
+        Pattern.new(pattern)
       end
 
       def check_width(width)
@@ -597,11 +752,15 @@ module IOStreams
       end
 
       # Returns [Hash|Array] the value, which must be of the class of the field, a Hash for an object or an Array for an
-      # array, or the text of one in JSON, whose numbers are read as JSON reads them without a schema.
+      # array, as JSON holds it, see .json_data, or the text of one in JSON, whose numbers are read as JSON reads them
+      # without a schema.
       def cast_json(value, klass)
-        json = value.is_a?(String) ? parse_json(value) : value
+        # The JSON that text reads is already what JSON holds.
+        json = value.is_a?(String) ? parse_json(value) : self.class.json_data(value)
         # The value as it was read is named, such as the text of a JSON array for an object field.
         json.is_a?(klass) ? json : invalid(value)
+      rescue JSON::NestingError
+        invalid(value)
       end
 
       def parse_json(text)
@@ -610,10 +769,14 @@ module IOStreams
         invalid(text)
       end
 
+      # A number is true when it is 1 and false when it is 0, such as the 1 or 0, or 1.0 or 0.0, of JSON, whatever the
+      # text of `trueValues` and `falseValues`, which a number is not. Any other number raises. IOStreams adds this, since
+      # Frictionless reads a boolean only from text, and true or false.
       def cast_boolean(value)
         return value if [true, false].include?(value)
         return true if value.is_a?(String) && @true_values.include?(value)
         return false if value.is_a?(String) && @false_values.include?(value)
+        return value == 1 if (value.is_a?(Integer) || value.is_a?(Float)) && (value == 1 || value.zero?)
 
         invalid(value)
       end
@@ -659,89 +822,121 @@ module IOStreams
       #
       # Text without an offset from UTC is read as UTC, rather than in the time zone of the process, so that a file
       # reads the same on every server.
+      #
+      # Text without a format must match DATETIME, and is read with `Time.iso8601`, which reads each form of its offset,
+      # so that only a space in place of the T is replaced, and Z added to text without an offset.
       def cast_datetime(value)
         return value if value.is_a?(Time)
         return self.class.time_of(value) if value.is_a?(DateTime)
         return invalid(value) unless value.is_a?(String)
         return parse_time(Time, value) if @format
-        return invalid(value) unless DATETIME.match?(value)
-        return invalid(value) unless Date.valid_date?(value[0, 4].to_i, value[5, 2].to_i, value[8, 2].to_i)
 
-        Time.iso8601(OFFSET.match?(value) ? value : "#{value}Z")
+        date, time, offset = DATETIME.match(value)&.captures
+        return invalid(value) unless date && Date.valid_date?(date[0, 4].to_i, date[5, 2].to_i, date[8, 2].to_i)
+
+        Time.iso8601("#{date}T#{time}#{offset || 'Z'}")
       rescue ArgumentError
         invalid(value)
       end
 
-      # Returns [true|false] whether the strftime pattern of the format writes a zone, such as `%z`, `%:z` or `%Z`, so
-      # that a time written with it says its own offset from UTC.
-      #
-      # A width does not start with `0`, which is a flag, so that the flags and the width never match the same
-      # characters, which would take time that grows with the square of their length.
-      def format_zone?
-        @format.scan(/%(?:%|[-_0^#:]*(?:[1-9]\d*)?([a-zA-Z+]))/).flatten.compact.intersect?(%w[z Z +])
-      end
-
-      # Returns [Date|Time] the text read with the strptime pattern of the format, which must match all of the text,
-      # and whose date must exist, see #cast_datetime.
+      # Returns [Date|Time] the text read with the strptime pattern of the format, which must match all of the text, with
+      # a time on a clock, see `IOStreams::Schema::Pattern#parts`, and whose date must exist, see #cast_datetime.
       #
       # A time is at the offset from UTC that its zone gives, or in UTC without one, see #cast_datetime. A zone whose
       # offset is not known, such as "XYZ", raises, rather than be read in the time zone of the process.
       def parse_time(klass, text)
-        parts = Date._strptime(text, @format)
-        return invalid(text) if parts.nil? || parts.key?(:leftover)
+        parts = @format.parts(text)
+        return invalid(text) if parts.nil?
         if parts[:mon] && parts[:mday] && !Date.valid_date?(parts.fetch(:year, Time.now.year), parts[:mon], parts[:mday])
           return invalid(text)
         end
-        return Date.strptime(text, @format) if klass == Date
+        return @format.date(text) if klass == Date
         return invalid(text) if parts.key?(:zone) && parts[:offset].nil?
 
         # A DateTime reads text without an offset as UTC, and knows the offset of every zone that Date._strptime knows,
         # such as "CET", which `Time.strptime` reads in the time zone of the process, as it does text without an offset.
-        time = self.class.time_of(DateTime.strptime(text, @format))
-        parts[:offset] ? time : time.utc
+        # A DateTime at an offset of zero is a time in UTC, see .time_of, so a time keeps an offset of zero that the
+        # text says, such as `+0000`, see #zero_offset?, with `Time.at`, since JRuby's `getlocal(0)` of a time in UTC is
+        # in UTC.
+        time = self.class.time_of(@format.datetime(text, parts))
+        zero_offset?(parts) ? Time.at(time, in: "+00:00") : time
       rescue ArgumentError
         invalid(text)
       end
 
+      # Returns [true|false] whether the parts of text read with a format say an offset of zero that is not UTC, such as
+      # `+00:00` or `+0000`, which a time keeps, as it does without a format, see UTC_ZONE.
+      def zero_offset?(parts)
+        parts[:offset]&.zero? && !UTC_ZONE.match?(parts[:zone])
+      end
+
+      # Returns [String] the text of the number: with the decimals of the field, such as "42.00", or else with the digits
+      # that it has, so that a whole number has no decimal point, such as "42" for the Integer 42, the text "3" or the
+      # Float 42.0, as frictionless-py writes it, rather than the "42.0" of `BigDecimal#to_s("F")` and `Float#to_s`.
       def number_text(value)
-        return "NaN" if value.nan?
-        return value.positive? ? "INF" : "-INF" if value.infinite?
-        return (@decimals ? float_text(value) : value.to_s) if value.is_a?(Float)
-        return value.to_s("F") unless @decimals
+        return self.class.special_text(value) unless value.finite?
+        return (@decimals ? float_text(value) : plain_float_text(value)) if value.is_a?(Float)
+        return value.to_s("F").delete_suffix(".0") unless @decimals
+        # The value is already rounded to the decimals, see #cast.
+        return value.to_i.to_s if @decimals.zero?
 
-        # Rounding to no decimals returns an Integer.
-        rounded = round(value)
-        return rounded.to_s if rounded.is_a?(Integer)
-
-        whole, fraction = rounded.to_s("F").split(".")
+        whole, fraction = value.to_s("F").split(".")
         "#{whole}.#{fraction.ljust(@decimals, '0')[0, @decimals]}"
       end
 
-      # Returns [String] the text of a finite Float with the decimals of this field, which `format` rounds to the nearest
-      # of its binary value.
+      # Returns [String] the text of a finite Float with the decimals of this field, which `format` rounds as its text
+      # reads, a Float whose text ends in 5 to the even digit, whatever its binary value, see #round.
       def float_text(value)
         format("%.#{@decimals}f", value)
+      end
+
+      # Returns [String] the text of a finite Float without decimals, as `Float#to_s` writes it, without the ".0" of a
+      # whole number, such as "42" for 42.0, nor of the digits before an exponent, such as "1e+20" for 1.0e+20.
+      def plain_float_text(value)
+        text = value.to_s
+        return text.delete_suffix(".0") if text.end_with?(".0")
+
+        text.include?(".0e") ? text.sub(".0e", "e") : text
       end
 
       def json(value)
         case type
         when "number" then number_json(value)
         when "integer", "boolean", "string" then value
-        when "any", "object", "array" then self.class.any_json(value)
+        when "any", "object", "array" then any_json(value)
         else text(value)
+        end
+      end
+
+      # Returns the value of a field of type any, object or array as JSON holds it, see .any_json. A Float or BigDecimal
+      # that is not finite raises, see #not_finite_json, as it does for a number field, and so does a Float inside a
+      # Hash or an Array, naming the field, see .any_json, while a BigDecimal inside one is written as its text.
+      def any_json(value)
+        return not_finite_json(value) if (value.is_a?(Float) || bigdecimal?(value)) && !value.finite?
+
+        begin
+          self.class.any_json(value)
+        rescue IOStreams::Errors::InvalidValue => e
+          named(e)
         end
       end
 
       # Returns the number as JSON writes it: its text, see #number_text, which JSON writes as it is, see
       # `IOStreams::Schema::JsonNumber.fragment`, so that a BigDecimal keeps all of its digits, and the digits after the
-      # decimal point that the field gives are written, such as `12.50`, the same as in CSV. A Float without `decimals`
-      # is itself, which JSON writes with the same digits, and a number that is not finite, such as NaN, is a Float,
-      # which JSON cannot hold, so that the JSON writer raises for it.
+      # decimal point that the field gives are written, such as `12.50`, and a whole number without a decimal point,
+      # such as `42`, the same as in CSV. A number that is not finite, such as NaN, raises, see #not_finite_json.
       def number_json(value)
-        return value.to_f unless value.finite?
-        return value if @decimals.nil? && value.is_a?(Float)
+        return not_finite_json(value) unless value.finite?
 
         JsonNumber.fragment(number_text(value))
+      end
+
+      # Raises `IOStreams::Errors::InvalidValue` for a number that is not finite, such as NaN, which JSON cannot hold,
+      # naming the field, rather than leave it to the JSON writer, where the json gem raises its own exception, and
+      # ActiveSupport writes `null`.
+      def not_finite_json(value)
+        raise(IOStreams::Errors::InvalidValue,
+              "Field #{name.inspect}: JSON cannot hold a number that is not finite: #{self.class.special_text(value)}")
       end
 
       def bigdecimal?(value)

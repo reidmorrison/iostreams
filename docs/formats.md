@@ -166,6 +166,11 @@ so it is accepted. A nil one, and `skip_unknown`, have no effect.
   and dashes are converted to underscores, so the header `" First Name "` becomes `"first_name"`.
   Default: true
 
+Without a schema, two columns of a header row that are the same key of a record, such as `a,a,b`, or `A` and `a`,
+which are cleansed to the same key, give each record the value of only the last of them. This is deprecated, and
+reports a deprecation warning, since IOStreams 3.0 raises `IOStreams::Errors::InvalidHeader` for them, rather than
+lose the others: rename the columns, or read the rows with `each(:array)`, which holds every column.
+
 * `allowed_columns: [Array<String>]`
   List of columns to allow. Any other columns are ignored when `skip_unknown` is true,
   otherwise an `IOStreams::Errors::InvalidHeader` exception is raised.
@@ -298,29 +303,66 @@ valid UTF-8, unless an encoding is set, which writes it instead, as it does with
 
 | Type | Read as | Written as |
 |------|---------|------------|
-| `string` | a `String` | the text, or the text of any other value, except a `Hash` or an `Array`, which raise |
+| `string` | a `String`, such as the number of a cell of a spreadsheet, `2134` rather than `2134.0`, see below | the text, or the text of any other value, except a `Hash` or an `Array`, which raise |
 | `integer` | an `Integer`, from text such as `42`, `-12` or `0042`, or a whole number with a decimal point, such as `12.0`, as a spreadsheet stores it | `42` |
-| `number` | a `BigDecimal`, from text such as `12.5`, `-1.5E3`, `NaN`, `INF` or `-INF`, or a number, including a `Rational`, or a `Float` with `floatNumber: true` | `12.5`, or `12.50` with `decimals: 2` |
-| `boolean` | `true` or `false`, from one of its `trueValues` or `falseValues` | the first of its `trueValues` or `falseValues` |
+| `number` | a `BigDecimal`, from text such as `12.5`, `-1.5E3`, `NaN`, `INF` or `-INF`, or `Infinity` or `-Infinity`, as Ruby and JavaScript write them, and frictionless-py also reads them, whatever their case, or a number, including a `Rational`, or a `Float` with `floatNumber: true` | `12.5`, a whole number without a decimal point, such as `42` for `42`, `42.0` or the text `42.0`, or `12.50` and `42.00` with `decimals: 2`, and a number that is not finite as `NaN`, `INF` or `-INF`, except to JSON, which cannot hold it, so that it raises `IOStreams::Errors::InvalidValue` |
+| `boolean` | `true` or `false`, from one of its `trueValues` or `falseValues`, or the number `1` or `0`, such as a number of JSON, also `1.0` or `0.0`, while any other number raises | the first of its `trueValues` or `falseValues` |
 | `date` | a `Date`, from `2026-10-13`, or text in its `format`, or the date of a `Time` or `DateTime`, which is deprecated for one that is not at midnight, since v3.0 raises for it, see [Deprecated, and what replaces it](upgrading#deprecated-and-what-replaces-it) | `2026-10-13`, or text in its `format` |
-| `datetime` | a `Time`, from ISO 8601, such as `2026-10-13T09:30:00Z`, or text in its `format`. Text without an offset from UTC is read as UTC | ISO 8601, or text in its `format` |
-| `object` | a `Hash`, from the text of a JSON object, such as `{"a":1}` | that JSON text, or in JSON an object |
-| `array` | an `Array`, from the text of a JSON array, such as `[1,2]` | that JSON text, or in JSON an array |
+| `datetime` | a `Time`, from ISO 8601 with seconds, such as `2026-10-13T09:30:00Z`, also with a space in place of the `T`, such as `2026-10-13 09:30:00`, and with an offset from UTC without a colon, such as `+0530`, or of hours alone, such as `+05`, or text in its `format`. Text without an offset from UTC is read as UTC, as is `Z`, while an offset of zero that the text says, such as `+00:00`, or `+0000` with a `format`, is kept. The hour `24`, which ISO 8601 allows for the end of a day, such as `2026-10-13T24:00:00`, raises | ISO 8601, such as `2026-10-13T09:30:00+05:30`, or `2026-10-13T09:30:00Z` for a time in UTC, also a `DateTime` at an offset of zero, which does not tell UTC from another zone at that offset, or text in its `format` |
+| `object` | a `Hash`, from the text of a JSON object, such as `{"a":1}`, or a `Hash` as JSON holds it, see below | that JSON text, or in JSON an object |
+| `array` | an `Array`, from the text of a JSON array, such as `[1,2]`, or an `Array` as JSON holds it, see below | that JSON text, or in JSON an array |
 | `any` | the value as it is read | the value, with a `BigDecimal`, `Date` or `Time` as its text, and in a format of text a `Hash` or an `Array` as JSON, see [Values of a field without a type](#values-of-a-field-without-a-type) |
 
-A field without a `type` is `any`, as in Frictionless. Empty text is read as `nil`, except for a `string` or `any`
-field, which keeps it.
+A field without a `type` is `any`, as in Frictionless.
+
+Empty text is a missing value, read as `nil` in every type, including a `string` or `any` field, as the default
+`missingValues` of Frictionless, `[""]`, says, so that a missing value is `nil` whether the file leaves it out, such
+as JSON's `null`, or holds empty text, such as `""` in CSV or JSON. Text of only whitespace is not missing: a `string`
+or `any` field keeps it as the text, and any other type raises `IOStreams::Errors::InvalidValue` for it, as it does
+for `N/A`. The leading and trailing whitespace of any other text is removed before it is read as a type other than
+`string` or `any`, so that ` 42 ` is the `integer` `42`. Writing works the same way, so that empty text is written
+as a missing value, which CSV writes as an empty value, such as `,21,`, rather than a quoted `""`, and JSON as
+`null`, and text of only whitespace raises for a type other than `string` or `any`.
+
+A spreadsheet read with a schema holds the number of each number cell, to the 15 significant digits that Excel
+displays, or every digit of a whole number below 2^53, which a `Float` holds exactly, such as the card number
+`4111111111111111`, without its number format, such as `0.125` for `12.5%`, in plain digits, such as `0.0000001`, and
+without a decimal point for a whole number, such as `2134`, or `0.3` for `0.30000000000000004`, in its lines and in
+its rows and records, so that a `string` field reads that text, and a `number` field those digits. A cell of a date
+holds its date in ISO 8601, such as `2026-10-25`, one of a date and time the time of its clock in UTC, such as
+`2026-10-25T09:30:00Z`, since Excel has no time zone, and one of a time of day the time of its clock, such as
+`09:30:00`, so that a `date` or `datetime` field reads them. Which cells are dates and times is decided by their
+number formats, as v3.0 decides it: Excel's own formats of a date, a time of day, or both, and a custom format of
+only a year, month or day, such as `yyyy-mm-dd` or `dd/mm/yyyy`, which is a date, of only hours, minutes or seconds,
+such as `hh:mm:ss`, a time of day, or of both, such as `dd/mm/yyyy hh:mm`, a date and time, while quoted text, such
+as the `d` of `0.00" days"`, or a color, such as `[Red]0.00`, does not make a number a date. Without a schema, its
+cells are read as before, such as `2134.0`, as creek reads them, which takes every custom format with a letter of a
+date or a time, such as `yyyy-mm-dd` or `0.00" days"`, as a date and time.
+
+A `Hash` or an `Array` of an `object` or `array` field, such as one of the `:hash` format, is converted to what JSON
+holds of it, so that it is the same as the value that its JSON text reads: its keys are Strings, such as `"theme"` for
+`:theme`, a `Symbol` within it is its text, and a `BigDecimal`, `Date`, `Time` or `DateTime` within it is the text that
+IOStreams writes for it to JSON, such as `"12.5"`, see
+[Values of a field without a type](#values-of-a-field-without-a-type). Any other value is kept as it is, so that a
+value of another class, such as a `Rational`, can differ from the value that its JSON text reads. Hashes and Arrays
+nested more than 100 deep, as JSON reads them, raise `IOStreams::Errors::InvalidValue`, as does a `Float` within them
+that is not finite, such as `Float::NAN`, which JSON cannot hold, when it is written, in every format, naming the field,
+also in an application that uses ActiveSupport, as Rails does, which would write it as `null`. Frictionless keeps a
+dict as it is, and reads a `boolean` only from text, and `true` or `false`, so this conversion, and reading the number
+`1` or `0` as a `boolean`, are what IOStreams adds.
 
 A value that is not one of the type of its field, such as `N/A` for an `integer`, raises
 `IOStreams::Errors::InvalidValue`, naming the field and the value, both when reading and when writing. So does a `date`
 or `datetime` that does not exist, such as `2026-02-30`.
 
 JSON writes integers, numbers and booleans as JSON numbers and booleans, with all of the digits of a `number`, and the
-digits after the decimal point that its `decimals` give, such as `12.50`, the same as CSV, an `object` or an `array`
-as itself, and every other value as text, such as a date, including in an application that uses ActiveSupport, as
-Rails does, which replaces how Ruby writes JSON. Reading JSON keeps all of the digits of a `number` too, rather than reading it through a `Float`, while
-the numbers of the other fields are a `Float`, as they are without a schema. The `:hash` and `:array` formats keep the
-values themselves.
+digits after the decimal point that its `decimals` give, such as `12.50`, or none for a whole number without
+`decimals`, such as `42`, the same as CSV, an `object` or an `array` as itself, and every other value as text, such as
+a date, including in an application that uses ActiveSupport, as Rails does, which replaces how Ruby writes JSON.
+Reading JSON keeps all of the digits of a `number` too, rather than reading it through a `Float`, rounded to its
+`decimals` when it has them, while the numbers of the other fields are a `Float`, as they are without a schema. The
+`:hash` and `:array` formats keep the values themselves, apart from a `number` with `decimals`, which is rounded to
+them, both when reading and when writing.
 
 A `number` field needs the `bigdecimal` gem, which is a bundled gem from Ruby 3.4, so add `gem "bigdecimal"` to the
 Gemfile, or set `floatNumber: true` to read a `Float` instead.
@@ -520,8 +562,9 @@ record, without the field raises `IOStreams::Errors::InvalidHeader`, whatever `f
 `nil`, or empty text, raises `IOStreams::Errors::InvalidValue`, both when reading and when writing, including a blank
 record or row written, such as `{}`, which is otherwise written as a blank line. A blank row read, a line that is empty
 or only whitespace, or whose every value is `nil` or blank text, such as a line of CSV of only commas, is `nil`
-instead, as a blank line is. Text that is only spaces is a value for a `string` field of a row that has other values,
-as in Frictionless, but not for a type that reads it as `nil`, such as an `integer`.
+instead, as a blank line is. Text that is only spaces is a value for a `string` or `any` field of a row that has other
+values, as in Frictionless, while any other type, such as an `integer`, raises `IOStreams::Errors::InvalidValue` for it,
+see [Types](#types).
 
 ~~~ruby
 # An upload, whose columns may be in any order, with names that people typed, and columns that the code ignores.
@@ -542,7 +585,7 @@ end
 
 A file can need a column whose values can be blank, such as a middle name that must be in every upload, but that
 many people do not have. Give its field `allowBlank: true` with `required`: a header row, or JSON record, without
-the field still raises, while a value that is `nil`, or empty text, is read and written as it is:
+the field still raises, while a value that is `nil`, or empty text, is read and written as `nil`:
 
 ~~~ruby
 schema = {
@@ -630,18 +673,35 @@ and `#copy_to`, whose options only apply to the target.
 * `name` The key of the field in each record, and its column in the header row written. Required.
 * `type` See [Types](#types). Default: `any`
 * `constraints` `{required: true}` for a field that must have a value, see [Required fields](#required-fields).
-* `format` For a `date` or a `datetime`, the strptime pattern of its text, such as `"%d/%m/%Y"` or `"%Y%m%d"`.
-  Default: ISO 8601.
+* `format` For a `date` or a `datetime`, the strptime pattern of its text, such as `"%d/%m/%Y"` or `"%Y%m%d"`, in
+  the syntax of Python's strptime, as Frictionless defines it: `%Y` reads exactly 4 digits, so that `31/10/26` raises
+  `IOStreams::Errors::InvalidValue` with `%d/%m/%Y`, as do `%G` and the year of a directive that reads several, such
+  as `%F` and `%c`, while `%y` reads exactly 2 digits, the time of a `date` or a `datetime` must be on a clock, so
+  that the hour `24` of `%H`, such as `24:00`, and a leap second, `60` of `%S`, raise, rather than read the next day
+  or the second before it, or be ignored by a `date`, and `%f` reads 1 to 6 digits of microseconds, such as `5` for
+  half a second, and writes 6, such as `500000`. A `datetime` whose pattern reads no date, or only part of one, such
+  as `%H:%M` or `%m/%d %H:%M`, is on 1900-01-01, the year, month and day that Python gives the parts that it leaves
+  out, such as `1900-07-01 09:30` for `07/01 09:30`, rather than on the day that it is read. A pattern that starts
+  with `fmt:`, as Data Package v0 wrote it, such as `"fmt:%d/%m/%Y"`, has that prefix removed, so that
+  `"fmt:default"` is the default form. Ruby's own directives, such as `%N`, `%L` and `%s`, also work, but other
+  Frictionless tools do not read them, and `%s` reads whole seconds, ignoring a fraction after it, such as that of
+  `%s.%f`. Default: ISO 8601.
 * `trueValues` and `falseValues` For a `boolean`, the text that is true and false.
   Default: `["true", "True", "TRUE", "1"]` and `["false", "False", "FALSE", "0"]`
 * `floatNumber` For a `number`, `true` to read a `Float` rather than a `BigDecimal`, as frictionless-py does.
 * `aliases` The other names of the column of the field, see [Matching columns to fields](#matching-columns-to-fields).
   IOStreams adds this property.
-* `allowBlank` For a field whose `constraints` are `required`, `true` to accept a value that is `nil`, or empty text,
-  while the file must still have its column, see [Required fields](#required-fields). IOStreams adds this property.
-* `decimals` For a `number`, the number of digits to write after the decimal point, rounding a `BigDecimal` half up,
-  and a `Float`, with `floatNumber: true`, as Ruby's `format` does, to the nearest of its binary value, as the layouts
-  of fixed width files always have. IOStreams adds this property.
+* `allowBlank` For a field whose `constraints` are `required`, `true` to accept a value that is blank, `nil` or empty
+  text, while the file must still have its column, see [Required fields](#required-fields). Text of only whitespace is
+  not blank, so it is still read as the type of the field, see [Types](#types). IOStreams adds this property.
+* `decimals` For a `number`, the number of digits after the decimal point, rounding a `BigDecimal` half up, and a
+  `Float`, with `floatNumber: true`, as Ruby's `format` writes it, as the layouts of fixed width files always have,
+  which rounds a `Float` whose text ends in 5 to the even digit, whatever its binary value, such as `0.12` for `0.125`,
+  `0.02` for `0.025` and `2.68` for `2.675` with `decimals: 2`, and `2.0` for `2.5` with `decimals: 0`. It rounds the
+  number read too, such as the
+  `BigDecimal` `12.35` for `12.345` with `decimals: 2`, also a number that is not text, such as one of JSON, and the
+  number written to the `:hash` and `:array` formats, so that a record read holds the number that is written. A
+  number that rounds to zero is zero, rather than `-0.0`. IOStreams adds this property.
 * `skip` `true` for a field that only holds the place of its column, such as a column of a file without a header row
   that the code does not read: reading leaves it out of the rows and records, and writing writes an empty value in its
   column, or leaves it out of a JSON record. It takes only the properties that place its column, `name`, `aliases`,
@@ -663,7 +723,8 @@ A value of a field without a type, `any`, is written as follows:
 | Value | Written as |
 |-------|------------|
 | `BigDecimal` | a plain decimal, such as `12.5`, rather than `0.125e2` |
-| `Time` or `DateTime` | ISO 8601, such as `2026-10-13T09:30:00Z`, with as many digits of its fraction of a second as it needs |
+| `Float` or `BigDecimal` that is not finite | `NaN`, `INF` or `-INF`, as the Frictionless spec spells it, rather than `Infinity`, while JSON, which cannot hold it, raises `IOStreams::Errors::InvalidValue` for it, unless it is inside a Hash or an Array, which writes a `BigDecimal` as that text, and raises `IOStreams::Errors::InvalidValue` for a `Float` in every format, since its JSON text cannot hold it |
+| `Time` or `DateTime` | ISO 8601, such as `2026-10-13T09:30:00Z`, with as many digits of its fraction of a second as it needs, and `Z` for a `DateTime` at an offset of zero, as for a `Time` in UTC |
 | `Date` | ISO 8601, such as `2026-10-13` |
 | `Hash` or `Array` | JSON, such as `{"a":1}` or `[1,2]`, as the JSON format writes it |
 | any other value | its `to_s`, such as `42` or `true` |
@@ -718,11 +779,12 @@ length, ignoring what follows the last field. Otherwise every line ends where th
 length raises `IOStreams::Errors::InvalidLineLength`.
 
 When reading, each value is the text of its field without its leading and trailing spaces, converted to the type of
-its field. When writing, a number is right justified and zero filled, and a missing number is written as zero, as the
-specifications of most fixed width files require. A number that is not finite, such as `NaN` or `-INF`, is space
-filled instead, so that it can be read back. Any other value is left justified and space filled, with each line
-break replaced with a space, so that a value cannot add records. The characters that no field covers, such as a
-filler, are spaces.
+its field, so that a field of only spaces is empty text, a missing value, `nil`, see [Types](#types). When writing, a
+number is right justified and zero filled, such as `000042` for `42` without `decimals`, or `042.00` with
+`decimals: 2`, and a missing number is written as zero, as the specifications of most fixed width files require. A
+number that is not finite, such as `NaN` or `-INF`, is space filled instead, so that it can be read back. Any other
+value is left justified and space filled, with each line break replaced with a space, so that a value cannot add
+records. The characters that no field covers, such as a filler, are spaces.
 
 ### Schemas in IOStreams 2.2 and 3.0
 

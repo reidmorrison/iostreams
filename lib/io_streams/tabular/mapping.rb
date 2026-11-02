@@ -21,8 +21,8 @@ module IOStreams
     # * Cleanses the header row, `#cleanse_header!`, when the keys of the records are the columns of the file.
     # * Answers the questions of the protocol: whether the file has a header row, `#requires_header?`, whether it is
     #   still to be read, `#header?`, whether the rows read start with a header row, `#rows_header?`, whether they are
-    #   records rather than Arrays, `#record_rows?`, and the columns of the rows of a file without one,
-    #   `#headerless_columns`.
+    #   records rather than Arrays, `#record_rows?`, the columns of the rows of a file without one,
+    #   `#headerless_columns`, and the key that two columns are, `#repeated_key`.
     #
     # Each reader and writer has its own, through its Tabular, since it holds the columns of one file.
     class Mapping
@@ -68,6 +68,11 @@ module IOStreams
       # Returns [Array<String|Symbol>|nil] the columns of the rows of a file without a header row, see
       # `IOStreams::Tabular#headerless_columns`.
       def headerless_columns
+        raise NotImplementedError
+      end
+
+      # Returns [String|nil] the key of a record that two columns are, see `IOStreams::Tabular#repeated_key`.
+      def repeated_key
         raise NotImplementedError
       end
 
