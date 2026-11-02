@@ -2364,7 +2364,8 @@ as JSON's `null`, or holds empty text, such as `""` in CSV or JSON. Text of only
 or `any` field keeps it as the text, and any other type raises `IOStreams::Errors::InvalidValue` for it, as it does
 for `N/A`. The leading and trailing whitespace of any other text is removed before it is read as a type other than
 `string` or `any`, so that ` 42 ` is the `integer` `42`. Writing works the same way, so that empty text is written
-as a missing value, which JSON writes as `null`.
+as a missing value, which CSV writes as an empty value, such as `,21,`, rather than a quoted `""`, and JSON as
+`null`, and text of only whitespace raises for a type other than `string` or `any`.
 
 A value that is not one of the type of its field, such as `N/A` for an `integer`, raises
 `IOStreams::Errors::InvalidValue`, naming the field and the value, both when reading and when writing. So does a `date`
@@ -2699,8 +2700,9 @@ and `#copy_to`, whose options only apply to the target.
 * `floatNumber` For a `number`, `true` to read a `Float` rather than a `BigDecimal`, as frictionless-py does.
 * `aliases` The other names of the column of the field, see [Matching columns to fields](#matching-columns-to-fields).
   IOStreams adds this property.
-* `allowBlank` For a field whose `constraints` are `required`, `true` to accept a value that is `nil`, or empty text,
-  while the file must still have its column, see [Required fields](#required-fields). IOStreams adds this property.
+* `allowBlank` For a field whose `constraints` are `required`, `true` to accept a value that is blank, `nil` or empty
+  text, while the file must still have its column, see [Required fields](#required-fields). Text of only whitespace is
+  not blank, so it is still read as the type of the field, see [Types](#types). IOStreams adds this property.
 * `decimals` For a `number`, the number of digits to write after the decimal point, rounding a `BigDecimal` half up,
   and a `Float`, with `floatNumber: true`, as Ruby's `format` does, to the nearest of its binary value, as the layouts
   of fixed width files always have. IOStreams adds this property.
@@ -2780,11 +2782,11 @@ length, ignoring what follows the last field. Otherwise every line ends where th
 length raises `IOStreams::Errors::InvalidLineLength`.
 
 When reading, each value is the text of its field without its leading and trailing spaces, converted to the type of
-its field, so that a field of only spaces is empty text, a missing value, `nil`, see [Types](#types). When writing, a number is right justified and zero filled, and a missing number is written as zero, as the
-specifications of most fixed width files require. A number that is not finite, such as `NaN` or `-INF`, is space
-filled instead, so that it can be read back. Any other value is left justified and space filled, with each line
-break replaced with a space, so that a value cannot add records. The characters that no field covers, such as a
-filler, are spaces.
+its field, so that a field of only spaces is empty text, a missing value, `nil`, see [Types](#types). When writing, a
+number is right justified and zero filled, and a missing number is written as zero, as the specifications of most
+fixed width files require. A number that is not finite, such as `NaN` or `-INF`, is space filled instead, so that it
+can be read back. Any other value is left justified and space filled, with each line break replaced with a space, so
+that a value cannot add records. The characters that no field covers, such as a filler, are spaces.
 
 ### Schemas in IOStreams 2.2 and 3.0
 
@@ -3706,8 +3708,8 @@ the files of the application before it replaces the layout. What reads different
 What writes differently:
 
 * An `integer` or `number` field raises `IOStreams::Errors::InvalidValue` for a value that is not a number, such as
-  `"abc"`, and an `integer` field for a fraction, such as `12.7`, where the layout writes zeros, or truncates the
-  fraction.
+  `"abc"`, or text of only spaces, such as `"  "`, and an `integer` field for a fraction, such as `12.7`, where the
+  layout writes zeros, or truncates the fraction.
 * A `string` field writes a `BigDecimal` as `12.5`, and a `Time` in ISO 8601, such as `2026-10-13T09:30:00Z`, where
   the layout writes their `to_s`, such as `0.125e2` and `2026-10-13 09:30:00 UTC`. It raises
   `IOStreams::Errors::InvalidValue` for a `Hash` or an `Array`, where the layout writes their `to_s`: to write their
@@ -3832,7 +3834,8 @@ A schema reads the same records as the options it replaces, named as above, as i
   is `"subset"` or `"partial"`, where it was dropped.
 * The text read is UTF-8, see [Schemas in IOStreams 2.2 and 3.0](formats#schemas-in-iostreams-22-and-30).
 * Empty text, such as a quoted `""` in CSV or `""` in JSON, is a missing value, `nil`, where the column options read
-  it as it is, see [Types](formats#types).
+  it as it is, see [Types](formats#types). Writing works the same way: empty text is written as a missing value, an
+  empty value in CSV and `null` in JSON, where the column options wrote `""`.
 * `IOStreams.enforce_column_restrictions` does not apply, since a schema applies to every input. So a schema applies
   its fields to what the column options were not applied to, while `enforce_column_restrictions` is false, the
   default: the keys of JSON records, the `columns:` of a file without a header row, and a header row read with

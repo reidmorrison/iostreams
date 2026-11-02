@@ -63,9 +63,10 @@ module IOStreams
     #     Default: []
     #
     #   allowBlank: [true|false]
-    #     For a field whose `constraints` are `required`, whether its values can be blank: nil, or empty text. The
-    #     header row, or each JSON record, must still have the field, as the deprecated `required_columns:` checked, but
-    #     a value is not required, both when reading and when writing. A property of the field rather than a constraint,
+    #     For a field whose `constraints` are `required`, whether its values can be blank: nil, or empty text, while text
+    #     of only whitespace is not blank, so it is still read as the type of the field, see #cast. The header row, or
+    #     each JSON record, must still have the field, as the deprecated `required_columns:` checked, but a value is not
+    #     required, both when reading and when writing. A property of the field rather than a constraint,
     #     since Frictionless defines `required` as a boolean, and a tool reports an error for a constraint that it does
     #     not support, while it accepts other properties of a field. Raises ArgumentError for a field that is not
     #     required, whose values can be blank anyway.
@@ -353,7 +354,7 @@ module IOStreams
       # Raises `IOStreams::Errors::InvalidValue` when the value is not one of this type, or when a required field has
       # no value: nil, or empty text.
       def cast(value)
-        return @constraints.no_value if value.nil? || value == ""
+        return @constraints.no_value if value.nil? || (value.is_a?(String) && value.empty?)
 
         case type
         when "any" then return value

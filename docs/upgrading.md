@@ -226,8 +226,8 @@ the files of the application before it replaces the layout. What reads different
 What writes differently:
 
 * An `integer` or `number` field raises `IOStreams::Errors::InvalidValue` for a value that is not a number, such as
-  `"abc"`, and an `integer` field for a fraction, such as `12.7`, where the layout writes zeros, or truncates the
-  fraction.
+  `"abc"`, or text of only spaces, such as `"  "`, and an `integer` field for a fraction, such as `12.7`, where the
+  layout writes zeros, or truncates the fraction.
 * A `string` field writes a `BigDecimal` as `12.5`, and a `Time` in ISO 8601, such as `2026-10-13T09:30:00Z`, where
   the layout writes their `to_s`, such as `0.125e2` and `2026-10-13 09:30:00 UTC`. It raises
   `IOStreams::Errors::InvalidValue` for a `Hash` or an `Array`, where the layout writes their `to_s`: to write their
@@ -352,7 +352,8 @@ A schema reads the same records as the options it replaces, named as above, as i
   is `"subset"` or `"partial"`, where it was dropped.
 * The text read is UTF-8, see [Schemas in IOStreams 2.2 and 3.0](formats#schemas-in-iostreams-22-and-30).
 * Empty text, such as a quoted `""` in CSV or `""` in JSON, is a missing value, `nil`, where the column options read
-  it as it is, see [Types](formats#types).
+  it as it is, see [Types](formats#types). Writing works the same way: empty text is written as a missing value, an
+  empty value in CSV and `null` in JSON, where the column options wrote `""`.
 * `IOStreams.enforce_column_restrictions` does not apply, since a schema applies to every input. So a schema applies
   its fields to what the column options were not applied to, while `enforce_column_restrictions` is false, the
   default: the keys of JSON records, the `columns:` of a file without a header row, and a header row read with

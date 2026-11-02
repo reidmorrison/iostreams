@@ -123,10 +123,16 @@ class UpgradeSchemaTest < Minitest::Test
           assert_equal [{"name" => " ", "age" => 21}], read(%(name,age\n" ",21\n), schema: required)
         end
 
-        it "writes empty text as a missing value, nil, which JSON writes as null" do
+        it "writes empty text as a missing value, nil, which CSV writes as an empty value and JSON as null" do
           assert_equal %({"name":null,"age":21,"note":null}\n),
                        write([{"name" => "", "age" => 21, "note" => ""}], file_name: "people.json", schema: schema)
           assert_equal "name,age,note\n,21,\n", write([{"name" => "", "age" => 21, "note" => ""}], schema: schema)
+        end
+
+        it "raises for text of only whitespace written to any other type" do
+          assert_raises(IOStreams::Errors::InvalidValue) { write([{"name" => "Jack", "age" => "  ", "note" => "x"}], schema: schema) }
+          assert_raises(IOStreams::Errors::InvalidValue) { write([["Jack", " ", "x"]], :array, schema: schema) }
+          assert_equal "name,age,note\nJack,21, \n", write([["Jack", 21, " "]], :array, schema: schema)
         end
       end
 
