@@ -175,6 +175,20 @@ class UpgradeSchemaTest < Minitest::Test
             assert_raises(IOStreams::Errors::InvalidValue, record.inspect) { write([record], file_name: "people.json", schema: schema) }
           end
         end
+
+        it "raises for a Float that is not finite inside an object, an array or a value without a type, which JSON cannot hold, in every format" do
+          schema  = {fields: [{name: "prefs", type: "object"}, {name: "tags", type: "array"}, {name: "note"}]}
+          records = [
+            {"prefs" => {"limit" => Float::NAN}, "tags" => [], "note" => nil},
+            {"prefs" => {}, "tags" => [1, Float::INFINITY], "note" => nil},
+            {"prefs" => {}, "tags" => [], "note" => {"x" => [-Float::INFINITY]}}
+          ]
+          records.each do |record|
+            %w[people.csv people.psv people.json].each do |file_name|
+              assert_raises(IOStreams::Errors::InvalidValue, "#{file_name} #{record.inspect}") { write([record], file_name: file_name, schema: schema) }
+            end
+          end
+        end
       end
 
       it "rounds the number read to the decimals of its field, so that a record holds the number that is written" do

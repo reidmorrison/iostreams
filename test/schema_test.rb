@@ -1784,6 +1784,20 @@ class SchemaTest < Minitest::Test
         end
       end
 
+      describe "a Hash or an Array that holds a Float that is not finite" do
+        it "raises IOStreams::Errors::InvalidValue for its text, naming the field, rather than JSON::GeneratorError" do
+          [field(name: "prefs", type: "object"), field(name: "prefs", type: "array"), field(name: "prefs")].each do |json|
+            value = json.type == "array" ? [1, Float::NAN] : {"a" => {"b" => [-Float::INFINITY]}}
+            error = assert_raises(IOStreams::Errors::InvalidValue, json.type) { json.render(value, :text) }
+            assert_match(/\AField "prefs": JSON cannot hold its value: /, error.message)
+          end
+        end
+
+        it "still writes a BigDecimal that is not finite within it as its text" do
+          assert_equal %({"a":"NaN"}), field(type: "object").render({"a" => BigDecimal("NaN")}, :text)
+        end
+      end
+
       describe "any" do
         it "returns the value as it is" do
           any = field

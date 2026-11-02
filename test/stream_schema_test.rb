@@ -75,6 +75,23 @@ class StreamSchemaTest < Minitest::Test
         end
       end
 
+      it "raises IOStreams::Errors::InvalidValue for a Float that is not finite within a value written to JSON, naming the field, with and without JSON::Coder" do
+        schema = {fields: [{name: "id", type: "integer"}, {name: "prefs", type: "object"}]}
+        write_nan = -> { write([{"id" => 1, "prefs" => {"limit" => [Float::NAN]}}], file_name: "people.json", schema: schema) }
+
+        error = assert_raises(IOStreams::Errors::InvalidValue) { write_nan.call }
+        assert_match(/\AField "prefs": JSON cannot hold its value: /, error.message)
+        IOStreams::Tabular::Parser::JsonFields.stub(:coder, nil) do
+          error = assert_raises(IOStreams::Errors::InvalidValue) { write_nan.call }
+          assert_match(/\AField "prefs": JSON cannot hold its value: /, error.message)
+        end
+      end
+
+      it "still raises JSON::GeneratorError for a Float that is not finite written to JSON without a schema, as before" do
+        out = StringIO.new
+        assert_raises(JSON::GeneratorError) { IOStreams.stream(out).format(:json).writer(:hash) { |io| io << {"a" => {"b" => Float::NAN}} } }
+      end
+
       it "copies the rows of JSON into a file with a header row of the names of the fields, and into JSON again" do
         Dir.mktmpdir do |dir|
           source = IOStreams.path(dir, "people.json").schema(people)

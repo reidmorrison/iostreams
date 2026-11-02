@@ -266,7 +266,9 @@ module IOStreams
       # without a schema.
       #
       # A Hash or an Array that holds a value that JSON cannot hold, such as `Float::NAN`, is handled as writing it to a
-      # JSON file handles it: the json gem raises, while ActiveSupport, which replaces how Ruby writes JSON, writes null.
+      # JSON file handles it: the json gem raises `JSON::GeneratorError`, which a field raises as
+      # `IOStreams::Errors::InvalidValue`, see #json_text, while ActiveSupport, which replaces how Ruby writes JSON,
+      # writes null.
       def self.any_text(value)
         return value if value.is_a?(String)
         # The most common values first, so that they skip the checks below.
@@ -522,8 +524,20 @@ module IOStreams
         when "boolean" then value ? @true_values.first : @false_values.first
         when "date" then @format ? @format.strftime(value) : self.class.any_text(value)
         when "datetime" then @format ? datetime_text(value) : self.class.any_text(value)
-        else self.class.any_text(value)
+        else json_text(value)
         end
+      end
+
+      # Returns [String] the text of a value of an object, array or any field, see .any_text, such as the JSON text of a
+      # Hash or an Array.
+      #
+      # Raises `IOStreams::Errors::InvalidValue`, naming the field, for a Hash or an Array that holds a value that JSON
+      # cannot hold, such as `Float::NAN`, rather than the json gem's `JSON::GeneratorError`, as writing it to a JSON
+      # file does, see `IOStreams::Tabular::Parser::JsonFields#render`.
+      def json_text(value)
+        self.class.any_text(value)
+      rescue JSON::GeneratorError => e
+        raise(IOStreams::Errors::InvalidValue, "Field #{name.inspect}: JSON cannot hold its value: #{e.message}")
       end
 
       # Returns [String] the time in the format of this field. Text without a zone is read as UTC, see #parse_time, so a
@@ -863,7 +877,8 @@ module IOStreams
 
       # Returns the value of a field of type any, object or array as JSON holds it, see .any_json. A Float or BigDecimal
       # that is not finite raises, see #not_finite_json, as it does for a number field, while one inside a Hash or an
-      # Array is kept as .any_json gives it.
+      # Array is kept as .any_json gives it, so that the JSON writer raises for a Float, see
+      # `IOStreams::Tabular::Parser::JsonFields#render`, and writes a BigDecimal as its text.
       def any_json(value)
         return not_finite_json(value) if (value.is_a?(Float) || bigdecimal?(value)) && !value.finite?
 

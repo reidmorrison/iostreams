@@ -86,11 +86,34 @@ module IOStreams
         #
         # A BigDecimal, Date or Time is written as its text, see `IOStreams::Schema::Field.any_json`, such as "12.5"
         # rather than "0.125e2", so that a BigDecimal keeps all of its digits.
+        #
+        # Raises `IOStreams::Errors::InvalidValue`, naming the field, for a value that JSON cannot hold, such as a
+        # `Float::NAN` within the Hash or Array of an object, array or any field, rather than the json gem's
+        # `JSON::GeneratorError`, as a field does for its text, see `IOStreams::Schema::Field#render`.
         def render(row, _header)
-          @coder ? @coder.dump(row) : IOStreams::Schema::Field.any_json(row).to_json
+          generate(row)
+        rescue JSON::GeneratorError => e
+          raise(IOStreams::Errors::InvalidValue, "#{field_of(row)}JSON cannot hold its value: #{e.message}")
         end
 
         private
+
+        # Returns [String] the JSON of the record or value.
+        def generate(value)
+          @coder ? @coder.dump(value) : IOStreams::Schema::Field.any_json(value).to_json
+        end
+
+        # Returns [String] the start of the message that names the field of the first value of the record that JSON
+        # cannot hold, whose keys are the names of the fields, see #render, or empty text when none is found.
+        def field_of(row)
+          key, = row.find do |_key, value|
+            generate(value)
+            false
+          rescue JSON::GeneratorError
+            true
+          end
+          key.nil? ? "" : "Field #{key.inspect}: "
+        end
 
         # Returns the value of the line, with the numbers of each key that is the column of a number field that keeps
         # every digit as BigDecimals, and every other number as a Float, see #parse.
