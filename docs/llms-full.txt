@@ -3177,8 +3177,8 @@ Notes:
 * Reading a spreadsheet needs a local file, so one stored elsewhere, or within another stream, is copied into a temp
   file first. Its lines, and its bytes, are converted into CSV in a second temp file, since the `creek` gem returns them
   to a block, while its rows and records are read straight from the workbook. Writing streams the workbook, without a temp file, see [When temp files are used](config#when-temp-files-are-used).
-* On JRuby, `creek` reads a value that holds a line break only up to the line break, unless the workbook was written
-  with `use_shared_strings: true`, as Excel does.
+* On JRuby, `creek` reads a value that holds a line break or a `]` only up to it, such as the JSON text of a `list`,
+  unless the workbook was written with `use_shared_strings: true`, as Excel does.
 
 ### Limitations {#spreadsheet-limitations}
 
