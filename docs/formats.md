@@ -283,9 +283,11 @@ does:
 
 A whole number is a `Float`, such as `1001.0`: an `integer` field of a [schema](schemas) or [contract](contracts)
 converts it, and raises for `1001.5`. A `number` field reads the digits that Excel displays, its 15 most significant,
-such as `0.3` rather than the `Float` `0.30000000000000004`, and a `string` field reads the text that Excel shows of a
-number, those digits without a decimal point for a whole number, such as `2134` for a zip code that Excel holds as the
-`Float` `2134.0`, rather than `2134.0`. The lines of the spreadsheet are the text of each cell, the
+such as `0.3` rather than the `Float` `0.30000000000000004`, or every digit of a whole number below 2^53, which a
+`Float` holds exactly, such as the card number `4111111111111111`, and a `string` field reads the number that the cell
+holds, to those digits, without its number format, such as `0.125` for `12.5%`, in plain digits, such as `0.0000001`
+rather than `1.0e-07`, and without a decimal point for a whole number, such as `2134` for a zip code that Excel holds as
+the `Float` `2134.0`. The lines of the spreadsheet are the text of each cell, the
 same in every process: a date as `2026-01-02`, a date and time as its time in UTC, such as `2026-01-02T09:30:00Z`, a
 cell of a time format as the time of its clock, which Excel shows, such as `09:30:00`, so that a field of its type
 reads it, and a number as the workbook holds it, such as `1001` or `12.5`, whatever its format shows. A number of a date

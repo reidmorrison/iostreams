@@ -847,7 +847,8 @@ types, such as `{name: "id", type: "integer"}` for `1001.0`, or `{name: "zip", t
 for each column, the values are those that v2.2 reads, apart from the text of a date and time cell, see
 [Spreadsheet date and time cells are read as ISO 8601](#spreadsheet-date-and-time-cells-are-read-as-iso-8601): in both,
 a `number` field reads the 15 digits that Excel displays, such as `0.3` where v2.1 read `0.30000000000000004`, and a
-`string` field the text that Excel shows of a number, such as `2134` where v2.1 read `2134.0`.
+`string` field the number that the cell holds, to those digits, such as `2134` where v2.1 read `2134.0`, and both keep
+every digit of a whole number below 2^53, such as the card number `4111111111111111`.
 Remove a `delimiter:` or `buffer_size:` supplied to the rows and records of a spreadsheet, and an encoding set with
 `#encoding` when they are read or written, which now raise `ArgumentError`, since its rows are cells rather than lines of
 text; the `:line` mode still takes them. v2.2 reports reading the rows and records of a spreadsheet without a type for
@@ -1972,11 +1973,13 @@ working after an upgrade, apart from the changes that v3.0 makes to every file:
   reports as deprecated, while v3.0 takes only one at midnight, by its own clock, as its date, and raises
   `IOStreams::Errors::InvalidValue` for any other, rather than lose its time of day, see
   [A date field takes a time only at midnight](#a-date-field-takes-a-time-only-at-midnight).
-* A spreadsheet read with a type for each column reads the same values in both, apart from the text of a date and time
-  cell, which v3.0 reads in UTC, see
+* A spreadsheet read with a type for each column reads the same values in both, apart from a cell of a custom date
+  format, such as `yyyy-mm-dd`, which v3.0 reads as its date, such as `2026-10-25`, while v2.2 reads a date and time at
+  midnight, such as `2026-10-25T00:00:00Z`, see
   [Rows of a spreadsheet are the values of its cells](#rows-of-a-spreadsheet-are-the-values-of-its-cells). Both read the
-  15 digits that Excel displays of a number into a `number` field, such as `0.3`, and the text that Excel shows of a
-  number into a `string` field, such as `2134` rather than `2134.0`.
+  15 digits that Excel displays of a number into a `number` field, such as `0.3`, and the number that the cell holds
+  into a `string` field, such as `2134` rather than `2134.0`, every digit of a whole number below 2^53, such as
+  `4111111111111111`, and a cell of a date and time at the time of its clock in UTC.
 * Parquet files are only in v3.0.
 
 ### Changes in behavior in v2.2

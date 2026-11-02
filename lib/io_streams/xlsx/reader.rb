@@ -133,6 +133,9 @@ module IOStreams
         # has, see #initialize.
         DISPLAYED_DIGITS = 15
 
+        # The whole numbers that a Float holds exactly, below 2**53, which keep every digit, see #displayed.
+        EXACT_WHOLE = 2**53
+
         # Parameters:
         #   decimals: [#call|nil]
         #     Returns the positions of the values of the rows that keep the digits of their numbers, such as those of a
@@ -179,24 +182,26 @@ module IOStreams
 
         private
 
-        # Returns [BigDecimal|Object] the digits of a Float that Excel displays, its most significant 15, or any other
-        # value as it is.
+        # Returns [BigDecimal|Object] the number of a Float that the cell holds, to the digits that Excel displays, its
+        # most significant 15, such as `0.3` for `0.30000000000000004`, apart from a whole number below 2**53, which a
+        # Float holds exactly, which keeps every digit, such as the card number `4111111111111111`, or any other value
+        # as it is.
         def displayed(value)
           return value unless value.is_a?(Float) && value.finite?
+          return BigDecimal(value.to_i) if value == value.truncate && value.abs < EXACT_WHOLE
 
           number = BigDecimal(value.to_s)
-          number.zero? ? number : number.round(DISPLAYED_DIGITS - number.exponent)
+          number.zero? ? number : BigDecimal(number.round(DISPLAYED_DIGITS - number.exponent))
         end
 
-        # Returns [String|Object] the text that Excel shows of a Float, the digits that it displays, see #displayed, without
-        # a decimal point for a whole number, such as "2134" for `2134.0`, or "0.3" for `0.30000000000000004`, or any
-        # other value as it is.
+        # Returns [String|Object] the text of the number of a Float that the cell holds, see #displayed, in plain digits,
+        # without a decimal point for a whole number, such as "2134" for `2134.0`, "0.3" for `0.30000000000000004`, or
+        # "0.0000001" for `1e-7`, or any other value as it is.
         def displayed_text(value)
           return value unless value.is_a?(Float) && value.finite?
 
-          # A number of more digits than Excel displays is rounded to an Integer.
           number = displayed(value)
-          number.is_a?(Integer) || number.frac.zero? ? number.to_i.to_s : number.to_s("F")
+          number.frac.zero? ? number.to_i.to_s : number.to_s("F")
         end
 
         # Yields the values of each row of the worksheet, tagging a failure of creek as `.failure_kind` says, but not one

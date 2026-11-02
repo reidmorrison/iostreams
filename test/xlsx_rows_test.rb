@@ -158,6 +158,15 @@ class XlsxRowsTest < Minitest::Test
         assert_equal [{"ratio" => BigDecimal("0.3"), "note" => "x"}], read(IOStreams.path(file_name).schema(schema))
       end
 
+      it "keep every digit of a whole number below 2**53, which a Float holds exactly, and are plain digits otherwise" do
+        workbook(%w[card small million big ratio count], [4_111_111_111_111_111.0, 1e-7, 1e15, 1.5e20, 0.1 + 0.2, 4_111_111_111_111_111.0])
+        schema = {fields: %w[card small million big ratio].map { |name| {name: name, type: "string"} } + [{name: "count", type: "number"}]}
+
+        assert_equal [{"card" => "4111111111111111", "small" => "0.0000001", "million" => "1000000000000000",
+                       "big" => "150000000000000000000", "ratio" => "0.3", "count" => BigDecimal("4111111111111111")}],
+                     read(IOStreams.path(file_name).schema(schema))
+      end
+
       it "are the text of a string field, also of a file without a header row" do
         workbook([2134.0, 0.1 + 0.2, -1.5, 1e20])
         schema = {header: false, fields: %w[zip ratio change big].map { |name| {name: name, type: "string"} }}
