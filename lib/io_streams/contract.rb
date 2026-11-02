@@ -39,7 +39,9 @@ module IOStreams
     autoload :RecordWriter, "io_streams/contract/record_writer"
 
     # The names in Ruby of the properties of a contract that its class declares, see .fields_match.
-    DSL_PROPERTIES = {fieldsMatch: "fields_match", keyType: "key_type", extraColumns: "extra_columns"}.freeze
+    DSL_PROPERTIES = {
+      fieldsMatch: "fields_match", keyType: "key_type", extraColumns: "extra_columns", missingValues: "missing_values"
+    }.freeze
 
     # A name of a method in Ruby, which an accessor of a field must be.
     ACCESSOR = /\A[[:lower:]_][[:word:]]*\z/
@@ -134,6 +136,12 @@ module IOStreams
       # `IOStreams::Schema`.
       def extra_columns(value)
         set_property(:extraColumns, value)
+      end
+
+      # Sets the text that is a missing value of every field, such as `missing_values ["", "NA"]`, see `missingValues` in
+      # `IOStreams::Schema`, which a field's own `missing_values:` replaces.
+      def missing_values(value)
+        set_property(:missingValues, value)
       end
 
       # Returns [IOStreams::Schema] the fields of the contract and its other properties, as a schema, which the readers

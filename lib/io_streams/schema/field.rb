@@ -14,6 +14,11 @@ module IOStreams
     #     The records read have the names as they are given as their keys, so a Symbol name returns a Symbol key,
     #     whatever the column of the file is, see `IOStreams::Schema#field_for`.
     #
+    #   missingValues: [Array<String|Hash>]
+    #     The text that is a missing value, read as nil, see `IOStreams::Schema::MissingValues`, which replaces the
+    #     missing values of the schema for this field.
+    #     Default: those of the schema, `[""]` unless it says otherwise.
+    #
     #   constraints: [Hash]
     #     The rules that the values of the field must follow, such as `{required: true}` for a field that must have a
     #     value, both when reading and when writing, see `IOStreams::Schema::Constraints`, unless it allows blank
@@ -147,7 +152,7 @@ module IOStreams
       }.freeze
 
       # The properties that every field accepts.
-      PROPERTIES = %w[name type format width start constraints aliases allowBlank skip].freeze
+      PROPERTIES = %w[name type format width start constraints aliases allowBlank skip missingValues].freeze
 
       # The properties of a field that is skipped, see `skip` above, which place its column.
       SKIP_PROPERTIES = %w[name type width start aliases skip].freeze
@@ -158,13 +163,13 @@ module IOStreams
 
       # The properties of a field that say how a file writes the text of its values, which the target of a copy does not
       # take from its source, since it writes its own, see `IOStreams::Schema#without_text`.
-      TEXT_PROPERTIES = %w[format trueValues falseValues groupChar decimalChar bareNumber].freeze
+      TEXT_PROPERTIES = %w[format trueValues falseValues groupChar decimalChar bareNumber missingValues].freeze
 
       # The properties of a field that only describe it to people.
       DESCRIPTIVE_PROPERTIES = %w[title description example rdfType].freeze
 
       # The properties of a Frictionless field that IOStreams does not support yet.
-      UNSUPPORTED_PROPERTIES = %w[missingValues categories categoriesOrdered delimiter itemType].freeze
+      UNSUPPORTED_PROPERTIES = %w[categories categoriesOrdered delimiter itemType].freeze
 
       DEFAULT_TRUE_VALUES  = %w[true True TRUE 1].freeze
       DEFAULT_FALSE_VALUES = %w[false False FALSE 0].freeze
@@ -251,8 +256,12 @@ module IOStreams
       #   descriptor: [Hash]
       #     The properties of the field, see above, whose keys are Strings or Symbols.
       #
+      #   missing_values: [IOStreams::Schema::MissingValues]
+      #     The missing values of the schema, which the field's own `missingValues` replaces, see above.
+      #     Default: `[""]`
+      #
       # Raises ArgumentError when the descriptor is not a valid field.
-      def initialize(descriptor) # rubocop:disable Metrics/AbcSize -- one check for each property of a field
+      def initialize(descriptor, missing_values = MissingValues::DEFAULT) # rubocop:disable Metrics/AbcSize -- one check for each property of a field
         raise(ArgumentError, "A schema field must be a Hash: #{descriptor.inspect}") unless descriptor.is_a?(Hash)
 
         descriptor = descriptor.transform_keys(&:to_s)
@@ -280,10 +289,11 @@ module IOStreams
         @true_values  = check_values("trueValues", descriptor["trueValues"], DEFAULT_TRUE_VALUES)
         @false_values = check_values("falseValues", descriptor["falseValues"], DEFAULT_FALSE_VALUES)
         @aliases      = check_values("aliases", descriptor["aliases"], [].freeze, empty: true)
+        @missing      = own_missing_values(descriptor) || missing_values
         @constraints  = Constraints.new(descriptor["constraints"], @name,
                                         allow_blank: check_flag("allowBlank", descriptor["allowBlank"]))
         @properties   = properties_of(descriptor)
-        @hash         = [self.class, @properties].hash
+        @hash         = [self.class, @properties, @missing].hash
         require_duration if @type == "duration"
         freeze
       end
@@ -312,14 +322,16 @@ module IOStreams
         to_h.except(*TEXT_PROPERTIES.map(&:to_sym))
       end
 
-      # Returns [true|false] whether the other is a field of the same properties, see #to_h.
+      # Returns [true|false] whether the other is a field of the same properties, see #to_h, and missing values, which
+      # can be those of its schema, see `missingValues` above.
       def ==(other)
-        equal?(other) || (other.instance_of?(self.class) && properties == other.properties)
+        equal?(other) || (other.instance_of?(self.class) && properties == other.properties && missing == other.missing)
       end
 
-      # Returns [true|false] whether the other is a field of the same properties, compared by `eql?`, as a Hash key is.
+      # Returns [true|false] whether the other is a field of the same properties and missing values, compared by `eql?`,
+      # as a Hash key is.
       def eql?(other)
-        equal?(other) || (other.instance_of?(self.class) && properties.eql?(other.properties))
+        equal?(other) || (other.instance_of?(self.class) && properties.eql?(other.properties) && missing.eql?(other.missing))
       end
 
       # Returns [Integer] the hash of the properties of the field, worked out once, since a field never changes.
@@ -531,16 +543,16 @@ module IOStreams
       def value_required? = @constraints.value_required?
 
       # Returns the value converted to the type of this field, such as the Integer `12` for the text `"0012"`, once the
-      # leading and trailing whitespace of text is removed, or nil when the value is nil, or is empty text, which
-      # Frictionless' default `missingValues` of `[""]` reads as a missing value, in every type, a string and any
-      # included. A string or any field returns any other text as it is.
+      # leading and trailing whitespace of text is removed, or nil when the value is nil, or is text that is exactly one
+      # of its missing values, see `missingValues` above, in every type, a string and any included, empty text unless
+      # the field or its schema says otherwise. A string or any field returns any other text as it is.
       #
       # Raises `IOStreams::Errors::InvalidValue` when the value is not one of this type, including text of only
       # whitespace, which is not a missing value, but is not a value of any type other than a string or any, or when a
       # required field has no value: nil, or empty text.
       def cast(value)
         return @constraints.no_value if value.nil?
-        return @constraints.no_value(value) if value.is_a?(String) && value.empty?
+        return @constraints.no_value(value) if @missing.include?(value)
 
         case type
         when "any" then return value
@@ -665,6 +677,9 @@ module IOStreams
       # Returns [Hash] the frozen properties of the field, for #== and #eql?, without the copy that #to_h makes.
       attr_reader :properties
 
+      # Returns [IOStreams::Schema::MissingValues] the missing values of the field, for #== and #eql?.
+      attr_reader :missing
+
       private
 
       # Returns the value, which is neither nil nor blank text, converted to the type of this field, other than a string
@@ -721,6 +736,14 @@ module IOStreams
         constraints = properties[:constraints]
         properties[:constraints] = constraints.transform_keys(&:to_sym) if constraints.is_a?(::Hash)
         Utils.frozen_copy(properties)
+      end
+
+      # Returns [IOStreams::Schema::MissingValues|nil] the field's own missing values, see `missingValues` above, or nil
+      # when it has none, and takes those of its schema.
+      def own_missing_values(descriptor)
+        return unless descriptor.key?("missingValues")
+
+        MissingValues.new(descriptor["missingValues"], "Field #{name.inspect}:")
       end
 
       def check_type

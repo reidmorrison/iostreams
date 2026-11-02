@@ -167,7 +167,8 @@ IOStreams.path("orders.csv").schema(IOStreams::Schema.new(JSON.parse(File.read("
 A field without a `type` is `any`, as in Frictionless.
 
 Empty text is a missing value, read as `nil` in every type, a `string` and `any` included, as Frictionless' default
-`missingValues` of `[""]` says, and written as an empty value, or `null` in JSON. Text of only whitespace, such as
+`missingValues` of `[""]` says, see [Missing values](#missing-values), and written as an empty value, or `null` in
+JSON. Text of only whitespace, such as
 `"  "`, is not a missing value: a `string` or `any` field keeps it, and every other type raises
 `IOStreams::Errors::InvalidValue` for it, rather than read it as `nil`. Leading and trailing whitespace around a value
 of another type, such as ` 12 ` for an `integer`, is removed before it is read. An empty binary value, such as an
@@ -207,6 +208,35 @@ schema with a `duration` field raises `LoadError`, naming the gem. IOStreams loa
 parts of ActiveSupport that it needs, but not ActiveSupport's JSON, so it does not change how the application writes
 JSON. A duration is read only from ISO 8601
 text, so a number, such as `30600`, raises, since it does not say what it counts.
+
+### Missing values
+
+`missingValues`, on the schema, or on a field, as Frictionless defines it, lists the text that is a missing value, read
+as `nil`, such as `["", "NA", "-"]`. Text is a missing value when it is exactly one of them, before anything else is
+done to it, such as the removal of its leading and trailing whitespace, in every type, so `" NA "` and `"na"` are not
+missing. A field's own `missingValues` replaces those of the schema, rather than adds to them, so include `""` to keep
+empty text missing too. An entry can be an object of the text and a label, which only describes it to people, such as
+`{value: "-99", label: "Refused"}`:
+
+~~~ruby
+path = IOStreams.path("survey.csv").schema(
+  missingValues: ["", "NA"],
+  fields:        [
+    {name: "name"},
+    {name: "age", type: "integer"},
+    {name: "income", type: "integer", missingValues: [{value: "-99", label: "Refused"}]}
+  ]
+)
+path.each(:hash) do |answer|
+  p answer
+end
+# "name,age,income\nNA,NA,-99\n" => {"name" => nil, "age" => nil, "income" => nil}
+~~~
+
+Without `""`, empty text is a value: a `string` or `any` field reads it as `""`, and every other type raises
+`IOStreams::Errors::InvalidValue` for it. A required field raises for a missing value, as it does for `nil`. A value that
+is not text, such as a number of JSON, a Parquet file or a query, is never a missing value. Writing writes `nil` as an
+empty value, or `null` in JSON, whatever the missing values.
 
 ### Text of numbers
 
@@ -542,6 +572,8 @@ IOStreams does not support the other constraints of Frictionless yet, such as `m
   Default: the names as they are given.
 * `extraColumns` `keep` to keep the columns that the schema does not list, which `subset` and `partial` skip, see
   [Keeping the other columns](#keeping-the-other-columns). IOStreams adds this property. Default: `skip`
+* `missingValues` The text that is a missing value of every field, read as `nil`, such as `["", "NA"]`, see
+  [Missing values](#missing-values). Default: `[""]`
 
 `$schema`, `title` and `description` describe the schema to people and have no effect.
 
@@ -589,6 +621,8 @@ and `#copy_to`, whose options only apply to the target.
 * `name` The key of the field in each record, and its column in the header row written. Required.
 * `type` See [Types](#types). Default: `any`
 * `constraints` `{required: true}` for a field that must have a value, see [Required fields](#required-fields).
+* `missingValues` The text that is a missing value of the field, which replaces those of the schema, see
+  [Missing values](#missing-values).
 * `format` For a `date`, a `datetime` or a `time`, the strptime pattern of its text, such as `"%d/%m/%Y"`, `"%Y%m%d"`
   or `"%I:%M %p"` for `9:30 PM`, see [Formats of dates and times](#formats-of-dates-and-times). Default: ISO 8601.
 * `trueValues` and `falseValues` For a `boolean`, the text that is true and false.
@@ -623,7 +657,7 @@ and `#copy_to`, whose options only apply to the target.
 
 `title`, `description`, `example` and `rdfType` describe a field to people and have no effect, as do the properties
 of other tools, whose names include a `:`, such as `"mytool:owner"`. Any other property raises `ArgumentError`, as do
-the parts of Frictionless that IOStreams does not support yet, such as `missingValues`, `primaryKey`, the constraints
+the parts of Frictionless that IOStreams does not support yet, such as `primaryKey`, the constraints
 other than `required`, and the `year` type, so that a schema never appears to check a value that it does not.
 
 ## Values without a field

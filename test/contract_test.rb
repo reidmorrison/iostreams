@@ -131,6 +131,23 @@ class ContractTest < Minitest::Test
         assert_raises(ArgumentError) { Class.new(IOStreams::Contract) { fields_match nil } }
       end
 
+      it "sets the missing values of every field with missing_values, which a field's own missing_values: replaces" do
+        contract = Class.new(IOStreams::Contract) do
+          missing_values ["", "NA"]
+          field :id, :integer
+          field :score, :integer, missing_values: ["-99"]
+        end
+
+        assert_equal({missingValues: ["", "NA"], fields: [{name: "id", type: "integer"}, {name: "score", type: "integer", missingValues: ["-99"]}]},
+                     contract.to_h)
+        assert_nil contract.new(id: "NA").id
+        assert_nil contract.new(score: "-99").score
+        assert_raises(IOStreams::Errors::InvalidValue) { contract.new(score: "NA") }
+        assert_includes contract.to_dsl("Scores"), %(  missing_values ["", "NA"]\n)
+        assert_includes contract.to_dsl("Scores"), %(field :score, :integer, missing_values: ["-99"])
+        assert_raises(ArgumentError) { Class.new(IOStreams::Contract) { missing_values "NA" } }
+      end
+
       it "keeps the other constraints of a required field, named as Ruby names them, which a field rejects unless supported" do
         error = assert_raises(ArgumentError) do
           Class.new(IOStreams::Contract) { field :id, :integer, required: true, constraints: {max_length: 5} }

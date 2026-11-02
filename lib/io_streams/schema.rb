@@ -58,6 +58,13 @@ module IOStreams
   #     can be the keys that it forms, as well as the names, see #field_for.
   #     Default: the names as they are given, a String or a Symbol.
   #
+  #   missingValues: [Array<String|Hash>]
+  #     The text that is a missing value of every field, read as nil, as Frictionless defines it, such as
+  #     `["", "NA"]`, or objects of the text and a label, such as `[{value: "-99", label: "Refused"}]`, see
+  #     `IOStreams::Schema::MissingValues`. A field with its own `missingValues` replaces them, see
+  #     `IOStreams::Schema::Field`.
+  #     Default: `[""]`
+  #
   #   extraColumns: [String]
   #     What reading does with the columns that the schema does not list, which `fieldsMatch` "subset" and "partial"
   #     accept, which IOStreams adds to the properties of Frictionless:
@@ -94,22 +101,27 @@ module IOStreams
     autoload :Inference,   "io_streams/schema/inference"
     autoload :JsonNumber,  "io_streams/schema/json_number"
     autoload :Keys,        "io_streams/schema/keys"
+    autoload :MissingValues, "io_streams/schema/missing_values"
     autoload :NumberText,  "io_streams/schema/number_text"
     autoload :Pattern,     "io_streams/schema/pattern"
     autoload :Source,      "io_streams/schema/source"
 
     # The properties of a schema that IOStreams supports.
-    PROPERTIES = %w[fields fieldsMatch header width keyType extraColumns].freeze
+    PROPERTIES = %w[fields fieldsMatch header width keyType extraColumns missingValues].freeze
 
     # The properties of a schema that lay out a file, whether it has a header row and the width of its lines, which a
     # contract never has, see `IOStreams::Contract`. Those of a field are `IOStreams::Schema::Field::LAYOUT_PROPERTIES`.
     LAYOUT_PROPERTIES = %w[header width].freeze
 
+    # The properties of a schema that say how a file writes the text of its values, which the target of a copy does not
+    # take from its source, see #without_text, as `IOStreams::Schema::Field::TEXT_PROPERTIES` are those of a field.
+    TEXT_PROPERTIES = %w[missingValues].freeze
+
     # The properties of a schema that only describe it to people.
     DESCRIPTIVE_PROPERTIES = %w[$schema title description].freeze
 
     # The properties of a Frictionless Table Schema that IOStreams does not support yet.
-    UNSUPPORTED_PROPERTIES = %w[missingValues primaryKey foreignKeys uniqueKeys].freeze
+    UNSUPPORTED_PROPERTIES = %w[primaryKey foreignKeys uniqueKeys].freeze
 
     # The values of `fieldsMatch`, see above, those that skip the columns that the schema does not list, and those that
     # need every field.
@@ -198,11 +210,12 @@ module IOStreams
     #     The schema, see above, whose keys are Strings or Symbols.
     #
     # Raises ArgumentError when the descriptor is not a valid schema.
-    def initialize(descriptor)
+    def initialize(descriptor) # rubocop:disable Metrics/AbcSize -- one check for each property of a schema
       raise(ArgumentError, "A schema must be a Hash: #{descriptor.inspect}") unless descriptor.is_a?(Hash)
 
       descriptor = descriptor.transform_keys(&:to_s)
       check_properties(descriptor)
+      @missing      = build_missing_values(descriptor)
       @fields       = build_fields(descriptor["fields"])
       @header       = check_header(descriptor["header"])
       @fields_match = check_fields_match(descriptor["fieldsMatch"])
@@ -316,7 +329,7 @@ module IOStreams
     # text of their values, such as the `format` of a date, see `IOStreams::Schema::Field::TEXT_PROPERTIES`, so that the
     # target of a copy that takes the types of its source writes its own text, see `IOStreams::Stream#copy_from`.
     def without_text
-      self.class.new(to_h.merge(fields: fields.map(&:without_text_h)))
+      self.class.new(to_h.except(*TEXT_PROPERTIES.map(&:to_sym)).merge(fields: fields.map(&:without_text_h)))
     end
 
     # Returns [String] the Ruby of a class that declares the contract of this schema, see #to_contract, for a person to
@@ -671,7 +684,7 @@ module IOStreams
     def build_fields(fields)
       raise(ArgumentError, "A schema must have an Array of fields: #{fields.inspect}") unless fields.is_a?(Array)
 
-      fields = fields.collect { |field| Field.new(field) }
+      fields = fields.collect { |field| Field.new(field, @missing) }
       names  = fields.collect { |field| field.name.to_s }
       duplicates = names.select { |name| names.count(name) > 1 }.uniq
       raise(ArgumentError, "Field names must be unique: #{duplicates.join(', ')}") unless duplicates.empty?
@@ -720,6 +733,14 @@ module IOStreams
         end
       end
       loose
+    end
+
+    # Returns [IOStreams::Schema::MissingValues] the missing values of the fields, see `missingValues` above, which a field
+    # can replace with its own.
+    def build_missing_values(descriptor)
+      return MissingValues::DEFAULT unless descriptor.key?("missingValues")
+
+      MissingValues.new(descriptor["missingValues"])
     end
 
     def check_header(header)

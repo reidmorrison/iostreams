@@ -209,7 +209,8 @@ end
   field, see [Field properties](schemas#field-properties), as Ruby names them, such as `decimals:`, `aliases:`,
   `format:`, `true_values:` or `allow_blank:`. `required: true` is `constraints: {required: true}`, and `name:` names
   the field in its schema, such as `name: "Ordered At"`, when it differs from its name in Ruby.
-* `fields_match`, `key_type` and `extra_columns` set `fieldsMatch`, `keyType` and `extraColumns`, see
+* `fields_match`, `key_type`, `extra_columns` and `missing_values` set `fieldsMatch`, `keyType`, `extraColumns` and
+  `missingValues`, see
   [Schema properties](schemas#schema-properties). Without `fields_match`, the columns of a source must be the fields,
   in order.
 * A subclass of a contract starts with its fields.

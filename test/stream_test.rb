@@ -1435,6 +1435,15 @@ class StreamTest < Minitest::Test
         assert_equal "pay,rate\n0.00,0.00\n", write([{"pay" => BigDecimal("-0.001"), "rate" => -0.001}], schema: schema)
       end
 
+      it "reads the missing values of the schema and of each field as nil, in every format of text" do
+        schema = {missingValues: ["", "NA"], fields: [{name: "name"}, {name: "age", type: "integer", missingValues: ["-99"]}]}
+
+        assert_equal [{"name" => nil, "age" => nil}, {"name" => "", "age" => 7}], read(%(name,age\nNA,-99\n"",7\n), schema: schema.merge(missingValues: ["NA"]))
+        assert_equal [{"name" => nil, "age" => nil}], read(%({"name":"NA","age":"-99"}\n), file_name: "a.json", schema: schema)
+        assert_raises(IOStreams::Errors::InvalidValue) { read(%(name,age\nJack,NA\n), schema: schema) }
+        assert_equal "name,age\n,\n", write([{"name" => nil, "age" => nil}], schema: schema)
+      end
+
       it "reads and writes the text of numbers with groupChar, decimalChar and bareNumber, and JSON as plain numbers" do
         schema = {
           fields: [

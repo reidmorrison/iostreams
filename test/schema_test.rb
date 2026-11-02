@@ -69,8 +69,8 @@ class SchemaTest < Minitest::Test
       end
 
       it "raises for a property of Frictionless that is not supported, rather than ignore its check" do
-        error = assert_raises(ArgumentError) { field(missingValues: ["-"]) }
-        assert_equal 'Field "value": the property "missingValues" is not supported', error.message
+        error = assert_raises(ArgumentError) { field(categories: ["a"]) }
+        assert_equal 'Field "value": the property "categories" is not supported', error.message
       end
 
       it "accepts the required constraint" do
@@ -1071,6 +1071,99 @@ class SchemaTest < Minitest::Test
             assert_includes error.message, "JSON cannot hold a number that is not finite"
           end
           assert_equal({"x" => BigDecimal("-Infinity")}, field.render({"x" => BigDecimal("-Infinity")}, :json))
+        end
+      end
+
+      describe "missingValues" do
+        # Returns [IOStreams::Schema::Field] the field of a schema of the supplied properties.
+        def schema_field(schema = {}, **properties)
+          IOStreams::Schema.new(fields: [{name: "value", **properties}], **schema).fields.first
+        end
+
+        it "reads text that is exactly one of the missing values of the schema as nil, in every type" do
+          %w[any string integer number boolean date datetime time object array].each do |type|
+            missing = schema_field({missingValues: ["NA", "-"]}, type: type)
+
+            assert_nil missing.cast("NA"), type
+            assert_nil missing.cast("-"), type
+          end
+        end
+
+        it "compares the text as it is read, before its whitespace is removed, and keeps text that is not missing" do
+          missing = schema_field({missingValues: ["NA"]}, type: "integer")
+
+          assert_raises(IOStreams::Errors::InvalidValue) { missing.cast(" NA ") }
+          assert_raises(IOStreams::Errors::InvalidValue) { missing.cast("na") }
+          assert_equal "na", schema_field({missingValues: ["NA"]}, type: "string").cast("na")
+        end
+
+        it "replaces the empty text of the default, so that empty text is a value, or not one of the type" do
+          assert_equal "", schema_field({missingValues: ["NA"]}, type: "string").cast("")
+          assert_equal "", schema_field({missingValues: []}).cast("")
+          error = assert_raises(IOStreams::Errors::InvalidValue) { schema_field({missingValues: ["NA"]}, type: "integer").cast("") }
+          assert_equal 'Field "value": "" is not a valid integer', error.message
+        end
+
+        it "replaces those of the schema with those of the field, rather than add them" do
+          missing = schema_field({missingValues: ["NA"]}, type: "integer", missingValues: ["-99"])
+
+          assert_nil missing.cast("-99")
+          assert_raises(IOStreams::Errors::InvalidValue) { missing.cast("NA") }
+          assert_nil field(type: "integer", missingValues: ["", "N/A"]).cast("N/A")
+          assert_nil field(type: "integer", missingValues: ["", "N/A"]).cast("")
+        end
+
+        it "takes objects of a value and a label, which only describes it to people" do
+          missing = schema_field({missingValues: [{value: "-99", label: "Refused"}, {"value" => "-98"}]}, type: "integer")
+
+          assert_nil missing.cast("-99")
+          assert_nil missing.cast("-98")
+          assert_equal(-97, missing.cast("-97"))
+        end
+
+        it "never compares a value that is not text, such as a number of JSON" do
+          missing = schema_field({missingValues: ["-99", "0"]}, type: "integer")
+
+          assert_equal(-99, missing.cast(-99))
+          assert_equal 0, missing.cast(0)
+        end
+
+        it "raises for a required field, as it does for nil" do
+          required = schema_field({missingValues: ["NA"]}, type: "integer", constraints: {required: true})
+
+          error = assert_raises(IOStreams::Errors::InvalidValue) { required.cast("NA") }
+          assert_equal 'Field "value" is required, but has no value', error.message
+          assert_equal "NA", error.value
+        end
+
+        it "writes nil as empty, whatever the missing values" do
+          assert_nil schema_field({missingValues: ["NA"]}, type: "integer").render(nil, :text)
+          assert_nil schema_field({missingValues: ["NA"]}, type: "string").render("NA", :text)
+        end
+
+        it "keeps them as they were given, and compares fields by them" do
+          schema = IOStreams::Schema.new(missingValues: [{value: "-99", label: "Refused"}], fields: [{name: "a", missingValues: ["x"]}])
+
+          assert_equal({missingValues: [{value: "-99", label: "Refused"}], fields: [{name: "a", missingValues: ["x"]}]}, schema.to_h)
+          refute_equal schema_field({missingValues: ["NA"]}), schema_field({missingValues: ["-"]})
+          assert_equal schema_field({missingValues: ["NA"]}), schema_field({missingValues: ["NA"]})
+          assert_equal schema_field, field
+        end
+
+        it "leaves them to the schema of the file, which reads its own text" do
+          schema = IOStreams::Schema.new(missingValues: ["NA"], fields: [{name: "a", type: "integer", missingValues: ["x"]}])
+
+          assert_equal({fields: [{name: "a", type: "integer"}]}, schema.without_text.to_h)
+        end
+
+        it "raises for missing values that are not an Array of text, or of objects of a text value and label" do
+          [{missingValues: "NA"}, {missingValues: [1]}, {missingValues: [nil]}, {missingValues: [{label: "x"}]},
+           {missingValues: [{value: 1}]}, {missingValues: [{value: "x", label: 2}]}, {missingValues: [{value: "x", code: 1}]}].each do |schema|
+            assert_raises(ArgumentError, schema.inspect) { IOStreams::Schema.new(fields: [{name: "a"}], **schema) }
+            assert_raises(ArgumentError, schema.inspect) { field(**schema) }
+          end
+          error = assert_raises(ArgumentError) { field(missingValues: "NA") }
+          assert_equal 'Field "value": missingValues must be an Array of text, or of objects with a value: "NA"', error.message
         end
       end
 
