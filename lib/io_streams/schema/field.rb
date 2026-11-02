@@ -414,24 +414,27 @@ module IOStreams
       # blank values, see `constraints` and `allowBlank` above, so that a value of nil, or empty text, raises.
       def value_required? = @constraints.value_required?
 
-      # Returns the value converted to the type of this field, such as the Integer `12` for the text `"0012"`, or nil
-      # when the value is nil, or is text that is empty once its leading and trailing whitespace is removed, except
-      # for a string or any field, which returns the text as it is.
+      # Returns the value converted to the type of this field, such as the Integer `12` for the text `"0012"`, once the
+      # leading and trailing whitespace of text is removed, or nil when the value is nil, or is empty text, which
+      # Frictionless' default `missingValues` of `[""]` reads as a missing value, in every type, a string and any
+      # included. A string or any field returns any other text as it is.
       #
-      # Raises `IOStreams::Errors::InvalidValue` when the value is not one of this type, or when a required field has
-      # no value: nil, or empty text.
+      # Raises `IOStreams::Errors::InvalidValue` when the value is not one of this type, including text of only
+      # whitespace, which is not a missing value, but is not a value of any type other than a string or any, or when a
+      # required field has no value: nil, or empty text.
       def cast(value)
         return @constraints.no_value if value.nil?
+        return @constraints.no_value(value) if value.is_a?(String) && value.empty?
 
         case type
-        when "any" then return value == "" ? @constraints.no_text(value) : value
-        when "string" then return value == "" ? @constraints.no_text(value) : cast_string(value)
+        when "any" then return value
+        when "string" then return cast_string(value)
         end
 
         if value.is_a?(String)
           text  = value
           value = value.strip
-          return @constraints.no_value(text) if value.empty?
+          return invalid(text) if value.empty?
         end
 
         cast_value(value)

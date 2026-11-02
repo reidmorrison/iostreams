@@ -59,7 +59,13 @@ class InferSampleTest < Minitest::Test
       end
 
       it "drafts any for a column without a value, for a person to decide" do
-        assert_equal({name: "notes", type: "any"}, drafted("id,notes\n1,\n2,  \n", "notes"))
+        assert_equal({name: "notes", type: "any"}, drafted("id,notes\n1,\n2,\n", "notes"))
+      end
+
+      it "drafts a string for a column with text of only whitespace, which is not a missing value, and no other type reads" do
+        assert_equal "string", drafted("id,notes\n1,\n2,  \n", "notes")[:type]
+        assert_equal "string", drafted("id,n\n1,12\n2,  \n", "n")[:type]
+        assert_equal "integer", drafted("id,n\n1,12\n2,\n3, 7 \n", "n")[:type]
       end
 
       it "drafts a string for a column of text with blank values, also null in JSON" do

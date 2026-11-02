@@ -208,15 +208,15 @@ class QueryStreamTest < Minitest::Test
           assert_equal [{"id" => slices.last[0].first, "name" => "c"}], each(IOStreams.stream(slices.last).schema(IOStreams.stream(orders.select(:id, :name)).infer_schema))
         end
 
-        it "reads a row whose every value is null or empty text, which is a record, not a blank line" do
+        it "reads a row whose every value is null or empty text, which is a record, not a blank line, with empty text as a missing value" do
           db.order.where(name: "b").update_all(name: "")
           relation = orders.select(:name, :shipped_on)
-          expected = [{"name" => "a", "shipped_on" => Date.new(2026, 10, 1)}, {"name" => "", "shipped_on" => nil},
+          expected = [{"name" => "a", "shipped_on" => Date.new(2026, 10, 1)}, {"name" => nil, "shipped_on" => nil},
                       {"name" => "c", "shipped_on" => Date.new(1969, 12, 31)}]
 
           assert_equal expected, each(IOStreams.stream(relation))
           assert_equal expected, each(IOStreams.stream(relation), skip_blanks: true)
-          assert_equal [%w[name shipped_on], *relation.pluck(:name, :shipped_on)], each(IOStreams.stream(relation), :array)
+          assert_equal [%w[name shipped_on], *expected.map(&:values)], each(IOStreams.stream(relation), :array)
         end
 
         it "copies a row whose every value is null" do

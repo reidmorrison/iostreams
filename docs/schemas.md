@@ -164,8 +164,14 @@ IOStreams.path("orders.csv").schema(IOStreams::Schema.new(JSON.parse(File.read("
 | `array` | an `Array`, from the text of a JSON array, such as `[1,2]` | that JSON text, or in JSON an array |
 | `any` | the value as it is read | the value, with a `BigDecimal`, `Date` or `Time` as its text, and in a format of text a `Hash` or an `Array` as JSON, see [Values without a field](#values-without-a-field) |
 
-A field without a `type` is `any`, as in Frictionless. Empty text is read as `nil`, except for a `string` or `any`
-field, which keeps it.
+A field without a `type` is `any`, as in Frictionless.
+
+Empty text is a missing value, read as `nil` in every type, a `string` and `any` included, as Frictionless' default
+`missingValues` of `[""]` says, and written as an empty value, or `null` in JSON. Text of only whitespace, such as
+`"  "`, is not a missing value: a `string` or `any` field keeps it, and every other type raises
+`IOStreams::Errors::InvalidValue` for it, rather than read it as `nil`. Leading and trailing whitespace around a value
+of another type, such as ` 12 ` for an `integer`, is removed before it is read. A row whose every value is `nil` or
+blank text is still a blank row, see [Blank rows](streams#blank-rows), which is not read by the fields.
 
 A value that is not one of the type of its field, such as `N/A` for an `integer`, raises
 `IOStreams::Errors::InvalidValue`, naming the field and the value, both when reading and when writing. So does a `date`
@@ -415,8 +421,8 @@ record, without the field raises `IOStreams::Errors::InvalidHeader`, whatever `f
 `nil`, or empty text, raises `IOStreams::Errors::InvalidValue`, both when reading and when writing, including a blank
 record or row written, such as `{}`, which is otherwise written as a blank line. A blank row read, whose every value is
 `nil` or blank text, is `nil` instead, as a blank line is, see [Blank rows](streams#blank-rows). Text that is only spaces
-is a value for a `string` field of a row that has other values, as in Frictionless, but not for a type that reads it
-as `nil`, such as an `integer`.
+is a value, as in Frictionless, so a `string` field keeps it, in a row that has other values, while any other type
+raises `IOStreams::Errors::InvalidValue` for it, see [Types](#types).
 
 ~~~ruby
 # An upload, whose columns may be in any order, with names that people typed, and columns that the code ignores.

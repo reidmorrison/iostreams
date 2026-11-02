@@ -2349,9 +2349,9 @@ class StreamTest < Minitest::Test
             assert_raises(IOStreams::Errors::InvalidHeader) { read(%({"id":1}\n), file_name: "people.json", schema: schema) }
           end
 
-          it "writes a record without a value, and a blank record" do
+          it "writes a record without a value, empty text as a missing value, and a blank record" do
             assert_equal "id,email\n1,\n", write([{"id" => 1}], schema: schema)
-            assert_equal %({"id":1,"email":null}\n{"id":2,"email":""}\n),
+            assert_equal %({"id":1,"email":null}\n{"id":2,"email":null}\n),
                          write([{"id" => 1, "email" => nil}, {"id" => 2, "email" => ""}], file_name: "people.json", schema: schema)
             assert_equal "id,email\n\n", write([{}], schema: schema)
           end

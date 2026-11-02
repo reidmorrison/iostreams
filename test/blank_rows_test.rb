@@ -140,6 +140,22 @@ class BlankRowsTest < Minitest::Test
       it "still raise for a required field of a row that is not blank" do
         assert_raises(IOStreams::Errors::InvalidValue) { read(stream("name,age\n,21\n").schema(schema), :hash) }
       end
+
+      it "are read as nil when every value is only whitespace, which the fields of a row that is not blank raise for" do
+        assert_equal [nil, {"name" => "Jack", "age" => 21}], read(stream("name,age\n  ,\t\nJack,21\n").schema(schema), :hash)
+        error = assert_raises(IOStreams::Errors::InvalidValue) { read(stream("name,age\nJack,  \n").schema(schema), :hash) }
+        assert_equal 'Field "age": "  " is not a valid integer', error.reason
+        assert_equal [{"name" => "  ", "age" => 21}], read(stream("name,age\n  ,21\n").schema(schema), :hash)
+      end
+
+      it "read empty text as nil, a missing value, in every type, a string included" do
+        schema = {fields: [{name: "name", type: "string"}, {name: "note"}, {name: "age", type: "integer"}]}
+
+        assert_equal [{"name" => nil, "note" => nil, "age" => 21}],
+                     read(stream(%(name,note,age\n"","",21\n)).schema(schema), :hash)
+        assert_equal [{"name" => nil, "note" => nil, "age" => 21}],
+                     read(stream(%({"name":"","note":"","age":21}\n)).format(:json).schema(schema), :hash)
+      end
     end
 
     describe "a Tabular" do

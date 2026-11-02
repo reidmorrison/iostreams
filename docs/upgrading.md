@@ -456,7 +456,8 @@ layout returned them, see [Keys of the records read](schemas#keys-of-the-records
 Unlike a layout, a schema that sets neither `truncate:` nor `floatNumber:` raises `IOStreams::Errors::ValueTooLong`
 for a string that is longer than its field, and reads a `number` field as a `BigDecimal`. The schema that
 `from_layout` returns sets both, so that it reads and writes as the layout did, except as described in
-[A fixed width number that holds no number raises](#a-fixed-width-number-that-holds-no-number-raises).
+[A fixed width number that holds no number raises](#a-fixed-width-number-that-holds-no-number-raises). A `string` field
+of only spaces is `nil`, a missing value, where the layout read empty text, `""`, see [Types](schemas#types).
 
 `IOStreams::Schema.from_layout` raises `IOStreams::Errors::InvalidLayout` for a layout that a schema cannot hold: two
 columns with the same key, including `:a` and `"a"`, a key that is neither a String nor a Symbol, such as `1`, or
@@ -744,6 +745,8 @@ A schema reads the same records as the options it replaces, named as above, exce
   where the column options left the header row and the rows as they are in the file.
 * A value after the last column, which is not blank, raises `IOStreams::Errors::InvalidHeader` unless `fieldsMatch`
   is `"subset"` or `"partial"`, where it was dropped.
+* Empty text, such as a quoted `""` in CSV or `""` in JSON, is a missing value, `nil`, where the column options read
+  it as it is, see [Types](schemas#types).
 * A JSON record that has none of the fields, such as `{"other":3}` for the fields `name` and `zip`, raises
   `IOStreams::Errors::InvalidHeader` with `fieldsMatch: "partial"`, which needs at least one of them, where `columns:`
   read it as an empty record, `{}`.

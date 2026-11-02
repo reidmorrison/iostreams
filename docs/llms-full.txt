@@ -2950,7 +2950,8 @@ IOStreams.path("example.psv").read
 # => "name|note\nJack|a:b c\n"
 ~~~
 
-In CSV, a value that is empty is read as `nil`, and a quoted empty value, `""`, as an empty String.
+In CSV, a value that is empty is read as `nil`, and a quoted empty value, `""`, as an empty String, unless a
+[schema](schemas#types) reads it, which reads empty text as `nil`, a missing value, as Frictionless does.
 
 ## JSON files
 
@@ -4040,8 +4041,14 @@ IOStreams.path("orders.csv").schema(IOStreams::Schema.new(JSON.parse(File.read("
 | `array` | an `Array`, from the text of a JSON array, such as `[1,2]` | that JSON text, or in JSON an array |
 | `any` | the value as it is read | the value, with a `BigDecimal`, `Date` or `Time` as its text, and in a format of text a `Hash` or an `Array` as JSON, see [Values without a field](#values-without-a-field) |
 
-A field without a `type` is `any`, as in Frictionless. Empty text is read as `nil`, except for a `string` or `any`
-field, which keeps it.
+A field without a `type` is `any`, as in Frictionless.
+
+Empty text is a missing value, read as `nil` in every type, a `string` and `any` included, as Frictionless' default
+`missingValues` of `[""]` says, and written as an empty value, or `null` in JSON. Text of only whitespace, such as
+`"  "`, is not a missing value: a `string` or `any` field keeps it, and every other type raises
+`IOStreams::Errors::InvalidValue` for it, rather than read it as `nil`. Leading and trailing whitespace around a value
+of another type, such as ` 12 ` for an `integer`, is removed before it is read. A row whose every value is `nil` or
+blank text is still a blank row, see [Blank rows](streams#blank-rows), which is not read by the fields.
 
 A value that is not one of the type of its field, such as `N/A` for an `integer`, raises
 `IOStreams::Errors::InvalidValue`, naming the field and the value, both when reading and when writing. So does a `date`
@@ -4291,8 +4298,8 @@ record, without the field raises `IOStreams::Errors::InvalidHeader`, whatever `f
 `nil`, or empty text, raises `IOStreams::Errors::InvalidValue`, both when reading and when writing, including a blank
 record or row written, such as `{}`, which is otherwise written as a blank line. A blank row read, whose every value is
 `nil` or blank text, is `nil` instead, as a blank line is, see [Blank rows](streams#blank-rows). Text that is only spaces
-is a value for a `string` field of a row that has other values, as in Frictionless, but not for a type that reads it
-as `nil`, such as an `integer`.
+is a value, as in Frictionless, so a `string` field keeps it, in a row that has other values, while any other type
+raises `IOStreams::Errors::InvalidValue` for it, see [Types](#types).
 
 ~~~ruby
 # An upload, whose columns may be in any order, with names that people typed, and columns that the code ignores.
@@ -8753,7 +8760,8 @@ layout returned them, see [Keys of the records read](schemas#keys-of-the-records
 Unlike a layout, a schema that sets neither `truncate:` nor `floatNumber:` raises `IOStreams::Errors::ValueTooLong`
 for a string that is longer than its field, and reads a `number` field as a `BigDecimal`. The schema that
 `from_layout` returns sets both, so that it reads and writes as the layout did, except as described in
-[A fixed width number that holds no number raises](#a-fixed-width-number-that-holds-no-number-raises).
+[A fixed width number that holds no number raises](#a-fixed-width-number-that-holds-no-number-raises). A `string` field
+of only spaces is `nil`, a missing value, where the layout read empty text, `""`, see [Types](schemas#types).
 
 `IOStreams::Schema.from_layout` raises `IOStreams::Errors::InvalidLayout` for a layout that a schema cannot hold: two
 columns with the same key, including `:a` and `"a"`, a key that is neither a String nor a Symbol, such as `1`, or
@@ -9041,6 +9049,8 @@ A schema reads the same records as the options it replaces, named as above, exce
   where the column options left the header row and the rows as they are in the file.
 * A value after the last column, which is not blank, raises `IOStreams::Errors::InvalidHeader` unless `fieldsMatch`
   is `"subset"` or `"partial"`, where it was dropped.
+* Empty text, such as a quoted `""` in CSV or `""` in JSON, is a missing value, `nil`, where the column options read
+  it as it is, see [Types](schemas#types).
 * A JSON record that has none of the fields, such as `{"other":3}` for the fields `name` and `zip`, raises
   `IOStreams::Errors::InvalidHeader` with `fieldsMatch: "partial"`, which needs at least one of them, where `columns:`
   read it as an empty record, `{}`.

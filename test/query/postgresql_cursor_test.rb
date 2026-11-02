@@ -503,7 +503,7 @@ class PostgresqlCursorTest < Minitest::Test
                       {name: "tags", type: "array", constraints: {required: true}},
                       {name: "starts", type: "date", constraints: {required: true}}, {name: "note", type: "string"}],
                      IOStreams.stream(model.all).infer_schema.to_h[:fields]
-        assert_equal [{"tags" => [], "starts" => Date.new(2026, 10, 21), "note" => ""}],
+        assert_equal [{"tags" => [], "starts" => Date.new(2026, 10, 21), "note" => nil}],
                      each(IOStreams.stream(model.select(:tags, :starts, :note)))
       ensure
         execute("DROP TABLE IF EXISTS pg_required")

@@ -117,7 +117,8 @@ IOStreams.path("example.psv").read
 # => "name|note\nJack|a:b c\n"
 ~~~
 
-In CSV, a value that is empty is read as `nil`, and a quoted empty value, `""`, as an empty String.
+In CSV, a value that is empty is read as `nil`, and a quoted empty value, `""`, as an empty String, unless a
+[schema](schemas#types) reads it, which reads empty text as `nil`, a missing value, as Frictionless does.
 
 ## JSON files
 

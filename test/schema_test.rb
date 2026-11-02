@@ -724,9 +724,16 @@ class SchemaTest < Minitest::Test
       describe "string" do
         let(:string) { field(type: "string") }
 
-        it "keeps text as it is" do
+        it "keeps text as it is, also text of only whitespace, which is not a missing value" do
           assert_equal " Jack ", string.cast(" Jack ")
-          assert_equal "", string.cast("")
+          assert_equal "   ", string.cast("   ")
+        end
+
+        it "reads empty text as nil, a missing value, as Frictionless' default missingValues of [\"\"] does" do
+          assert_nil string.cast("")
+          assert_nil field.cast("")
+          assert_nil string.render("", :text)
+          assert_nil string.render("", :json)
         end
 
         it "converts other values to text" do
@@ -762,8 +769,14 @@ class SchemaTest < Minitest::Test
 
         it "reads empty text as nil" do
           assert_nil integer.cast("")
-          assert_nil integer.cast("   ")
           assert_nil integer.cast(nil)
+        end
+
+        it "raises for text of only whitespace, which is not a missing value, but is not an integer" do
+          ["   ", "\t", " \n "].each do |text|
+            error = assert_raises(IOStreams::Errors::InvalidValue, text.inspect) { integer.cast(text) }
+            assert_equal "Field \"value\": #{text.inspect} is not a valid integer", error.message
+          end
         end
 
         it "accepts numbers that are whole" do
@@ -1480,8 +1493,9 @@ class SchemaTest < Minitest::Test
           assert_same prefs, object.cast(prefs)
         end
 
-        it "reads blank text as nil" do
-          assert_nil object.cast("  ")
+        it "reads empty text as nil, and raises for text of only whitespace" do
+          assert_nil object.cast("")
+          assert_raises(IOStreams::Errors::InvalidValue) { object.cast("  ") }
         end
 
         it "raises for text that is not a JSON object, and for a value that is not a Hash" do
@@ -1575,9 +1589,11 @@ class SchemaTest < Minitest::Test
           end
         end
 
-        it "raises for text that is only spaces, for a type that removes them" do
-          assert_raises(IOStreams::Errors::InvalidValue) { field(type: "integer", constraints: {required: true}).cast("  ") }
+        it "takes text that is only spaces as a value, which a string keeps, and any other type raises for" do
+          error = assert_raises(IOStreams::Errors::InvalidValue) { field(type: "integer", constraints: {required: true}).cast("  ") }
+          assert_equal 'Field "value": "  " is not a valid integer', error.message
           assert_equal "  ", field(type: "string", constraints: {required: true}).cast("  ")
+          assert_equal "  ", field(constraints: {required: true}).cast("  ")
         end
 
         it "accepts a value" do
@@ -1588,7 +1604,7 @@ class SchemaTest < Minitest::Test
 
         it "accepts no value for a field that is not required" do
           assert_nil field(type: "integer").cast("")
-          assert_equal "", field(type: "string").cast("")
+          assert_nil field(type: "string").cast("")
           assert_nil field.cast(nil)
         end
 
@@ -1599,8 +1615,11 @@ class SchemaTest < Minitest::Test
             assert_nil blank.cast(nil)
             assert_nil blank.render(nil, :text)
           end
-          assert_equal "", field(type: "string", constraints: {required: true}, allowBlank: true).cast("")
-          assert_nil field(type: "integer", constraints: {required: true}, allowBlank: true).cast("  ")
+          assert_nil field(type: "string", constraints: {required: true}, allowBlank: true).cast("")
+          assert_equal "  ", field(type: "string", constraints: {required: true}, allowBlank: true).cast("  ")
+          assert_raises(IOStreams::Errors::InvalidValue) do
+            field(type: "integer", constraints: {required: true}, allowBlank: true).cast("  ")
+          end
         end
       end
     end

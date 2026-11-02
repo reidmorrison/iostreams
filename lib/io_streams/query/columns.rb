@@ -11,8 +11,8 @@ module IOStreams
     # the fields into Parquet types.
     class Columns
       # The types of field whose values can be empty text: a string, or a value of any type, such as of a binary or JSON
-      # column, which a field that is required rejects, see `IOStreams::Schema::Constraints#no_text`, so that a column
-      # of them is never required, see #field.
+      # column, which a field that is required rejects, as Frictionless reads empty text as a missing value, see
+      # `IOStreams::Schema::Field#cast`, so that a column of them is never required, see #field.
       EMPTY_TEXT_TYPES = %w[string any].freeze
 
       # The most digits that a 64-bit integer holds, whatever they are, see #integer_properties.
