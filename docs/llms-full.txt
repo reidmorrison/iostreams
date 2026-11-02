@@ -10314,13 +10314,14 @@ working after an upgrade, apart from the changes that v3.0 makes to every file:
   reports as deprecated, while v3.0 takes only one at midnight, by its own clock, as its date, and raises
   `IOStreams::Errors::InvalidValue` for any other, rather than lose its time of day, see
   [A date field takes a time only at midnight](#a-date-field-takes-a-time-only-at-midnight).
-* A spreadsheet read with a type for each column reads the same values in both, apart from a cell of a custom date
-  format, such as `yyyy-mm-dd`, which v3.0 reads as its date, such as `2026-10-25`, while v2.2 reads a date and time at
-  midnight, such as `2026-10-25T00:00:00Z`, see
+* A spreadsheet read with a type for each column reads the same values in both, apart from a cell of a time of day read
+  into a `string` field, which v2.2 reads as the time of its clock, such as `09:30:00`, while v3.0 reads it as
+  `2000-01-01T09:30:00Z`, the text of the `Time` on 2000-01-01 that a `time` field, which v3.0 adds, reads, see
   [Rows of a spreadsheet are the values of its cells](#rows-of-a-spreadsheet-are-the-values-of-its-cells). Both read the
   15 digits that Excel displays of a number into a `number` field, such as `0.3`, and the number that the cell holds
   into a `string` field, such as `2134` rather than `2134.0`, every digit of a whole number below 2^53, such as
-  `4111111111111111`, and a cell of a date and time at the time of its clock in UTC.
+  `4111111111111111`, a cell of a date and time at the time of its clock in UTC, and a cell of a custom date format,
+  such as `yyyy-mm-dd`, as its date.
 * Parquet files are only in v3.0.
 
 ### Changes in behavior in v2.2
