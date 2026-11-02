@@ -316,11 +316,12 @@ module IOStreams
       # `Float()` and `BigDecimal()` raise for before Ruby 3.4.
       BARE_POINT = /\.(?=[eE]|\z)/
       DATE     = /\A\d{4}-\d{2}-\d{2}\z/
-      # The text of a datetime without a format: ISO 8601 with seconds, below 60, with a T or a space between its date
-      # and its time, and an offset from UTC, Z, or the hours, with or without minutes, below 60, with or without a
-      # colon between them, such as `+05:30`, `+0530` or `+05`, as PostgreSQL writes it, or none, which is UTC. Its date,
-      # its time and its offset are captured.
-      DATETIME = /\A(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2}:[0-5]\d(?:\.\d+)?)(Z|[+-]\d{2}(?::?[0-5]\d)?)?\z/
+      # The text of a datetime without a format: ISO 8601 with seconds, on a clock, its hour below 24 and its minute and
+      # second below 60, as a time is, see #cast_time, rather than `24:00:00`, which `Time` reads as the midnight of the
+      # next day, with a T or a space between its date and its time, and an offset from UTC, Z, or the hours, with or
+      # without minutes, below 60, with or without a colon between them, such as `+05:30`, `+0530` or `+05`, as
+      # PostgreSQL writes it, or none, which is UTC. Its date, its time and its offset are captured.
+      DATETIME = /\A(\d{4}-\d{2}-\d{2})[T ]((?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d+)?)(Z|[+-]\d{2}(?::?[0-5]\d)?)?\z/
       # A time of day, with an offset from UTC as a datetime has one, see DATETIME, whose hour, minute and second are
       # checked, see #cast_time, since `Time` moves 24:00:00, and a leap second, into the next day. Its hour, minute,
       # second, fraction of a second and offset are captured.
@@ -1725,10 +1726,7 @@ module IOStreams
 
       # Returns [Time] the time of day of the text read with the strptime pattern of the format, see #parse_time.
       def parse_time_of_day(text)
-        parts = @format.parts(text)
-        return invalid(text) if parts.nil? || !clock_time?(parts.fetch(:hour, 0), parts.fetch(:min, 0), parts.fetch(:sec, 0))
-
-        self.class.time_of_day(parse_time(Time, text, parts))
+        self.class.time_of_day(parse_time(Time, text))
       end
 
       # Returns [true|false] whether the hour, minute and second are those of a clock, from 00:00:00 to 23:59:59.
@@ -1737,8 +1735,9 @@ module IOStreams
       end
 
       # Returns [Date|Time] the text read with the strptime pattern of the format, which must match all of the text,
-      # and whose date must exist, see #cast_datetime, from its parts, see `IOStreams::Schema::Pattern#parts`, which
-      # are read unless the caller has already read them.
+      # whose date must exist, see #cast_datetime, and whose time must be on a clock, see #clock_time?, since `DateTime`
+      # moves 24:00:00 into the next day, and reads a leap second as the second before it, from its parts, see
+      # `IOStreams::Schema::Pattern#parts`, which are read unless the caller has already read them.
       #
       # A time is at the offset from UTC that its zone gives, or in UTC without one, see #cast_datetime. A zone whose
       # offset is not known, such as "XYZ", raises, rather than be read in the time zone of the process.
@@ -1748,6 +1747,7 @@ module IOStreams
           return invalid(text)
         end
         return @format.date(text) if klass == Date
+        return invalid(text) unless clock_time?(parts.fetch(:hour, 0), parts.fetch(:min, 0), parts.fetch(:sec, 0))
         return invalid(text) if parts.key?(:zone) && parts[:offset].nil?
 
         # A DateTime reads text without an offset as UTC, and knows the offset of every zone that Date._strptime knows,

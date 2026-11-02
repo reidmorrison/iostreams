@@ -1894,6 +1894,20 @@ class SchemaTest < Minitest::Test
           assert_raises(IOStreams::Errors::InvalidValue) { field(type: "time").cast("09:30:00+0560") }
         end
 
+        it "raises for an hour of 24, as a time does, rather than read the midnight of the next day" do
+          pattern = field(type: "datetime", format: "%Y-%m-%d %H:%M:%S")
+          ["2026-10-13T24:00:00", "2026-10-13T24:00:00Z", "2026-12-31 24:00:00+05:00", "2026-10-13T23:60:00Z"].each do |text|
+            assert_raises(IOStreams::Errors::InvalidValue, text.inspect) { datetime.cast(text) }
+            assert_raises(IOStreams::Errors::InvalidValue, text.inspect) { datetime.load(text) }
+          end
+          ["2026-10-13 24:00:00", "2026-10-13 23:60:00", "2026-10-13 23:59:60"].each do |text|
+            assert_raises(IOStreams::Errors::InvalidValue, text.inspect) { pattern.cast(text) }
+          end
+          assert_equal Time.utc(2026, 10, 13, 23, 59, 59), pattern.cast("2026-10-13 23:59:59")
+          assert_equal Time.utc(2026, 10, 13, 23, 59, 59), datetime.cast("2026-10-13T23:59:59Z")
+          assert_equal Time.utc(2026, 10, 13, 21, 30), field(type: "datetime", format: "%Y-%m-%d %I:%M %p").cast("2026-10-13 09:30 PM")
+        end
+
         it "reads a space in place of the T, as databases write it, and an offset without a colon" do
           assert_equal Time.utc(2026, 10, 13, 9, 30), datetime.cast("2026-10-13 09:30:00")
           assert_predicate datetime.cast("2026-10-13 09:30:00"), :utc?

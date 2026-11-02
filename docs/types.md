@@ -544,7 +544,8 @@ end
 ### `datetime`
 
 * **Read as** a `Time`, from ISO 8601 with seconds, such as `2026-10-13T09:30:00Z`, `2026-10-13T09:30:00.250Z` or
-  `2026-10-13T09:30:00-05:00`. A date alone, or a time without seconds, raises.
+  `2026-10-13T09:30:00-05:00`. A date alone, a time without seconds, and a time that is not on a clock, such as
+  `2026-10-13T24:00:00`, raise, as for a `time`, also in its `format`.
 * **Also reads** a space in place of the `T`, such as `2026-10-13 09:30:00`, and an offset from UTC without a colon,
   or of hours alone, such as `+0530` or `+05`, as databases write them.
 * **Text without an offset** from UTC, such as `2026-10-13T09:30:00`, is read as UTC, so that a file reads the same on
@@ -594,6 +595,8 @@ puts path.read
   both also read a space for the `T`, and an offset such as `+0530` or `+05`.
 * frictionless-py reads any one character between the date and the time, such as `_` or a lower case `t`, a lower
   case `z`, and a comma before the fraction of a second, such as `09:30:00,5`. IOStreams raises for them.
+* frictionless-py reads `2026-10-13T24:00:00`, the end of a day, as the midnight of the next day, `2026-10-14T00:00:00`.
+  IOStreams raises for it, as for a `time` of `24:00:00`.
 * The spec does not give text without an offset a zone, and frictionless-py reads it as a time without one, which it
   writes without an offset. IOStreams reads it as UTC, or in the `timeZone` of the field, and writes it with its
   offset, such as `Z`.
@@ -1142,6 +1145,7 @@ properties that IOStreams adds to the spec, such as `aliases` and `allowBlank`, 
 | `datetime` | a fraction of a second, written | optional milliseconds | left out | written, such as `.250` |
 | `time` | a fraction of a second, written | `hh:mm:ss`, no fraction | left out | written, such as `09:30:00.250` |
 | `datetime`, `time` | `timeZone` | not defined | ignored | the zone of text without an offset, and of the clock of a spreadsheet's cell |
+| `datetime` | `2026-10-13T24:00:00` | ISO 8601 | `2026-10-14T00:00:00` | raises |
 | `time` | `24:00:00` | `hh:mm:ss` | `00:00:00` | raises |
 | `time` | the offset of a time, written | not defined | written, such as `09:30:00-0500` | not written, unless its `format` writes it |
 | `year` | `-0044`, `12026` or `2026Z` | `gYear` reads them | raises | raises |

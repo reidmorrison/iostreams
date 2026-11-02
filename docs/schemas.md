@@ -182,7 +182,8 @@ empty `bytea` or BLOB of a query, is `nil` too, where frictionless-py keeps empt
 
 A value that is not one of the type of its field, such as `N/A` for an `integer`, raises
 `IOStreams::Errors::InvalidValue`, naming the field and the value, both when reading and when writing. So does a `date`
-or `datetime` that does not exist, such as `2026-02-30`, and a `time` that is not on a clock, such as `24:00:00`.
+or `datetime` that does not exist, such as `2026-02-30`, and a `datetime` or `time` that is not on a clock, such as
+`24:00:00`.
 
 A `time` is written as the time of its own clock, as a Rails app shows it, so a shift that starts at 09:30 in New York
 is written as `09:30:00`, whatever time zone the server is in. A `time` read from text with an offset keeps it, such as
