@@ -1074,6 +1074,109 @@ class SchemaTest < Minitest::Test
         end
       end
 
+      describe "groupChar, decimalChar and bareNumber" do
+        it "removes the groupChar of a number or an integer wherever it is, and writes it between each 3 digits" do
+          grouped = field(type: "number", groupChar: ",")
+          integer = field(type: "integer", groupChar: " ")
+
+          assert_equal BigDecimal("1234567.5"), grouped.cast("1,234,567.5")
+          assert_equal BigDecimal("1234"), grouped.cast("12,34")
+          assert_equal "-1,234,567.50", field(type: "number", groupChar: ",", decimals: 2).render("-1234567.5", :text)
+          assert_equal "123.0", grouped.render("123", :text)
+          assert_equal 1_234_567, integer.cast("1 234 567")
+          assert_equal "1 234 567", integer.render(1_234_567, :text)
+          assert_equal "-1 234", integer.render(-1234, :text)
+        end
+
+        it "reads and writes the decimalChar of a number, and raises for a point that is not it" do
+          european = field(type: "number", groupChar: ".", decimalChar: ",")
+          comma    = field(type: "number", decimalChar: ",")
+
+          assert_equal BigDecimal("1234.5"), european.cast("1.234,50")
+          assert_equal "1.234.567,5", european.render(BigDecimal("1234567.5"), :text)
+          assert_equal BigDecimal("12.5"), comma.cast("12,5")
+          assert_raises(IOStreams::Errors::InvalidValue) { comma.cast("12.5") }
+          assert_equal "12,5", comma.render(12.5, :text)
+          assert_equal "NaN", comma.render("NaN", :text)
+          assert_equal "12345678901234567890,5", comma.render(BigDecimal("12345678901234567890.5"), :text)
+        end
+
+        it "writes the plain number to JSON, which has neither a groupChar nor a decimalChar" do
+          european = field(type: "number", groupChar: ".", decimalChar: ",", decimals: 2)
+
+          assert_equal JSON::Fragment.new("1234.50"), european.render("1.234,5", :json)
+          assert_equal 1234, field(type: "integer", groupChar: ",").render("1,234", :json)
+          assert_equal "1234.50", european.dump(european.cast("1.234,5"))
+        end
+
+        it "reads a number of a format that holds numbers, such as JSON, as it is" do
+          assert_equal BigDecimal("1234.5"), field(type: "number", decimalChar: ",").cast(1234.5)
+          assert_equal 12, field(type: "integer", groupChar: ",", bareNumber: false).cast(12)
+        end
+
+        it "removes the text before and after the number with bareNumber: false, keeping its sign" do
+          number = field(type: "number", bareNumber: false)
+
+          {
+            "95%" => "95", "$12.50" => "12.5", "12abc" => "12", "EUR 95" => "95", "€ 1.5" => "1.5", "1e3 kg" => "1000",
+            "-$12.50" => "-12.5", "$-12" => "-12", "USD -12" => "-12", " 12 " => "12", "Rs. 50" => "50", ".5%" => "0.5"
+          }.each_pair do |text, value|
+            assert_equal BigDecimal(value), number.cast(text), text
+          end
+          assert_equal 95, field(type: "integer", bareNumber: false).cast("95%")
+          assert_equal 12, field(type: "integer", bareNumber: false).cast("$12.00")
+        end
+
+        it "reads parentheses around the number as a negative number with bareNumber: false, as accountants write it" do
+          number = field(type: "number", bareNumber: false, groupChar: ",")
+
+          assert_equal BigDecimal("-12.5"), number.cast("(12.50)")
+          assert_equal BigDecimal("-1234.5"), number.cast("($1,234.50)")
+          assert_equal(-7, field(type: "integer", bareNumber: false).cast("(7)"))
+        end
+
+        it "raises with bareNumber: false for text without a number, digits around it, or a sign twice" do
+          number = field(type: "number", bareNumber: false)
+
+          ["N/A", "abc", "12abc3", "1-2", "--12", "(-12)", "(-$12)", "+-12", "$", "()"].each do |text|
+            error = assert_raises(IOStreams::Errors::InvalidValue, text) { number.cast(text) }
+            assert_equal "Field \"value\": #{text.inspect} is not a valid number", error.message
+          end
+        end
+
+        it "reads the numbers that are not finite with bareNumber: false" do
+          assert_equal 1, field(type: "number", bareNumber: false).cast("INF").infinite?
+        end
+
+        it "raises without bareNumber: false for text around the number, as it does without these properties" do
+          ["$12.50", "95%", "(12.50)"].each do |text|
+            assert_raises(IOStreams::Errors::InvalidValue, text) { field(type: "number", bareNumber: true).cast(text) }
+          end
+        end
+
+        it "writes the number alone with bareNumber: false" do
+          assert_equal "-12.5", field(type: "number", bareNumber: false).render(BigDecimal("-12.5"), :text)
+        end
+
+        it "raises for a property that is not valid, or does not apply to the type" do
+          [
+            {type: "number", groupChar: ",", decimalChar: ","}, {type: "number", groupChar: ""}, {type: "number", groupChar: "1"},
+            {type: "number", decimalChar: "-"}, {type: "number", groupChar: 1}, {type: "number", bareNumber: "no"},
+            {type: "integer", decimalChar: ","}, {type: "string", groupChar: ","}, {type: "date", bareNumber: false}
+          ].each do |properties|
+            assert_raises(ArgumentError, properties.inspect) { field(**properties) }
+          end
+        end
+
+        it "keeps them as they were given, and leaves them to the schema of the file, which writes its own text" do
+          descriptor = {name: "pay", type: "number", groupChar: ",", decimalChar: ".", bareNumber: false}
+          schema     = IOStreams::Schema.new(fields: [descriptor])
+
+          assert_equal descriptor, schema.fields.first.to_h
+          assert_equal({name: "pay", type: "number"}, schema.without_text.fields.first.to_h)
+        end
+      end
+
       describe "boolean" do
         let(:boolean) { field(type: "boolean") }
 

@@ -1435,6 +1435,20 @@ class StreamTest < Minitest::Test
         assert_equal "pay,rate\n0.00,0.00\n", write([{"pay" => BigDecimal("-0.001"), "rate" => -0.001}], schema: schema)
       end
 
+      it "reads and writes the text of numbers with groupChar, decimalChar and bareNumber, and JSON as plain numbers" do
+        schema = {
+          fields: [
+            {name: "pay", type: "number", groupChar: ".", decimalChar: ",", decimals: 2},
+            {name: "count", type: "integer", groupChar: ",", bareNumber: false}
+          ]
+        }
+
+        assert_equal [{"pay" => BigDecimal("1234.5"), "count" => -1200}], read(%(pay,count\n"1.234,50","(1,200 items)"\n), schema: schema)
+        assert_equal %(pay,count\n"1.234,50","1,200"\n), write([{"pay" => BigDecimal("1234.5"), "count" => 1200}], schema: schema)
+        assert_equal %({"pay":1234.50,"count":1200}\n),
+                     write([{"pay" => BigDecimal("1234.5"), "count" => 1200}], file_name: "pay.json", schema: schema)
+      end
+
       it "reads a number with decimals rounded to them, as it writes it, so that a record holds what is written" do
         schema = {fields: [{name: "pay", type: "number", decimals: 2}]}
 

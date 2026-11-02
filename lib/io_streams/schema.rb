@@ -94,6 +94,7 @@ module IOStreams
     autoload :Inference,   "io_streams/schema/inference"
     autoload :JsonNumber,  "io_streams/schema/json_number"
     autoload :Keys,        "io_streams/schema/keys"
+    autoload :NumberText,  "io_streams/schema/number_text"
     autoload :Pattern,     "io_streams/schema/pattern"
     autoload :Source,      "io_streams/schema/source"
 

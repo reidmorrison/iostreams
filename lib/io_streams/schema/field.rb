@@ -64,6 +64,22 @@ module IOStreams
     #     For a number, whether to return a Float instead of a BigDecimal, as frictionless-py does.
     #     Default: false
     #
+    #   groupChar: [String]
+    #     For a number or an integer, the text that groups the digits of its whole part, such as "," for `1,234,567`,
+    #     which reading removes, and writing places between each group of 3 digits, see
+    #     `IOStreams::Schema::NumberText`.
+    #     Default: none
+    #
+    #   decimalChar: [String]
+    #     For a number, the text of its decimal point, such as "," for `12,50`.
+    #     Default: "."
+    #
+    #   bareNumber: [true|false]
+    #     For a number or an integer, false to read text with other text before or after the number, such as `95%`,
+    #     `$12.50` or `EUR 95`, which is removed, and parentheses around it, such as `(12.50)`, which make it negative,
+    #     see `IOStreams::Schema::NumberText`. Writing writes the number alone.
+    #     Default: true
+    #
     # Properties that IOStreams adds:
     #   aliases: [Array<String>]
     #     The other names of the column of this field, such as `["DOB", "Birth Date"]` for the field `date_of_birth`, for
@@ -124,7 +140,8 @@ module IOStreams
         "boolean"  => %w[trueValues falseValues],
         "date"     => %w[format],
         "datetime" => %w[format],
-        "number"   => %w[decimals floatNumber],
+        "integer"  => %w[groupChar bareNumber],
+        "number"   => %w[decimals floatNumber groupChar decimalChar bareNumber],
         "string"   => %w[truncate],
         "time"     => %w[format]
       }.freeze
@@ -141,14 +158,13 @@ module IOStreams
 
       # The properties of a field that say how a file writes the text of its values, which the target of a copy does not
       # take from its source, since it writes its own, see `IOStreams::Schema#without_text`.
-      TEXT_PROPERTIES = %w[format trueValues falseValues].freeze
+      TEXT_PROPERTIES = %w[format trueValues falseValues groupChar decimalChar bareNumber].freeze
 
       # The properties of a field that only describe it to people.
       DESCRIPTIVE_PROPERTIES = %w[title description example rdfType].freeze
 
       # The properties of a Frictionless field that IOStreams does not support yet.
-      UNSUPPORTED_PROPERTIES = %w[missingValues categories categoriesOrdered decimalChar groupChar
-                                  bareNumber delimiter itemType].freeze
+      UNSUPPORTED_PROPERTIES = %w[missingValues categories categoriesOrdered delimiter itemType].freeze
 
       DEFAULT_TRUE_VALUES  = %w[true True TRUE 1].freeze
       DEFAULT_FALSE_VALUES = %w[false False FALSE 0].freeze
@@ -260,6 +276,8 @@ module IOStreams
         @truncate     = check_flag("truncate", descriptor["truncate"])
         @float        = check_flag("floatNumber", descriptor["floatNumber"])
         @decimals     = check_decimals(descriptor["decimals"])
+        @number_text  = NumberText.build(@name, group_char: descriptor["groupChar"], decimal_char: descriptor["decimalChar"],
+                                                bare_number: descriptor["bareNumber"])
         @true_values  = check_values("trueValues", descriptor["trueValues"], DEFAULT_TRUE_VALUES)
         @false_values = check_values("falseValues", descriptor["falseValues"], DEFAULT_FALSE_VALUES)
         @aliases      = check_values("aliases", descriptor["aliases"], [].freeze, empty: true)
@@ -670,7 +688,8 @@ module IOStreams
       # number `BigDecimal("12.5")` with 2 decimals.
       def text(value)
         case type
-        when "number" then number_text(value)
+        when "integer" then @number_text ? @number_text.write(value.to_s) : value.to_s
+        when "number" then @number_text ? @number_text.write(number_text(value)) : number_text(value)
         when "boolean" then value ? @true_values.first : @false_values.first
         when "date" then @format ? @format.strftime(value) : self.class.any_text(value)
         when "datetime" then @format ? datetime_text(value) : self.class.any_text(value)
@@ -837,11 +856,13 @@ module IOStreams
       end
 
       # Returns [Integer] the whole number of the text, which can have a decimal point followed only by zeros, such as
-      # "12.0", see WHOLE.
+      # "12.0", see WHOLE, once its `groupChar` and `bareNumber` are applied, see `IOStreams::Schema::NumberText`.
       def integer_text(text)
-        return Integer(text, 10) if INTEGER.match?(text)
+        plain = @number_text ? @number_text.read(text) : text
+        return invalid(text) if plain.nil?
+        return Integer(plain, 10) if INTEGER.match?(plain)
 
-        whole = WHOLE.match(text)
+        whole = WHOLE.match(plain)
         whole ? Integer(whole[1], 10) : invalid(text)
       end
 
@@ -872,8 +893,11 @@ module IOStreams
         BigDecimal("#{value.numerator * ((10**places) / denominator)}e-#{places}")
       end
 
+      # Returns [BigDecimal|Float] the number of the text, once its `groupChar`, `decimalChar` and `bareNumber` are
+      # applied, see `IOStreams::Schema::NumberText`, or of the text of a number that is not finite, see SPECIAL_NUMBERS.
       def parse_number(text)
-        return number(text) if NUMBER.match?(text)
+        plain = @number_text ? @number_text.read(text) : text
+        return number(plain, text) if plain && NUMBER.match?(plain)
 
         special = SPECIAL_NUMBERS[text.downcase]
         return invalid(text) unless special
@@ -881,14 +905,15 @@ module IOStreams
         @float ? special : BigDecimal(special.to_s)
       end
 
-      # Returns [BigDecimal|Float] the number of text that NUMBER matches.
-      def number(text)
+      # Returns [BigDecimal|Float] the number of text that NUMBER matches, naming the text as it was read when it is not
+      # one.
+      def number(text, read = text)
         @float ? Float(text) : BigDecimal(text)
       rescue ArgumentError
-        return invalid(text) unless BARE_POINT.match?(text)
+        return invalid(read) unless BARE_POINT.match?(text)
 
         # Before Ruby 3.4, so that "12." is read the same with every version of Ruby.
-        number(text.sub(BARE_POINT, ".0"))
+        number(text.sub(BARE_POINT, ".0"), read)
       end
 
       # Returns [Hash|Array] the value, which must be of the class of the field, a Hash for an object or an Array for an
