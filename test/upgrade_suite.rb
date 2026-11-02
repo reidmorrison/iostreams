@@ -12,7 +12,7 @@ require "open3"
 # `rake upgrade_suite_current` checks that `v2` holds that commit and has not changed them since.
 module UpgradeSuite
   # The `v2` commit whose suite this branch passes. A pull request that ports a change of `v2` moves it.
-  COMMIT = "1ed8e832aabcde7c5bdc82215911be663f955e1f"
+  COMMIT = "c32f6ccd16d9b3bba39c9c23b12b9c7a41a5f9a3"
   # The branch that owns the suite.
   BRANCH = "v2"
   # Where the suite lives on `v2`, and where it is extracted to here.
