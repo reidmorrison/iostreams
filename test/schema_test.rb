@@ -1788,9 +1788,18 @@ class SchemaTest < Minitest::Test
         it "raises IOStreams::Errors::InvalidValue for its text, naming the field, rather than JSON::GeneratorError" do
           [field(name: "prefs", type: "object"), field(name: "prefs", type: "array"), field(name: "prefs")].each do |json|
             value = json.type == "array" ? [1, Float::NAN] : {"a" => {"b" => [-Float::INFINITY]}}
-            error = assert_raises(IOStreams::Errors::InvalidValue, json.type) { json.render(value, :text) }
-            assert_match(/\AField "prefs": JSON cannot hold its value: /, error.message)
+            %i[text json].each do |form|
+              error = assert_raises(IOStreams::Errors::InvalidValue, "#{json.type} #{form}") { json.render(value, form) }
+              assert_match(/\AField "prefs": JSON cannot hold a number that is not finite: (NaN|-INF)\z/, error.message)
+            end
           end
+        end
+
+        it "still raises JSON::GeneratorError for text within it that is not valid UTF-8, as before" do
+          value = {"a" => "caf\xC3".dup.force_encoding("UTF-8")}
+
+          assert_raises(JSON::GeneratorError) { field(type: "object").render(value, :text) }
+          assert_raises(JSON::GeneratorError) { field.render([value], :text) }
         end
 
         it "still writes a BigDecimal that is not finite within it as its text" do

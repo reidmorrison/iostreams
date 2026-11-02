@@ -80,10 +80,20 @@ class StreamSchemaTest < Minitest::Test
         write_nan = -> { write([{"id" => 1, "prefs" => {"limit" => [Float::NAN]}}], file_name: "people.json", schema: schema) }
 
         error = assert_raises(IOStreams::Errors::InvalidValue) { write_nan.call }
-        assert_match(/\AField "prefs": JSON cannot hold its value: /, error.message)
+        assert_equal %(Field "prefs": JSON cannot hold a number that is not finite: NaN), error.message
         IOStreams::Tabular::Parser::JsonFields.stub(:coder, nil) do
           error = assert_raises(IOStreams::Errors::InvalidValue) { write_nan.call }
-          assert_match(/\AField "prefs": JSON cannot hold its value: /, error.message)
+          assert_equal %(Field "prefs": JSON cannot hold a number that is not finite: NaN), error.message
+        end
+      end
+
+      it "still raises JSON::GeneratorError for text that is not valid UTF-8 written to JSON, within an object or in a string field, as before" do
+        schema = {fields: [{name: "name", type: "string"}, {name: "prefs", type: "object"}]}
+        bad    = "caf\xC3".dup.force_encoding("UTF-8")
+
+        assert_raises(JSON::GeneratorError) { write([{"name" => bad, "prefs" => nil}], file_name: "people.json", schema: schema) }
+        %w[people.json people.csv].each do |file_name|
+          assert_raises(JSON::GeneratorError, file_name) { write([{"name" => "a", "prefs" => {"a" => bad}}], file_name: file_name, schema: schema) }
         end
       end
 

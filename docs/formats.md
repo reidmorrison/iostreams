@@ -342,9 +342,9 @@ IOStreams writes for it to JSON, such as `"12.5"`, see
 value of another class, such as a `Rational`, can differ from the value that its JSON text reads. Hashes and Arrays
 nested more than 100 deep, as JSON reads them, raise `IOStreams::Errors::InvalidValue`, as does a `Float` within them
 that is not finite, such as `Float::NAN`, which JSON cannot hold, when it is written, in every format, naming the field,
-unless an application uses ActiveSupport, as Rails does, which writes it as `null`. Frictionless keeps a dict as
-it is, and reads a `boolean` only from text, and `true` or `false`, so this conversion, and reading the number `1` or
-`0` as a `boolean`, are what IOStreams adds.
+also in an application that uses ActiveSupport, as Rails does, which would write it as `null`. Frictionless keeps a
+dict as it is, and reads a `boolean` only from text, and `true` or `false`, so this conversion, and reading the number
+`1` or `0` as a `boolean`, are what IOStreams adds.
 
 A value that is not one of the type of its field, such as `N/A` for an `integer`, raises
 `IOStreams::Errors::InvalidValue`, naming the field and the value, both when reading and when writing. So does a `date`
