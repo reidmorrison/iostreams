@@ -83,11 +83,12 @@ class InferSchemaTest < Minitest::Test
         assert_equal [%w[1 Jack]], records
       end
 
-      it "raises for two columns that are the same key once cleansed, since a schema cannot hold both" do
+      it "raises for two columns that are the same key once cleansed, since a record read without a schema cannot hold both" do
         error = assert_raises(IOStreams::Errors::InvalidHeader) { text("Amount ($),Amount (€)\n1,2\n", "orders.csv").infer_schema }
 
         assert_includes error.message, '"Amount ($)" and "Amount (€)"'
         assert_includes error.message, '"amount_"'
+        assert_includes error.message, "two fields of the same name"
       end
 
       it "names a field of type any for each key of the first JSON record, each of whose values has its own type" do

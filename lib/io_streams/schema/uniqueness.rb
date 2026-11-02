@@ -115,8 +115,11 @@ module IOStreams
       #     The most distinct values that it remembers of each field or key, see above.
       def initialize(keys, limit)
         @fields = keys.flat_map(&:last).uniq(&:object_id).freeze
-        index   = @fields.each_with_index.to_h.compare_by_identity
-        @keys   = keys.map { |label, fields| Key.new(label, fields, fields.map { |field| index[field] }, limit) }.freeze
+        # By identity from the start, since two fields of the same name and properties are equal, see
+        # `IOStreams::Schema#namesake`, while each has its own values.
+        index = {}.compare_by_identity
+        @fields.each_with_index { |field, position| index[field] = position }
+        @keys = keys.map { |label, fields| Key.new(label, fields, fields.map { |field| index[field] }, limit) }.freeze
       end
 
       # Returns [Array|nil] the value of each key of the row or record, in the order of its keys, nil for one that is not

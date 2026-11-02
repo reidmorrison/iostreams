@@ -93,9 +93,11 @@ module IOStreams
   #     Default: "skip"
   #
   # Properties that only describe the schema to people, `$schema`, `title` and `description`, are accepted and have
-  # no effect, as are the properties of other tools, whose names include a `:`, such as `"mytool:owner"`. Any other
-  # property raises `ArgumentError`, including those of Frictionless that IOStreams does not support yet, such as
-  # `foreignKeys`, so that a schema never appears to apply a rule that it does not.
+  # no effect, as are the properties of other tools, such as `"mytool:owner"`, and any other property that IOStreams
+  # does not know, which is kept, as Frictionless allows, unless it is close to a property that it knows, such as
+  # `fieldMatch`, which raises `ArgumentError`, see `IOStreams::Schema::NearMiss`, as do those of Frictionless that
+  # IOStreams does not support yet, such as `foreignKeys`, so that a schema never appears to apply a rule that it does
+  # not.
   #
   # A schema is an object, which `IOStreams::Stream#infer_schema` returns, and `IOStreams::Stream#schema` takes, as
   # well as a Hash or the path of a JSON file. Its public methods are .new, .read, #fields, #fields_match, #to_h,
@@ -118,6 +120,7 @@ module IOStreams
     autoload :JsonNumber,      "io_streams/schema/json_number"
     autoload :Keys,            "io_streams/schema/keys"
     autoload :MissingValues,   "io_streams/schema/missing_values"
+    autoload :NearMiss,        "io_streams/schema/near_miss"
     autoload :NumberText,      "io_streams/schema/number_text"
     autoload :Pattern,         "io_streams/schema/pattern"
     autoload :Source,          "io_streams/schema/source"
@@ -140,6 +143,10 @@ module IOStreams
 
     # The properties of a Frictionless Table Schema that IOStreams does not support yet.
     UNSUPPORTED_PROPERTIES = %w[foreignKeys].freeze
+
+    # The properties of a schema that IOStreams knows, which a property that it does not know must not be close to, see
+    # #check_properties.
+    KNOWN_PROPERTIES = (PROPERTIES + DESCRIPTIVE_PROPERTIES + UNSUPPORTED_PROPERTIES).freeze
 
     # The most distinct values of each field or key that must be unique that a read or write remembers, see
     # `uniqueLimit` above.
@@ -610,6 +617,12 @@ module IOStreams
       @namesakes[field]&.find { |other| !taken.key?(other) }
     end
 
+    # Returns [Integer] the number of fields of the name of the supplied field, see #namesake, 1 for a field whose name
+    # no other field has, for the message of an error.
+    def namesake_count(field)
+      @namesakes[field]&.size || 1
+    end
+
     # Returns [true|false] whether reading keeps the columns that the schema does not list, see `extraColumns` above.
     def keep_extra?
       @keep_extra
@@ -737,13 +750,21 @@ module IOStreams
       )
     end
 
+    # Raises ArgumentError for a property of Frictionless that IOStreams does not support yet, and for a property that
+    # is close to one that it knows, see `IOStreams::Schema::NearMiss`, such as `fieldMatch`, which is most likely a
+    # mistyped `fieldsMatch`. Any other property is kept, see #to_h, and has no effect, as Frictionless allows the
+    # properties of other tools.
     def check_properties(descriptor)
       descriptor.each_key do |name|
-        next if PROPERTIES.include?(name) || DESCRIPTIVE_PROPERTIES.include?(name) || name.include?(":")
+        next if PROPERTIES.include?(name) || DESCRIPTIVE_PROPERTIES.include?(name)
 
         raise(ArgumentError, "The schema property #{name.inspect} is not supported") if UNSUPPORTED_PROPERTIES.include?(name)
 
-        raise(ArgumentError, "Unknown schema property: #{name.inspect}")
+        close = NearMiss.find(name, KNOWN_PROPERTIES)
+        next if close.nil?
+
+        raise(ArgumentError, "Unknown schema property #{name.inspect}, which is close to #{close.inspect}: correct it, or " \
+                             "name the property of another tool with a prefix, such as \"mytool:#{name}\"")
       end
     end
 
@@ -758,11 +779,18 @@ module IOStreams
 
     # Returns [Hash<IOStreams::Schema::Field, Array<IOStreams::Schema::Field>>] the fields of each field whose name
     # another field has too, in order, which Frictionless accepts, see #namesake, compared by identity.
+    #
+    # Raises ArgumentError for such a field with `aliases`, since a column of an alias would not say which of the fields
+    # of that name it is.
     def build_namesakes
       by_name = @fields.group_by { |field| field.name.to_s }
       by_name.each_value.with_object({}.compare_by_identity) do |fields, namesakes|
         next if fields.size < 2
 
+        if fields.any? { |field| !field.aliases.empty? }
+          raise(ArgumentError, "Field #{fields.first.name.inspect}: a field whose name another field has too cannot have " \
+                               "aliases, since a column of an alias would not say which of them it is")
+        end
         fields.each { |field| namesakes[field] = fields.freeze }
       end.freeze
     end
@@ -804,8 +832,9 @@ module IOStreams
           key = yield(name)
           next unless key
 
+          # Only the first of the fields of the same name, whose columns take the others in order, see #namesake.
           list = (loose[key] ||= [])
-          list << field unless list.include?(field)
+          list << field unless list.any? { |other| other.equal?(field) || namesake?(other, field) }
         end
       end
       loose

@@ -434,8 +434,18 @@ module IOStreams
       end
 
       # Returns [Hash] the descriptor of a field declared by .field, its properties named as the schema names them.
+      #
+      # Raises ArgumentError for an option that is not a property of a field, see
+      # `IOStreams::Schema::Field.known_property?`, since the options of a method in Ruby are checked, while the schema of
+      # a contract built from a Hash keeps the properties of other tools, as Frictionless allows.
       def field_descriptor(name, type, required, properties)
-        field = {name: name, type: type.to_s}
+        field   = {name: name, type: type.to_s}
+        unknown = properties.keys.find { |property| !IOStreams::Schema::Field.known_property?(property_name(property)) }
+        if unknown
+          raise(ArgumentError, "The field #{name.to_s.inspect} has no option #{unknown.inspect}, which is not a property " \
+                               "of a field, see IOStreams::Schema::Field")
+        end
+
         properties.each do |property, value|
           value = value.transform_keys { |key| property_name(key) } if property == :constraints && value.is_a?(::Hash)
           field[property_name(property)] = value

@@ -170,11 +170,13 @@ module IOStreams
     #     Default: false
     #
     # Properties that only describe the field to people, `title`, `description`, `example` and `rdfType`, are
-    # accepted and have no effect, as are the properties of other tools, whose names include a `:`.
+    # accepted and have no effect, as are the properties of other tools, such as `"mytool:owner"`, and any other
+    # property that IOStreams does not know, which is kept, as Frictionless allows, unless it is close to a property
+    # that it knows, such as `trueValue`, see `IOStreams::Schema::NearMiss`.
     #
-    # Any other property raises `ArgumentError`, as does a type that IOStreams does not support yet, "geojson", and a
-    # property of another type of field, such as `decimals` of an integer, so that a schema never
-    # appears to check a value that it does not.
+    # Such a property raises `ArgumentError`, as does a type that IOStreams does not support yet, "geojson", and a
+    # property of another type of field, such as `decimals` of an integer, so that a schema never appears to check a
+    # value that it does not.
     class Field
       # The types of field that IOStreams supports.
       TYPES = %w[any array boolean date datetime duration integer number object string time list year yearmonth
@@ -227,6 +229,10 @@ module IOStreams
 
       # The properties of a field that only describe it to people.
       DESCRIPTIVE_PROPERTIES = %w[title description example rdfType].freeze
+
+      # The properties of a field that IOStreams knows, of any type, which a property that it does not know must not be
+      # close to, see #check_properties, and which the class of a contract declares, see `IOStreams::Contract.field`.
+      KNOWN_PROPERTIES = (PROPERTIES + TYPE_PROPERTIES.values.flatten + DESCRIPTIVE_PROPERTIES + LAYOUT_PROPERTIES).uniq.freeze
 
       # The properties of a Frictionless field that IOStreams does not support yet.
       UNSUPPORTED_PROPERTIES = [].freeze
@@ -601,6 +607,12 @@ module IOStreams
         end
       end
       private_class_method :time_text, :data_hash, :data_array, :json_held?, :nesting
+
+      # Returns [true|false] whether IOStreams knows the property, of a field of any type, such as `trueValues`, see
+      # KNOWN_PROPERTIES, so that the class of a contract, which declares its fields in Ruby, raises for any other.
+      def self.known_property?(property)
+        KNOWN_PROPERTIES.include?(property.to_s)
+      end
 
       # Returns [true|false] whether a value of the supplied type, which a source declares for a column, such as a Parquet
       # file or a database query, can be one of this field, see CONVERTED_TYPES, so that a column whose values never can,
@@ -1258,10 +1270,14 @@ module IOStreams
         self.class.new({name: name, type: item_type, **number_properties.transform_keys(&:to_sym)})
       end
 
+      # Raises ArgumentError for a property of another type of field, such as `trueValues` of a number, for a property of
+      # Frictionless that IOStreams does not support yet, and for a property that is close to one that it knows, see
+      # `IOStreams::Schema::NearMiss`, such as `trueValue`, which is most likely a mistyped `trueValues`. Any other
+      # property is kept, see #to_h, and has no effect, as Frictionless allows the properties of other tools.
       def check_properties(descriptor)
         accepted = PROPERTIES + TYPE_PROPERTIES.fetch(type, [])
         descriptor.each_key do |property|
-          next if accepted.include?(property) || DESCRIPTIVE_PROPERTIES.include?(property) || property.include?(":")
+          next if accepted.include?(property) || DESCRIPTIVE_PROPERTIES.include?(property)
 
           if UNSUPPORTED_PROPERTIES.include?(property)
             raise(ArgumentError, "Field #{name.inspect}: the property #{property.inspect} is not supported")
@@ -1272,7 +1288,12 @@ module IOStreams
             raise(ArgumentError, "Field #{name.inspect}: #{property.inspect} only applies to a #{types.join(' or ')} field")
           end
 
-          raise(ArgumentError, "Field #{name.inspect}: unknown property #{property.inspect}")
+          close = NearMiss.find(property, KNOWN_PROPERTIES)
+          next if close.nil?
+
+          raise(ArgumentError, "Field #{name.inspect}: unknown property #{property.inspect}, which is close to " \
+                               "#{close.inspect}: correct it, or name the property of another tool with a prefix, such " \
+                               "as \"mytool:#{property}\"")
         end
       end
 
@@ -1321,8 +1342,10 @@ module IOStreams
       def check_skip(descriptor)
         return false unless check_flag("skip", descriptor["skip"])
 
+        # A property that IOStreams does not know is kept, as for any field, see #check_properties.
         other = descriptor.keys.find do |property|
-          !SKIP_PROPERTIES.include?(property) && !DESCRIPTIVE_PROPERTIES.include?(property) && !property.include?(":")
+          KNOWN_PROPERTIES.include?(property) && !SKIP_PROPERTIES.include?(property) &&
+            !DESCRIPTIVE_PROPERTIES.include?(property)
         end
         other ||= "type" unless type == "any"
         return true if other.nil?

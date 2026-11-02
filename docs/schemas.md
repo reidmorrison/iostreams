@@ -512,6 +512,10 @@ once cleansed, if there is one. So a schema whose fields are named as a header r
 every column that the cleansing named, such as the fields `e_mail` and `email`, which are the same once compared
 loosely, for the columns `E-mail` and `Email`.
 
+Two fields of the same name, which Frictionless accepts, see [Frictionless compatibility](#frictionless-compatibility),
+take the columns of that name in order, also those that match it loosely, such as `A` and `a`, so the first column is
+the first field, and the second column the second field.
+
 The columns are matched once, when the header row is read, or once for each set of keys of the JSON records, which
 are usually the same for every record, rather than for each value.
 
@@ -971,9 +975,11 @@ and `#copy_to`, whose options only apply to the target.
   one schema can describe both a fixed width file and the CSV file that it is converted to.
 
 `title`, `description`, `example` and `rdfType` describe a field to people and have no effect, as do the properties
-of other tools, whose names include a `:`, such as `"mytool:owner"`. Any other property raises `ArgumentError`, as do
-the parts of Frictionless that IOStreams does not support yet, such as `foreignKeys`, the constraint `jsonSchema`, and
-the `geojson` type, so that a schema never appears to check a value that it does not.
+of other tools, such as `"mytool:owner"`, and any other property that IOStreams does not know, which is kept, unless it
+is close to one that it knows, such as `trueValue`, which raises `ArgumentError`, see
+[Frictionless compatibility](#frictionless-compatibility). The parts of Frictionless that IOStreams does not support
+yet, such as `foreignKeys`, the constraint `jsonSchema`, and the `geojson` type, raise `ArgumentError` too, so that a
+schema never appears to check a value that it does not.
 
 ## Values without a field
 
@@ -996,8 +1002,24 @@ a type and a `format` in the schema.
 ## Frictionless compatibility
 
 A schema is a [Frictionless Table Schema v2](https://datapackage.org/standard/table-schema/), with a few properties that
-IOStreams adds, so a schema written by another Frictionless tool reads the same records, and a schema that IOStreams
-reads can be checked by other tools, which ignore the properties of IOStreams.
+IOStreams adds, so a schema written by another Frictionless tool reads the same records. A schema written for IOStreams
+can be read by other tools, which ignore the properties of IOStreams, as long as it keeps to what Frictionless defines:
+a schema in Ruby can also use what only IOStreams reads, such as the directives `%s`, `%N` and `%L` of a `format`, and
+Symbols as names and keys, which JSON does not hold.
+
+A schema of Frictionless v1 reads the same, including its forms that v2 replaced, such as a `primaryKey` that is the
+name of one field, and `missingValues` as text, and `$schema`, which names the version, is kept, though not checked,
+and does not change how the schema reads.
+
+A property that IOStreams does not know is kept, and has no effect, as Frictionless allows the properties of other
+tools, so `#to_h` returns it, and the schema reads back from JSON the same. A property close to one that it knows, such
+as `trueValue` for `trueValues`, `groupchar` for `groupChar`, or `contraints` for `constraints`, raises
+`ArgumentError` naming the property that it is close to, since it is most likely mistyped, rather than have no effect
+without a word: one that is the same once both are lowercase, or one character added, left out, replaced, or two
+characters swapped. Name the property of another tool with a prefix, such as `"mytool:owner"`, which is never taken for
+a mistyped one. A property that IOStreams knows of another type of field, such as `trueValues` of a `number`, still
+raises `ArgumentError`, and so does an option of `field` in the class of a [contract](contracts), which is Ruby rather
+than a schema of other tools.
 
 Supported: the types `string`, with the formats `email`, `uri`, `uuid` and `binary`, `integer`, `number`, `boolean`,
 `date`, `datetime`, `time`, `duration`, `year`, `yearmonth`, `list`, `object`, `array`, `geopoint` and `any`; the
@@ -1005,10 +1027,15 @@ properties of fields `format`, `trueValues`, `falseValues`, `groupChar`, `decima
 `itemType`, `categories`, `categoriesOrdered`, `missingValues`, `title`, `description`, `example` and `rdfType`; the
 constraints `required`, `unique`, `enum`, `minimum`, `maximum`, `exclusiveMinimum`, `exclusiveMaximum`, `minLength`,
 `maxLength` and `pattern`; and the properties of the schema `fields`, `fieldsMatch`, `missingValues`, `primaryKey`,
-`uniqueKeys`, `$schema`, `title` and `description`. Two fields of the same name are accepted, as Frictionless requires
-of a schema of v1: the rows of a format whose columns are in order, such as CSV, read and write them by their
-positions, while records, a format whose rows are records, such as JSON, and a contract, raise `ArgumentError`, since a
-record cannot hold two values of one key.
+`uniqueKeys`, `$schema`, `title` and `description`.
+
+Two fields of the same name are accepted, as Frictionless requires, since v1 allowed them: the rows of a format whose
+columns are in order, such as CSV or Parquet, read and write them by their positions, matching the columns of a header
+row of that name to them in order, see [Matching columns to fields](#matching-columns-to-fields), while records, a
+format whose rows are records, such as JSON, and a contract, raise `ArgumentError`, since a record cannot hold two
+values of one key, as do a `primaryKey` or `uniqueKeys` that names them, and `aliases` of either, since a column of an
+alias would not say which of them it is. A file with more columns of that name than the fields of it raises
+`IOStreams::Errors::InvalidHeader`. The fields `:id` and `"id"` are of the same name too.
 
 Not supported yet, so they raise `ArgumentError`, rather than appear to check what they do not: the type `geojson`, the
 property `foreignKeys`, the constraint `jsonSchema`, and the `format` `any` of a date, datetime or time.
@@ -1031,17 +1058,31 @@ IOStreams adds these properties, which other tools ignore:
 
 IOStreams reads some text that Frictionless does not define, so that files from other tools read:
 
+* The text of a value of a type other than `string` and `any` is read without the whitespace around it, such as ` 12 `.
 * An `integer` reads a whole number with a decimal point, such as `12.0`, as a spreadsheet stores every number.
 * A `number` reads `Infinity` and `-Infinity`, as Ruby and JavaScript write them, as well as `NaN`, `INF` and `-INF`,
-  which it writes.
+  which it writes, in any case, such as `nan` or `inf`.
 * A `datetime` reads a space in place of the `T`, such as `2026-10-13 09:30:00`, and a `datetime` or `time` an offset
   without a colon, or of hours alone, such as `+0530` or `+05`, as well as `+05:30` and `Z`.
 * A `format` of a date, datetime or time takes Ruby's own directives, such as `%s`, `%N` and `%L`, as well as those of
-  Python's strptime, which Frictionless defines.
+  Python's strptime, which Frictionless defines, and the prefix `fmt:`, such as `fmt:%d/%m/%Y`, which frictionless-py
+  reads.
 * A field takes the values of a source of Ruby objects, such as the `:hash` format, a Parquet file or a query: a
-  `boolean` the number `1` or `0`, a `list` an `Array`, or the text of a JSON array, and a `geopoint` an `Array` or a
-  `Hash` whatever its `format`.
+  `boolean` the number `1` or `0`, a `list` an `Array`, and a `geopoint` an `Array` or a `Hash` whatever its `format`,
+  whose numbers can be their text, such as `"90.5"`.
+* A column of a header row matches a field without its case, spaces and punctuation, and by its `aliases`, see
+  [Matching columns to fields](#matching-columns-to-fields), where Frictionless compares names exactly.
 * `primaryKey` and `uniqueKeys` take the names of fields as Symbols, as well as Strings.
+
+Some rules differ from frictionless-py, the reference implementation of Frictionless:
+
+* A `pattern` is a Ruby regular expression, whose classes are those of Unicode, see [Constraints](#constraints).
+* JSON writes a `list` as an array of its items, where frictionless-py writes its delimited text, and an empty item of a
+  list is `nil`, where frictionless-py raises for one of a type other than `string`.
+* The target of a copy that takes the types of its source writes a `geopoint` in the default format, `lon, lat`, and a
+  `list` with the default `delimiter`, since these say how the source writes its text.
+* `bareNumber: false` reads `(12.50)` as negative and `-$12.50` as `-12.50`, see [Text of numbers](#text-of-numbers),
+  and the formats of a `string` check a little differently, see [Formats of strings](#formats-of-strings).
 
 ## Schemas in IOStreams 2.2 and 3.0
 

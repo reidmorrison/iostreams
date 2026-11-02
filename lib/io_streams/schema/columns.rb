@@ -139,7 +139,10 @@ module IOStreams
         @matched = @schema.fields.filter_map do |field|
           [field, positions[field], @schema.key(field)] if (@every_field || positions.key?(field)) && !field.skip?
         end
-        @labels  = positions.to_h { |field, index| [field, labels[index]] }.compare_by_identity
+        # By identity from the start, since two fields of the same name and properties are equal, see
+        # `IOStreams::Schema#namesake`, while each has its own column.
+        @labels = {}.compare_by_identity
+        positions.each { |field, index| @labels[field] = labels[index] }
         @extra   = extra_columns(labels, positions, "column")
         @width   = labels.size
         names
@@ -601,6 +604,8 @@ module IOStreams
           elsif by_name && own_label?(label, field)
             unknown << labels[positions[field]]
             positions[field] = index
+          elsif @schema.namesake_count(field) > 1
+            raise(IOStreams::Errors::InvalidHeader, namesakes_problem(labels, field, noun))
           else
             raise(
               IOStreams::Errors::InvalidHeader,
@@ -610,6 +615,15 @@ module IOStreams
           end
         end
         [found, unknown, positions]
+      end
+
+      # Returns [String] why the labels have more columns of the name of a field than the fields of that name, such as
+      # `3 columns named "a", while the schema has 2 fields of that name`, see #find_fields.
+      def namesakes_problem(labels, field, noun)
+        name  = field.name.to_s
+        count = labels.count { |label| @schema.field_for(label, noun)&.name.to_s == name }
+        "The #{noun}s have #{count} #{noun}s named #{name.inspect}, while the schema has #{@schema.namesake_count(field)} " \
+          "fields of that name, each of which takes one #{noun}, in order"
       end
 
       # Returns [Array<Array(Integer, String|Symbol)>] the position and key of each label that is not a field, in the

@@ -165,6 +165,14 @@ class ContractTest < Minitest::Test
         assert_equal contract.to_h, Class.new(IOStreams::Contract) { class_eval(dsl.lines[1..-2].join, __FILE__, __LINE__) }.to_h
       end
 
+      it "raises for an option of a field that is not a property of a field, which a schema from a Hash would keep" do
+        error = assert_raises(ArgumentError) { Class.new(IOStreams::Contract) { field :weight, :number, unit: "kg" } }
+        assert_equal 'The field "weight" has no option :unit, which is not a property of a field, see IOStreams::Schema::Field',
+                     error.message
+        assert_equal({name: "weight", type: "number", unit: "kg"},
+                     IOStreams::Contract.new(fields: [{name: "weight", type: "number", unit: "kg"}]).fields.first.to_h)
+      end
+
       it "keeps the other constraints of a required field, named as Ruby names them, which a field rejects unless supported" do
         error = assert_raises(ArgumentError) do
           Class.new(IOStreams::Contract) { field :id, :integer, required: true, constraints: {json_schema: {}} }

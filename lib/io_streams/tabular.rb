@@ -481,7 +481,7 @@ module IOStreams
     # schema, which describes the file. See `IOStreams::Tabular::Mapping#declared_schema`.
     #
     # Raises `IOStreams::Errors::InvalidHeader` for two columns that are the same key once cleansed, such as `Amount ($)`
-    # and `Amount (€)`, since a schema cannot hold both.
+    # and `Amount (€)`, since a record read without a schema cannot hold both.
     def declared_schema(row)
       @mapping.declared_schema(row)
     end

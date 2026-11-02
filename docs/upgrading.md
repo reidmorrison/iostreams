@@ -1973,6 +1973,9 @@ working after an upgrade, apart from the changes that v3.0 makes to every file:
   `IOStreams::Errors::InvalidValue` for any other, rather than lose its time of day, see
   [A date field takes a time only at midnight](#a-date-field-takes-a-time-only-at-midnight).
 * Parquet files are only in v3.0.
+* A property of a schema or a field that IOStreams does not know raises `ArgumentError` in v2.2, while v3.0 keeps it,
+  as Frictionless allows, unless it is close to a property that IOStreams knows, such as `trueValue`, see
+  [Frictionless compatibility](schemas#frictionless-compatibility). Two fields of the same name raise in v2.2.
 
 ### Changes in behavior in v2.2
 

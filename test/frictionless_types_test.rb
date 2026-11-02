@@ -23,6 +23,13 @@ class FrictionlessTypesTest < Minitest::Test
       path
     end
 
+    # Returns [Array<Array>] the rows read from the path.
+    def read_rows(path)
+      rows = []
+      path.each(:array) { |row| rows << row }
+      rows
+    end
+
     # Returns [Array<Hash>] the records read from the path.
     def read(path)
       records = []
@@ -681,6 +688,41 @@ class FrictionlessTypesTest < Minitest::Test
       it "raise ArgumentError for a key that names one of them" do
         error = assert_raises(ArgumentError) { IOStreams::Schema.new(schema.merge(primaryKey: "a")) }
         assert_equal 'The schema primaryKey names "a", which is the name of 2 fields', error.message
+      end
+
+      it "check the unique values of each of them, also of two that are the same in every other way" do
+        unique = {fields: [{name: "a", constraints: {unique: true}}, {name: "a", constraints: {unique: true}}]}
+        File.write(File.join(dir, "u.csv"), "a,a\n1,1\n2,1\n")
+
+        error = assert_raises(IOStreams::Errors::InvalidValue) { read_rows(IOStreams.path(dir, "u.csv").schema(unique)) }
+        assert_equal 3, error.line_number
+      end
+
+      it "match the columns of the same name compared loosely in order, such as A and a" do
+        File.write(File.join(dir, "l.csv"), "A,a,b\n1,x,y\n")
+
+        assert_equal [%w[a a b], [1, "x", "y"]], read_rows(IOStreams.path(dir, "l.csv").schema(schema))
+      end
+
+      it "raise ArgumentError when one of them has aliases, since a column of an alias would not say which it is" do
+        error = assert_raises(ArgumentError) { IOStreams::Schema.new(fields: [{name: "a", aliases: ["x"]}, {name: "a"}]) }
+        assert_equal 'Field "a": a field whose name another field has too cannot have aliases, since a column of an alias ' \
+                     "would not say which of them it is", error.message
+      end
+
+      it "name the number of columns and fields of the name when the file has more columns of it than the fields" do
+        File.write(File.join(dir, "three.csv"), "a,a,a,b\n1,x,z,y\n")
+
+        error = assert_raises(IOStreams::Errors::InvalidHeader) { read_rows(IOStreams.path(dir, "three.csv").schema(schema)) }
+        assert_equal 'The columns have 3 columns named "a", while the schema has 2 fields of that name, each of which takes ' \
+                     "one column, in order", error.message
+      end
+
+      it "raise ArgumentError for a contract read through the schema of the file, also in the :array mode" do
+        contract = IOStreams::Contract.new(fieldsMatch: "subset", fields: [{name: "b"}])
+        File.write(File.join(dir, "same.csv"), "a,a,b\n1,x,y\n")
+
+        assert_raises(ArgumentError) { read_rows(IOStreams.path(dir, "same.csv").schema(schema).as(contract)) }
       end
     end
 

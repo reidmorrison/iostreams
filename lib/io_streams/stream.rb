@@ -713,7 +713,8 @@ module IOStreams
     # width, which needs a schema that gives the position of each field, or `:text`, whose one column has no name.
     #
     # Raises `IOStreams::Errors::InvalidHeader` for two columns of a header row that are the same key once cleansed, such
-    # as `Amount ($)` and `Amount (€)`, since a schema cannot hold both.
+    # as `Amount ($)` and `Amount (€)`, since a record read without a schema cannot hold both, while a schema can have
+    # two fields of the same name, see `IOStreams::Schema#namesake`, which a person sets.
     #
     # With `sample:`, it drafts the types of a source that reports none, such as CSV, from a sample of its values, as a
     # tool to run once, whose draft a person reviews, and saves as a contract, see `IOStreams::Schema#to_contract`, or as

@@ -34,9 +34,20 @@ class SchemaTest < Minitest::Test
         assert_equal ["id"], schema.fields.map(&:name)
       end
 
-      it "raises for an unknown property of the schema" do
+      it "keeps a property that it does not know, as Frictionless allows, which has no effect" do
+        schema = IOStreams::Schema.new(fields: [{name: "id", unit: "kg"}], profile: "tabular", "mytool:owner": "ops")
+
+        assert_equal({profile: "tabular", "mytool:owner": "ops", fields: [{name: "id", unit: "kg"}]}, schema.to_h)
+        assert_equal schema, IOStreams::Schema.new(JSON.parse(JSON.generate(schema.to_h)))
+      end
+
+      it "raises for a property of the schema that is close to one that it knows, which is most likely mistyped" do
         error = assert_raises(ArgumentError) { IOStreams::Schema.new(fields: [], widht: 3) }
-        assert_equal 'Unknown schema property: "widht"', error.message
+        assert_equal 'Unknown schema property "widht", which is close to "width": correct it, or name the property of ' \
+                     'another tool with a prefix, such as "mytool:widht"', error.message
+        %i[fieldMatch fieldsmatch primaryKeys keytype Header uniqueKey].each do |property|
+          assert_raises(ArgumentError, property.inspect) { IOStreams::Schema.new(fields: [], property => 1) }
+        end
       end
 
       it "raises for a property of Frictionless that is not supported, rather than ignore its rule" do
@@ -69,9 +80,19 @@ class SchemaTest < Minitest::Test
         assert_nil IOStreams::Schema.new(fields: [{name: "id"}, {name: "name"}]).check_record_keys
       end
 
-      it "raises for an unknown property of a field" do
+      it "raises for a property of a field that is close to one that it knows, which is most likely mistyped" do
         error = assert_raises(ArgumentError) { field(widht: 3) }
-        assert_equal 'Field "value": unknown property "widht"', error.message
+        assert_equal 'Field "value": unknown property "widht", which is close to "width": correct it, or name the property ' \
+                     'of another tool with a prefix, such as "mytool:widht"', error.message
+        [{type: "boolean", trueValue: ["y"]}, {type: "number", groupchar: ","}, {Constraints: {}}, {contraints: {}},
+         {aliase: ["x"]}, {type: "number", decimal: 2}, {fromat: "%Y"}, {tpye: "string"}].each do |properties|
+          assert_raises(ArgumentError, properties.inspect) { field(**properties) }
+        end
+      end
+
+      it "keeps a property of a field that it does not know, also of a field with skip: true, which has no effect" do
+        assert_equal({name: "value", unit: "kg", "mytool:x": 1}, field(unit: "kg", "mytool:x": 1).to_h)
+        assert_equal({name: "value", skip: true, unit: "kg"}, field(skip: true, unit: "kg").to_h)
       end
 
       it "raises for a property of Frictionless of another type, rather than ignore its check" do
