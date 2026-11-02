@@ -168,7 +168,8 @@ IOStreams.path("orders.csv").schema(IOStreams::Schema.new(JSON.parse(File.read("
 | `geopoint` | a point on the earth, `[lon, lat]`, two `BigDecimal`s, from the form of its `format`: `default`, the text `90.50, 45.50`; `array`, a JSON array, such as `[90.50, 45.50]`, or its text; or `object`, a JSON object, such as `{"lon": 90.50, "lat": 45.50}`, or its text | the form of its `format` |
 | `any` | the value as it is read | the value, with a `BigDecimal`, `Date` or `Time` as its text, and in a format of text a `Hash` or an `Array` as JSON, see [Values without a field](#values-without-a-field) |
 
-A field without a `type` is `any`, as in Frictionless.
+A field without a `type` is `any`, as in Frictionless. [Types and conversions](types) shows each type with examples,
+and where IOStreams differs from Frictionless.
 
 Empty text is a missing value, read as `nil` in every type, a `string` and `any` included, as Frictionless' default
 `missingValues` of `[""]` says, see [Missing values](#missing-values), and written as an empty value, or `null` in
