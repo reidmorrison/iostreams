@@ -102,9 +102,20 @@ module IOStreams
       # file, such as those of its `primaryKey`, are not checked, since another slice may hold the same value, see
       # `part_of_file:` of `IOStreams::Tabular#initialize`: slicing the file with `validate: true` checks them across the
       # whole file, see `IOStreams::Stream#each`.
+      #
+      # The values of a slice whose text is the default text of IOStreams, such as the cells of a spreadsheet, are read
+      # without the properties of the schema that describe the text of a file, such as `groupChar`, see
+      # `IOStreams::Slice#default_text?`.
       def tabular(**)
         super(default_schema: io_stream.schema, blank_rows: io_stream.blank_rows?, headerless: !io_stream.header?,
-              typed: io_stream.typed?, part_of_file: true, **)
+              typed: io_stream.typed?, part_of_file: true, default_text: default_text?, **)
+      end
+
+      # Returns [true|false] whether the text of the values of the rows of the slice is the default text of IOStreams,
+      # such as that of the cells of a spreadsheet, see `IOStreams::Slice#default_text?`, which the slices read from it
+      # carry too, see `IOStreams::Stream#default_text?`.
+      def default_text?
+        io_stream.default_text?
       end
 
       # Returns [IOStreams::Schema] the schema of the values of the rows of the slice, see `IOStreams::Slice#schema`,

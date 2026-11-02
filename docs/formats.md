@@ -306,8 +306,16 @@ the number `1.5`, as a list of that one item, `[1.5]`, as the CSV text of the ce
 a `string` field does, such as `["2134"]`.
 
 The rows that `each(:slice)` reads are the values of the cells, in the `:array` format, and `slice.to_h` holds each
-`Date` and `Time` as its ISO 8601 text, which a schema or contract reads back. A `delimiter:` raises `ArgumentError` for
-the rows and records, which are cells rather than lines.
+number, `Date` and `Time` as its text, such as `1234.5` and `2026-07-01`, as do the slices of the CSV text of a
+spreadsheet, copied to a [store of slices](background_jobs#a-store-of-slices) in the `:line` mode. That text is the
+default text of each type, rather than the text that a schema describes, so the slices of a spreadsheet say so, and
+`IOStreams.stream(slice)` reads their values without the `groupChar`, `decimalChar` and `bareNumber` of a number, the
+`trueValues` and `falseValues` of a boolean, and the `format` of a date, datetime or time, which describe the text of a
+file, also once the slice is stored, as the spreadsheet reads its number, date and boolean cells. Its missing values,
+the `delimiter` of a list and the `timeZone` of a datetime or time still apply. So a slice reads a text cell that holds
+a number or a date in the form of the schema, such as `1.234,50` for `decimalChar: ","`, as the default text of its
+type, which raises `IOStreams::Errors::InvalidValue`, while reading the spreadsheet itself reads it by the schema. A
+`delimiter:` raises `ArgumentError` for the rows and records, which are cells rather than lines.
 
 Writing writes a workbook with one worksheet, with the `xlsxtream` gem. The rows and records are written as the types
 of their values, by the fields of a schema or contract when there is one, so that a number is a number cell, a `Date` a

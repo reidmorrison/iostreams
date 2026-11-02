@@ -455,9 +455,10 @@ Writing writes the text of each number with its `groupChar` between each group o
 writes plain numbers, such as `1234.50`, since a JSON number has neither, and reads its numbers as they are. A number
 that is not finite is written as `NaN`, `INF` or `-INF`.
 
-The slices of a spreadsheet, see [Background Jobs](background_jobs), hold the CSV text of its cells, with a number as
-the workbook holds it, such as `1234.5`, rather than in the form that these properties describe. So read them with a
-schema without `groupChar`, `decimalChar` and `bareNumber`, since `groupChar: "."` would read `1234.5` as `12345`.
+The slices of a spreadsheet, see [Background Jobs](background_jobs), hold the text of its number cells as the workbook
+holds it, such as `1234.5`, rather than in the form that these properties describe, so a slice says so, and its rows
+are read without `groupChar`, `decimalChar` and `bareNumber`, as the spreadsheet reads its number cells, see
+[Excel spreadsheets](formats#excel-spreadsheets).
 
 ### Formats of dates and times
 

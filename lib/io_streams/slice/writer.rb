@@ -11,18 +11,22 @@ module IOStreams
     #   end
     #
     # Every slice is of the same file as the first one written, see `IOStreams::Slice#same_file?`: the same header row and
-    # format, and alike in whether its blank rows are records and its values typed. The rows of every slice
+    # format, and alike in whether its blank rows are records, the text of its values the default text of IOStreams,
+    # and its values typed. The rows of every slice
     # are read by one reader, see `IOStreams::Tabular#for_format`, as the rows of one file, whether they start with a
     # header row being as the slice says, see `IOStreams::Slice#header?`, whatever the schema says of the file written.
     # The header row of the file is written once, before the rows of the first slice, and each row after it, in the
     # order written:
     # - A slice whose rows are lines of the format of the file, and that has a header row when the file has one, is
     #   written as it is, line for line, without parsing its rows, as `#each(:slice)` reads them, after its header row
-    #   is matched to the fields of the schema, which raises `IOStreams::Errors::InvalidHeader` when they do not match.
+    #   is matched to the fields of the schema, which raises `IOStreams::Errors::InvalidHeader` when they do not match,
+    #   unless the text of its values is the default text of IOStreams, such as the CSV text of a spreadsheet, see
+    #   `IOStreams::Slice#default_text?`, which the schema of the file may describe otherwise.
     #   `validate: true` also parses each row before it is written. The text of each row of a slice of `:text` is
     #   written as one row of the file, as `#writer(:array)` writes it, see `IOStreams::Tabular#written_line`.
     # - Any other slice, such as one of CSV written to JSON, of a file without a header row written to one with one, or
     #   of the rows of an Active Record query, is read by its own header row and format, by the schema of the stream,
+    #   reading the default text of the values of a slice that holds it,
     #   and each of its rows is written as `#writer(:array)` writes it, see `IOStreams::Row::Writer`, apart from a blank
     #   row, which a copy skips too.
     #
@@ -106,8 +110,9 @@ module IOStreams
       def start(slice)
         @first  = slice
         @reader = @tabular.for_format(slice.format, headerless: !slice.header?, blank_rows: slice.blank_rows?,
-                                                    typed: slice.typed?)
-        @as_is  = @tabular.lines? && slice.format == @tabular.format && slice.header? == @tabular.requires_header?
+                                                    typed: slice.typed?, default_text: slice.default_text?)
+        @as_is  = @tabular.lines? && slice.format == @tabular.format && slice.header? == @tabular.requires_header? &&
+                  !slice.default_text?
         @as_is ? start_as_is(slice) : start_rows(slice)
       end
 
@@ -163,7 +168,7 @@ module IOStreams
       # Returns [String] what describes how the rows of the slice are read, see #check_same_file.
       def described(slice)
         "with the header row #{slice.header.inspect}, format #{slice.format.inspect}, blank_rows " \
-          "#{slice.blank_rows?} and schema #{slice.schema&.to_h.inspect}"
+          "#{slice.blank_rows?}, default_text #{slice.default_text?} and schema #{slice.schema&.to_h.inspect}"
       end
     end
   end

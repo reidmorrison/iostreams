@@ -217,6 +217,18 @@ module IOStreams
       # Parquet column of times of day, which hold the clock without a zone, so a copy keeps it.
       TEXT_PROPERTIES = %w[format trueValues falseValues groupChar decimalChar bareNumber missingValues delimiter].freeze
 
+      # The properties of a field that say how a file writes the text of a value that a source of typed values holds as
+      # the value itself, such as a number, a date or a boolean that a cell of a spreadsheet holds, whose text IOStreams
+      # writes in the default form of its type instead, such as `1234.5`, `2026-07-01` and `true`, see #default_text_h:
+      # the `format` of a date, datetime or time, see TYPED_FORMAT_TYPES, its true and false values, and the text of its
+      # numbers. Its missing values, the `delimiter` of a list and the `timeZone` of a datetime or a time still apply to
+      # that text, as they do to the cells of a spreadsheet.
+      TYPED_TEXT_PROPERTIES = %w[format trueValues falseValues groupChar decimalChar bareNumber].freeze
+
+      # The types whose `format` says how a file writes the text of a value that a source of typed values holds as the
+      # value itself, see TYPED_TEXT_PROPERTIES, while a spreadsheet holds a geopoint as its text, in its `format`.
+      TYPED_FORMAT_TYPES = %w[date datetime time].freeze
+
       # The types whose values a cell that holds one value, such as that of a spreadsheet, holds as their text, see
       # #render's `:scalar` form: those that are not one value, and a yearmonth, whose text, such as `2026-10`, is not
       # that of a date, so that the CSV text of a spreadsheet reads back too.
@@ -421,6 +433,15 @@ module IOStreams
       def without_text_h
         names = TEXT_PROPERTIES.map(&:to_sym)
         names.delete(:format) unless TEXT_FORMAT_TYPES.include?(type)
+        to_h.except(*names)
+      end
+
+      # Returns [Hash] the properties of this field without those that say how a file writes the text of a value that a
+      # source of typed values holds as the value itself, see TYPED_TEXT_PROPERTIES, so that the field reads the default
+      # text of its type, see `IOStreams::Schema#for_default_text`.
+      def default_text_h
+        names = TYPED_TEXT_PROPERTIES.map(&:to_sym)
+        names.delete(:format) unless TYPED_FORMAT_TYPES.include?(type)
         to_h.except(*names)
       end
 
@@ -828,6 +849,7 @@ module IOStreams
       end
 
       # Returns the value of this field from the form that #dump gives it, in ISO 8601 whatever the `format` of the field,
+      # and a number as its plain digits whatever its `groupChar`, `decimalChar` and `bareNumber`, such as "1234.5",
       # or from any other form that a store returned it in, see #restore. Its text is not compared with the missing
       # values, see #cast_typed, since it is the text that #dump gives a value, such as "-99" for the number -99.
       #
@@ -836,6 +858,7 @@ module IOStreams
         return restore(value) unless value.is_a?(String)
 
         case type
+        when "number" then cast_typed(NUMBER.match?(value) ? number(value) : special_number(value))
         when "date" then DATE.match?(value) ? cast_date_text(value) : cast_typed(value)
         when "datetime" then (match = DATETIME.match(value)) ? iso_datetime(match) : cast_typed(value)
         when "time" then (clock = TIME.match(value)) ? iso_clock(clock) : cast_typed(value)
@@ -1511,6 +1534,13 @@ module IOStreams
         plain = @number_text ? @number_text.read(text) : text
         return number(plain, text) if plain && NUMBER.match?(plain)
 
+        special_number(text)
+      end
+
+      # Returns [BigDecimal|Float] the number that is not finite of the text, such as "INF", see SPECIAL_NUMBERS.
+      #
+      # Raises `IOStreams::Errors::InvalidValue` for any other text.
+      def special_number(text)
         special = SPECIAL_NUMBERS[text.downcase]
         return invalid(text) unless special
 

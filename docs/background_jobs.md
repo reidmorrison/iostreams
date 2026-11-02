@@ -140,6 +140,11 @@ slice.to_h
   as a Time is a Date. A value of a field of type `any`, such as a computed column of a query, is held as JSON holds it,
   a time, a date or a BigDecimal as its text, which comes back as text. To replace the rows of a slice with others in
   the same form, `slice.with_rows(rows)` returns a new slice that keeps everything else that the slice says.
+* The slices of an Excel spreadsheet, of its cells or of their CSV text, hold `"default_text" => true`, since they hold
+  each number, date and boolean as its default text, such as `1234.5`, rather than the text of a file that a schema
+  describes, such as `1.234,5`. `IOStreams.stream(slice)` reads them without the properties of the schema that describe
+  that text, such as `decimalChar`, as the spreadsheet reads its cells, see
+  [Excel spreadsheets](formats#excel-spreadsheets).
 
 ### Choosing the size of a slice
 

@@ -67,8 +67,9 @@ module IOStreams
     # they are only a part of a file, such as the rows of a slice, see `IOStreams::Slice::Stream`, and the format of the
     # text that its streams decide, such as the CSV of a spreadsheet, see `IOStreams::Tabular::Settings#tabular`, and the
     # form in which its rows hold the values of a schema, such as the cells of a spreadsheet, see
-    # `IOStreams::StreamFormat#rows_value_form`.
-    SOURCE_OPTION_NAMES = %i[blank_rows headerless typed part_of_file text_format value_form].freeze
+    # `IOStreams::StreamFormat#rows_value_form`, and whether the text of its values is the default text of IOStreams,
+    # such as that of the cells of a spreadsheet that a slice holds, see `IOStreams::Slice#default_text?`.
+    SOURCE_OPTION_NAMES = %i[blank_rows headerless typed part_of_file text_format value_form default_text].freeze
 
     # Parse a delimited data source.
     #
@@ -155,10 +156,20 @@ module IOStreams
     #     reads or writes rows.
     #     Default: nil, the form of the format, see `IOStreams::Tabular::Parser::Base.value_form`.
     #
-    # Raises ArgumentError for a `headerless` that is not true, false or nil, or a `typed` or `part_of_file` that is not
-    # true or false.
+    #   default_text: [true|false]
+    #     Whether the text of the values of the rows is the default text that IOStreams writes for a value that its source
+    #     holds typed, such as `1234.5` for the number of a cell of a spreadsheet, rather than the text that the schema
+    #     describes, such as the CSV text of a spreadsheet, or a slice of its rows once stored, see
+    #     `IOStreams::Slice#default_text?`, so that the schema and the contract read it without the properties that
+    #     describe the text of such a value, such as `groupChar`, see `IOStreams::Schema#for_default_text`, and the slices
+    #     of the rows carry it. Not an option of a call that reads or writes rows.
+    #     Default: false
+    #
+    # Raises ArgumentError for a `headerless` that is not true, false or nil, or a `typed`, `part_of_file` or
+    # `default_text` that is not true or false.
     def initialize(format: nil, file_name: nil, schema: nil, contract: nil, default_format: :csv, row_format_options: nil,
-                   blank_rows: true, headerless: nil, typed: false, part_of_file: false, text_format: nil, value_form: nil)
+                   blank_rows: true, headerless: nil, typed: false, part_of_file: false, text_format: nil, value_form: nil,
+                   default_text: false)
       @format = file_name && format.nil? ? self.class.format_from_file_name(file_name) : format
       @format ||= default_format
       raise(Errors::UnknownFormat, "The format cannot be inferred from the file name: #{file_name}") unless @format
@@ -169,7 +180,15 @@ module IOStreams
       unless [true, false].include?(part_of_file)
         raise(ArgumentError, "part_of_file must be true or false: #{part_of_file.inspect}")
       end
+      unless [true, false].include?(default_text)
+        raise(ArgumentError, "default_text must be true or false: #{default_text.inspect}")
+      end
 
+      if default_text
+        schema   = schema&.for_default_text
+        contract = contract&.for_default_text
+      end
+      @default_text       = default_text
       @file_schema        = schema
       @contract           = contract
       @schema             = schema || contract
@@ -184,13 +203,14 @@ module IOStreams
     # Returns [IOStreams::Tabular] a new tabular with the same schema that reads the rows of the supplied format, such as
     # those of a slice that a writer of slices writes in the format of this one, see `IOStreams::Slice::Writer`: whether
     # they have no header row, whether a row whose every value is blank is a blank row, and whether their values are
-    # already those of the fields, are as the slice says, see `IOStreams::Slice#header?`, `IOStreams::Slice#blank_rows?`
-    # and `IOStreams::Slice#typed?`, whatever the schema says of the file, see
+    # already those of the fields, and whether the text of their values is the default text of IOStreams, are as the
+    # slice says, see `IOStreams::Slice#header?`, `IOStreams::Slice#blank_rows?`, `IOStreams::Slice#typed?` and
+    # `IOStreams::Slice#default_text?`, whatever the schema says of the file, see
     # `headerless:` of #initialize. Without a schema, nothing names the columns of rows that have no header row, see
     # #unnamed_columns?, so the writer checks that this tabular can write them, see #check_unnamed_rows.
-    def for_format(format, headerless:, blank_rows: true, typed: false)
+    def for_format(format, headerless:, blank_rows: true, typed: false, default_text: false)
       self.class.new(format: format, schema: @file_schema, contract: @contract, blank_rows: blank_rows,
-                     headerless: headerless, typed: typed)
+                     headerless: headerless, typed: typed, default_text: default_text)
     end
 
     # Returns [IOStreams::Tabular::Header] the columns of the file: the header row read, or the keys of the first record,
@@ -247,6 +267,13 @@ module IOStreams
     # the types of their fields where the slice is read.
     def typed?
       @typed
+    end
+
+    # Returns [true|false] whether the text of the values of the rows read is the default text of IOStreams, see
+    # `default_text:` of #initialize, so that a slice of the rows carries it, see `IOStreams::Slice#default_text?`, and
+    # its values are read the same way where the slice is read.
+    def default_text?
+      @default_text
     end
 
     # Returns [true|false] whether the rows and records that this tabular renders hold the values of the fields of its

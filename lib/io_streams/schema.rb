@@ -379,6 +379,19 @@ module IOStreams
       self.class.new(to_h.except(*TEXT_PROPERTIES.map(&:to_sym)).merge(fields: fields.map(&:without_text_h)))
     end
 
+    # Returns [IOStreams::Schema] a schema of the same properties and fields, whose fields read the default text of their
+    # types, such as `1234.5` for a number, `2026-07-01` for a date and `true` for a boolean, rather than the text that
+    # this schema describes, see `IOStreams::Schema::Field::TYPED_TEXT_PROPERTIES`: the text that IOStreams writes for a
+    # value that a source holds typed, such as a cell of a spreadsheet, which a slice holds as text, see
+    # `IOStreams::Slice#default_text?`. Its missing values, the `delimiter` of a list and the `timeZone` of a datetime or
+    # time still apply. Returns itself when none of its fields describes that text.
+    def for_default_text
+      default = fields.map(&:default_text_h)
+      return self if default.each_with_index.all? { |properties, index| properties.size == fields[index].to_h.size }
+
+      self.class.new(to_h.merge(fields: default))
+    end
+
     # Returns [String] the Ruby of a class that declares the contract of this schema, see #to_contract, for a person to
     # review and commit, such as of a schema that `IOStreams::Stream#infer_schema` drafted, see
     # `IOStreams::Contract.to_dsl`. The `format` of a field, which the contract leaves to the schema of the file, is a

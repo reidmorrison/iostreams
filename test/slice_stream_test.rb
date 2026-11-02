@@ -89,6 +89,84 @@ class SliceStreamTest < Minitest::Test
         assert_equal people, each(IOStreams.stream(IOStreams.slice(JSON.parse(stored))).schema(schema))
       end
 
+      describe "of a spreadsheet" do
+        # The forms of the text of a file whose numbers group their digits with "." and write "," for the decimal point,
+        # whose dates are day first, and whose booleans are Y and N, which do not describe the cells of a spreadsheet.
+        let(:european) do
+          {
+            "fields" => [
+              {"name" => "name"},
+              {"name" => "amount", "type" => "number", "groupChar" => ".", "decimalChar" => ","},
+              {"name" => "paid", "type" => "date", "format" => "%d/%m/%Y"},
+              {"name" => "done", "type" => "boolean", "trueValues" => ["Y"], "falseValues" => ["N"]},
+              {"name" => "note", "type" => "string", "missingValues" => ["", "NA"]}
+            ]
+          }
+        end
+        let(:record) { {"name" => "Jack", "amount" => BigDecimal("1234.5"), "paid" => Date.new(2026, 7, 1), "done" => true, "note" => nil} }
+
+        # Yields the path of a spreadsheet of one row of typed cells.
+        def spreadsheet
+          Dir.mktmpdir do |dir|
+            path = IOStreams.path(dir, "people.xlsx")
+            path.writer(:array) do |writer|
+              writer << %w[name amount paid done note]
+              writer << ["Jack", 1234.5, Date.new(2026, 7, 1), true, "NA"]
+            end
+            yield path
+          end
+        end
+
+        it "reads its slices, also once stored, by the default text of their values, as the spreadsheet reads its cells" do
+          spreadsheet do |path|
+            assert_equal [record], each(path.schema(european))
+
+            list = []
+            path.schema(european).each(:slice, size: 5) { |slice| list << slice }
+
+            assert_predicate list.first, :default_text?
+            assert_equal [record], each(IOStreams.stream(list.first).schema(european))
+            stored = IOStreams.slice(JSON.parse(JSON.generate(list.first.to_h)))
+
+            assert_predicate stored, :default_text?
+            assert_equal [record], each(IOStreams.stream(stored).schema(european))
+
+            again = []
+            IOStreams.stream(stored).each(:slice, size: 5) { |slice| again << slice }
+
+            assert_predicate again.first, :default_text?
+          end
+        end
+
+        it "reads a slice of the CSV text of a spreadsheet by the default text of its values" do
+          spreadsheet do |path|
+            text = []
+            path.format(:csv).each(:line) { |line| text << line }
+            slice = IOStreams.slice({"rows" => text.drop(1), "header" => text.first.split(","), "format" => "csv",
+                                     "default_text" => true})
+
+            assert_equal [record], each(IOStreams.stream(slice).schema(european))
+          end
+        end
+
+        it "reads a text cell by the default text of its type in a slice, while the spreadsheet reads it by the schema" do
+          Dir.mktmpdir do |dir|
+            path = IOStreams.path(dir, "people.xlsx")
+            path.writer(:array) do |writer|
+              writer << %w[name amount]
+              writer << %w[Jack 1.234,5]
+            end
+            schema = {"fields" => [{"name" => "name"}, european["fields"][1]]}
+
+            assert_equal [{"name" => "Jack", "amount" => BigDecimal("1234.5")}], each(path.schema(schema))
+            path.schema(schema).each(:slice, size: 5) do |slice|
+              error = assert_raises(IOStreams::Errors::InvalidValue) { each(IOStreams.stream(slice).schema(schema)) }
+              assert_equal "1.234,5", error.value
+            end
+          end
+        end
+      end
+
       it "reads a quoted line break within a row" do
         slice = slices(%(name,note\nJack,"line one\nline two"\n)).first
 

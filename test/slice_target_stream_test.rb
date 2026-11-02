@@ -1071,6 +1071,44 @@ class SliceTargetStreamTest < Minitest::Test
         assert_equal [[%(data 1,data 2,"more\ndata"), nil, 1]], small.slices.first.each.to_a
       end
 
+      it "gives the lines copied from a spreadsheet, the default text of its cells, slices that read them so" do
+        european = {"fields" => [{"name" => "name"}, {"name" => "amount", "type" => "number", "groupChar" => ".",
+                                                      "decimalChar" => ","}]}
+        Dir.mktmpdir do |dir|
+          path = IOStreams.path(dir, "amounts.xlsx")
+          path.writer(:array) do |writer|
+            writer << %w[name amount]
+            writer << ["Jack", 1234.5]
+          end
+          IOStreams.stream(store).schema(european).copy_from(path, mode: :line, validate: true)
+          stored = IOStreams.slice(JSON.parse(JSON.generate(store.slices.first.to_h)))
+          records = []
+          IOStreams.stream(stored).schema(european).each(:hash) { |record| records << record }
+
+          assert_equal [%w[Jack,1234.5]], store.slices.collect(&:rows)
+          assert_equal [true], store.slices.collect(&:default_text?)
+          assert_equal [{"name" => "Jack", "amount" => BigDecimal("1234.5")}], records
+        end
+      end
+
+      it "keeps the numbers of the records copied by a schema that groups their digits, once the slices are stored" do
+        european = {"fields" => [{"name" => "name"}, {"name" => "amount", "type" => "number", "groupChar" => ".",
+                                                      "decimalChar" => ","}]}
+        source   = IOStreams.stream(StringIO.new("name,amount\nJack,\"1.234,5\"\n")).format(:csv).schema(european)
+        IOStreams.stream(store).format(:hash).schema(european).copy_from(source, mode: :hash)
+        stored  = IOStreams.slice(JSON.parse(JSON.generate(store.slices.first.to_h)))
+        records = []
+        IOStreams.stream(stored).each(:hash) { |record| records << record }
+
+        assert_equal [{"name" => "Jack", "amount" => BigDecimal("1234.5")}], records
+      end
+
+      it "gives the lines copied from a file slices of its own text" do
+        IOStreams.stream(store).copy_from(IOStreams.stream(StringIO.new("name,age\nJack,21\n")).format(:csv), mode: :line)
+
+        assert_equal [false], store.slices.collect(&:default_text?)
+      end
+
       it "gives the rows copied in the :hash mode their record numbers and no line, as for a query" do
         small  = Store.new(slice_size: 1)
         source = IOStreams.stream(StringIO.new("name,note\nJack,\"line 1\nline 2\"\nJill,ok\n")).format(:csv)

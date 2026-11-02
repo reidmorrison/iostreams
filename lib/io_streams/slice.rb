@@ -46,7 +46,7 @@ module IOStreams
     autoload :Writer, "io_streams/slice/writer"
 
     # The keys of the Hash of a slice, see #to_h.
-    KEYS = %w[rows header format blank_rows schema line_number record_number jumps].freeze
+    KEYS = %w[rows header format blank_rows default_text schema line_number record_number jumps].freeze
 
     # Returns [IOStreams::Slice] the slice that the supplied Hash describes, which #to_h returned, see `IOStreams.slice`.
     # Its keys can be Strings or Symbols, and its format a String or a Symbol, as storing it may have changed them. The
@@ -54,7 +54,8 @@ module IOStreams
     #
     # Raises ArgumentError when it does not describe a slice: when it is not a Hash, has no rows, or a key that a slice
     # does not have, or when its rows are not an Array, its header row is not an Array of Strings, or is blank, see
-    # #header?, its format is not a tabular format, see `IOStreams.tabular_formats`, its `blank_rows` is not true or false,
+    # #header?, its format is not a tabular format, see `IOStreams.tabular_formats`, its `blank_rows` or `default_text` is
+    # not true or false,
     # its `schema` is not a valid schema, see `IOStreams::Schema`, its `line_number` or `record_number` is not a
     # positive Integer, or is supplied without rows, or its `jumps` are not those of its rows, see #to_h. The values of
     # the rows of a slice with a schema are turned back into the types of their fields, see
@@ -71,6 +72,7 @@ module IOStreams
 
       slice = new(rows_of(values["rows"]), header: header_of(values["header"]), format: format_of(values["format"]),
                                            blank_rows: blank_rows_of(values["blank_rows"]),
+                                           default_text: default_text_of(values["default_text"]),
                                            schema: values["schema"],
                                            line_number: values["line_number"], record_number: values["record_number"])
       slice.send(:jumps=, values["jumps"])
@@ -121,6 +123,17 @@ module IOStreams
     end
     private_class_method :blank_rows_of
 
+    # Returns [true|false] whether the text of the values of the rows of the Hash of a slice is the default text of
+    # IOStreams, see .from_h and #default_text?: false when the Hash does not say, since #to_h only holds it when it is
+    # true.
+    def self.default_text_of(default_text)
+      return false if default_text.nil?
+      return default_text if [true, false].include?(default_text)
+
+      raise(ArgumentError, "The default_text of a slice must be true or false: #{default_text.inspect}")
+    end
+    private_class_method :default_text_of
+
     # Returns [Array<String>] the header row of the file, as it was read, before it was cleansed or matched to the
     # fields of a schema, which every slice of the file shares, so it is frozen, as are its columns.
     # Returns nil when the file has no header row, such as fixed width, JSON, or a schema whose `header` is false.
@@ -165,6 +178,10 @@ module IOStreams
     #     Whether a row whose every value is blank is a blank row, see #blank_rows?.
     #     Default: true
     #
+    #   default_text: [true|false]
+    #     Whether the text of the values of the rows is the default text of IOStreams, see #default_text?.
+    #     Default: false
+    #
     #   schema: [IOStreams::Schema|Hash|nil]
     #     The schema that the values of the rows are those of the fields of, see #schema, which only the rows of a format
     #     whose rows hold the values themselves, such as `:hash`, `:array` or `:parquet`, can have, see
@@ -184,16 +201,21 @@ module IOStreams
     # see #add.
     #
     # Raises ArgumentError when the rows are not an Array, for a header row that is not an Array, or is blank, for a
-    # `schema` that is not a valid schema, or of a format whose rows are text, for a line number or record number that is
-    # not a positive Integer, nor nil, or for one without rows, rather than ignore it.
-    def initialize(rows = [], header: nil, format: nil, blank_rows: true, schema: nil, line_number: nil,
-                   record_number: nil)
+    # `schema` that is not a valid schema, or of a format whose rows are text, for a `default_text` that is not true or
+    # false, for a line number or record number that is not a positive Integer, nor nil, or for one without rows, rather
+    # than ignore it.
+    def initialize(rows = [], header: nil, format: nil, blank_rows: true, default_text: false, schema: nil,
+                   line_number: nil, record_number: nil)
       raise(ArgumentError, "The rows of a slice must be an Array, not #{rows.class.name}") unless rows.is_a?(::Array)
+      unless [true, false].include?(default_text)
+        raise(ArgumentError, "The default_text of a slice must be true or false: #{default_text.inspect}")
+      end
 
       @rows          = rows.dup
       @header        = checked_header(header)
       @format        = format
       @blank_rows    = blank_rows
+      @default_text  = default_text
       @schema        = checked_schema(schema, format)
       @line_number   = checked_number("line_number", line_number)
       @record_number = checked_number("record_number", record_number)
@@ -209,6 +231,17 @@ module IOStreams
     # is null as a record too, see `IOStreams::Slice::Stream`.
     def blank_rows?
       @blank_rows
+    end
+
+    # Returns [true|false] whether the text of the values of its rows is the default text that IOStreams writes for a
+    # value that their source holds typed, rather than the text of a file, which the tabular that read the rows decided,
+    # see `IOStreams::Tabular#default_text?`: true for the rows of a spreadsheet, whose cells hold numbers, dates and
+    # booleans, whose CSV text, see `IOStreams::Xlsx::Cells.text`, and the text that #to_h holds of their values, is the
+    # default text, such as `1234.5`, `2026-07-01` and `true`, so that the stream of the slice reads them without the
+    # properties of a schema that describe the text of a file, such as `groupChar`, see
+    # `IOStreams::Schema#for_default_text`, as the spreadsheet reads its cells, also once the slice is stored.
+    def default_text?
+      @default_text
     end
 
     # Returns [IOStreams::Schema|nil] the schema that the values of the rows are those of the fields of, as their source
@@ -446,7 +479,8 @@ module IOStreams
     end
 
     # Returns [IOStreams::Slice] a new slice of the supplied rows, without numbers, described as this slice is: with its
-    # header row, its format, whether its blank rows are records, see #blank_rows?, and whether its values are those of
+    # header row, its format, whether its blank rows are records, see #blank_rows?, whether the text of its values is the
+    # default text of IOStreams, see #default_text?, and whether its values are those of
     # the fields of a schema, see #schema, such as when its rows are replaced by others in the same form, so that a
     # caller does not need to know what a slice holds to copy it. This slice is left as it is.
     #
@@ -454,7 +488,8 @@ module IOStreams
     #
     # Raises ArgumentError when the rows are not an Array.
     def with_rows(rows = [])
-      self.class.new(rows, header: header, format: format, blank_rows: blank_rows?, schema: schema)
+      self.class.new(rows, header: header, format: format, blank_rows: blank_rows?, default_text: default_text?,
+                           schema: schema)
     end
 
     # Returns [IOStreams::Slice] a new slice of the rows from the record of the supplied number on, which keep their
@@ -506,7 +541,9 @@ module IOStreams
     #   which the rows are numbered from it.
     #
     # When each of its rows is a record, see #blank_rows?, it also holds `"blank_rows" => false`, which is otherwise left
-    # out. A slice whose rows hold the values of the fields of a schema, see #schema, holds `"schema"`, the Frictionless
+    # out. A slice whose values are in the default text of IOStreams, such as the rows of a spreadsheet, see
+    # #default_text?, holds `"default_text" => true`, which is otherwise left out. A slice whose rows hold the values of
+    # the fields of a schema, see #schema, holds `"schema"`, the Frictionless
     # Table Schema, by String keys, about one row's worth of bytes, and each value of its rows in a form that JSON keeps
     # exactly, see `IOStreams::Schema::Field#dump`, such as a number as its digits, `"12.50"`, and a time in ISO 8601, so
     # that every job queue and store keeps them, and `IOStreams.slice` turns them back into their types.
@@ -518,6 +555,7 @@ module IOStreams
     def to_h
       hash = {"rows" => stored_rows, "header" => header, "format" => format&.to_s}
       hash["blank_rows"]    = false unless blank_rows?
+      hash["default_text"]  = true if default_text?
       hash["schema"]        = Utils.string_keys(schema.to_h) if schema
       hash["line_number"]   = line_number if line_number
       hash["record_number"] = record_number if record_number
@@ -545,8 +583,9 @@ module IOStreams
     end
 
     # Returns [true|false] whether the rows of the supplied slice are read as those of this one, as rows of the same
-    # file: of the same header row and format, and alike in whether their blank rows are records, see #blank_rows?, and
-    # the schema that their values are those of the fields of, see #schema, such as the slices that a writer of slices
+    # file: of the same header row and format, and alike in whether their blank rows are records, see #blank_rows?,
+    # whether the text of their values is the default text of IOStreams, see #default_text?, and the schema that their
+    # values are those of the fields of, see #schema, such as the slices that a writer of slices
     # writes to one file, see `IOStreams::Slice::Writer`.
     def same_file?(other)
       other.is_a?(Slice) && other.description == description
@@ -586,13 +625,13 @@ module IOStreams
     # Returns [Array] what the slice holds, as #to_h holds it, without copying its rows, which equal slices hold the same
     # of, see #==.
     def contents
-      [@rows, header, format&.to_s, blank_rows?, schema, line_number, record_number, @jumps]
+      [@rows, header, format&.to_s, blank_rows?, default_text?, schema, line_number, record_number, @jumps]
     end
 
     # Returns [Array] what describes how the rows of the slice are read, which the slices of the same file share, see
     # #same_file?.
     def description
-      [header, format&.to_s, blank_rows?, schema]
+      [header, format&.to_s, blank_rows?, default_text?, schema]
     end
 
     private

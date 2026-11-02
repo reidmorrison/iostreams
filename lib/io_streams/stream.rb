@@ -909,6 +909,13 @@ module IOStreams
       builder.lines_of_file?
     end
 
+    # Returns [true|false] whether the text of the values of the rows that this stream reads is the default text of
+    # IOStreams, see #default_text?, which a copy of its lines to a store of slices gives each slice, see
+    # `IOStreams::Slice::TargetStream`. Protected, see #copy_schema.
+    def copy_default_text?
+      default_text?
+    end
+
     # Returns [String|nil] the quote character within which the lines that this stream reads are split, that of the
     # format of its lines, see #lines_format, such as the CSV of a spreadsheet, also when its rows are read as `:text`,
     # as the line reader of the `:line` mode splits them, see #line_reader, so that a copy of its lines to a store of
@@ -1240,14 +1247,15 @@ module IOStreams
     end
 
     # Iterate over a file / stream returning slices of up to `size` of its rows at a time, as they are in the file, after
-    # its header row, which each slice carries, see `IOStreams::Slice` and `IOStreams::Slice::Reader`.
+    # its header row, which each slice carries, see `IOStreams::Slice` and `IOStreams::Slice::Reader`, with whether the
+    # text of their values is the default text of IOStreams, see #default_text?.
     #
     # The lines are split where the format expects, as for rows and records, see #row_reader. The options are checked
     # before the file is opened, see `IOStreams::Slice::Reader.check`.
     def slice_reader(size:, validate: false, resume_at: nil, delimiter: nil, buffer_size: nil, **args)
       reject_unknown_options!(:slice, IOStreams::Slice::Reader, args)
       IOStreams::Slice::Reader.check(size: size, validate: validate, resume_at: resume_at)
-      tabular = self.tabular(reading: true)
+      tabular = self.tabular(reading: true, default_text: default_text?)
       open_slice_rows(tabular, delimiter, buffer_size) do |rows|
         yield IOStreams::Slice::Reader.new(rows, tabular: tabular, size: size, validate: validate, resume_at: resume_at,
                                                  schema: slice_schema(rows))
@@ -1261,6 +1269,17 @@ module IOStreams
     # see `IOStreams::Query::Stream#slice_schema`.
     def slice_schema(rows)
       rows.declared_schema if rows.respond_to?(:declared_schema)
+    end
+
+    # Returns [true|false] whether the text of the values of the rows that this stream reads is the default text that
+    # IOStreams writes for a value that the source holds typed, such as `1234.5` for a number, rather than the text of
+    # its file, which the slices of its rows carry, see `IOStreams::Slice#default_text?`: true when the stream closest to
+    # the application decides the format of the text, see `IOStreams::Builder#lines_of_file?`, such as a spreadsheet,
+    # whose cells hold typed values, and whose CSV text holds their default text, see `IOStreams::Xlsx::Cells.text`, as a
+    # slice of its rows holds them once stored, see `IOStreams::Slice#to_h`. A slice says so itself, see
+    # `IOStreams::Slice::Stream#default_text?`.
+    def default_text?
+      !builder.lines_of_file?
     end
 
     # Yields [#each] the rows of the format of the tabular, see #open_rows_reader, which a slice reader reads, see

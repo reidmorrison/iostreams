@@ -1530,6 +1530,16 @@ class SchemaTest < Minitest::Test
           assert_equal "1234.50", european.dump(european.cast("1.234,5"))
         end
 
+        it "reads the plain number that #dump writes, without its groupChar and decimalChar, as a slice stores it" do
+          european = field(type: "number", groupChar: ".", decimalChar: ",")
+          grouped  = field(type: "number", groupChar: ",", bareNumber: false)
+
+          assert_equal BigDecimal("1234.5"), european.load(european.dump(european.cast("1.234,5")))
+          assert_equal BigDecimal("-1234.5"), grouped.load(grouped.dump(grouped.cast("($1,234.50)")))
+          assert_predicate european.load(european.dump(BigDecimal("Infinity"))), :infinite?
+          assert_raises(IOStreams::Errors::InvalidValue) { european.load("1.234,5") }
+        end
+
         it "reads a number of a format that holds numbers, such as JSON, as it is" do
           assert_equal BigDecimal("1234.5"), field(type: "number", decimalChar: ",").cast(1234.5)
           assert_equal 12, field(type: "integer", groupChar: ",", bareNumber: false).cast(12)
