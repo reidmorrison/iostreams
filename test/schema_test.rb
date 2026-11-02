@@ -1506,6 +1506,30 @@ class SchemaTest < Minitest::Test
           assert_equal "20261013093000+0000", pattern.render(Time.utc(2026, 10, 13, 9, 30), :text)
         end
 
+        it "keeps an offset of zero that the text says with a format, such as +0000, while Z and -0000 are UTC, as without a format" do
+          pattern = field(type: "datetime", format: "%Y-%m-%d %H:%M %z")
+
+          ["+0000", "+00:00"].each do |zone|
+            time = pattern.cast("2026-10-13 09:30 #{zone}")
+
+            assert_equal Time.utc(2026, 10, 13, 9, 30), time
+            refute_predicate time, :utc?, zone
+            assert_equal 0, time.utc_offset
+            assert_equal "2026-10-13T09:30:00+00:00", datetime.render(time, :text)
+          end
+          ["Z", "-0000", "-00:00", "UTC"].each do |zone|
+            time = pattern.cast("2026-10-13 09:30 #{zone}")
+
+            assert_equal Time.utc(2026, 10, 13, 9, 30), time
+            assert_predicate time, :utc?, zone
+          end
+          %w[+0000 -0000 Z].each do |zone|
+            assert_equal datetime.cast("2026-10-13T09:30:00#{zone}").utc?, pattern.cast("2026-10-13 09:30 #{zone}").utc?, zone
+          end
+          assert_equal 19_800, pattern.cast("2026-10-13 09:30 +0530").utc_offset
+          assert_predicate field(type: "datetime", format: "%Y-%m-%d %H:%M").cast("2026-10-13 09:30"), :utc?
+        end
+
         it "writes a time in UTC with a format without a zone, which reads it back as UTC, as the same time" do
           pattern = field(type: "datetime", format: "%Y-%m-%d %H:%M")
           time    = Time.new(2026, 10, 13, 9, 30, 0, "-04:00")

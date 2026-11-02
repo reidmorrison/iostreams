@@ -176,6 +176,10 @@ module IOStreams
       # colon between them, such as `+05:30`, `+0530` or `+05`, as PostgreSQL writes it, or none, which is UTC. The
       # date, the time and the offset are captured.
       DATETIME = /\A(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2}:[0-5]\d(?:\.\d+)?)(Z|[+-]\d{2}(?::?[0-5]\d)?)?\z/
+      # The zones of text read with a format that are UTC, rather than an offset of zero, such as `+00:00` or `+0000`,
+      # which a time keeps, as `Time.iso8601` reads them, see #cast_datetime: `Z`, `UTC`, `UT`, and `-00:00`, `-0000` or
+      # `-00`, which RFC 3339 and RFC 2822 give a time in UTC whose local offset is not known.
+      UTC_ZONE = /\A(?:Z|UTC?|-00(?::?00)?)\z/i
 
       # Returns [String|Symbol] the name of the field, as it was given.
       attr_reader :name
@@ -815,10 +819,19 @@ module IOStreams
 
         # A DateTime reads text without an offset as UTC, and knows the offset of every zone that Date._strptime knows,
         # such as "CET", which `Time.strptime` reads in the time zone of the process, as it does text without an offset.
+        # A DateTime at an offset of zero is a time in UTC, see .time_of, so a time keeps an offset of zero that the
+        # text says, such as `+0000`, see #zero_offset?, with `Time.at`, since JRuby's `getlocal(0)` of a time in UTC is
+        # in UTC.
         time = self.class.time_of(@format.datetime(text))
-        parts[:offset] ? time : time.utc
+        zero_offset?(parts) ? Time.at(time, in: "+00:00") : time
       rescue ArgumentError
         invalid(text)
+      end
+
+      # Returns [true|false] whether the parts of text read with a format say an offset of zero that is not UTC, such as
+      # `+00:00` or `+0000`, which a time keeps, as it does without a format, see UTC_ZONE.
+      def zero_offset?(parts)
+        parts[:offset]&.zero? && !UTC_ZONE.match?(parts[:zone])
       end
 
       def number_text(value)

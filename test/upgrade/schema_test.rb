@@ -295,6 +295,17 @@ class UpgradeSchemaTest < Minitest::Test
           assert_raises(IOStreams::Errors::InvalidValue) { read("at\n2026-10-31 09:30:00.1234567\n", schema: schema) }
           assert_equal "at\n2026-10-31 09:30:00.500000\n", write([{"at" => Time.utc(2026, 10, 31, 9, 30, 0.5r)}], schema: schema)
         end
+
+        it "keeps an offset of zero that the text says, such as +0000, as without a format, while Z is UTC" do
+          schema = {fields: [{name: "at", type: "datetime", format: "%Y-%m-%d %H:%M %z"}]}
+          times  = read("at\n2026-10-31 09:30 +0000\n2026-10-31 09:30 Z\n", schema: schema).map { |record| record["at"] }
+
+          assert_equal [Time.utc(2026, 10, 31, 9, 30)] * 2, times
+          assert_equal [0, 0], times.map(&:utc_offset)
+          assert_equal [false, true], times.map(&:utc?)
+          assert_equal "at\n2026-10-31T09:30:00+00:00\n2026-10-31T09:30:00Z\n",
+                       write(times.map { |time| {"at" => time} }, schema: {fields: [{name: "at", type: "datetime"}]})
+        end
       end
 
       it "returns the schema that was set" do
