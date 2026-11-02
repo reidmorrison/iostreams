@@ -237,6 +237,8 @@ What writes differently:
   JSON text, such as `{"a":1}`, give the field the type `object` or `array`.
 * A `number` field with `decimals` writes a negative number that rounds to zero, such as `-0.001` with `decimals: 2`,
   as zero, without a minus sign, where the layout writes one, such as `-0000.00`.
+* A `number` field that takes the remainder of the line, without `decimals`, writes a whole number without a decimal
+  point, such as `12`, where the layout writes `12.0`.
 * A `number` field writes infinity as `INF`, where the layout writes `Inf`, and a `string` field writes a `Float` that
   is not finite as `NaN`, `INF` or `-INF`, where the layout writes `NaN`, `Infinity` or `-Infinity`.
 * A filler is written as spaces, also where the layout gives it a `type:` of `:integer` or `:float`, which writes
