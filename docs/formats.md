@@ -298,7 +298,7 @@ valid UTF-8, unless an encoding is set, which writes it instead, as it does with
 
 | Type | Read as | Written as |
 |------|---------|------------|
-| `string` | a `String` | the text, or the text of any other value, except a `Hash` or an `Array`, which raise |
+| `string` | a `String`, such as the text that Excel shows for a number in a spreadsheet, `2134` rather than `2134.0` | the text, or the text of any other value, except a `Hash` or an `Array`, which raise |
 | `integer` | an `Integer`, from text such as `42`, `-12` or `0042`, or a whole number with a decimal point, such as `12.0`, as a spreadsheet stores it | `42` |
 | `number` | a `BigDecimal`, from text such as `12.5`, `-1.5E3`, `NaN`, `INF` or `-INF`, or `Infinity` or `-Infinity`, as Ruby and JavaScript write them, and frictionless-py also reads them, whatever their case, or a number, including a `Rational`, or a `Float` with `floatNumber: true` | `12.5`, or `12.50` with `decimals: 2`, and a number that is not finite as `NaN`, `INF` or `-INF`, except to JSON, which cannot hold it, so that it raises `IOStreams::Errors::InvalidValue` |
 | `boolean` | `true` or `false`, from one of its `trueValues` or `falseValues`, or the number `1` or `0`, such as a number of JSON, also `1.0` or `0.0`, while any other number raises | the first of its `trueValues` or `falseValues` |
@@ -318,6 +318,11 @@ for `N/A`. The leading and trailing whitespace of any other text is removed befo
 `string` or `any`, so that ` 42 ` is the `integer` `42`. Writing works the same way, so that empty text is written
 as a missing value, which CSV writes as an empty value, such as `,21,`, rather than a quoted `""`, and JSON as
 `null`, and text of only whitespace raises for a type other than `string` or `any`.
+
+A spreadsheet read with a schema holds each number as the text that Excel shows, its 15 most significant digits,
+without a decimal point for a whole number, such as `2134`, or `0.3` for `0.30000000000000004`, in its lines and in
+its rows and records, so that a `string` field reads that text, and a `number` field the digits that Excel shows.
+Without a schema, its numbers are read as before, such as `2134.0`.
 
 A `Hash` or an `Array` of an `object` or `array` field, such as one of the `:hash` format, is converted to what JSON
 holds of it, so that it is the same as the value that its JSON text reads: its keys are Strings, such as `"theme"` for

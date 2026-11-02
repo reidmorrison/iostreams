@@ -22,6 +22,13 @@ module IOStreams
         end
       end
 
+      # Returns [Class] the class that reads a workbook for a file read with a schema, see
+      # `IOStreams::Builder#stream_class`, whose CSV text holds each number cell as Excel displays it, see
+      # `IOStreams::Xlsx::SchemaReader`, while this class keeps creek's text, as IOStreams 2.1 read it.
+      def self.schema_reader
+        SchemaReader
+      end
+
       # Returns [Module] the stand-in for the writer of the files that this class reads, which IOStreams 3.0 adds, and
       # IOStreams 2.2 does not have, which answers the options that it takes, see `IOStreams::Xlsx::V3Writer`.
       def self.v3_writer

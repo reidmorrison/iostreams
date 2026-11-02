@@ -1,4 +1,5 @@
 require_relative "test_helper"
+require "bigdecimal"
 require "csv"
 require "fileutils"
 require "tmpdir"
@@ -238,6 +239,92 @@ class XlsxReaderTest
           assert_equal xlsx_contents.map(&:to_csv).map(&:chomp), read_all(IOStreams.path(file_name).encoding("UTF-8"), :line)
           assert_equal xlsx_contents, read_all(typed, :array, delimiter: nil)
         end
+      end
+    end
+
+    describe "the number cells of a spreadsheet read with a schema" do
+      # A workbook whose numbers are cells of type "n", as LibreOffice and many libraries write them, which creek reads
+      # as Floats, such as `1001.0`.
+      let :cells do
+        File.join(File.dirname(__FILE__), "upgrade", "files", "cells.xlsx")
+      end
+
+      let :strings do
+        {fields: %w[id amount zip ok note].map { |name| {name: name, type: "string"} }}
+      end
+
+      # Returns [Array] what the path yields in the mode.
+      def read_all(path, mode)
+        rows = []
+        path.each(mode) { |row| rows << row }
+        rows
+      end
+
+      it "are the text that Excel displays, so that a string field reads it" do
+        records = [
+          {"id" => "1001", "amount" => "12.5", "zip" => "01234", "ok" => "true", "note" => "x"},
+          {"id" => "7", "amount" => "3", "zip" => "00501", "ok" => "false", "note" => nil}
+        ]
+
+        assert_equal records, read_all(IOStreams.path(cells).schema(strings), :hash)
+      end
+
+      it "are the same in the lines read, as in the rows" do
+        assert_equal ["id,amount,zip,ok,note", "1001,12.5,01234,true,x", "7,3,00501,false"],
+                     read_all(IOStreams.path(cells).schema(strings), :line)
+      end
+
+      it "are still the text of the Float that creek reads without a schema, as IOStreams 2.1 read them" do
+        assert_equal ["id,amount,zip,ok,note", "1001.0,12.5,01234,true,x", "7.0,3.0,00501,false"], read_all(IOStreams.path(cells), :line)
+        records = assert_deprecated(/the rows and records of a spreadsheet read without a type for each column are deprecated/) do
+          read_all(IOStreams.path(cells), :hash)
+        end
+
+        ids = records.map { |record| record["id"] }
+
+        assert_equal %w[1001.0 7.0], ids
+      end
+
+      it "are read by the schema reader, which the builder opens for a file read with a schema" do
+        assert_equal IOStreams::Xlsx::SchemaReader, IOStreams::Xlsx::Reader.schema_reader
+        assert_equal IOStreams::Xlsx::SchemaReader, IOStreams::Xlsx::SchemaReader.schema_reader
+        assert_equal IOStreams::Xlsx::SchemaReader.option_names, IOStreams::Xlsx::Reader.option_names
+        assert_equal IOStreams::Xlsx::SchemaReader.text_format, IOStreams::Xlsx::Reader.text_format
+      end
+    end
+  end
+
+  describe IOStreams::Xlsx::SchemaReader do
+    describe ".displayed" do
+      it "gives a whole number without a decimal point" do
+        assert_equal "2134", IOStreams::Xlsx::SchemaReader.displayed(2134.0)
+        assert_equal "-7", IOStreams::Xlsx::SchemaReader.displayed(-7.0)
+        assert_equal "0", IOStreams::Xlsx::SchemaReader.displayed(-0.0)
+        assert_equal "123456789012345", IOStreams::Xlsx::SchemaReader.displayed(123_456_789_012_345.0)
+      end
+
+      it "gives the 15 most significant digits that Excel displays" do
+        assert_equal "12.5", IOStreams::Xlsx::SchemaReader.displayed(12.5)
+        assert_equal "0.3", IOStreams::Xlsx::SchemaReader.displayed(0.1 + 0.2)
+        assert_equal "1", IOStreams::Xlsx::SchemaReader.displayed(1.0000000000000002)
+        assert_equal "1.0e-07", IOStreams::Xlsx::SchemaReader.displayed(1e-7)
+        assert_equal "1.5e+20", IOStreams::Xlsx::SchemaReader.displayed(1.5e20)
+      end
+
+      it "gives a BigDecimal, which creek reads for a scientific format, as a plain decimal" do
+        assert_equal "12", IOStreams::Xlsx::SchemaReader.displayed(BigDecimal("0.12e2"))
+        assert_equal "1.25", IOStreams::Xlsx::SchemaReader.displayed(BigDecimal("1.25"))
+      end
+
+      it "keeps any other value as it is" do
+        date = Date.new(2026, 10, 31)
+
+        assert_predicate IOStreams::Xlsx::SchemaReader.displayed(Float::NAN), :nan?
+        assert_equal 7, IOStreams::Xlsx::SchemaReader.displayed(7)
+        assert_equal "01234", IOStreams::Xlsx::SchemaReader.displayed("01234")
+        assert_same date, IOStreams::Xlsx::SchemaReader.displayed(date)
+        assert_nil IOStreams::Xlsx::SchemaReader.displayed(nil)
+        assert IOStreams::Xlsx::SchemaReader.displayed(true)
       end
     end
   end

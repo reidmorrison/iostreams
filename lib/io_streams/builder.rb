@@ -357,9 +357,20 @@ module IOStreams
     end
 
     def open_stream(type, stream, io_stream, opts, &)
-      klass = class_for_stream(type, stream)
+      klass = stream_class(type, stream)
       validate_options(type, stream, klass, opts)
       klass.open(io_stream, **taken_options(type, stream, klass, opts), &)
+    end
+
+    # Returns [Class] the class that reads or writes the stream: the class registered for it, or, to read a file with a
+    # schema, see #schema=, the class that the registered reader answers for it, when it reads a file with a schema
+    # differently, such as a spreadsheet, whose CSV text then holds each number as Excel displays it, see
+    # `IOStreams::Xlsx::Reader.schema_reader`.
+    def stream_class(type, stream)
+      klass = class_for_stream(type, stream)
+      return klass if type != :reader || @schema.nil? || !klass.respond_to?(:schema_reader)
+
+      klass.schema_reader
     end
 
     # Returns [Hash] the options of the stream that the class is opened with: all of them, unless the class takes any

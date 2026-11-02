@@ -114,6 +114,16 @@ class UpgradeResultsTest < Minitest::Test
         assert_equal records, read_all(path, :hash)
         assert_equal [%w[id amount zip ok note], *records.map(&:values)], read_all(path, :array)
       end
+
+      it "reads a number cell into a string field as the text that Excel shows" do
+        strings = IOStreams.path(__dir__, "files", "cells.xlsx").schema(fields: %w[id amount zip ok note].map { |name| {name: name, type: "string"} })
+        records = [
+          {"id" => "1001", "amount" => "12.5", "zip" => "01234", "ok" => "true", "note" => "x"},
+          {"id" => "7", "amount" => "3", "zip" => "00501", "ok" => "false", "note" => nil}
+        ]
+
+        assert_equal records, read_all(strings, :hash)
+      end
     end
 
     # A date field raises `IOStreams::Errors::InvalidValue` in 3.0 for a `Time` or `DateTime` that is not at midnight.
