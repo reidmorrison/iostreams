@@ -301,11 +301,11 @@ valid UTF-8, unless an encoding is set, which writes it instead, as it does with
 | `string` | a `String` | the text, or the text of any other value, except a `Hash` or an `Array`, which raise |
 | `integer` | an `Integer`, from text such as `42`, `-12` or `0042`, or a whole number with a decimal point, such as `12.0`, as a spreadsheet stores it | `42` |
 | `number` | a `BigDecimal`, from text such as `12.5`, `-1.5E3`, `NaN`, `INF` or `-INF`, or `Infinity` or `-Infinity`, as Ruby and JavaScript write them, and frictionless-py also reads them, whatever their case, or a number, including a `Rational`, or a `Float` with `floatNumber: true` | `12.5`, or `12.50` with `decimals: 2`, and a number that is not finite as `NaN`, `INF` or `-INF`, except to JSON, which cannot hold it, so that it raises `IOStreams::Errors::InvalidValue` |
-| `boolean` | `true` or `false`, from one of its `trueValues` or `falseValues` | the first of its `trueValues` or `falseValues` |
+| `boolean` | `true` or `false`, from one of its `trueValues` or `falseValues`, or the number `1` or `0`, such as a number of JSON, also `1.0` or `0.0`, while any other number raises | the first of its `trueValues` or `falseValues` |
 | `date` | a `Date`, from `2026-10-13`, or text in its `format`, or the date of a `Time` or `DateTime`, which is deprecated for one that is not at midnight, since v3.0 raises for it, see [Deprecated, and what replaces it](upgrading#deprecated-and-what-replaces-it) | `2026-10-13`, or text in its `format` |
 | `datetime` | a `Time`, from ISO 8601 with seconds, such as `2026-10-13T09:30:00Z`, also with a space in place of the `T`, such as `2026-10-13 09:30:00`, and with an offset from UTC without a colon, such as `+0530`, or of hours alone, such as `+05`, or text in its `format`. Text without an offset from UTC is read as UTC | ISO 8601, such as `2026-10-13T09:30:00+05:30`, or text in its `format` |
-| `object` | a `Hash`, from the text of a JSON object, such as `{"a":1}` | that JSON text, or in JSON an object |
-| `array` | an `Array`, from the text of a JSON array, such as `[1,2]` | that JSON text, or in JSON an array |
+| `object` | a `Hash`, from the text of a JSON object, such as `{"a":1}`, or a `Hash` as JSON holds it, see below | that JSON text, or in JSON an object |
+| `array` | an `Array`, from the text of a JSON array, such as `[1,2]`, or an `Array` as JSON holds it, see below | that JSON text, or in JSON an array |
 | `any` | the value as it is read | the value, with a `BigDecimal`, `Date` or `Time` as its text, and in a format of text a `Hash` or an `Array` as JSON, see [Values of a field without a type](#values-of-a-field-without-a-type) |
 
 A field without a `type` is `any`, as in Frictionless.
@@ -318,6 +318,12 @@ for `N/A`. The leading and trailing whitespace of any other text is removed befo
 `string` or `any`, so that ` 42 ` is the `integer` `42`. Writing works the same way, so that empty text is written
 as a missing value, which CSV writes as an empty value, such as `,21,`, rather than a quoted `""`, and JSON as
 `null`, and text of only whitespace raises for a type other than `string` or `any`.
+
+A `Hash` or an `Array` of an `object` or `array` field, such as one of the `:hash` format, is converted to what JSON
+holds of it, as Rails' `as_json` does, so that it is the same as the value that its JSON text reads: its keys are
+Strings, such as `"theme"` for `:theme`, a `Symbol` within it is its text, and a `BigDecimal`, `Date` or `Time` within
+it is the text that IOStreams writes for it to JSON, such as `"12.5"`, see
+[Values of a field without a type](#values-of-a-field-without-a-type).
 
 A value that is not one of the type of its field, such as `N/A` for an `integer`, raises
 `IOStreams::Errors::InvalidValue`, naming the field and the value, both when reading and when writing. So does a `date`

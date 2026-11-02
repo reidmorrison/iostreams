@@ -111,6 +111,20 @@ class TabularSchemaTest < Minitest::Test
         assert_equal({"id" => 1, "pay" => BigDecimal("2.5")}, IOStreams::Tabular.new(format: :hash, schema: schema).record_parse({:id => "1", "PAY" => "2.5"}))
       end
 
+      it "reads the same record of object, array and boolean fields from :hash as from JSON, and the text of its JSON" do
+        typed   = IOStreams::Schema.new(fields: [{name: "prefs", type: "object"}, {name: "tags", type: "array"}, {name: "on", type: "boolean"}])
+        hash    = {"prefs" => {theme: :dark, at: Time.utc(2026, 10, 13, 9, 30), limit: BigDecimal("12.5")}, "tags" => [:a, Date.new(2026, 10, 13)], "on" => 1.0}
+        record  = {"prefs" => {"theme" => "dark", "at" => "2026-10-13T09:30:00Z", "limit" => "12.5"}, "tags" => %w[a 2026-10-13], "on" => true}
+        json    = IOStreams::Tabular.new(format: :json, schema: typed).render(hash)
+        csv     = IOStreams::Tabular.new(format: :csv, schema: typed)
+        csv.read_header("prefs,tags,on")
+
+        assert_equal record, IOStreams::Tabular.new(format: :hash, schema: typed).record_parse(hash)
+        assert_equal record, IOStreams::Tabular.new(format: :json, schema: typed).record_parse(json)
+        assert_equal record, csv.record_parse(IOStreams::Tabular.new(format: :csv, schema: typed).render(hash))
+        assert_equal record, IOStreams::Tabular.new(format: :hash, schema: typed).render(hash)
+      end
+
       it "renders each value in the form of the format, in the order of the fields" do
         assert_equal "1,2.50", IOStreams::Tabular.new(format: :csv, schema: schema).render({"pay" => 2.5, "id" => "1"})
         assert_equal %({"id":1,"pay":2.50}), IOStreams::Tabular.new(format: :json, schema: schema).render({"pay" => "2.5", "id" => "1"})

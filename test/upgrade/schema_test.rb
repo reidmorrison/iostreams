@@ -177,6 +177,16 @@ class UpgradeSchemaTest < Minitest::Test
         end
       end
 
+      it "reads the number 1 of a boolean field as true and 0 as false" do
+        schema = {fields: [{name: "id", type: "integer"}, {name: "active", type: "boolean"}]}
+        json   = %({"id":1,"active":1}\n{"id":2,"active":0}\n{"id":3,"active":1.0}\n{"id":4,"active":0.0}\n)
+
+        active = read(json, file_name: "people.json", schema: schema).map { |record| record["active"] }
+
+        assert_equal [true, false, true, false], active
+        assert_raises(IOStreams::Errors::InvalidValue) { read(%({"id":1,"active":2}\n), file_name: "people.json", schema: schema) }
+      end
+
       describe "the text of a datetime without a format" do
         let(:schema) { {fields: [{name: "at", type: "datetime"}]} }
 

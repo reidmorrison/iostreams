@@ -26,7 +26,8 @@ module IOStreams
     #                 `Infinity` and `-Infinity`, as Ruby and JavaScript write them, are read too, whatever their case,
     #                 as frictionless-py also reads them, while one that is not finite is written as the Frictionless
     #                 spec spells it, `NaN`, `INF` or `-INF`, except to JSON, which cannot hold it, so that it raises.
-    #     "boolean":  true or false, see `trueValues` and `falseValues`.
+    #     "boolean":  true or false, see `trueValues` and `falseValues`, or the number 1 or 0, such as the 1.0 or 0.0 of a
+    #                 spreadsheet.
     #     "date":     a Date, written as `2026-10-13` unless `format` is set. A Time or DateTime is its date, dropping its
     #                 time of day, which is deprecated for one that is not at midnight, by its own clock, since v3.0 raises
     #                 for it rather than lose its time of day, see #cast.
@@ -34,9 +35,10 @@ module IOStreams
     #                 with seconds, with a space in place of the T, such as `2026-10-13 09:30:00`, and an offset from UTC
     #                 with or without a colon, or of hours alone, such as `+05:30`, `+0530` or `+05`, see #cast_datetime.
     #     "object":   a Hash, read from the text of a JSON object, such as `{"a":1}`, and written as that text, or by a
-    #                 format of JSON as an object.
+    #                 format of JSON as an object. A Hash is what JSON holds of it, see .json_data, so that its keys are
+    #                 Strings.
     #     "array":    an Array, read from the text of a JSON array, such as `[1,2]`, and written as that text, or by a
-    #                 format of JSON as an array.
+    #                 format of JSON as an array. An Array is what JSON holds of it, see .json_data.
     #     "any":      the value as it is read, without converting it.
     #     Default: "any"
     #     Empty text is a missing value, nil, in every type, and text of only whitespace raises in every type but a
@@ -320,6 +322,46 @@ module IOStreams
         copy || array
       end
 
+      # Returns the value as JSON holds it, as Rails' `as_json` gives it, so that an object or array field reads the same
+      # value from a format whose rows are Ruby objects, such as `:hash`, as from JSON, or the text of JSON: a Hash with
+      # String keys, such as "a" for the key `:a`, a Symbol as its text, a BigDecimal, Date, Time or DateTime as the text
+      # that IOStreams writes for it to JSON, see .any_json, such as "12.5" or "2026-10-13", and any other value as it
+      # is. The values within a Hash or an Array are converted too, in a copy, and the value itself is returned when
+      # none of them needs it.
+      def self.json_data(value)
+        case value
+        when ::Hash then data_hash(value)
+        when ::Array then data_array(value)
+        when String, Integer, Float, true, false, nil then value
+        when Symbol then value.to_s
+        else textual?(value) ? any_text(value) : value
+        end
+      end
+
+      # Returns [Hash] a copy of the hash with String keys and each of its values converted, see .json_data, or the hash
+      # itself when none of them needs it.
+      def self.data_hash(hash)
+        return hash.to_h { |key, item| [key.to_s, json_data(item)] } unless hash.each_key.all?(String)
+
+        copy = nil
+        hash.each_pair do |key, item|
+          data = json_data(item)
+          (copy ||= hash.dup)[key] = data unless data.equal?(item)
+        end
+        copy || hash
+      end
+
+      # Returns [Array] a copy of the array with each of its values converted, see .json_data, or the array itself when
+      # none of them needs it.
+      def self.data_array(array)
+        copy = nil
+        array.each_with_index do |item, index|
+          data = json_data(item)
+          (copy ||= array.dup)[index] = data unless data.equal?(item)
+        end
+        copy || array
+      end
+
       # Returns [true|false] whether JSON holds the value as its text, see .any_json.
       def self.textual?(value)
         value.is_a?(Time) || value.is_a?(Date) || (defined?(::BigDecimal) && value.is_a?(::BigDecimal))
@@ -336,7 +378,7 @@ module IOStreams
           end
         value.iso8601(digits)
       end
-      private_class_method :time_text, :json_hash, :json_array, :textual?
+      private_class_method :time_text, :json_hash, :json_array, :data_hash, :data_array, :textual?
 
       # Returns [true|false] whether the values of this field are numbers, which a fixed width file zero fills.
       def numeric?
@@ -637,9 +679,11 @@ module IOStreams
       end
 
       # Returns [Hash|Array] the value, which must be of the class of the field, a Hash for an object or an Array for an
-      # array, or the text of one in JSON, whose numbers are read as JSON reads them without a schema.
+      # array, as JSON holds it, see .json_data, or the text of one in JSON, whose numbers are read as JSON reads them
+      # without a schema.
       def cast_json(value, klass)
         json = value.is_a?(String) ? parse_json(value) : value
+        json = self.class.json_data(json) if json.is_a?(klass)
         # The value as it was read is named, such as the text of a JSON array for an object field.
         json.is_a?(klass) ? json : invalid(value)
       end
@@ -650,10 +694,13 @@ module IOStreams
         invalid(text)
       end
 
+      # A number is true when it is 1 and false when it is 0, such as the 1.0 or 0.0 of a spreadsheet, or the 1 or 0 of
+      # JSON, whatever the text of `trueValues` and `falseValues`, which a number is not. Any other number raises.
       def cast_boolean(value)
         return value if [true, false].include?(value)
         return true if value.is_a?(String) && @true_values.include?(value)
         return false if value.is_a?(String) && @false_values.include?(value)
+        return value == 1 if (value.is_a?(Integer) || value.is_a?(Float)) && (value == 1 || value.zero?)
 
         invalid(value)
       end
