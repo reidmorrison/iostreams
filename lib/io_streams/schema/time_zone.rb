@@ -12,11 +12,13 @@ module IOStreams
     # It reads the clock of text without an offset as a time in its zone, and gives the time that a field writes with a
     # format without a zone in its zone, so that it reads back as the same time.
     class TimeZone
+      # A clock that the zone skips, such as 02:30 when its clocks move forward an hour, which is no time there, see
+      # #at_clock.
+      class SkippedClock < ArgumentError
+      end
+
       # A fixed offset from UTC, its sign, hours and minutes.
       OFFSET = /\A([+-])(\d{2}):(\d{2})\z/
-
-      # Returns [String] the zone as it was given, such as "America/New_York".
-      attr_reader :name
 
       # Parameters:
       #   name: [String]
@@ -37,14 +39,18 @@ module IOStreams
       # Returns [Time] the time whose clock, its date and time of day, is that of the supplied time, read in this zone,
       # such as 09:30 in New York for a time of 09:30 in UTC.
       #
-      # Raises ArgumentError for a clock that the zone skips, such as 02:30 when its clocks move forward an hour, which
+      # Raises `SkippedClock` for a clock that the zone skips, such as 02:30 when its clocks move forward an hour, which
       # is no time there. Of a clock that the zone has twice, as its clocks move back, it is the first.
-      def at_clock(time)
+      #
+      # The clock can be moved to another day, such as to 2000-01-01 for a time of day, see `IOStreams::Schema::Field`,
+      # whose offset is that of the zone on that day.
+      def at_clock(time, year = time.year, month = time.month, day = time.day)
         seconds = time.sec + time.subsec
-        return Time.utc(time.year, time.month, time.day, time.hour, time.min, seconds) if @offset&.zero?
+        return Time.utc(year, month, day, time.hour, time.min, seconds) if @offset&.zero?
 
-        offset = @offset || local_offset(time)
-        Time.new(time.year, time.month, time.day, time.hour, time.min, seconds, offset)
+        offset = @offset
+        offset ||= local_offset(same_day?(time, year, month, day) ? time : Time.utc(year, month, day, time.hour, time.min))
+        Time.new(year, month, day, time.hour, time.min, seconds, offset)
       end
 
       # Returns [Time] the time in this zone, at its offset from UTC at that time, which a field writes with a format
@@ -57,7 +63,14 @@ module IOStreams
 
       private
 
+      # Returns [true|false] whether the time is on the supplied day, so that its offset is found from it as it is.
+      def same_day?(time, year, month, day)
+        year == time.year && month == time.month && day == time.day
+      end
+
       # Returns [Integer|nil] the seconds of a fixed offset from UTC, 0 for "UTC", or nil for the name of a zone.
+      #
+      # Raises ArgumentError for an offset of more than 23 hours, or 59 minutes, which no zone has.
       def fixed_offset(name, field)
         return 0 if name == "UTC"
         unless name.is_a?(String) && !name.empty?
@@ -68,7 +81,14 @@ module IOStreams
         match = OFFSET.match(name)
         return unless match
 
-        seconds = (match[2].to_i * 3600) + (match[3].to_i * 60)
+        hours   = match[2].to_i
+        minutes = match[3].to_i
+        unless hours <= 23 && minutes < 60
+          raise(ArgumentError, "Field #{field.inspect}: the timeZone #{name.inspect} is not an offset from UTC, whose hours " \
+                               "are at most 23 and minutes at most 59")
+        end
+
+        seconds = (hours * 3600) + (minutes * 60)
         match[1] == "-" ? -seconds : seconds
       end
 
@@ -80,6 +100,10 @@ module IOStreams
         rescue TZInfo::InvalidTimezoneIdentifier
           raise(ArgumentError, "Field #{field.inspect}: the timeZone #{name.inspect} is not a zone of the IANA time zone " \
                                "database, such as \"America/New_York\", nor an offset, such as \"-05:00\"")
+        rescue TZInfo::DataSourceNotFound => e
+          raise(ArgumentError, "Field #{field.inspect}: the timeZone #{name.inspect} needs the IANA time zone database, " \
+                               "which this system does not have, such as on Windows or in a slim container image, so add " \
+                               "`gem \"tzinfo-data\"` to the Gemfile, or use an offset, such as \"-05:00\": #{e.message}")
         end
       end
 
@@ -93,14 +117,15 @@ module IOStreams
                              "`gem \"tzinfo\"` to the Gemfile, or use an offset, such as \"-05:00\": #{e.message}")
       end
 
-      # Returns [Integer] the seconds of the offset from UTC of the zone at the clock of the time.
+      # Returns [Integer] the seconds of the offset from UTC of the zone at the clock of the time, whose own offset is
+      # ignored, the first of the two of a clock that the zone has twice, as its clocks move back, whether or not
+      # either is summer time, such as when a zone changed its offset for good.
       #
-      # Raises ArgumentError for a clock that the zone skips, see #at_clock.
+      # Raises `SkippedClock` for a clock that the zone skips, see #at_clock.
       def local_offset(time)
-        clock = Time.utc(time.year, time.month, time.day, time.hour, time.min, time.sec)
-        @zone.period_for_local(clock, true).utc_total_offset
+        @zone.period_for_local(time, nil, &:first).utc_total_offset
       rescue TZInfo::PeriodNotFound
-        raise(ArgumentError, "#{time.strftime('%Y-%m-%d %H:%M:%S')} is no time in #{@name}, whose clocks skip it")
+        raise(SkippedClock, "#{time.strftime('%Y-%m-%d %H:%M:%S')} is no time in #{@name}, whose clocks skip it")
       end
     end
   end

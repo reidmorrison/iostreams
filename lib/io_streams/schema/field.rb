@@ -722,6 +722,17 @@ module IOStreams
         @checks ? @constraints.check(convert(value), value) : convert(value)
       end
 
+      # Returns [Time] the time of day, on 2000-01-01, of the clock of a time that holds no offset from UTC, such as a
+      # value of a Parquet column of times of day, whose clock is the one that a schema writes, read in the zone of this
+      # time field, as text without an offset is read, see `timeZone` above, otherwise in UTC.
+      #
+      # Raises `IOStreams::Errors::InvalidValue` for a clock that the zone skips.
+      def time_of_clock(time)
+        @zone ? in_zone(time) : self.class.time_of_day(time)
+      rescue TimeZone::SkippedClock => e
+        invalid(time, "#{type}, since #{e.message}")
+      end
+
       # Returns the value converted to the type of this field, as #cast converts it, apart from its missing values, which
       # describe the text of a file, for a value that is not the text of the file: one that a schema of the file already
       # read, which a contract reads, see `IOStreams::Schema::ContractColumns`, or the text that #dump gives a value
@@ -1584,6 +1595,8 @@ module IOStreams
         return invalid(value) unless date && Date.valid_date?(date[0, 4].to_i, date[5, 2].to_i, date[8, 2].to_i)
 
         iso_datetime(match)
+      rescue TimeZone::SkippedClock => e
+        invalid(value, "#{type}, since #{e.message}")
       rescue ArgumentError
         invalid(value)
       end
@@ -1594,8 +1607,8 @@ module IOStreams
       #
       # Its hour, minute and second are checked, since `Time` moves 24:00:00, and a leap second, into the next day.
       def cast_time(value)
-        return self.class.time_of_day(value) if value.is_a?(Time)
-        return self.class.time_of_day(self.class.time_of(value)) if value.is_a?(DateTime)
+        value = self.class.time_of(value) if value.is_a?(DateTime)
+        return @zone ? zone_time_of_day(value) : self.class.time_of_day(value) if value.is_a?(Time)
         return invalid(value) unless value.is_a?(String)
         return parse_time_of_day(value) if @format
 
@@ -1603,6 +1616,8 @@ module IOStreams
         return invalid(value) unless clock && clock_time?(clock[1].to_i, clock[2].to_i, clock[3].to_i)
 
         iso_clock(clock)
+      rescue TimeZone::SkippedClock => e
+        invalid(value, "#{type}, since #{e.message}")
       rescue ArgumentError
         invalid(value)
       end
@@ -1636,8 +1651,13 @@ module IOStreams
 
         # A DateTime reads text without an offset as UTC, and knows the offset of every zone that Date._strptime knows,
         # such as "CET", which `Time.strptime` reads in the time zone of the process, as it does text without an offset.
+        # The seconds since 1970 of `%s` or `%Q` are a time whatever the zone, as an offset makes it one, in UTC.
         time = self.class.time_of(@format.datetime(text))
-        parts[:offset] ? time : in_zone(time)
+        return time if parts[:offset]
+
+        parts[:seconds] ? time.utc : in_zone(time)
+      rescue TimeZone::SkippedClock => e
+        invalid(text, "#{type}, since #{e.message}")
       rescue ArgumentError
         invalid(text)
       end
@@ -1645,11 +1665,19 @@ module IOStreams
       # Returns [Time] the time whose clock is that of the supplied time, which text without an offset from UTC gave, in
       # UTC, or in the zone of the field, see `timeZone` above, on 2000-01-01 for a time of day, whose offset is that of
       # the zone on that day, as Active Record holds a time of day.
+      #
+      # Raises `IOStreams::Schema::TimeZone::SkippedClock` for a clock that the zone skips.
       def in_zone(time)
         return time.utc unless @zone
 
-        time = Time.utc(2000, 1, 1, time.hour, time.min, time.sec + time.subsec) if type == "time"
-        @zone.at_clock(time)
+        type == "time" ? @zone.at_clock(time, 2000, 1, 1) : @zone.at_clock(time)
+      end
+
+      # Returns [Time] the time of day, on 2000-01-01, of a Time in the zone of the field, see `timeZone` above: the clock
+      # that the zone shows at that time, on its own day, which is the clock of the time of day, so that a time of day of
+      # a summer day, whose offset differs from that of the zone on 2000-01-01, keeps its clock.
+      def zone_time_of_day(time)
+        @zone.at_clock(@zone.convert(time), 2000, 1, 1)
       end
 
       # Returns [String|Float|Integer] the number in a form that JSON keeps exactly, see #dump: the digits of a BigDecimal,

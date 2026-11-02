@@ -422,8 +422,21 @@ class FrictionlessTypesTest < Minitest::Test
       it "raises for a clock that its zone skips, and reads the first of a clock that it has twice" do
         zone = field(type: "datetime", timeZone: "America/New_York")
 
-        assert_raises(IOStreams::Errors::InvalidValue) { zone.cast("2026-03-08T02:30:00") }
+        error = assert_raises(IOStreams::Errors::InvalidValue) { zone.cast("2026-03-08T02:30:00") }
+        assert_equal 'Field "value": "2026-03-08T02:30:00" is not a valid datetime, since 2026-03-08 02:30:00 is no time in ' \
+                     "America/New_York, whose clocks skip it", error.message
         assert_equal(-14_400, zone.cast("2026-11-01T01:30:00").utc_offset)
+      end
+
+      it "reads the first of a clock that a zone has twice when it changed its offset for good, rather than raise" do
+        assert_equal(14_400, field(type: "datetime", timeZone: "Europe/Moscow").cast("2014-10-26T01:30:00").utc_offset)
+        assert_equal(10_800, field(type: "datetime", timeZone: "Europe/Moscow").cast("2014-10-26T02:30:00").utc_offset)
+      end
+
+      it "reads the seconds since 1970 of %s and %Q as that time, whatever its zone" do
+        assert_equal Time.utc(1970, 1, 1, 0, 0, 10), field(type: "datetime", format: "%s", timeZone: "America/New_York").cast("10")
+        assert_equal Time.utc(1970, 1, 1, 0, 0, 1), field(type: "datetime", format: "%Q", timeZone: "America/New_York").cast("1000")
+        assert_equal "10", field(type: "datetime", format: "%s", timeZone: "America/New_York").render(Time.utc(1970, 1, 1, 0, 0, 10), :text)
       end
 
       it "reads text of a format without a zone in its zone, and writes it there, so that it reads back as the same time" do
@@ -446,6 +459,54 @@ class FrictionlessTypesTest < Minitest::Test
         assert_equal(-18_000, field(type: "datetime", timeZone: "-05:00").cast("2026-07-01T09:30:00").utc_offset)
       end
 
+      it "reads a time of day of a summer day, or of Rails, as the clock that its zone shows on that day" do
+        clock  = field(type: "time", timeZone: "America/New_York")
+        summer = Time.new(2026, 7, 1, 9, 30, 0, "-04:00")
+
+        assert_equal Time.new(2000, 1, 1, 9, 30, 0, "-05:00"), clock.cast(summer)
+        assert_equal "09:30:00", clock.render(summer, :text)
+        assert_equal "09:30:00", clock.render(Time.utc(2026, 7, 1, 13, 30), :text)
+        if defined?(ActiveSupport::TimeWithZone)
+          zoned = ActiveSupport::TimeZone["America/New_York"].local(2026, 7, 1, 9, 30)
+
+          assert_equal "09:30:00", clock.render(zoned, :text)
+        end
+      end
+
+      it "writes the UTC clock of a time with timeZone UTC, and its own clock without a timeZone" do
+        time = Time.new(2000, 1, 1, 9, 30, 0, "-05:00")
+
+        assert_equal "14:30:00", field(type: "time", timeZone: "UTC").render(time, :text)
+        assert_equal "09:30:00", field(type: "time").render(time, :text)
+      end
+
+      it "keeps the clock of a time of day written to Parquet, which reads it back in its zone" do
+        skip "The parquet gem is a Rust extension, which JRuby cannot load" if defined?(JRuby)
+
+        schema = {fields: [{name: "at", type: "time", timeZone: "America/New_York"}]}
+        File.write(File.join(dir, "a.csv"), "at\n09:30:00\n")
+        IOStreams.path(dir, "b.parquet").schema(schema).copy_from(IOStreams.path(dir, "a.csv").schema(schema), mode: :hash)
+        IOStreams.path(dir, "c.csv").schema(schema).copy_from(IOStreams.path(dir, "b.parquet").schema(schema), mode: :hash)
+
+        assert_equal "at\n09:30:00\n", File.read(File.join(dir, "c.csv"))
+        assert_equal [{"at" => Time.new(2000, 1, 1, 9, 30, 0, "-05:00")}], read(IOStreams.path(dir, "b.parquet").schema(schema))
+      end
+
+      it "writes the time of a spreadsheet's cell as its UTC clock, which reads back as the same time" do
+        schema = {fields: [{name: "at", type: "datetime", timeZone: "America/New_York"}, {name: "on", type: "time", timeZone: "America/New_York"}]}
+        record = {"at" => Time.utc(2026, 7, 1, 13, 30), "on" => Time.new(2000, 1, 1, 9, 30, 0, "-05:00")}
+        path   = write("times.xlsx", schema, [record])
+
+        assert_equal [record], read(path)
+      end
+
+      it "is kept by a contract, and left out of the schema that the target of a copy takes, which writes its own" do
+        schema = IOStreams::Schema.new(fields: [{name: "at", type: "datetime", timeZone: "America/New_York"}])
+
+        assert_equal [{name: "at", type: "datetime", timeZone: "America/New_York"}], schema.to_contract.fields.map(&:to_h)
+        assert_equal [{name: "at", type: "datetime"}], schema.without_text.fields.map(&:to_h)
+      end
+
       it "reads a time of day without an offset in its zone on 2000-01-01, and writes the clock of the zone" do
         clock = field(type: "time", timeZone: "America/New_York")
 
@@ -457,8 +518,23 @@ class FrictionlessTypesTest < Minitest::Test
 
       it "raises when the schema is built for a zone that is not one, or a field that is neither a datetime nor a time" do
         [{type: "datetime", timeZone: "Mars/Olympus"}, {type: "datetime", timeZone: "+5"}, {type: "datetime", timeZone: 5},
-         {type: "datetime", timeZone: ""}, {type: "date", timeZone: "UTC"}].each do |properties|
+         {type: "datetime", timeZone: ""}, {type: "date", timeZone: "UTC"}, {type: "datetime", timeZone: "+24:00"},
+         {type: "time", timeZone: "-05:60"}].each do |properties|
           assert_raises(ArgumentError, properties.inspect) { field(**properties) }
+        end
+        error = assert_raises(ArgumentError) { field(type: "datetime", timeZone: "Mars/Olympus") }
+        assert_equal 'Field "value": the timeZone "Mars/Olympus" is not a zone of the IANA time zone database, such as ' \
+                     '"America/New_York", nor an offset, such as "-05:00"', error.message
+        error = assert_raises(ArgumentError) { field(type: "datetime", timeZone: "+24:00") }
+        assert_equal 'Field "value": the timeZone "+24:00" is not an offset from UTC, whose hours are at most 23 and minutes ' \
+                     "at most 59", error.message
+      end
+
+      it "raises ArgumentError naming tzinfo-data for the name of a zone when the system has no IANA time zone database" do
+        require "tzinfo"
+        TZInfo::Timezone.stub(:get, ->(_name) { raise(TZInfo::DataSourceNotFound, "no source") }) do
+          error = assert_raises(ArgumentError) { field(type: "datetime", timeZone: "America/New_York") }
+          assert_includes error.message, '`gem "tzinfo-data"`'
         end
       end
 

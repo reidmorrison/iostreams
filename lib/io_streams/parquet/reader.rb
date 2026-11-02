@@ -47,6 +47,7 @@ module IOStreams
       def initialize(file_name, schema = nil)
         super(nil)
         @file_name = file_name
+        @schema    = schema
         @columns   = schema&.projection { labels }
       end
 
@@ -61,10 +62,10 @@ module IOStreams
       # block is not running.
       def each(&block)
         in_block = false
-        times    = time_columns
+        times    = time_fields
         texts    = text_columns
         ::Parquet.each_row(@file_name, columns: @columns) do |row|
-          times.each { |name| (time = row[name]) && (row[name] = Schema::Field.time_of_day(time)) }
+          times.each { |name, field| (time = row[name]) && (row[name] = time_of_day(time, field)) }
           texts.each { |name| row[name] = nil if row[name] == "" }
           in_block = true
           block.call(row)
@@ -181,6 +182,23 @@ module IOStreams
       def text_columns
         names = fields.filter_map { |field| field["name"] if EMPTY_TYPES.include?(declared_field(field)[:type]) }
         @columns ? names & @columns : names
+      end
+
+      # Returns [Array<Array(String, IOStreams::Schema::Field|nil)>] each column of times of day, see #time_columns, with
+      # its `time` field of the schema, if any, which reads the clock of its values in its zone, see #time_of_day.
+      def time_fields
+        time_columns.map do |name|
+          field = @schema&.field_for(name, "column")
+          [name, (field if field&.type == "time")]
+        end
+      end
+
+      # Returns [Time] the time of day, on 2000-01-01, of a value of a column of times of day, which holds the clock that
+      # a schema wrote, without an offset from UTC: in the zone of its field, see `timeZone` in
+      # `IOStreams::Schema::Field`, so that a time of day written in New York reads back as the same time, otherwise in
+      # UTC, see `IOStreams::Schema::Field#time_of_clock`.
+      def time_of_day(time, field)
+        field ? field.time_of_clock(time) : Schema::Field.time_of_day(time)
       end
 
       # Returns [Array<Hash>] the columns of the file, as the `parquet` gem describes them, read once from its end.

@@ -381,10 +381,26 @@ end
   the same time, while one written in ISO 8601 has its own offset. A `time` with a `timeZone` is written as the time of
   the clock of its zone, without a `format` that writes its offset, on 2000-01-01, whose offset in New York is `-05:00`,
   as Active Record holds a time of day.
+* A `time` without a `timeZone` is written as the clock of its own offset, as a Rails app shows it, while one with
+  `timeZone: "UTC"` is written as its clock in UTC. The default, UTC, applies to reading text without an offset.
+* A `Time` of a `time` field, such as one of a summer day in New York, or of Rails, is the clock that its zone shows at
+  that time, on 2000-01-01, so `09:30` of July is written `09:30`, though New York is at `-04:00` in July and `-05:00`
+  on 2000-01-01.
 * A clock that the zone skips, such as `2026-03-08 02:30` in New York, as its clocks move forward, raises
-  `IOStreams::Errors::InvalidValue`, and a clock that it has twice, as its clocks move back, is the first.
-* The name of a zone needs the tzinfo gem, which Rails includes, otherwise setting the schema raises `ArgumentError`,
-  as it does for a zone that is not one. An offset does not need it.
+  `IOStreams::Errors::InvalidValue`, naming why, and a clock that it has twice, as its clocks move back, or as a zone
+  changed its offset for good, such as Moscow on 2014-10-26, is the first.
+* `%s` and `%Q`, the seconds and milliseconds since 1970, are a time whatever the `timeZone`.
+* A Parquet column of times of day holds the clock that the schema writes, without an offset, so it is read in the
+  `timeZone` of its field too, and `09:30` in New York reads back as `09:30`. A spreadsheet's date and time cells hold
+  no zone either: IOStreams writes a time as its clock in UTC, and reads a cell's clock as UTC, so a time reads back as
+  the same time, whatever the `timeZone`, while a spreadsheet made by hand whose cells hold the clocks of another zone
+  is read as UTC.
+* A [contract](contracts) keeps the `timeZone` of a field, while the target of a copy that takes the types of its
+  source writes in its own, UTC unless its schema says otherwise.
+* The name of a zone needs the tzinfo gem, which Rails includes, and the IANA time zone database, which Linux and macOS
+  have, while Windows and some slim container images need the `tzinfo-data` gem, otherwise setting the schema raises
+  `ArgumentError`, as it does for a zone that is not one, or an offset of more than 23 hours or 59 minutes. An offset
+  does not need either.
 
 ### Text of numbers
 

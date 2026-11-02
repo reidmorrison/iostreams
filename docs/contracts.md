@@ -333,7 +333,9 @@ contract writes its own class the same way with `Order.to_dsl`.
 
 The draft is a schema, an `IOStreams::Schema`: `#to_contract` returns its contract, without the `format` of a date,
 which describes how one file writes its text, and so stays in the schema of that file, and `#to_dsl` writes a comment
-for each `format` that it leaves out. A file of US dates is read with both: save the draft as the schema of the file
+for each `format` that it leaves out. It keeps the `timeZone` of a `datetime` or `time`, see
+[Time zones](schemas#time-zones), since the records of the program are in that zone, whatever file they are read
+from. A file of US dates is read with both: save the draft as the schema of the file
 too, and set it with `#schema` beside `#as`. To keep the contract as JSON instead, save the Hash of its
 contract, see [Building a contract from a Hash](#building-a-contract-from-a-hash):
 

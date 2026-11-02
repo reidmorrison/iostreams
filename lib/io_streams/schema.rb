@@ -353,9 +353,11 @@ module IOStreams
 
     # Returns [Class] a new contract, see `IOStreams::Contract`, of what this schema says about the values of the
     # records, without what lays out the file: its `header` and `width`, the `width`, `start` and `truncate` of each
-    # field, the fields that only hold the place of a column, `skip: true`, and the `format` of a date, datetime or
-    # time, since how a file writes its text stays in its schema, so that a contract drafted from one file reads the
-    # same records from any other, such as from a schema that `IOStreams::Stream#infer_schema` drafted.
+    # field, the fields that only hold the place of a column, `skip: true`, and the `format` of a date, datetime, time or
+    # geopoint, since how a file writes its text stays in its schema, so that a contract drafted from one file reads the
+    # same records from any other, such as from a schema that `IOStreams::Stream#infer_schema` drafted. It keeps the
+    # `timeZone` of a datetime or time, since the records of the program are in that zone, such as a time of day in New
+    # York, whatever file they are read from.
     def to_contract
       descriptor = to_h.except(*LAYOUT_PROPERTIES.map(&:to_sym))
       descriptor[:fields] = fields.reject(&:skip?).map(&:to_contract_h)
