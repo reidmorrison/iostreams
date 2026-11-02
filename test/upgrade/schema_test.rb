@@ -241,6 +241,13 @@ class UpgradeSchemaTest < Minitest::Test
 
           assert_equal "at\n2026-10-31T09:30:00+05:30\n2026-10-31T09:30:00Z\n", written
         end
+
+        it "writes a DateTime at UTC with Z, as a Time in UTC" do
+          records = [{"at" => DateTime.new(2026, 10, 31, 9, 30)}, {"at" => Time.utc(2026, 10, 31, 9, 30)}]
+
+          assert_equal "at\n2026-10-31T09:30:00Z\n2026-10-31T09:30:00Z\n", write(records, schema: schema)
+          assert_equal %({"at":"2026-10-31T09:30:00Z"}\n), write(records.first(1), file_name: "people.json", schema: schema)
+        end
       end
 
       describe "the format of a date or datetime" do

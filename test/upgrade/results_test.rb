@@ -194,7 +194,7 @@ class UpgradeResultsTest < Minitest::Test
         end
 
         assert_equal "on,at\n2026-10-25,2026-10-25T09:30:00Z\n2026-10-26,2026-10-26T17:00:00Z\n" \
-                     "2026-10-25,2026-10-27T08:00:00+00:00\n", io.string
+                     "2026-10-25,2026-10-27T08:00:00Z\n", io.string
       end
     end
 

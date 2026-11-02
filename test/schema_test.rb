@@ -1486,6 +1486,19 @@ class SchemaTest < Minitest::Test
           assert_equal "2026-10-13T09:30:00.000001Z", datetime.render(Time.utc(2026, 10, 13, 9, 30, 0.000001r), :text)
         end
 
+        it "writes a DateTime at UTC with Z, as a Time in UTC, since a DateTime does not tell UTC from an offset of 0" do
+          value = DateTime.new(2026, 10, 13, 9, 30, 0.25r)
+
+          assert_equal "2026-10-13T09:30:00.250Z", datetime.render(value, :text)
+          assert_equal "2026-10-13T09:30:00.250Z", datetime.render(value, :json)
+          assert_equal "2026-10-13T09:30:00.250Z", field(type: "any").render(value, :text)
+          assert_equal({"at" => "2026-10-13T09:30:00Z"}, field(type: "object").render({"at" => DateTime.new(2026, 10, 13, 9, 30)}, :json))
+          assert_predicate datetime.cast(value), :utc?
+          assert_predicate datetime.cast(DateTime.new(2026, 10, 13, 9, 30, 0, "+00:00")), :utc?
+          assert_equal "2026-10-13T09:30:00+05:30", datetime.render(DateTime.new(2026, 10, 13, 9, 30, 0, "+05:30"), :text)
+          assert_equal "2026-10-13T09:30:00-00:30", datetime.render(DateTime.new(2026, 10, 13, 9, 30, 0, "-00:30"), :text)
+        end
+
         it "reads and writes the format" do
           pattern = field(type: "datetime", format: "%Y%m%d%H%M%S%z")
 
