@@ -350,6 +350,17 @@ class XlsxRowsTest < Minitest::Test
         assert_equal [{"zip" => "01234", "code" => 1234.0}], read
       end
 
+      it "writes a number rounded to the decimals of its field, as CSV writes it" do
+        schema = {fields: [{name: "amount", type: "number", decimals: 2}, {name: "ratio", type: "number", floatNumber: true, decimals: 2}]}
+        IOStreams.path(file_name).schema(schema).writer(:hash) do |io|
+          io << {"amount" => BigDecimal("12.345"), "ratio" => 2.675}
+          io << {"amount" => BigDecimal("-0.0049"), "ratio" => -0.001}
+        end
+
+        assert_equal [{"amount" => 12.35, "ratio" => 2.68}, {"amount" => 0.0, "ratio" => 0.0}], read
+        assert_equal ["0.0", "0.0"], read.last.values.map(&:to_s)
+      end
+
       it "writes the values of a file without a schema as their types" do
         IOStreams.path(file_name).writer(:array) do |io|
           io << %w[a b c d]

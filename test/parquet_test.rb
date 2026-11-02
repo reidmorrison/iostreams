@@ -534,6 +534,18 @@ class ParquetTest < Minitest::Test
       assert_equal(values.map { |value| Float(format("%.0f", value)) }, read.map { |record| record["whole"] })
     end
 
+    it "reads a decimal of more digits after its point than the decimals of its field rounded to them, and zero for -0.0049" do
+      wide   = {fields: [{name: "amount", type: "number", decimals: 4}]}
+      narrow = {fields: [{name: "amount", type: "number", decimals: 2}]}
+      write(path.schema(wide), [{"amount" => "12.3456"}, {"amount" => "-0.0049"}])
+
+      assert_equal([BigDecimal("12.3456"), BigDecimal("-0.0049")], read.map { |record| record["amount"] })
+      amounts = read(path.schema(narrow)).map { |record| record["amount"] }
+
+      assert_equal [BigDecimal("12.35"), BigDecimal("0")], amounts
+      assert_equal "0.0", amounts.last.to_s
+    end
+
     it "writes a double that is not finite, whatever its decimals" do
       doubles = {fields: [{name: "ratio", type: "number", floatNumber: true, decimals: 0}]}
       write(path.schema(doubles), [{"ratio" => Float::NAN}, {"ratio" => -Float::INFINITY}])
@@ -560,7 +572,7 @@ class ParquetTest < Minitest::Test
       wide = {fields: [{name: "amount", type: "number", decimals: 36}]}
 
       error = assert_raises(IOStreams::Errors::InvalidValue) { write(path.schema(wide), [{"amount" => "123.5"}]) }
-      assert_match(/Field "amount": 123.5 has more than 2 digits before its decimal point/, error.message)
+      assert_match(/Field "amount": 123.5000* has more than 2 digits before its decimal point/, error.message)
       assert_equal ["amount", BigDecimal("123.5")], [error.field, error.value]
       write(path.schema(wide), [{"amount" => "99.5"}])
 

@@ -73,8 +73,10 @@ Every one of them yields the same record:
   requires, and the source does not have, raises `IOStreams::Errors::InvalidHeader` before any work starts. A key that
   a JSON record leaves out is a value instead, which reading checks, as above.
 * Each value converts at most once: text, such as that of CSV, is parsed, and a value that is already of the type of its
-  field passes through, such as a `BigDecimal` of a Parquet file or a query. A value that cannot be of the type of its
-  field, such as `N/A` for `amount`, raises `IOStreams::Errors::InvalidValue`.
+  field passes through, such as a `BigDecimal` of a Parquet file or a query, apart from a number with more digits after
+  its decimal point than the `decimals` of its field, which is rounded to them, such as `12.35` for the `12.3456` of a
+  Parquet `decimal(38, 4)` with `decimals: 2`, as a contract's setter rounds it. A value that cannot be of the type of
+  its field, such as `N/A` for `amount`, raises `IOStreams::Errors::InvalidValue`.
 * A column whose type the source declares, such as a Parquet file, a query or the schema of a file, and which can never
   be the type of its field, such as a `boolean` for `amount`, raises `IOStreams::Errors::IncompatibleType` before the
   first row, see [Types that never fit](#types-that-never-fit).
@@ -143,8 +145,9 @@ Each raises `ArgumentError` when no contract is set.
 ### Types that never fit
 
 A source that declares the type of each column, such as a Parquet file, a query or the schema of a file, meets the
-contract before the first row. A value converts only when nothing is lost, so a column whose type can never be that of
-its field raises `IOStreams::Errors::IncompatibleType`, which is not an `InvalidHeader`:
+contract before the first row. A value converts only when nothing is lost, apart from a number rounded to the
+`decimals` of its field, so a column whose type can never be that of its field raises
+`IOStreams::Errors::IncompatibleType`, which is not an `InvalidHeader`:
 
 | The source declares | The field's type that takes it |
 |---------------------|--------------------------------|
@@ -307,7 +310,8 @@ puts IOStreams.path("samples/orders.csv").infer_schema(sample: 1_000).to_dsl("Or
   number or a string, raises `ArgumentError`, as does `sample:` with a schema set with `#schema`, which already gives
   the types.
 * It drafts `integer`, `number` with the most decimals seen, `boolean`, and `date`, `datetime` and `time` from ISO 8601
-  text. Anything else is `string`, and text with a leading zero, such as `01234` or `007`, stays `string`, as does a
+  text. A record after the sample whose number has more decimals is rounded to them, so draft from every record, with
+  `sample: :all`, or check the decimals of a draft, when a file can have more. Anything else is `string`, and text with a leading zero, such as `01234` or `007`, stays `string`, as does a
   column with text of only whitespace, which any other type raises for. A column with no value in the sample is `any`,
   for a person to decide.
 * It recognizes US dates, such as `10/25/2026`, and records their format on the field, as `format: "%m/%d/%Y"`. A day

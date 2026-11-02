@@ -933,7 +933,7 @@ class SchemaTest < Minitest::Test
           assert_equal BigDecimal("1.01"), decimals.cast(1.005)
           assert_equal BigDecimal("0.33"), decimals.cast(1/3r)
           assert_equal BigDecimal("12.5"), decimals.cast(12.5)
-          # A Float is rounded to the nearest of its binary value, as it is written, which for 12.345 is below it.
+          # A Float is rounded as `format` writes it, 12.345, whose text ends in 5, to the even digit.
           assert_in_delta 12.34, float.cast("12.345")
           assert_equal "12.34", float.render("12.345", :text)
           assert_equal Float(float.render(2.675, :text)), float.cast(2.675)
@@ -953,10 +953,13 @@ class SchemaTest < Minitest::Test
           end
         end
 
-        it "rounds a Float exactly halfway between two decimals to the even one, as format does" do
+        it "rounds a Float whose text ends in 5 to the even digit, whatever its binary value, as format does" do
           assert_equal Float("2"), field(type: "number", floatNumber: true, decimals: 0).cast("2.5")
           assert_equal Float("4"), field(type: "number", floatNumber: true, decimals: 0).cast("3.5")
           assert_equal Float("0.12"), field(type: "number", floatNumber: true, decimals: 2).cast("0.125")
+          # The Float 0.025 is above 0.025, and 2.675 below 2.675.
+          assert_equal Float("0.02"), field(type: "number", floatNumber: true, decimals: 2).cast("0.025")
+          assert_equal Float("2.68"), field(type: "number", floatNumber: true, decimals: 2).cast("2.675")
           assert_equal BigDecimal("0.13"), field(type: "number", decimals: 2).cast("0.125")
         end
 

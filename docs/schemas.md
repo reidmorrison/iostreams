@@ -154,7 +154,7 @@ IOStreams.path("orders.csv").schema(IOStreams::Schema.new(JSON.parse(File.read("
 |------|---------|------------|
 | `string` | a `String` | the text, or the text of any other value, except a `Hash` or an `Array`, which raise |
 | `integer` | an `Integer`, from text such as `42`, `-12` or `0042`, or a whole number with a decimal point, such as `12.0`, as a spreadsheet stores it | `42` |
-| `number` | a `BigDecimal`, from text such as `12.5`, `-1.5E3`, `NaN`, `INF` or `-INF`, whatever their case, or `Infinity` and `-Infinity`, as Ruby and JavaScript write them, and frictionless-py also reads them, or a number, including a `Rational`, or a `Float` with `floatNumber: true` | `12.5`, or `12.50` with `decimals: 2`, and one that is not finite as `NaN`, `INF` or `-INF`, except to JSON, which cannot hold it, so that it raises `IOStreams::Errors::InvalidValue` |
+| `number` | a `BigDecimal`, from text such as `12.5`, `-1.5E3`, `NaN`, `INF` or `-INF`, whatever their case, or `Infinity` and `-Infinity`, as Ruby and JavaScript write them, and frictionless-py also reads them, or a number, including a `Rational`, or a `Float` with `floatNumber: true`, rounded to its `decimals` when it has them | `12.5`, or `12.50` with `decimals: 2`, and one that is not finite as `NaN`, `INF` or `-INF`, except to JSON, which cannot hold it, so that it raises `IOStreams::Errors::InvalidValue` |
 | `boolean` | `true` or `false`, from one of its `trueValues` or `falseValues`, or the number `1` or `0`, such as `1.0` of a spreadsheet, or a number of JSON, a Parquet file or a query; any other number raises | the first of its `trueValues` or `falseValues` |
 | `date` | a `Date`, from `2026-10-13`, or text in its `format`, or a `Time` at midnight, by its own clock; any other time raises, rather than lose its time of day | `2026-10-13`, or text in its `format` |
 | `datetime` | a `Time`, from ISO 8601 with seconds, such as `2026-10-13T09:30:00Z`, also with a space in place of the `T`, such as `2026-10-13 09:30:00`, and an offset from UTC with or without a colon, or of hours alone, such as `+05:30`, `+0530` or `+05`, or text in its `format`. Text without an offset from UTC is read as UTC, and a date without a time raises | ISO 8601, such as `2026-10-13T09:30:00Z`, or text in its `format` |
@@ -194,10 +194,11 @@ a Hash that holds itself, raise `IOStreams::Errors::InvalidValue`.
 
 JSON writes integers, numbers and booleans as JSON numbers and booleans, with all of the digits of a `number`, and the
 digits after the decimal point that its `decimals` give, such as `12.50`, the same as CSV, an `object` or an `array`
-as itself, and every other value as text, such as a date, including in an application that uses ActiveSupport, as Rails does, which replaces how Ruby
-writes JSON. Reading JSON keeps all of the digits of a `number` too, rather than reading it through a `Float`, while
-the numbers of the other fields are a `Float`, as they are without a schema. The `:hash` and `:array` formats keep the
-values themselves.
+as itself, and every other value as text, such as a date, including in an application that uses ActiveSupport, as
+Rails does, which replaces how Ruby writes JSON. Reading JSON keeps all of the digits of a `number` too, rather than
+reading it through a `Float`, rounded to its `decimals` when it has them, while the numbers of the other fields are a
+`Float`, as they are without a schema. The `:hash` and `:array` formats keep the values themselves, apart from a
+`number` with `decimals`, which is rounded to them, both when reading and when writing.
 
 **A `duration` field needs the `activesupport` gem**, since its values are `ActiveSupport::Duration`s, which keep the
 months and days of a duration, such as a PostgreSQL `interval`, apart from its seconds, as neither has a fixed number of
@@ -552,9 +553,9 @@ and `#copy_to`, whose options only apply to the target.
   while the file must still have its column, see [Required fields](#required-fields). Text of only whitespace is not
   blank, so it is still read as the type of the field. IOStreams adds this property.
 * `decimals` For a `number`, the number of digits after the decimal point, rounding a `BigDecimal` half up, and a
-  `Float`, with `floatNumber: true`, as Ruby's `format` does, to the nearest of its binary value, as the layouts of
-  fixed width files did before v3.0, so that a `Float` exactly halfway rounds to the even digit, such as `0.12` for
-  `0.125`. It rounds the number read, also one that is not text, such as of JSON or the `:hash` format, as well as the
+  `Float`, with `floatNumber: true`, as Ruby's `format` writes it, as the layouts of fixed width files did before v3.0,
+  which rounds a `Float` whose text ends in 5 to the even digit, whatever its binary value, such as `0.12` for
+  `0.125`, `0.02` for `0.025` and `2.68` for `2.675`. It rounds the number read, also one that is not text, such as of JSON or the `:hash` format, as well as the
   number written, also to the `:hash` and `:array` formats, so that a record read holds the number that is written,
   such as `12.35` for the `BigDecimal` `12.345` with `decimals: 2`. A number that rounds to zero is zero, rather than
   `-0.0`, which would be written as `-0.00`. IOStreams adds this property.

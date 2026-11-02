@@ -596,10 +596,11 @@ module IOStreams
 
       # Returns [Numeric] the number, of the type of this field, see #cast, rounded to its decimals as its text is
       # written, see #render: a BigDecimal half up, whatever the rounding mode of `BigDecimal.mode`, and a Float as
-      # Ruby's `format` rounds it, to the nearest of its binary value, so that a record read, and a format that holds the
-      # number itself, such as Parquet, hold the number that CSV writes. A Float exactly halfway rounds to the even digit,
-      # such as 0.12 for 0.125, as `format` rounds it. A number that rounds to zero is zero, rather than -0.0, which CSV
-      # would write as "-0.00". A number that is not finite, or of a field without decimals, is returned as it is.
+      # Ruby's `format` writes it, which rounds a Float whose text ends in 5 to the even digit, whatever its binary value,
+      # such as 0.12 for 0.125, 0.02 for 0.025 and 2.68 for 2.675, so that a record read, and a format that holds the
+      # number itself, such as Parquet, hold the number that CSV writes. A number that rounds to zero is zero, rather
+      # than -0.0, which CSV would write as "-0.00". A number that is not finite, or of a field without decimals, is
+      # returned as it is.
       def round(number)
         return number if @decimals.nil? || !number.finite?
 
@@ -1108,8 +1109,8 @@ module IOStreams
         "#{whole}.#{fraction.ljust(@decimals, '0')[0, @decimals]}"
       end
 
-      # Returns [String] the text of a finite Float with the decimals of this field, which `format` rounds to the nearest
-      # of its binary value.
+      # Returns [String] the text of a finite Float with the decimals of this field, which `format` rounds as its text
+      # reads, a Float whose text ends in 5 to the even digit, whatever its binary value, see #round.
       def float_text(value)
         format("%.#{@decimals}f", value)
       end

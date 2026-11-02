@@ -8,9 +8,10 @@ module IOStreams
     # The type of each field:
     #   "string"    string
     #   "integer"   int64
-    #   "number"    decimal(38, decimals), or double with `floatNumber: true`, whose value is rounded to its `decimals`, if
-    #               any, as the field rounds the number that CSV writes, see `IOStreams::Schema::Field#round`. A number
-    #               needs one of them, since a Parquet decimal has a fixed number of digits after its point.
+    #   "number"    decimal(38, decimals), or double with `floatNumber: true`, whose value is already rounded to its
+    #               `decimals`, if any, by its field, as the field rounds the number that CSV writes, see
+    #               `IOStreams::Schema::Field#round`. A number needs one of them, since a Parquet decimal has a fixed
+    #               number of digits after its point.
     #   "boolean"   boolean
     #   "date"      date32
     #   "datetime"  timestamp_micros, adjusted to UTC, so the time read back is in UTC, and has whole microseconds.
@@ -57,7 +58,7 @@ module IOStreams
       end
 
       # Returns the value, of the type of the field, see `IOStreams::Schema::Field#render`, in the form that the
-      # `parquet` gem writes it: a number rounded to the decimals of its field, as the field rounds it, see
+      # `parquet` gem writes it: a number as it is, already rounded to the decimals of its field, see
       # `IOStreams::Schema::Field#round`, which for a decimal is its scale, since the gem drops the digits after it. A Date
       # is the Time at the start of its day in UTC, since the gem converts the text of a date at midnight in the time zone
       # of the process, which writes the day before east of UTC, and for a date before 1970 the day after west of UTC.
@@ -76,11 +77,11 @@ module IOStreams
         case @type
         when :int64 then int64(value)
         when :decimal then decimal(value)
-        when :double then @field.round(value)
         when :date32 then Time.utc(value.year, value.month, value.day)
         when :timestamp_micros then value.getutc
         when :time_micros then Time.utc(2000, 1, 1, value.hour, value.min, value.sec + value.subsec)
         when :string then value.is_a?(String) ? value : @field.render(value, :text)
+        # A double, and a boolean, as they are.
         else value
         end
       end
@@ -130,11 +131,10 @@ module IOStreams
                          "Parquet decimal")
         end
 
-        rounded = @field.round(value)
-        return rounded if rounded.abs < 10**(PRECISION - @field.decimals)
+        return value if value.abs < 10**(PRECISION - @field.decimals)
 
-        invalid(value, "#{value.to_s('F')} has more than #{PRECISION - @field.decimals} digits before its decimal " \
-                       "point, which a Parquet decimal(#{PRECISION}, #{@field.decimals}) cannot hold")
+        invalid(value, "#{@field.render(value, :text)} has more than #{PRECISION - @field.decimals} digits before its " \
+                       "decimal point, which a Parquet decimal(#{PRECISION}, #{@field.decimals}) cannot hold")
       end
 
       # Raises `IOStreams::Errors::InvalidValue` for a value of the column that Parquet cannot hold, naming its field,
