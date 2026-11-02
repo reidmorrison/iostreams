@@ -40,12 +40,16 @@ module IOStreams
 
     # The names in Ruby of the properties of a contract that its class declares, see .fields_match.
     DSL_PROPERTIES = {
-      fieldsMatch: "fields_match", keyType: "key_type", extraColumns: "extra_columns", missingValues: "missing_values"
+      fieldsMatch: "fields_match", keyType: "key_type", extraColumns: "extra_columns", missingValues: "missing_values",
+      primaryKey: "primary_key", uniqueKeys: "unique_keys", uniqueLimit: "unique_limit"
     }.freeze
 
     # A name of a method in Ruby, which an accessor of a field must be.
     ACCESSOR = /\A[[:lower:]_][[:word:]]*\z/
-    private_constant :DSL_PROPERTIES, :ACCESSOR
+    # The properties that name fields, which `.to_dsl` writes after them, since the contract checks that the fields
+    # that they name are declared.
+    KEY_PROPERTIES = %i[primaryKey uniqueKeys].freeze
+    private_constant :DSL_PROPERTIES, :ACCESSOR, :KEY_PROPERTIES
 
     class << self
       # Returns [Class] a new contract whose fields are the supplied Frictionless Table Schema, as `Struct.new` returns a
@@ -144,6 +148,25 @@ module IOStreams
         set_property(:missingValues, value)
       end
 
+      # Sets the field, or fields, whose values identify each record, such as `primary_key "id"` or
+      # `primary_key ["region", "id"]`, by their names in the schema, see `primaryKey` in `IOStreams::Schema`, after
+      # the fields that it names are declared.
+      def primary_key(value)
+        set_property(:primaryKey, value)
+      end
+
+      # Sets the fields of each key whose values must be unique, such as `unique_keys [["email"]]`, see `uniqueKeys` in
+      # `IOStreams::Schema`, after the fields that it names are declared.
+      def unique_keys(value)
+        set_property(:uniqueKeys, value)
+      end
+
+      # Sets the most distinct values of each field or key that must be unique that a read or write remembers, see
+      # `uniqueLimit` in `IOStreams::Schema`.
+      def unique_limit(value)
+        set_property(:uniqueLimit, value)
+      end
+
       # Returns [IOStreams::Schema] the fields of the contract and its other properties, as a schema, which the readers
       # and writers read and write by.
       #
@@ -191,15 +214,12 @@ module IOStreams
       #     Default: the name of this class, or "Contract" for one without a name.
       def to_dsl(class_name = name || "Contract")
         lines = ["class #{class_name} < IOStreams::Contract"]
-        to_h.except(:fields).each { |property, value| lines << "  #{dsl_property(property, value)}" }
+        keys  = to_h.slice(*KEY_PROPERTIES)
+        to_h.except(:fields, *KEY_PROPERTIES).each { |property, value| lines << "  #{dsl_property(property, value)}" }
         lines << "" if lines.size > 1 && !fields.empty?
-        rows = fields.zip(accessors).map { |field, accessor| [":#{accessor}", ":#{field.type}", dsl_options(field, accessor)] }
-        width = rows.map { |row| row[0].size }.max.to_i + 1
-        types = rows.map { |row| row[1].size }.max.to_i + 1
-        rows.each do |accessor, type, options|
-          type = "#{"#{type},".ljust(types)} #{options}" unless options.empty?
-          lines << "  field #{"#{accessor},".ljust(width)} #{type}".rstrip
-        end
+        lines.concat(dsl_fields)
+        lines << "" unless keys.empty? || fields.empty?
+        keys.each { |property, value| lines << "  #{dsl_property(property, value)}" }
         lines << "end"
         "#{lines.join("\n")}\n"
       end
@@ -332,6 +352,18 @@ module IOStreams
       def dsl_property(property, value)
         method = DSL_PROPERTIES[property]
         method ? "#{method} #{ruby_literal(value)}" : "# #{property}: #{ruby_literal(value)}"
+      end
+
+      # Returns [Array<String>] the line of `field` that declares each field, see #to_dsl, its accessor, type and options
+      # aligned.
+      def dsl_fields
+        rows  = fields.zip(accessors).map { |field, accessor| [":#{accessor}", ":#{field.type}", dsl_options(field, accessor)] }
+        width = rows.map { |row| row[0].size }.max.to_i + 1
+        types = rows.map { |row| row[1].size }.max.to_i + 1
+        rows.map do |accessor, type, options|
+          type = "#{"#{type},".ljust(types)} #{options}" unless options.empty?
+          "  field #{"#{accessor},".ljust(width)} #{type}".rstrip
+        end
       end
 
       # Returns [String] the options of `field` that declare the supplied field, see #to_dsl.

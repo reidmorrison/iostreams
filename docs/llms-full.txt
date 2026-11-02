@@ -3733,9 +3733,10 @@ end
   field, see [Field properties](schemas#field-properties), as Ruby names them, such as `decimals:`, `aliases:`,
   `format:`, `true_values:` or `allow_blank:`. `required: true` is `constraints: {required: true}`, and `name:` names
   the field in its schema, such as `name: "Ordered At"`, when it differs from its name in Ruby.
-* `fields_match`, `key_type`, `extra_columns` and `missing_values` set `fieldsMatch`, `keyType`, `extraColumns` and
-  `missingValues`, see [Schema properties](schemas#schema-properties). Without `fields_match`, the columns of a source
-  must be the fields, in order.
+* `fields_match`, `key_type`, `extra_columns`, `missing_values`, `unique_limit`, and after the fields that they name,
+  `primary_key` and `unique_keys`, set `fieldsMatch`, `keyType`, `extraColumns`, `missingValues`, `uniqueLimit`,
+  `primaryKey` and `uniqueKeys`, see [Schema properties](schemas#schema-properties). Without `fields_match`, the columns
+  of a source must be the fields, in order.
 * A subclass of a contract starts with its fields.
 * `Order.fields` returns its fields, and `Order.to_h` the contract as a Frictionless Table Schema, see below.
 * A contract is a class of its own, so name it so that it does not clash with a class of the application, such as an
@@ -4472,6 +4473,7 @@ the value as it was read, and the constraint:
 | Constraint | Types | Each value |
 |------------|-------|------------|
 | `enum` | every type | is one of its values |
+| `unique` | every type | is unique within the file, see [Unique values](#unique-values) |
 | `minimum`, `maximum` | `integer`, `number`, `date`, `time`, `datetime`, `duration` | is at least, or at most, its value |
 | `exclusiveMinimum`, `exclusiveMaximum` | the same | is more, or less, than its value |
 | `minLength`, `maxLength` | `string`, and the items of an `array` or `object` | has at least, or at most, that many characters or items |
@@ -4525,6 +4527,49 @@ raises `ArgumentError`.
 
 `jsonSchema` is not supported yet, so it raises `ArgumentError`, rather than appear to check values that it does not.
 
+## Unique values
+
+The values of a field whose `constraints` are `unique`, of the `primaryKey` of the schema, and of each of its
+`uniqueKeys`, as Frictionless defines them, must be unique within the file. Each read and each write of a file checks
+the values of its records once each is read as its fields, or as it is written, and raises
+`IOStreams::Errors::InvalidValue` for a value that an earlier record had, naming the field or key, the value, and the
+record and line where it reads it:
+
+~~~ruby
+path = IOStreams.path("people.csv").schema(
+  primaryKey: "id",
+  uniqueKeys: [["first_name", "last_name"]],
+  fields:     [
+    {name: "id", type: "integer"},
+    {name: "email", type: "string", constraints: {unique: true}},
+    {name: "first_name"},
+    {name: "last_name"}
+  ]
+)
+path.each(:hash) do |person|
+  p person
+end
+# "id,email,first_name,last_name\n1,a@x.com,Jack,Jones\n2,a@x.com,Jill,Jones\n" =>
+# IOStreams::Errors::InvalidValue: Field "email": "a@x.com" is not unique, it is the value of an earlier record, in record 2 on line 3
+~~~
+
+* `primaryKey` is the name of a field, or an Array of the names of fields, whose values together identify each record.
+  Each of its fields is required, as if its `constraints` were `required`, so it cannot have `allowBlank`.
+* `uniqueKeys` is an Array of keys, each an Array of the names of fields whose values together must be unique. A record
+  with `nil` in any field of a key is not compared, as SQL compares a unique key, and neither is `nil` of a field
+  whose `constraints` are `unique`.
+* Each field and key is checked on its own, as Frictionless requires, and values are compared as their fields read
+  them, so `1` and `01` of an `integer` are the same. Writing compares the values as it writes them, such as their text.
+* A record whose values are not valid, such as one that `on_invalid:` hands on, does not count.
+
+Each read or write remembers the values that it has seen, so the check applies to one read of one file: the slices of
+a file that several workers read are each checked on their own, as is each file read by a job. It remembers up to
+1,000,000 distinct values of each field and key, so that a large file does not fill the memory, and raises
+`IOStreams::Errors::UniqueLimitExceeded` once it would need to remember more, rather than miss a duplicate. The
+`uniqueLimit` of the schema, which IOStreams adds, changes how many: raise it for a larger file, or check the uniqueness
+of a very large one elsewhere, such as with a unique index of a database. `foreignKeys` is not supported yet, so it
+raises `ArgumentError`.
+
 ## Schema properties
 
 * `fields` The fields of the file, in the order of its columns, which can be empty with `extraColumns: "keep"`.
@@ -4542,6 +4587,10 @@ raises `ArgumentError`.
   [Keeping the other columns](#keeping-the-other-columns). IOStreams adds this property. Default: `skip`
 * `missingValues` The text that is a missing value of every field, read as `nil`, such as `["", "NA"]`, see
   [Missing values](#missing-values). Default: `[""]`
+* `primaryKey` The field, or fields, whose values identify each record, and `uniqueKeys`, the fields of each key
+  whose values must be unique, see [Unique values](#unique-values).
+* `uniqueLimit` The most distinct values of each field or key that must be unique that a read or write remembers, see
+  [Unique values](#unique-values). IOStreams adds this property. Default: `1_000_000`
 
 `$schema`, `title` and `description` describe the schema to people and have no effect.
 
@@ -4628,7 +4677,7 @@ and `#copy_to`, whose options only apply to the target.
 
 `title`, `description`, `example` and `rdfType` describe a field to people and have no effect, as do the properties
 of other tools, whose names include a `:`, such as `"mytool:owner"`. Any other property raises `ArgumentError`, as do
-the parts of Frictionless that IOStreams does not support yet, such as `primaryKey`, the constraint `jsonSchema`, and
+the parts of Frictionless that IOStreams does not support yet, such as `foreignKeys`, the constraint `jsonSchema`, and
 the `year` type, so that a schema never appears to check a value that it does not.
 
 ## Values without a field
@@ -6862,7 +6911,14 @@ IOStreams raises these classes itself:
     names the record that it is in and the line that the record starts on, such as `..., in record 6 on line 7`, which
     its `#record_number` and `#line_number` hold, with its `#field`, `#value` and `#reason`, see
     [Values that are not valid](streams#values-that-are-not-valid). `on_invalid:` hands each bad row to a handler
-    instead, as an `IOStreams::InvalidRow`.
+    instead, as an `IOStreams::InvalidRow`. A value that does not follow a [constraint](schemas#constraints) raises
+    it too, and so does a value of a field or key that must be [unique](schemas#unique-values) that an earlier record
+    of the same read or write had, whose `#field` is the name of the field, or the names of the fields of a key.
+  * `IOStreams::Errors::UniqueLimitExceeded`: a read or write has seen more distinct values of a field or key that
+    must be [unique](schemas#unique-values) than it remembers, the `uniqueLimit` of the schema, 1,000,000 by default,
+    so that it can no longer tell whether a value is a duplicate. It is not an `InvalidValue`, since the value may well
+    be unique, so `on_invalid:` does not take it: raise `uniqueLimit`, or check the uniqueness elsewhere, such as with a
+    unique index of a database.
   * `IOStreams::Errors::InvalidLineLength`: a fixed width line does not have the length of its schema.
   * `IOStreams::Errors::ValueTooLong`: a value does not fit within its fixed width field.
   * `IOStreams::Errors::InvalidLayout`: nothing raises it since v3.0 removed the layout of a fixed width file, which a

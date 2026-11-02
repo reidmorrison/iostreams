@@ -118,14 +118,14 @@ module IOStreams
       # is not valid, otherwise for each field of the contract, see `IOStreams::Schema::Columns#value_errors`.
       def value_errors(values)
         errors = @source.value_errors(values)
-        errors.empty? ? @contract.value_errors(@source.row(values)) : errors
+        errors.empty? ? @contract.value_errors(@source.row(values, unique: false)) : errors
       end
 
       # Returns [Array<IOStreams::Errors::InvalidValue>] an error for each field whose value of a record of a format whose
       # records supply their own keys, such as JSON, is not valid, see #value_errors.
       def hash_errors(hash)
         errors = @source.hash_errors(hash)
-        errors.empty? ? @contract.hash_errors(@source.read_hash(hash)) : errors
+        errors.empty? ? @contract.hash_errors(@source.read_hash(hash, unique: false)) : errors
       end
 
       # Returns [Array|Hash] the values of a row or record written, converted to the fields of the contract, see

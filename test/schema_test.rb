@@ -40,8 +40,8 @@ class SchemaTest < Minitest::Test
       end
 
       it "raises for a property of Frictionless that is not supported, rather than ignore its rule" do
-        error = assert_raises(ArgumentError) { IOStreams::Schema.new(fields: [{name: "id"}], primaryKey: ["id"]) }
-        assert_equal 'The schema property "primaryKey" is not supported', error.message
+        error = assert_raises(ArgumentError) { IOStreams::Schema.new(fields: [{name: "id"}], foreignKeys: []) }
+        assert_equal 'The schema property "foreignKeys" is not supported', error.message
       end
 
       it "raises without an Array of fields" do
@@ -355,23 +355,23 @@ class SchemaTest < Minitest::Test
 
     describe "a field that is skipped" do
       it "takes only the properties that place its column" do
-        field = IOStreams::Schema::Field.new(name: "filler", skip: true, type: "any", width: 3, start: 4, aliases: ["x"], title: "Filler", "tool:x" => 1)
+        field = IOStreams::Schema::Field.new({name: "filler", skip: true, type: "any", width: 3, start: 4, aliases: ["x"], title: "Filler", "tool:x" => 1})
 
         assert_predicate field, :skip?
-        refute_predicate IOStreams::Schema::Field.new(name: "id"), :skip?
-        refute_predicate IOStreams::Schema::Field.new(name: "id", skip: false, type: "integer"), :skip?
+        refute_predicate IOStreams::Schema::Field.new({name: "id"}), :skip?
+        refute_predicate IOStreams::Schema::Field.new({name: "id", skip: false, type: "integer"}), :skip?
       end
 
       it "raises for a type, constraints or any other property that reads its values" do
         [{type: "integer"}, {constraints: {required: true}}, {format: "%Y"}, {truncate: true}].each do |property|
-          error = assert_raises(ArgumentError) { IOStreams::Schema::Field.new(name: "filler", skip: true, **property) }
+          error = assert_raises(ArgumentError) { IOStreams::Schema::Field.new({name: "filler", skip: true, **property}) }
           assert_equal "Field \"filler\": #{property.keys.first.to_s.inspect} does not apply to a field with skip: true, which only " \
                        "holds the place of its column, since its values are not read", error.message
         end
       end
 
       it "raises for a skip that is not true or false" do
-        error = assert_raises(ArgumentError) { IOStreams::Schema::Field.new(name: "filler", skip: "yes") }
+        error = assert_raises(ArgumentError) { IOStreams::Schema::Field.new({name: "filler", skip: "yes"}) }
         assert_equal 'Field "filler": skip must be true or false: "yes"', error.message
       end
     end

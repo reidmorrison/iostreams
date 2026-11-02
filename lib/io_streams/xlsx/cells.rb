@@ -168,7 +168,7 @@ module IOStreams
 
       # Returns [IOStreams::Schema::Field] a field of type `time`, which writes the text of a time of day.
       def self.time_of_day_field
-        @time_of_day_field ||= Schema::Field.new(name: "time", type: "time")
+        @time_of_day_field ||= Schema::Field.new({name: "time", type: "time"})
       end
 
       # Returns [Time] the time, in UTC, of the clock of the days since the first day of the workbook, to the millisecond

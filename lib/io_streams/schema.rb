@@ -65,6 +65,21 @@ module IOStreams
   #     `IOStreams::Schema::Field`.
   #     Default: `[""]`
   #
+  #   primaryKey: [String|Array<String>]
+  #     The field, or fields, whose values identify each record, as Frictionless defines it: the value of each record,
+  #     of every field together, must be unique within the file, and each field is required, as if its `constraints`
+  #     were `required`, see `IOStreams::Schema::Field`. A String is the name of one field, as Frictionless v1 wrote it.
+  #
+  #   uniqueKeys: [Array<Array<String>>]
+  #     The fields of each key whose values, of every field together, must be unique within the file, as Frictionless
+  #     defines it, such as `[["email"], ["first_name", "last_name"]]`. A record with a value of nil in any field of a key
+  #     is not compared, as SQL compares a unique key.
+  #
+  #   uniqueLimit: [Integer]
+  #     The most distinct values of each field or key that must be unique that a read or write remembers, which
+  #     IOStreams adds to the properties of Frictionless, see `IOStreams::Schema::Uniqueness`.
+  #     Default: 1,000,000
+  #
   #   extraColumns: [String]
   #     What reading does with the columns that the schema does not list, which `fieldsMatch` "subset" and "partial"
   #     accept, which IOStreams adds to the properties of Frictionless:
@@ -80,7 +95,7 @@ module IOStreams
   # Properties that only describe the schema to people, `$schema`, `title` and `description`, are accepted and have
   # no effect, as are the properties of other tools, whose names include a `:`, such as `"mytool:owner"`. Any other
   # property raises `ArgumentError`, including those of Frictionless that IOStreams does not support yet, such as
-  # `primaryKey`, so that a schema never appears to apply a rule that it does not.
+  # `foreignKeys`, so that a schema never appears to apply a rule that it does not.
   #
   # A schema is an object, which `IOStreams::Stream#infer_schema` returns, and `IOStreams::Stream#schema` takes, as
   # well as a Hash or the path of a JSON file. Its public methods are .new, .read, #fields, #fields_match, #to_h,
@@ -105,9 +120,10 @@ module IOStreams
     autoload :NumberText,      "io_streams/schema/number_text"
     autoload :Pattern,         "io_streams/schema/pattern"
     autoload :Source,          "io_streams/schema/source"
+    autoload :Uniqueness,      "io_streams/schema/uniqueness"
 
     # The properties of a schema that IOStreams supports.
-    PROPERTIES = %w[fields fieldsMatch header width keyType extraColumns missingValues].freeze
+    PROPERTIES = %w[fields fieldsMatch header width keyType extraColumns missingValues primaryKey uniqueKeys uniqueLimit].freeze
 
     # The properties of a schema that lay out a file, whether it has a header row and the width of its lines, which a
     # contract never has, see `IOStreams::Contract`. Those of a field are `IOStreams::Schema::Field::LAYOUT_PROPERTIES`.
@@ -121,7 +137,11 @@ module IOStreams
     DESCRIPTIVE_PROPERTIES = %w[$schema title description].freeze
 
     # The properties of a Frictionless Table Schema that IOStreams does not support yet.
-    UNSUPPORTED_PROPERTIES = %w[primaryKey foreignKeys uniqueKeys].freeze
+    UNSUPPORTED_PROPERTIES = %w[foreignKeys].freeze
+
+    # The most distinct values of each field or key that must be unique that a read or write remembers, see
+    # `uniqueLimit` above.
+    UNIQUE_LIMIT = 1_000_000
 
     # The values of `fieldsMatch`, see above, those that skip the columns that the schema does not list, and those that
     # need every field.
@@ -216,7 +236,10 @@ module IOStreams
       descriptor = descriptor.transform_keys(&:to_s)
       check_properties(descriptor)
       @missing      = build_missing_values(descriptor)
-      @fields       = build_fields(descriptor["fields"])
+      primary_key   = check_key("primaryKey", primary_key_names(descriptor["primaryKey"]))
+      @fields       = build_fields(descriptor["fields"], primary_key)
+      @unique_keys  = build_unique_keys(primary_key, descriptor["uniqueKeys"])
+      @unique_limit = check_unique_limit(descriptor["uniqueLimit"])
       @header       = check_header(descriptor["header"])
       @fields_match = check_fields_match(descriptor["fieldsMatch"])
       @width        = check_width(descriptor["width"])
@@ -553,6 +576,15 @@ module IOStreams
       SKIPS_UNKNOWN.include?(fields_match)
     end
 
+    # Returns [IOStreams::Schema::Uniqueness|nil] a new tracker of the values of each field and key whose values must be
+    # unique, see `unique` in `IOStreams::Schema::Constraints`, and `primaryKey` and `uniqueKeys` above, which one read
+    # or write of a file holds, see `IOStreams::Schema::Columns`, or nil when the schema has none.
+    def uniqueness
+      return if @unique_keys.empty?
+
+      Uniqueness.new(@unique_keys, @unique_limit)
+    end
+
     # Returns [true|false] whether reading keeps the columns that the schema does not list, see `extraColumns` above.
     def keep_extra?
       @keep_extra
@@ -690,11 +722,14 @@ module IOStreams
       end
     end
 
-    def build_fields(fields)
+    def build_fields(fields, primary_key)
       raise(ArgumentError, "A schema must have an Array of fields: #{fields.inspect}") unless fields.is_a?(Array)
 
-      fields = fields.collect { |field| Field.new(field, @missing) }
-      names  = fields.collect { |field| field.name.to_s }
+      fields = fields.collect do |field|
+        key = field.is_a?(Hash) && primary_key.include?((field["name"] || field[:name]).to_s)
+        Field.new(field, missing_values: @missing, primary_key: key)
+      end
+      names = fields.collect { |field| field.name.to_s }
       duplicates = names.select { |name| names.count(name) > 1 }.uniq
       raise(ArgumentError, "Field names must be unique: #{duplicates.join(', ')}") unless duplicates.empty?
 
@@ -750,6 +785,88 @@ module IOStreams
       properties = descriptor.except("fields").transform_keys(&:to_sym)
       properties[:missingValues] = @missing.descriptor if properties.key?(:missingValues)
       Utils.frozen_copy(properties)
+    end
+
+    # Returns [Array<String>] the names of the fields of the `primaryKey`, see above, a String or an Array of them, each
+    # as text, so that a Symbol names the field of its name, as a field named with a Symbol is.
+    #
+    # Raises ArgumentError for a value that is neither.
+    def primary_key_names(primary_key)
+      return [] if primary_key.nil?
+      return [primary_key.to_s] if name?(primary_key)
+
+      names = primary_key.is_a?(Array) && !primary_key.empty? && primary_key.all? { |name| name?(name) }
+      return primary_key.map(&:to_s) if names
+
+      raise(ArgumentError, "The schema primaryKey must be the name of a field, or an Array of them: #{primary_key.inspect}")
+    end
+
+    # Returns [Array<String>] the names of the fields of a key, see `primaryKey` and `uniqueKeys` above, once checked.
+    #
+    # Raises ArgumentError for a name that is not that of a field of the schema, once they are built, or that the key
+    # names twice.
+    def check_key(property, names)
+      duplicate = names.find { |name| names.count(name) > 1 }
+      raise(ArgumentError, "The schema #{property} names the field #{duplicate.inspect} twice") if duplicate
+
+      names
+    end
+
+    # Returns [Array<Array(String, Array<IOStreams::Schema::Field>)>] each field and key whose values must be unique, see
+    # #uniqueness, with what it is, for the messages of its errors: the fields whose constraints are `unique`, then the
+    # `primaryKey`, then each of the `uniqueKeys`, each once.
+    #
+    # Raises ArgumentError for a key that names a field that the schema does not have, or that is not an Array of the
+    # names of fields.
+    def build_unique_keys(primary_key, unique_keys)
+      keys = fields.select(&:unique?).map { |field| ["Field #{field.name.inspect}", [field]] }
+      keys << [key_label("primaryKey", primary_key), key_fields("primaryKey", primary_key)] unless primary_key.empty?
+      unique_key_names(unique_keys).each do |names|
+        keys << [key_label("uniqueKey", names), key_fields("uniqueKeys", names)]
+      end
+      keys.uniq { |_label, key| key.map(&:object_id) }.freeze
+    end
+
+    # Returns [Array<Array<String>>] the names of the fields of each of the `uniqueKeys`, see above.
+    def unique_key_names(unique_keys)
+      return [] if unique_keys.nil?
+
+      valid = unique_keys.is_a?(Array) &&
+              unique_keys.all? { |names| names.is_a?(Array) && !names.empty? && names.all? { |name| name?(name) } }
+      return unique_keys.map { |names| check_key("uniqueKeys", names.map(&:to_s)) } if valid
+
+      raise(ArgumentError, "The schema uniqueKeys must be an Array of Arrays of the names of fields, such as " \
+                           "[[\"email\"], [\"first_name\", \"last_name\"]]: #{unique_keys.inspect}")
+    end
+
+    # Returns [true|false] whether the value names a field, a String or a Symbol, see `primaryKey` and `uniqueKeys` above.
+    def name?(name)
+      name.is_a?(String) || name.is_a?(Symbol)
+    end
+
+    # Returns [String] what a key is, for the messages of its errors, such as `The primaryKey "id"`, or
+    # `The uniqueKey "first_name", "last_name"` of several fields, see `IOStreams::Schema::Uniqueness`.
+    def key_label(property, names)
+      "The #{property} #{names.map(&:inspect).join(', ')}"
+    end
+
+    # Returns [Array<IOStreams::Schema::Field>] the fields of the supplied names of a key.
+    #
+    # Raises ArgumentError for a name that is not that of a field.
+    def key_fields(property, names)
+      names.map do |name|
+        field = fields.find { |each_field| each_field.name.to_s == name }
+        next field if field
+
+        raise(ArgumentError, "The schema #{property} names #{name.inspect}, which is not a field of the schema")
+      end
+    end
+
+    def check_unique_limit(limit)
+      return UNIQUE_LIMIT if limit.nil?
+      return limit if limit.is_a?(Integer) && limit.positive?
+
+      raise(ArgumentError, "The schema uniqueLimit must be a positive Integer: #{limit.inspect}")
     end
 
     # Returns [IOStreams::Schema::MissingValues] the missing values of the fields, see `missingValues` above, which a field

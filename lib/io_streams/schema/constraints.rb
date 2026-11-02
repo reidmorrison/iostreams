@@ -15,6 +15,11 @@ module IOStreams
     #     through a contract alone, whose missing key is a value of nil, see `IOStreams::Schema::Columns.new(keys_vary:)`.
     #     Default: false
     #
+    #   unique: [true|false]
+    #     Whether each value of the field must be unique within the file, which a read or write checks, see
+    #     `IOStreams::Schema::Uniqueness`. A value that is nil is not compared.
+    #     Default: false
+    #
     #   enum: [Array]
     #     The values that a value of the field must be one of, of any type. A field of type `any` compares the value as
     #     it is read, so the text "1" of CSV is not the number 1.
@@ -45,11 +50,10 @@ module IOStreams
     # A field also gives its `categories`, the values of a string or integer field, see `IOStreams::Schema::Field`,
     # which a value must be one of, as for `enum`, whose values must be among them.
     #
-    # `unique` and `jsonSchema` are not supported yet, so they raise ArgumentError, rather than appear to check values
-    # that they do not.
+    # `jsonSchema` is not supported yet, so it raises ArgumentError, rather than appear to check values that it does not.
     class Constraints
       # The constraints of Frictionless that IOStreams does not support yet.
-      UNSUPPORTED = %w[unique jsonSchema].freeze
+      UNSUPPORTED = %w[jsonSchema].freeze
 
       # The types whose values `minimum`, `maximum`, `exclusiveMinimum` and `exclusiveMaximum` compare.
       ORDERED_TYPES = %w[integer number date time datetime duration].freeze
@@ -74,7 +78,7 @@ module IOStreams
       }.freeze
 
       # The constraints that IOStreams supports.
-      SUPPORTED = (%w[required enum] + TYPES.keys).freeze
+      SUPPORTED = (%w[required unique enum] + TYPES.keys).freeze
 
       # The comparison of a value with each bound, and how its message says that a value is outside it.
       BOUNDS = {
@@ -110,18 +114,25 @@ module IOStreams
       #     `IOStreams::Schema::Field`.
       #     Default: none
       #
+      #   primary_key: [true|false]
+      #     Whether the field is one of the `primaryKey` of its schema, see `IOStreams::Schema`, which makes it required,
+      #     as Frictionless says, whatever its own `required`.
+      #     Default: false
+      #
       # The field must be able to read the values of constraints, see `IOStreams::Schema::Field#constraint_value`, so it
       # builds its constraints last.
       #
       # Raises ArgumentError for constraints that are not supported, or are not valid, for `allow_blank` when the field is
-      # not required, whose values can be blank anyway, and for an `enum` value that is not one of the categories.
-      def initialize(constraints, field, allow_blank: false, categories: nil)
+      # not required, whose values can be blank anyway, or is of the primary key, whose values never are, and for an
+      # `enum` value that is not one of the categories.
+      def initialize(constraints, field, allow_blank: false, categories: nil, primary_key: false)
         @field       = field
         @name        = field.name
         @keyed       = KEYED_TYPES.include?(field.type)
         constraints  = check_hash(constraints)
-        @required    = check_required(constraints["required"])
-        @allow_blank = check_allow_blank(allow_blank)
+        @required    = check_required(constraints["required"]) || primary_key
+        @unique      = check_unique(constraints["unique"])
+        @allow_blank = check_allow_blank(allow_blank, primary_key)
         @enum        = read_enum(constraints)
         @bounds      = read_bounds(constraints)
         @min_length  = check_length("minLength", constraints["minLength"])
@@ -145,6 +156,11 @@ module IOStreams
       # above, unless it allows blank values, so that a value of nil, or a missing value, raises, see #no_value.
       def value_required?
         @required && !@allow_blank
+      end
+
+      # Returns [true|false] whether each value of the field must be unique within the file, see `unique` above.
+      def unique?
+        @unique
       end
 
       # Returns [true|false] whether any constraint checks the values of the field, see #check, so that a field that has
@@ -272,8 +288,20 @@ module IOStreams
         raise(ArgumentError, "Field #{@name.inspect}: constraints required must be true or false: #{required.inspect}")
       end
 
-      # Returns [true|false] whether the field allows blank values, which only a required field can.
-      def check_allow_blank(allow_blank)
+      def check_unique(unique)
+        return false if unique.nil?
+        return unique if [true, false].include?(unique)
+
+        raise(ArgumentError, "Field #{@name.inspect}: constraints unique must be true or false: #{unique.inspect}")
+      end
+
+      # Returns [true|false] whether the field allows blank values, which only a required field can, apart from a field
+      # of the primary key, whose values never are.
+      def check_allow_blank(allow_blank, primary_key)
+        if allow_blank && primary_key
+          raise(ArgumentError, "Field #{@name.inspect}: allowBlank does not apply to a field of the primaryKey, whose " \
+                               "values are required")
+        end
         return allow_blank if !allow_blank || @required
 
         raise(ArgumentError, "Field #{@name.inspect}: allowBlank only applies to a field whose constraints are required, " \

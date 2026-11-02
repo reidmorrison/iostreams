@@ -150,7 +150,14 @@ IOStreams raises these classes itself:
     names the record that it is in and the line that the record starts on, such as `..., in record 6 on line 7`, which
     its `#record_number` and `#line_number` hold, with its `#field`, `#value` and `#reason`, see
     [Values that are not valid](streams#values-that-are-not-valid). `on_invalid:` hands each bad row to a handler
-    instead, as an `IOStreams::InvalidRow`.
+    instead, as an `IOStreams::InvalidRow`. A value that does not follow a [constraint](schemas#constraints) raises
+    it too, and so does a value of a field or key that must be [unique](schemas#unique-values) that an earlier record
+    of the same read or write had, whose `#field` is the name of the field, or the names of the fields of a key.
+  * `IOStreams::Errors::UniqueLimitExceeded`: a read or write has seen more distinct values of a field or key that
+    must be [unique](schemas#unique-values) than it remembers, the `uniqueLimit` of the schema, 1,000,000 by default,
+    so that it can no longer tell whether a value is a duplicate. It is not an `InvalidValue`, since the value may well
+    be unique, so `on_invalid:` does not take it: raise `uniqueLimit`, or check the uniqueness elsewhere, such as with a
+    unique index of a database.
   * `IOStreams::Errors::InvalidLineLength`: a fixed width line does not have the length of its schema.
   * `IOStreams::Errors::ValueTooLong`: a value does not fit within its fixed width field.
   * `IOStreams::Errors::InvalidLayout`: nothing raises it since v3.0 removed the layout of a fixed width file, which a

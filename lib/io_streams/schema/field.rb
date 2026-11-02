@@ -261,8 +261,13 @@ module IOStreams
       #     The missing values of the schema, which the field's own `missingValues` replaces, see above.
       #     Default: `[""]`
       #
+      #   primary_key: [true|false]
+      #     Whether the field is one of the `primaryKey` of its schema, which makes it required, see
+      #     `IOStreams::Schema::Constraints`.
+      #     Default: false
+      #
       # Raises ArgumentError when the descriptor is not a valid field.
-      def initialize(descriptor, missing_values = MissingValues::DEFAULT) # rubocop:disable Metrics/AbcSize -- one check for each property of a field
+      def initialize(descriptor, missing_values: MissingValues::DEFAULT, primary_key: false) # rubocop:disable Metrics/AbcSize -- one check for each property of a field
         raise(ArgumentError, "A schema field must be a Hash: #{descriptor.inspect}") unless descriptor.is_a?(Hash)
 
         descriptor = descriptor.transform_keys(&:to_s)
@@ -297,10 +302,11 @@ module IOStreams
         # Built last, since the constraints ask the field to read their values, see #constraint_value.
         @constraints  = Constraints.new(descriptor["constraints"], self,
                                         allow_blank: check_flag("allowBlank", descriptor["allowBlank"]),
-                                        categories:  read_categories(descriptor["categories"]))
+                                        categories:  read_categories(descriptor["categories"]),
+                                        primary_key: primary_key)
         @checks       = @constraints.checks?
         @properties   = properties_of(descriptor)
-        @hash         = [self.class, @properties, @missing].hash
+        @hash         = [self.class, @properties, @missing, required?].hash
         freeze
       end
 
@@ -331,13 +337,17 @@ module IOStreams
       # Returns [true|false] whether the other is a field of the same properties, see #to_h, and missing values, which
       # can be those of its schema, see `missingValues` above.
       def ==(other)
-        equal?(other) || (other.instance_of?(self.class) && properties == other.properties && missing == other.missing)
+        equal?(other) ||
+          (other.instance_of?(self.class) && properties == other.properties && missing == other.missing &&
+           required? == other.required?)
       end
 
       # Returns [true|false] whether the other is a field of the same properties and missing values, compared by `eql?`,
       # as a Hash key is.
       def eql?(other)
-        equal?(other) || (other.instance_of?(self.class) && properties.eql?(other.properties) && missing.eql?(other.missing))
+        equal?(other) ||
+          (other.instance_of?(self.class) && properties.eql?(other.properties) && missing.eql?(other.missing) &&
+           required? == other.required?)
       end
 
       # Returns [Integer] the hash of the properties of the field, worked out once, since a field never changes.
@@ -547,6 +557,10 @@ module IOStreams
       # Returns [true|false] whether each value of the field must be present: when it is required, unless it allows
       # blank values, see `constraints` and `allowBlank` above, so that a value of nil, or a missing value, raises.
       def value_required? = @constraints.value_required?
+
+      # Returns [true|false] whether each value of the field must be unique within the file, see
+      # `IOStreams::Schema::Constraints`.
+      def unique? = @constraints.unique?
 
       # Returns [true|false] whether the text is one of the missing values of the field, see `missingValues` above, such
       # as the text of a cell of a spreadsheet, see `IOStreams::Xlsx::Reader::Rows`, or of a number that a fixed width
