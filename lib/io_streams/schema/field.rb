@@ -32,7 +32,7 @@ module IOStreams
     #                 than lose its time of day.
     #     "datetime": a Time, written as `2026-10-13T09:30:00Z` unless `format` is set. Without a format it reads ISO 8601
     #                 with seconds, with a space in place of the T, such as `2026-10-13 09:30:00`, and an offset from UTC
-    #                 with or without a colon, such as `+05:30` or `+0530`, see #cast_datetime.
+    #                 with or without a colon, or of hours alone, such as `+05:30`, `+0530` or `+05`, see #cast_datetime.
     #     "time":     a time of day, a Time on 2000-01-01, as Active Record holds the value of a `time` column, written as
     #                 the time of its own clock, such as `09:30:00`, without its offset from UTC, unless `format` is set.
     #     "duration": an `ActiveSupport::Duration`, as Active Record holds the value of a PostgreSQL `interval`, read from
@@ -192,14 +192,15 @@ module IOStreams
       # `Float()` and `BigDecimal()` raise for before Ruby 3.4.
       BARE_POINT = /\.(?=[eE]|\z)/
       DATE     = /\A\d{4}-\d{2}-\d{2}\z/
-      # The text of a datetime without a format: ISO 8601 with seconds, with a T or a space between its date and its
-      # time, and an offset from UTC, Z, or the hours and minutes with or without a colon between them, such as
-      # `+05:30` or `+0530`, or none, which is UTC. Its date, its time and its offset are captured.
-      DATETIME = /\A(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2}:\d{2}(?:\.\d+)?)(Z|[+-]\d{2}:?\d{2})?\z/
+      # The text of a datetime without a format: ISO 8601 with seconds, below 60, with a T or a space between its date
+      # and its time, and an offset from UTC, Z, or the hours, with or without minutes, below 60, with or without a
+      # colon between them, such as `+05:30`, `+0530` or `+05`, as PostgreSQL writes it, or none, which is UTC. Its date,
+      # its time and its offset are captured.
+      DATETIME = /\A(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2}:[0-5]\d(?:\.\d+)?)(Z|[+-]\d{2}(?::?[0-5]\d)?)?\z/
       # A time of day, with an offset from UTC as a datetime has one, see DATETIME, whose hour, minute and second are
       # checked, see #cast_time, since `Time` moves 24:00:00, and a leap second, into the next day. Its hour, minute,
       # second, fraction of a second and offset are captured.
-      TIME     = /\A(\d{2}):(\d{2}):(\d{2})(\.\d+)?(Z|[+-]\d{2}:?\d{2})?\z/
+      TIME     = /\A(\d{2}):(\d{2}):(\d{2})(\.\d+)?(Z|[+-]\d{2}(?::?[0-5]\d)?)?\z/
 
       # Returns [String|Symbol] the name of the field, as it was given.
       attr_reader :name
@@ -960,10 +961,11 @@ module IOStreams
       end
 
       # Returns [String] the offset from UTC as `Time.iso8601` reads it: Z without one, and its hours and minutes with
-      # a colon between them, such as `+05:30` for `+0530`.
+      # a colon between them, such as `+05:30` for `+0530`, and `+05:00` for `+05`.
       def iso_offset(offset)
         return "Z" if offset.nil?
         return offset if offset == "Z" || offset.include?(":")
+        return "#{offset}:00" if offset.length == 3
 
         "#{offset[0, 3]}:#{offset[3, 2]}"
       end

@@ -1222,9 +1222,28 @@ class SchemaTest < Minitest::Test
 
         it "raises for a date without a time, or another form" do
           ["2026-10-13", "2026-10-13T25:00:00Z", "2026-10-13T09:30Z", "2026-10-13  09:30:00", "2026-10-13T09:30:00+5",
-           "2026-10-13T09:30:00+05:3", "2026-10-13T09:30:00 +05:30", "2026-10-13t09:30:00"].each do |text|
+           "2026-10-13T09:30:00+05:3", "2026-10-13T09:30:00 +05:30", "2026-10-13t09:30:00", "2026-10-13T09:30:00z"].each do |text|
             assert_raises(IOStreams::Errors::InvalidValue, text) { datetime.cast(text) }
           end
+        end
+
+        it "reads an offset of hours alone, such as +05, as PostgreSQL writes it, and -0000 as UTC" do
+          time = datetime.cast("2026-10-31 09:30:00+05")
+
+          assert_equal Time.utc(2026, 10, 31, 4, 30), time
+          assert_equal 18_000, time.utc_offset
+          assert_equal(-28_800, datetime.cast("2026-10-31T09:30:00.25-08").utc_offset)
+          assert_equal Time.utc(2026, 10, 31, 9, 30), datetime.cast("2026-10-31T09:30:00-0000")
+          assert_equal 0, datetime.cast("2026-10-31T09:30:00-0000").utc_offset
+          assert_equal Time.new(2000, 1, 1, 9, 30, 0, "+05:00"), field(type: "time").cast("09:30:00+05")
+        end
+
+        it "raises for minutes of an offset, or seconds, of 60 or more, and for text after a line break" do
+          ["2026-10-13T09:30:00+0560", "2026-10-13T09:30:00+05:60", "2026-10-13T09:30:00+053", "2026-10-13T23:59:60Z",
+           "2026-10-13T09:30:00Z\njunk", "2026-10-13T09:30:00\njunk"].each do |text|
+            assert_raises(IOStreams::Errors::InvalidValue, text.inspect) { datetime.cast(text) }
+          end
+          assert_raises(IOStreams::Errors::InvalidValue) { field(type: "time").cast("09:30:00+0560") }
         end
 
         it "reads a space in place of the T, as databases and spreadsheets write it, and an offset without a colon" do
