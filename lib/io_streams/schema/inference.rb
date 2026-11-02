@@ -14,8 +14,8 @@ module IOStreams
     #             which stays a string.
     #   number:   numbers with a fraction, such as `12.50`, with the most `decimals` seen.
     #   boolean:  `true` or `false`, in any case.
-    #   date, datetime and time: ISO 8601 text, such as `2026-10-25`, `2026-10-25T09:30:00Z` or `09:30:00`, or Dates and
-    #             Times.
+    #   date, datetime and time: ISO 8601 text, such as `2026-10-25`, `2026-10-25T09:30:00Z` or `09:30:00`, also with a
+    #             space in place of the T, or an offset without a colon, as a field reads them, or Dates and Times.
     #   date with a `format`: US dates, such as `10/25/2026`, see #us_date.
     #   object and array: Hashes and Arrays, such as those of JSON.
     #   string:   any other text, including text of only whitespace, which a field of any other type raises for, since it

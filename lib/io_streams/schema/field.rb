@@ -30,7 +30,9 @@ module IOStreams
     #     "date":     a Date, written as `2026-10-13` unless `format` is set. A Time or DateTime at midnight, by its own
     #                 clock, as a spreadsheet's date format reads it, is its date, while any other time raises, rather
     #                 than lose its time of day.
-    #     "datetime": a Time, written as `2026-10-13T09:30:00Z` unless `format` is set.
+    #     "datetime": a Time, written as `2026-10-13T09:30:00Z` unless `format` is set. Without a format it reads ISO 8601
+    #                 with seconds, with a space in place of the T, such as `2026-10-13 09:30:00`, and an offset from UTC
+    #                 with or without a colon, such as `+05:30` or `+0530`, see #cast_datetime.
     #     "time":     a time of day, a Time on 2000-01-01, as Active Record holds the value of a `time` column, written as
     #                 the time of its own clock, such as `09:30:00`, without its offset from UTC, unless `format` is set.
     #     "duration": an `ActiveSupport::Duration`, as Active Record holds the value of a PostgreSQL `interval`, read from
@@ -190,12 +192,14 @@ module IOStreams
       # `Float()` and `BigDecimal()` raise for before Ruby 3.4.
       BARE_POINT = /\.(?=[eE]|\z)/
       DATE     = /\A\d{4}-\d{2}-\d{2}\z/
-      DATETIME = /\A\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})?\z/
-      # The offset from UTC at the end of the text of a datetime that DATETIME matches, or of a time that TIME matches.
-      OFFSET   = /(?:Z|[+-]\d{2}:\d{2})\z/
-      # A time of day, whose hour, minute and second are checked, see #cast_time, since `Time` moves 24:00:00, and a leap
-      # second, into the next day.
-      TIME     = /\A(\d{2}):(\d{2}):(\d{2})(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})?\z/
+      # The text of a datetime without a format: ISO 8601 with seconds, with a T or a space between its date and its
+      # time, and an offset from UTC, Z, or the hours and minutes with or without a colon between them, such as
+      # `+05:30` or `+0530`, or none, which is UTC. Its date, its time and its offset are captured.
+      DATETIME = /\A(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2}:\d{2}(?:\.\d+)?)(Z|[+-]\d{2}:?\d{2})?\z/
+      # A time of day, with an offset from UTC as a datetime has one, see DATETIME, whose hour, minute and second are
+      # checked, see #cast_time, since `Time` moves 24:00:00, and a leap second, into the next day. Its hour, minute,
+      # second, fraction of a second and offset are captured.
+      TIME     = /\A(\d{2}):(\d{2}):(\d{2})(\.\d+)?(Z|[+-]\d{2}:?\d{2})?\z/
 
       # Returns [String|Symbol] the name of the field, as it was given.
       attr_reader :name
@@ -507,8 +511,8 @@ module IOStreams
 
         case type
         when "date" then DATE.match?(value) ? cast_date_text(value) : cast(value)
-        when "datetime" then DATETIME.match?(value) ? iso_time(value) : cast(value)
-        when "time" then TIME.match?(value) ? iso_time("2000-01-01T#{value}") : cast(value)
+        when "datetime" then (match = DATETIME.match(value)) ? iso_datetime(match) : cast(value)
+        when "time" then (clock = TIME.match(value)) ? iso_clock(clock) : cast(value)
         else restore(value)
         end
       rescue ArgumentError
@@ -860,17 +864,19 @@ module IOStreams
         return self.class.time_of(value) if value.is_a?(DateTime)
         return invalid(value) unless value.is_a?(String)
         return parse_time(Time, value) if @format
-        return invalid(value) unless DATETIME.match?(value)
-        return invalid(value) unless Date.valid_date?(value[0, 4].to_i, value[5, 2].to_i, value[8, 2].to_i)
 
-        Time.iso8601(OFFSET.match?(value) ? value : "#{value}Z")
+        match = DATETIME.match(value)
+        date  = match && match[1]
+        return invalid(value) unless date && Date.valid_date?(date[0, 4].to_i, date[5, 2].to_i, date[8, 2].to_i)
+
+        iso_datetime(match)
       rescue ArgumentError
         invalid(value)
       end
 
       # Returns [Time] the time of day, on 2000-01-01, see .time_of_day: of a Time or a DateTime, at its offset from UTC, or
-      # of text such as `09:30:00`, `09:30:00.250` or `09:30:00-05:00`, or in the format of this field, which is read at
-      # the offset of its zone, or in UTC without one, as a datetime field reads it, see #cast_datetime.
+      # of text such as `09:30:00`, `09:30:00.250`, `09:30:00-05:00` or `09:30:00-0500`, or in the format of this field,
+      # which is read at the offset of its zone, or in UTC without one, as a datetime field reads it, see #cast_datetime.
       #
       # Its hour, minute and second are checked, since `Time` moves 24:00:00, and a leap second, into the next day.
       def cast_time(value)
@@ -882,7 +888,7 @@ module IOStreams
         clock = TIME.match(value)
         return invalid(value) unless clock && clock_time?(clock[1].to_i, clock[2].to_i, clock[3].to_i)
 
-        Time.iso8601("2000-01-01T#{OFFSET.match?(value) ? value : "#{value}Z"}")
+        iso_clock(clock)
       rescue ArgumentError
         invalid(value)
       end
@@ -941,9 +947,25 @@ module IOStreams
         "#{clock}#{time.utc? ? 'Z' : time.strftime('%:z')}"
       end
 
-      # Returns [Time] the time of ISO 8601 text, in UTC without an offset, see #load.
-      def iso_time(text)
-        Time.iso8601(OFFSET.match?(text) ? text : "#{text}Z")
+      # Returns [Time] the time of the text that DATETIME matched, in UTC without an offset, in the form that
+      # `Time.iso8601` reads, with a T between its date and its time, and a colon in its offset.
+      def iso_datetime(match)
+        Time.iso8601("#{match[1]}T#{match[2]}#{iso_offset(match[3])}")
+      end
+
+      # Returns [Time] the time of day, on 2000-01-01, of the text that TIME matched, in UTC without an offset, see
+      # #iso_datetime.
+      def iso_clock(clock)
+        Time.iso8601("2000-01-01T#{clock[1]}:#{clock[2]}:#{clock[3]}#{clock[4]}#{iso_offset(clock[5])}")
+      end
+
+      # Returns [String] the offset from UTC as `Time.iso8601` reads it: Z without one, and its hours and minutes with
+      # a colon between them, such as `+05:30` for `+0530`.
+      def iso_offset(offset)
+        return "Z" if offset.nil?
+        return offset if offset == "Z" || offset.include?(":")
+
+        "#{offset[0, 3]}:#{offset[3, 2]}"
       end
 
       # Returns [Date] the date of ISO 8601 text, see #load.

@@ -1221,9 +1221,21 @@ class SchemaTest < Minitest::Test
         end
 
         it "raises for a date without a time, or another form" do
-          ["2026-10-13", "2026-10-13 09:30:00", "2026-10-13T25:00:00Z"].each do |text|
+          ["2026-10-13", "2026-10-13T25:00:00Z", "2026-10-13T09:30Z", "2026-10-13  09:30:00", "2026-10-13T09:30:00+5",
+           "2026-10-13T09:30:00+05:3", "2026-10-13T09:30:00 +05:30", "2026-10-13t09:30:00"].each do |text|
             assert_raises(IOStreams::Errors::InvalidValue, text) { datetime.cast(text) }
           end
+        end
+
+        it "reads a space in place of the T, as databases and spreadsheets write it, and an offset without a colon" do
+          assert_equal Time.utc(2026, 10, 13, 9, 30), datetime.cast("2026-10-13 09:30:00")
+          assert_predicate datetime.cast("2026-10-13 09:30:00"), :utc?
+          assert_equal Time.new(2026, 10, 13, 9, 30, 0.5r, "+05:30"), datetime.cast("2026-10-13 09:30:00.5+0530")
+          assert_equal(-18_000, datetime.cast("2026-10-13T09:30:00-0500").utc_offset)
+          assert_equal Time.utc(2026, 10, 13, 9, 30), datetime.cast("2026-10-13 09:30:00Z")
+          assert_raises(IOStreams::Errors::InvalidValue) { datetime.cast("2026-02-30 09:30:00") }
+          assert_equal "2026-10-13T09:30:00Z", datetime.render("2026-10-13 09:30:00", :text)
+          assert_equal "2026-10-13T09:30:00-05:00", datetime.render("2026-10-13 09:30:00-0500", :text)
         end
 
         it "raises for a date that does not exist, rather than move it into the next month" do
@@ -1361,6 +1373,12 @@ class SchemaTest < Minitest::Test
           assert_equal Time.new(2000, 1, 1, 9, 30, 0.25r, "-05:00"), value
           assert_equal(-18_000, value.utc_offset)
           assert_equal "09:30:00.250", clock.render("09:30:00.250-05:00", :text)
+        end
+
+        it "reads an offset without a colon, as a datetime does" do
+          assert_equal Time.new(2000, 1, 1, 9, 30, 0, "+05:30"), clock.cast("09:30:00+0530")
+          assert_equal(-18_000, clock.cast("09:30:00.5-0500").utc_offset)
+          assert_raises(IOStreams::Errors::InvalidValue) { clock.cast("09:30:00+053") }
         end
 
         it "raises for another form, or a time that is not on a clock, rather than move it into the next day" do

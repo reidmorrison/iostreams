@@ -77,6 +77,8 @@ class InferSampleTest < Minitest::Test
         assert_equal "boolean", drafted("v\ntrue\nFALSE\nTrue\n", "v")[:type]
         assert_equal "string", drafted("v\ntRuE\n", "v")[:type]
         assert_equal "datetime", drafted("v\n2026-10-25T23:59:59Z\n", "v")[:type]
+        assert_equal "datetime", drafted("v\n2026-10-25 09:30:00\n2026-10-25T09:30:00+0530\n", "v")[:type]
+        assert_equal "time", drafted("v\n09:30:00-0500\n", "v")[:type]
         assert_equal "string", drafted("v\n2026-10-25T25:00:00\n", "v")[:type]
       end
 
@@ -85,7 +87,7 @@ class InferSampleTest < Minitest::Test
         assert_equal "string", drafted("v\n2026-10-25\n2026-10-25T09:30:00Z\n", "v")[:type]
         assert_equal "string", drafted("v\n1e5\n", "v")[:type]
         assert_equal "string", drafted("v\n2026-02-30\n", "v")[:type]
-        assert_equal "string", drafted("v\n2026-10-25 09:30:00\n", "v")[:type]
+        assert_equal "string", drafted("v\n2026-10-25 09:30\n", "v")[:type]
       end
 
       it "recognizes US dates, recording their format, and dates written day first" do
