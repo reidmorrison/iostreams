@@ -232,7 +232,8 @@ What writes differently:
   the layout writes their `to_s`, such as `0.125e2` and `2026-10-13 09:30:00 UTC`. It raises
   `IOStreams::Errors::InvalidValue` for a `Hash` or an `Array`, where the layout writes their `to_s`: to write their
   JSON text, such as `{"a":1}`, give the field the type `object` or `array`.
-* A `number` field writes infinity as `INF`, where the layout writes `Inf`.
+* A `number` field writes infinity as `INF`, where the layout writes `Inf`, and a `string` field writes a `Float` that
+  is not finite as `NaN`, `INF` or `-INF`, where the layout writes `NaN`, `Infinity` or `-Infinity`.
 * A filler is written as spaces, also where the layout gives it a `type:` of `:integer` or `:float`, which writes
   zeros.
 * A record whose keys are Strings, such as `"name"`, is written to fields named with Symbols, such as `:name`, and

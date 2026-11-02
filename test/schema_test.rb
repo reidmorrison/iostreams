@@ -1126,11 +1126,15 @@ class SchemaTest < Minitest::Test
                        json(field(type: "number", floatNumber: true, decimals: 0), 12.5)
         end
 
-        it "renders a JSON number that is not finite as a Float, which JSON cannot hold" do
-          assert_predicate number.render("NaN", :json), :nan?
-          assert_equal Float::INFINITY, number.render("INF", :json)
-          assert_predicate field(type: "number", decimals: 0).render("NaN", :json), :nan?
-          assert_raises(JSON::GeneratorError) { json(field(type: "number", decimals: 2), "NaN") }
+        it "raises for a JSON number that is not finite, which JSON cannot hold, naming the field" do
+          [number, field(type: "number", floatNumber: true), field(type: "number", decimals: 2)].each do |numbers|
+            ["NaN", "INF", "-INF", Float::NAN, BigDecimal("-Infinity")].each do |value|
+              error = assert_raises(IOStreams::Errors::InvalidValue, value.inspect) { numbers.render(value, :json) }
+              assert_includes error.message, 'Field "value": JSON cannot hold a number that is not finite'
+            end
+          end
+
+          assert_equal "INF", number.render("INF", :text)
         end
       end
 
@@ -1556,6 +1560,10 @@ class SchemaTest < Minitest::Test
           assert_equal "INF", any.render(BigDecimal("Infinity"), :text)
           assert_equal "-INF", any.render(BigDecimal("-Infinity"), :text)
           assert_equal({"x" => "-INF"}, any.render({"x" => BigDecimal("-Infinity")}, :json))
+          [Float::NAN, Float::INFINITY, BigDecimal("-Infinity")].each do |value|
+            error = assert_raises(IOStreams::Errors::InvalidValue, value.inspect) { any.render(value, :json) }
+            assert_includes error.message, "JSON cannot hold a number that is not finite"
+          end
           assert_equal '{"x":"INF"}', any.render({"x" => BigDecimal("Infinity")}, :text)
           assert_equal "INF", field(type: "string").cast(Float::INFINITY)
           assert_equal "1.5", any.render(1.5, :text)

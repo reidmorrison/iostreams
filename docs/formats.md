@@ -300,7 +300,7 @@ valid UTF-8, unless an encoding is set, which writes it instead, as it does with
 |------|---------|------------|
 | `string` | a `String` | the text, or the text of any other value, except a `Hash` or an `Array`, which raise |
 | `integer` | an `Integer`, from text such as `42`, `-12` or `0042`, or a whole number with a decimal point, such as `12.0`, as a spreadsheet stores it | `42` |
-| `number` | a `BigDecimal`, from text such as `12.5`, `-1.5E3`, `NaN`, `INF` or `-INF`, or `Infinity` or `-Infinity`, as Ruby and JavaScript write them, whatever their case, or a number, including a `Rational`, or a `Float` with `floatNumber: true` | `12.5`, or `12.50` with `decimals: 2`, and a number that is not finite as `NaN`, `INF` or `-INF` |
+| `number` | a `BigDecimal`, from text such as `12.5`, `-1.5E3`, `NaN`, `INF` or `-INF`, or `Infinity` or `-Infinity`, as Ruby and JavaScript write them, and frictionless-py also reads them, whatever their case, or a number, including a `Rational`, or a `Float` with `floatNumber: true` | `12.5`, or `12.50` with `decimals: 2`, and a number that is not finite as `NaN`, `INF` or `-INF`, except to JSON, which cannot hold it, so that it raises `IOStreams::Errors::InvalidValue` |
 | `boolean` | `true` or `false`, from one of its `trueValues` or `falseValues` | the first of its `trueValues` or `falseValues` |
 | `date` | a `Date`, from `2026-10-13`, or text in its `format`, or the date of a `Time` or `DateTime`, which is deprecated for one that is not at midnight, since v3.0 raises for it, see [Deprecated, and what replaces it](upgrading#deprecated-and-what-replaces-it) | `2026-10-13`, or text in its `format` |
 | `datetime` | a `Time`, from ISO 8601, such as `2026-10-13T09:30:00Z`, or text in its `format`. Text without an offset from UTC is read as UTC | ISO 8601, or text in its `format` |
@@ -679,7 +679,7 @@ A value of a field without a type, `any`, is written as follows:
 | Value | Written as |
 |-------|------------|
 | `BigDecimal` | a plain decimal, such as `12.5`, rather than `0.125e2` |
-| `Float` or `BigDecimal` that is not finite | `NaN`, `INF` or `-INF`, as Frictionless writes it, rather than `Infinity` |
+| `Float` or `BigDecimal` that is not finite | `NaN`, `INF` or `-INF`, as the Frictionless spec spells it, rather than `Infinity`, while JSON, which cannot hold it, raises `IOStreams::Errors::InvalidValue` for it, unless it is inside a Hash or an Array, which writes a `BigDecimal` as that text |
 | `Time` or `DateTime` | ISO 8601, such as `2026-10-13T09:30:00Z`, with as many digits of its fraction of a second as it needs |
 | `Date` | ISO 8601, such as `2026-10-13` |
 | `Hash` or `Array` | JSON, such as `{"a":1}` or `[1,2]`, as the JSON format writes it |

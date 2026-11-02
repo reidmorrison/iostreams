@@ -139,7 +139,7 @@ class UpgradeSchemaTest < Minitest::Test
       describe "numbers that are not finite" do
         let(:schema) { {fields: [{name: "pay", type: "number"}, {name: "rate", type: "number", floatNumber: true}, {name: "note"}]} }
 
-        it "reads NaN, INF and -INF, as Frictionless writes them, and Infinity and -Infinity, whatever their case" do
+        it "reads NaN, INF and -INF, as the Frictionless spec spells them, and Infinity and -Infinity, as frictionless-py also reads them, whatever their case" do
           rows = read("pay,rate,note\nNaN,inf,x\nINF,-INF,x\nInfinity,-infinity,x\n-INFINITY,Infinity,x\n", schema: schema)
 
           assert_predicate rows[0]["pay"], :nan?
@@ -158,10 +158,22 @@ class UpgradeSchemaTest < Minitest::Test
           assert_equal "pay,rate,note\nNaN,INF,-INF\n-INF,NaN,INF\n", write(records, schema: schema)
         end
 
-        it "writes a BigDecimal that is not finite in a field without a type to JSON as its text" do
-          written = write([{"pay" => BigDecimal("2.5"), "rate" => 1.5, "note" => BigDecimal("-Infinity")}], file_name: "people.json", schema: schema)
+        it "writes a BigDecimal that is not finite inside a value of a field without a type to JSON as its text" do
+          written = write([{"pay" => BigDecimal("2.5"), "rate" => 1.5, "note" => {"x" => BigDecimal("-Infinity")}}], file_name: "people.json", schema: schema)
 
-          assert_equal %({"pay":2.5,"rate":1.5,"note":"-INF"}\n), written
+          assert_equal %({"pay":2.5,"rate":1.5,"note":{"x":"-INF"}}\n), written
+        end
+
+        it "raises for a number that is not finite written to JSON, which cannot hold it" do
+          [
+            {"pay" => BigDecimal("NaN"), "rate" => 1.5, "note" => "x"},
+            {"pay" => "INF", "rate" => 1.5, "note" => "x"},
+            {"pay" => 1, "rate" => -Float::INFINITY, "note" => "x"},
+            {"pay" => 1, "rate" => 1.5, "note" => Float::NAN},
+            {"pay" => 1, "rate" => 1.5, "note" => BigDecimal("-Infinity")}
+          ].each do |record|
+            assert_raises(IOStreams::Errors::InvalidValue, record.inspect) { write([record], file_name: "people.json", schema: schema) }
+          end
         end
       end
 
