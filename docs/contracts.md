@@ -207,10 +207,11 @@ end
 # {"email" => "j@x.com", "date_of_birth" => #<Date: 2001-02-03 ((2451944j,0s,0n),+0s,2299161j)>, "subscribed" => true}
 ~~~
 
-* `field` takes the name of the field in Ruby, its type, see [Types](schemas#types), and the other properties of a
-  field, see [Field properties](schemas#field-properties), as Ruby names them, such as `decimals:`, `aliases:`,
-  `format:`, `true_values:` or `allow_blank:`. `required: true` is `constraints: {required: true}`, and `name:` names
-  the field in its schema, such as `name: "Ordered At"`, when it differs from its name in Ruby.
+* `field` takes the name of the field in Ruby, its type, see [Types](schemas#types) and
+  [Types and conversions](types), and the other properties of a field, see [Field properties](schemas#field-properties),
+  as Ruby names them, such as `decimals:`, `aliases:`, `format:`, `true_values:` or `allow_blank:`. `required: true` is
+  `constraints: {required: true}`, and `name:` names the field in its schema, such as `name: "Ordered At"`, when it
+  differs from its name in Ruby.
 * `fields_match`, `key_type`, `extra_columns`, `missing_values`, `unique_limit`, and after the fields that they name,
   `primary_key` and `unique_keys`, set `fieldsMatch`, `keyType`, `extraColumns`, `missingValues`, `uniqueLimit`,
   `primaryKey` and `uniqueKeys`, see [Schema properties](schemas#schema-properties). Without `fields_match`, the columns
