@@ -1448,6 +1448,28 @@ class SchemaTest < Minitest::Test
           assert_equal Time.utc(2026, 10, 13, 23, 30), field(type: "datetime", format: "%Y-%m-%d %I:%M %p").cast("2026-10-13 11:30 PM")
         end
 
+        it "reads a format without a date, or only part of one, on 1900-01-01, as Python's strptime does, rather than today" do
+          clock = field(type: "datetime", format: "%H:%M")
+          day   = field(type: "datetime", format: "%m/%d %H:%M")
+
+          assert_equal Time.utc(1900, 1, 1, 9, 30), clock.cast("09:30")
+          assert_predicate clock.cast("09:30"), :utc?
+          assert_equal Time.utc(1900, 1, 1, 21, 30), field(type: "datetime", format: "%I:%M %p").cast("09:30 PM")
+          assert_equal Time.utc(1900, 1, 1, 9, 30, 0.25r), field(type: "datetime", format: "%H:%M:%S.%f").cast("09:30:00.25")
+          assert_equal Time.new(1900, 1, 1, 9, 30, 0, "+05:00"), field(type: "datetime", format: "%H:%M %z").cast("09:30 +0500")
+          assert_equal Time.utc(1900, 7, 1, 9, 30), day.cast("07/01 09:30")
+          assert_equal Time.utc(1900, 1, 13, 9, 30), field(type: "datetime", format: "%d %H:%M").cast("13 09:30")
+          assert_equal Time.utc(2026, 1, 1, 9, 30), field(type: "datetime", format: "%Y %H:%M").cast("2026 09:30")
+          # 1900 is not a leap year, whichever year it is read in.
+          Time.stub(:now, Time.utc(2028, 1, 1)) do
+            assert_raises(IOStreams::Errors::InvalidValue) { day.cast("02/29 09:30") }
+          end
+          assert_equal "09:30", clock.render(clock.cast("09:30"), :text)
+          # A date read some other way, by its day of the year or the seconds since 1970, is unchanged.
+          assert_equal Time.utc(2026, 7, 1, 9, 30), field(type: "datetime", format: "%Y %j %H:%M").cast("2026 182 09:30")
+          assert_equal Time.utc(2026, 10, 13, 9, 30), field(type: "datetime", format: "%s").cast("1791883800")
+        end
+
         it "reads a space in place of the T" do
           assert_equal Time.utc(2026, 10, 31, 9, 30), datetime.cast("2026-10-31 09:30:00")
           assert_predicate datetime.cast("2026-10-31 09:30:00"), :utc?
