@@ -150,6 +150,10 @@ among them, a `string` or `any` field reads it as `""`, and the other types rais
 * frictionless-py compares the text of every value with the missing values, so the JSON number `-99` is missing for
   `["-99"]`. IOStreams compares only text, since the spec says that missing values are text, so the number is `-99`,
   apart from a cell of a spreadsheet, whose text it compares, so a cell that holds the number `-99` is missing.
+* The spec requires the missing values to be all text, or all objects of a `value` and a `label`, with each text, and
+  each label, only once. IOStreams raises `ArgumentError` for a list that is not, when the schema is set, naming the
+  text or label that it repeats. frictionless-py raises for a list that mixes text and objects, or that repeats the
+  `value` or `label` of an object, but accepts text repeated, such as `["NA", "NA"]`.
 
 ### Spaces around a value
 
@@ -701,6 +705,11 @@ A `time` is a `Time` on 2000-01-01, so text without an offset takes the offset o
 York, even for a shift on a summer day. A `Time` written to a `time` field with a `timeZone` is written as the clock of
 the zone on its own date, so 13:30 UTC on 2026-07-01 is written `09:30:00` in New York, which is at `-04:00` in July.
 
+A date and time cell of a spreadsheet, or a cell of a time of day, holds a clock without a zone, as text without an
+offset does. So a field with a `timeZone` writes the clock of its zone to a cell, such as `2026-07-01 09:30` for 13:30
+UTC in New York, and reads the clock of a cell in its zone, so the cell `2026-07-01 09:30` is 13:30 UTC, while a field
+without one writes and reads the clock in UTC. See [Excel spreadsheets](formats#excel-spreadsheets).
+
 See [Time zones](schemas#time-zones). Neither the spec nor frictionless-py has `timeZone`.
 
 ### `year`
@@ -833,6 +842,11 @@ A `list` holds several values of one type, its `itemType`, in one text, separate
 * **Written as** its items separated by its `delimiter`, also to a spreadsheet, whose cells hold the same text. A JSON
   file holds an array, and Parquet a list column. Writing an item whose text holds the `delimiter` raises, since it
   would read back as two items.
+* **`decimals` and `floatNumber`** of a list of `number` items apply to each item, as they do to a
+  [`number`](#number): each item is written with its `decimals`, such as `1.50,2.25` with `decimals: 2`, and rounded to
+  them when read, half up, or read as a `Float` with `floatNumber: true`. Parquet holds a list of decimals of its
+  `decimals`, or of doubles with `floatNumber: true`, one of which it needs. A list of any other `itemType` raises
+  `ArgumentError` for them.
 
 ~~~ruby
 IOStreams.path("orders.csv").write(<<~CSV)
@@ -859,6 +873,8 @@ end
 * The spec does not say what an empty item is. frictionless-py reads it as `""` for a `string` item, and raises for
   the other types. IOStreams reads it as `nil`.
 * JSON writes a list as an array of its items, where frictionless-py writes its delimited text.
+* Neither the spec nor frictionless-py gives `decimals` or `floatNumber` to a list. frictionless-py ignores them, so it
+  reads each number of `1.005,2.5` as a `Decimal` of its own digits, and writes each one as its digits, `1.5,2.25`.
 
 ## Geographic points
 
@@ -1032,9 +1048,11 @@ end
 # IOStreams::Errors::InvalidValue: Field "email": "jack@example.org" is not unique, it is the value of an earlier record, in record 2 on line 3
 ~~~
 
-Each read and each write checks its own records, and remembers up to 1,000,000 values of each field and key, which
-`uniqueLimit`, a property of the schema that IOStreams adds, changes. See [Required fields](schemas#required-fields),
-[Constraints](schemas#constraints) and [Unique values](schemas#unique-values).
+Each read and each write of a file checks its own records, and remembers up to 1,000,000 values of each field and key,
+which `uniqueLimit`, a property of the schema that IOStreams adds, changes. A slice is only a part of a file, so reading
+one, as a background job does, does not check them, since another slice may hold the same value, while slicing the
+file with `each(:slice, validate: true)` checks them across the whole file. See
+[Required fields](schemas#required-fields), [Constraints](schemas#constraints) and [Unique values](schemas#unique-values).
 
 **Compared with Frictionless**
 
@@ -1064,6 +1082,8 @@ properties that IOStreams adds to the spec, such as `aliases` and `allowBlank`, 
 | every type | a missing value, written | not defined | the first of `missingValues`, such as `NA` | the first of `missingValues`, or `null` in JSON |
 | every type | an empty CSV value without quotes, such as in `a,,b`, with `missingValues: ["NA"]` | not defined | `""` for a `string` or `any`, otherwise raises | `nil` |
 | every type | the JSON number `-99`, with `missingValues: ["-99"]` | missing values are text | missing, `nil` | not missing, `-99` |
+| every type | `missingValues` that repeat a text, such as `["NA", "NA"]` | each one once | accepted | raises `ArgumentError` |
+| every type | `missingValues` of both text and objects | not allowed | rejects the schema | raises `ArgumentError` |
 | every type but `string` and `any` | spaces around the text, such as `" true "` or `" 2026-10-13 "` | not defined | removed around an `integer` or a `number`, raises for a `boolean`, `date`, `datetime`, `time`, `year` or `duration` | removed |
 | `string` | a value that is not text, such as the JSON number `42` | not defined | raises | `"42"` |
 | `string` `email` | `jack@localhost` | not defined | raises | reads |
@@ -1102,7 +1122,7 @@ properties that IOStreams adds to the spec, such as `aliases` and `allowBlank`, 
 | `datetime` | an offset, written | `+05:30` | `+0530` | `+05:30` |
 | `datetime` | a fraction of a second, written | optional milliseconds | left out | written, such as `.250` |
 | `time` | a fraction of a second, written | `hh:mm:ss`, no fraction | left out | written, such as `09:30:00.250` |
-| `datetime`, `time` | `timeZone` | not defined | ignored | the zone of text without an offset |
+| `datetime`, `time` | `timeZone` | not defined | ignored | the zone of text without an offset, and of the clock of a spreadsheet's cell |
 | `time` | `24:00:00` | `hh:mm:ss` | `00:00:00` | raises |
 | `time` | the offset of a time, written | not defined | written, such as `09:30:00-0500` | not written, unless its `format` writes it |
 | `year` | `-0044`, `12026` or `2026Z` | `gYear` reads them | raises | raises |
@@ -1115,6 +1135,7 @@ properties that IOStreams adds to the spec, such as `aliases` and `allowBlank`, 
 | `list` | an empty item, such as in `a,,c` | not defined | `""` for a `string`, otherwise raises | `nil` |
 | `list` | an item that holds the `delimiter`, written | not defined | written as it is | raises |
 | `list` | written to JSON | not defined | the delimited text, `"a,b"` | an array, `["a","b"]` |
+| `list` | `decimals` and `floatNumber` of `number` items | not defined | ignored | as for a `number` |
 | `geopoint` | the `default` format, written | `lon, lat` | `90.50,45.50` | `90.5, 45.5` |
 | `geopoint` | `1e1, 45` | not defined | reads | raises |
 | `geopoint` | the `array` or `object` format, written | a JSON array or object | raises `TypeError` for a point that it read | `[90.5,45.5]` or `{"lon":90.5,"lat":45.5}` |

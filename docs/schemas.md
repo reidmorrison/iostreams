@@ -1046,7 +1046,7 @@ IOStreams adds these properties, which other tools ignore:
 | Property | Of | See |
 |----------|----|-----|
 | `aliases` | a field | [Matching columns to fields](#matching-columns-to-fields) |
-| `decimals`, `floatNumber` | a `number` | [Field properties](#field-properties) |
+| `decimals`, `floatNumber` | a `number`, or a `list` of `number` items | [Field properties](#field-properties) |
 | `timeZone` | a `datetime` or `time` | [Time zones](#time-zones) |
 | `allowBlank` | a required field | [Required fields](#required-fields) |
 | `width`, `start`, `truncate` | a field of a fixed width file | [Fixed width files](formats#fixed-width-files) |
