@@ -115,6 +115,14 @@ module IOStreams
     #     Default: true
     #
     # Properties that IOStreams adds:
+    #   timeZone: [String]
+    #     For a datetime or a time, the zone of its text without an offset from UTC, of ISO 8601 or of a `format` without
+    #     a zone: "UTC", an offset, such as "+05:00", or the name of a zone of the IANA time zone database, such as
+    #     "America/New_York", which needs the tzinfo gem, see `IOStreams::Schema::TimeZone`. A time written with a
+    #     `format` without a zone, and a time of day written without its offset, is written in the zone, so that it
+    #     reads back as the same time.
+    #     Default: "UTC"
+    #
     #   aliases: [Array<String>]
     #     The other names of the column of this field, such as `["DOB", "Birth Date"]` for the field `date_of_birth`, for
     #     files whose columns are not named the same way, such as spreadsheets made by hand. A column is matched to an
@@ -182,13 +190,13 @@ module IOStreams
       TYPE_PROPERTIES = {
         "boolean"  => %w[trueValues falseValues],
         "date"     => %w[format],
-        "datetime" => %w[format],
+        "datetime" => %w[format timeZone],
         "geopoint" => %w[format],
         "integer"  => %w[groupChar bareNumber categories categoriesOrdered],
         "list"     => %w[delimiter itemType decimals floatNumber],
         "number"   => %w[decimals floatNumber groupChar decimalChar bareNumber],
         "string"   => %w[truncate categories categoriesOrdered format],
-        "time"     => %w[format]
+        "time"     => %w[format timeZone]
       }.freeze
 
       # The properties that every field accepts.
@@ -203,7 +211,8 @@ module IOStreams
 
       # The properties of a field that say how a file writes the text of its values, which the target of a copy does not
       # take from its source, since it writes its own, see `IOStreams::Schema#without_text`.
-      TEXT_PROPERTIES = %w[format trueValues falseValues groupChar decimalChar bareNumber missingValues delimiter].freeze
+      TEXT_PROPERTIES = %w[format trueValues falseValues groupChar decimalChar bareNumber missingValues delimiter
+                           timeZone].freeze
 
       # The types whose values a cell that holds one value, such as that of a spreadsheet, holds as their text, see
       # #render's `:scalar` form: those that are not one value, and a yearmonth, whose text, such as `2026-10`, is not
@@ -352,7 +361,8 @@ module IOStreams
         @skip = check_skip(descriptor)
         check_properties(descriptor)
         build_forms(descriptor)
-        @utc          = @type == "datetime" && !@format.nil? && !@format.zone?
+        @zone         = TimeZone.new(descriptor["timeZone"], @name) if descriptor.key?("timeZone")
+        @in_zone      = writes_in_zone?
         @width        = check_width(descriptor["width"])
         @start        = check_positive("start", descriptor["start"])
         @truncate     = check_flag("truncate", descriptor["truncate"])
@@ -1079,16 +1089,20 @@ module IOStreams
       # its own offset from UTC, as a Rails app shows it, which the default form does not write, so that a time of the
       # application, an `ActiveSupport::TimeWithZone` on 2000-01-01, is written as the time that its users entered.
       def time_text(time)
+        time = @zone.convert(time) if @in_zone
         return @format.strftime(time) if @format
 
         digits = self.class.fraction_digits(time)
         digits.zero? ? time.strftime("%H:%M:%S") : time.strftime("%H:%M:%S.%#{digits}N")
       end
 
-      # Returns [String] the time in the format of this field. Text without a zone is read as UTC, see #parse_time, so a
-      # time is written in UTC with a format without a zone, so that it reads back as the same time.
+      # Returns [String] the time in the format of this field. Text without a zone is read as UTC, or in the zone of the
+      # field, see #parse_time, so a time is written in it with a format without a zone, so that it reads back as the
+      # same time.
       def datetime_text(time)
-        @format.strftime(@utc ? time.getutc : time)
+        return @format.strftime(time) unless @in_zone
+
+        @format.strftime(@zone ? @zone.convert(time) : time.getutc)
       end
 
       # Returns [Hash] the descriptor with each value of its constraints that JSON does not hold as it is, such as a Date,
@@ -1145,6 +1159,15 @@ module IOStreams
         end
         # Whether a cell that holds one value holds its text, see #render's `:scalar` form: bytes as their base64 text.
         @scalar_text = SCALAR_TEXT_TYPES.include?(type) || binary?
+      end
+
+      # Returns [true|false] whether a time is written in the zone of the field, see `timeZone` above, so that it reads
+      # back as the same time: a datetime with a format without a zone, and a time with a timeZone, without a format that
+      # writes its offset.
+      def writes_in_zone?
+        return false if @format&.zone?
+
+        type == "datetime" ? !@format.nil? : type == "time" && !@zone.nil?
       end
 
       # Returns [IOStreams::Schema::MissingValues|nil] the field's own missing values, see `missingValues` above, or nil
@@ -1614,9 +1637,19 @@ module IOStreams
         # A DateTime reads text without an offset as UTC, and knows the offset of every zone that Date._strptime knows,
         # such as "CET", which `Time.strptime` reads in the time zone of the process, as it does text without an offset.
         time = self.class.time_of(@format.datetime(text))
-        parts[:offset] ? time : time.utc
+        parts[:offset] ? time : in_zone(time)
       rescue ArgumentError
         invalid(text)
+      end
+
+      # Returns [Time] the time whose clock is that of the supplied time, which text without an offset from UTC gave, in
+      # UTC, or in the zone of the field, see `timeZone` above, on 2000-01-01 for a time of day, whose offset is that of
+      # the zone on that day, as Active Record holds a time of day.
+      def in_zone(time)
+        return time.utc unless @zone
+
+        time = Time.utc(2000, 1, 1, time.hour, time.min, time.sec + time.subsec) if type == "time"
+        @zone.at_clock(time)
       end
 
       # Returns [String|Float|Integer] the number in a form that JSON keeps exactly, see #dump: the digits of a BigDecimal,
@@ -1654,13 +1687,15 @@ module IOStreams
       # which reads each form of its offset, such as `+05:30`, `+0530` or `+05`, so that only a space in place of the T
       # is replaced, and Z added to text without an offset.
       def iso_datetime(match)
-        Time.iso8601("#{match[1]}T#{match[2]}#{match[3] || 'Z'}")
+        time = Time.iso8601("#{match[1]}T#{match[2]}#{match[3] || 'Z'}")
+        match[3].nil? ? in_zone(time) : time
       end
 
       # Returns [Time] the time of day, on 2000-01-01, of the text that TIME matched, in UTC without an offset, read with
       # `Time.iso8601`, see #iso_datetime, so that only Z is added to text without an offset.
       def iso_clock(clock)
-        Time.iso8601("2000-01-01T#{clock[0]}#{'Z' unless clock[5]}")
+        time = Time.iso8601("2000-01-01T#{clock[0]}#{'Z' unless clock[5]}")
+        clock[5].nil? ? in_zone(time) : time
       end
 
       # Returns [Date] the date of ISO 8601 text, see #load.

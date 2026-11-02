@@ -408,6 +408,87 @@ class FrictionlessTypesTest < Minitest::Test
       end
     end
 
+    describe "timeZone" do
+      it "reads ISO 8601 text of a datetime without an offset in its zone, also when its clocks change" do
+        zone = field(type: "datetime", timeZone: "America/New_York")
+
+        assert_equal Time.new(2026, 7, 1, 9, 30, 0, "-04:00"), zone.cast("2026-07-01T09:30:00")
+        assert_equal(-14_400, zone.cast("2026-07-01T09:30:00").utc_offset)
+        assert_equal(-18_000, zone.cast("2026-01-01 09:30:00").utc_offset)
+        assert_equal Time.utc(2026, 7, 1, 9, 30), zone.cast("2026-07-01T09:30:00Z")
+        assert_equal Time.new(2026, 7, 1, 9, 30, 0, "+05:30"), zone.cast("2026-07-01T09:30:00+05:30")
+      end
+
+      it "raises for a clock that its zone skips, and reads the first of a clock that it has twice" do
+        zone = field(type: "datetime", timeZone: "America/New_York")
+
+        assert_raises(IOStreams::Errors::InvalidValue) { zone.cast("2026-03-08T02:30:00") }
+        assert_equal(-14_400, zone.cast("2026-11-01T01:30:00").utc_offset)
+      end
+
+      it "reads text of a format without a zone in its zone, and writes it there, so that it reads back as the same time" do
+        zone = field(type: "datetime", format: "%Y-%m-%d %H:%M", timeZone: "America/New_York")
+        time = Time.utc(2026, 7, 1, 13, 30)
+
+        assert_equal time, zone.cast("2026-07-01 09:30")
+        assert_equal "2026-07-01 09:30", zone.render(time, :text)
+        assert_equal time, zone.cast(zone.render(time, :text))
+        assert_equal "2026-07-01 13:30 +0000", field(type: "datetime", format: "%Y-%m-%d %H:%M %z", timeZone: "-05:00").render(time, :text)
+      end
+
+      it "writes a datetime without a format in ISO 8601 with its offset, as without a zone" do
+        assert_equal "2026-07-01T13:30:00Z", field(type: "datetime", timeZone: "America/New_York").render(Time.utc(2026, 7, 1, 13, 30), :text)
+      end
+
+      it "takes a fixed offset from UTC, or UTC, the default" do
+        assert_equal Time.new(2026, 7, 1, 9, 30, 0, "+05:30"), field(type: "datetime", timeZone: "+05:30").cast("2026-07-01T09:30:00")
+        assert_predicate field(type: "datetime", timeZone: "UTC").cast("2026-07-01T09:30:00"), :utc?
+        assert_equal(-18_000, field(type: "datetime", timeZone: "-05:00").cast("2026-07-01T09:30:00").utc_offset)
+      end
+
+      it "reads a time of day without an offset in its zone on 2000-01-01, and writes the clock of the zone" do
+        clock = field(type: "time", timeZone: "America/New_York")
+
+        assert_equal Time.new(2000, 1, 1, 9, 30, 0, "-05:00"), clock.cast("09:30:00")
+        assert_equal "09:30:00", clock.render(Time.utc(2000, 1, 1, 14, 30), :text)
+        assert_equal "09:30", field(type: "time", format: "%H:%M", timeZone: "-05:00").render(Time.utc(2000, 1, 1, 14, 30), :text)
+        assert_equal Time.new(2000, 1, 1, 9, 30, 0, "-05:00"), field(type: "time", format: "%H:%M", timeZone: "America/New_York").cast("09:30")
+      end
+
+      it "raises when the schema is built for a zone that is not one, or a field that is neither a datetime nor a time" do
+        [{type: "datetime", timeZone: "Mars/Olympus"}, {type: "datetime", timeZone: "+5"}, {type: "datetime", timeZone: 5},
+         {type: "datetime", timeZone: ""}, {type: "date", timeZone: "UTC"}].each do |properties|
+          assert_raises(ArgumentError, properties.inspect) { field(**properties) }
+        end
+      end
+
+      it "raises ArgumentError for the name of a zone when the tzinfo gem is not installed, naming it" do
+        script = <<~'RUBY'
+          module Kernel
+            alias_method :require_installed, :require
+
+            def require(name)
+              raise(LoadError, "cannot load such file -- #{name}") if name == "tzinfo"
+
+              require_installed(name)
+            end
+          end
+          require "iostreams"
+          print IOStreams::Schema.new(fields: [{name: "at", type: "datetime", timeZone: "-05:00"}]).fields.size
+          begin
+            IOStreams::Schema.new(fields: [{name: "at", type: "datetime", timeZone: "America/New_York"}])
+          rescue ArgumentError => e
+            print " ", e.message
+          end
+        RUBY
+        lib     = File.expand_path("../lib", __dir__)
+        message = IO.popen([RbConfig.ruby, "-I", lib, "-e", script], err: File::NULL, &:read)
+
+        assert_equal '1 Field "at": the timeZone "America/New_York" needs the tzinfo gem, so add `gem "tzinfo"` to the ' \
+                     'Gemfile, or use an offset, such as "-05:00": cannot load such file -- tzinfo', message
+      end
+    end
+
     it "keeps raising for geojson, which is not supported" do
       error = assert_raises(ArgumentError) { field(type: "geojson") }
       assert_equal 'Field "value": the type "geojson" is not supported', error.message

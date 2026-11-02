@@ -121,6 +121,7 @@ module IOStreams
     autoload :NumberText,      "io_streams/schema/number_text"
     autoload :Pattern,         "io_streams/schema/pattern"
     autoload :Source,          "io_streams/schema/source"
+    autoload :TimeZone,        "io_streams/schema/time_zone"
     autoload :Uniqueness,      "io_streams/schema/uniqueness"
 
     # The properties of a schema that IOStreams supports.
