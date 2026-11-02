@@ -3237,6 +3237,33 @@ class StreamTest < Minitest::Test
         assert_equal "Hello World", IOStreams.join("copy_test", "target.csv").read
       end
 
+      it "copies the rows without a mode into a target of another format, as the :array mode does" do
+        source_path.write("name,age\nJack,21\n")
+        json = IOStreams.join("copy_test", "target.json")
+        psv  = IOStreams.join("copy_test", "target.psv")
+
+        assert_equal IOStreams.join("copy_test", "other.json").copy_from(source_path, mode: :array), json.copy_from(source_path)
+        assert_equal %({"name":"Jack","age":"21"}\n), json.read
+        source_path.copy_to(psv)
+
+        assert_equal "name|age\nJack|21\n", psv.read
+        IOStreams.join("copy_test", "back.csv").copy_from(json)
+
+        assert_equal "name,age\nJack,21\n", IOStreams.join("copy_test", "back.csv").read
+        # Parquet needs a schema, as for the :array mode.
+        error = assert_raises(ArgumentError) { IOStreams.join("copy_test", "target.parquet").copy_from(source_path) }
+        assert_match(/Parquet needs a schema/, error.message)
+        # A copy without a mode takes no options, also when it converts.
+        assert_raises(ArgumentError) { json.copy_from(source_path, validate: true) }
+        # A format that is not known, such as of an IO, or the same format, is copied as it is.
+        output = StringIO.new
+        IOStreams.stream(output).copy_from(source_path)
+
+        assert_equal "name,age\nJack,21\n", output.string
+      ensure
+        %w[target.json other.json target.psv back.csv target.parquet].each { |name| IOStreams.join("copy_test", name).delete }
+      end
+
       it "converts the text that the source reads into the encoding of the target" do
         source_path.write("José, Zürich\n")
         target = IOStreams.join("copy_test", "target.csv").encoding("ISO-8859-1:UTF-8")

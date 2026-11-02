@@ -443,10 +443,16 @@ module IOStreams
     # Examples:
     #
     # # Copy and convert streams based on file extensions
+    # IOStreams.path("target_file.csv").copy_from("source_file_name.csv.gz")
+    #
+    # # Copy the rows of a file into a file of another format, converting them
     # IOStreams.path("target_file.json").copy_from("source_file_name.csv.gz")
     #
+    # # Copy the records of a file, whose keys can differ, as JSON's can
+    # IOStreams.path("target_file.csv").copy_from("source_file_name.json", mode: :hash)
+    #
     # # Copy "as-is" without any automated stream conversions
-    # IOStreams.path("target_file.json").copy_from("source_file_name.csv.gz", convert: false)
+    # IOStreams.path("target_file.csv.gz").copy_from("source_file_name.csv.gz", convert: false)
     #
     # # Advanced copy with custom stream conversions on source and target.
     # source = IOStreams.path("source_file").encoding("BINARY")
@@ -455,7 +461,11 @@ module IOStreams
     # # Copy the rows of an Active Record query, typed by its columns, see IOStreams.stream
     # IOStreams.path("orders.parquet").copy_from(Order.where(paid: true), mode: :hash)
     #
-    # Returns [Integer] the number of bytes copied, when copying without a `mode:`.
+    # Returns [Integer] the number of bytes copied, when copying without a `mode:` between files of the same format.
+    #
+    # Without a `mode:`, a source in another tabular format than this stream, see #format, such as CSV into JSON or
+    # Parquet, is copied as the `:array` mode copies it, so that the target is a file of its own format, see #copy_mode,
+    # which returns the number of rows copied, as a copy in that mode does.
     #
     # Notes:
     # - The source is opened before the target, so that the target is not changed when the source
@@ -476,11 +486,11 @@ module IOStreams
       reject_writer_of_other_mode!(convert && mode ? mode : :stream)
       if convert
         stream = to_stream(source)
+        mode ||= copy_mode(stream, args)
         if mode
           options = copy_options(mode, args)
           stream.reader(mode) { |rows| copy_rows(stream, rows, mode, options) }
         else
-          reject_copy_options!("when copying without a `mode:`", **args)
           stream.reader do |src|
             writer { |target| copy_data(src, target) }
           end
@@ -845,6 +855,21 @@ module IOStreams
     def clear_configuration
       self.builder      = nil
       @tabular_settings = nil
+    end
+
+    # Returns [Symbol|nil] the mode that a copy without a `mode:` copies the supplied source in: `:array`, as a copy in
+    # that mode does, when the source and this stream are in different tabular formats, see #format, such as CSV into
+    # JSON or Parquet, so that the target is a file of its own format, rather than the data of the source as it is,
+    # such as a Parquet file of CSV text. Otherwise nil, the data is copied as it is: a source or target whose format
+    # is not known, such as an IO or a `.txt` file, one of the same format, and a spreadsheet to or from CSV, whose text
+    # is CSV.
+    #
+    # Raises ArgumentError for an option, see #reject_copy_options!, since a copy without a mode takes none.
+    def copy_mode(source, args)
+      reject_copy_options!("when copying without a `mode:`", **args)
+      from = source.format
+      to   = format
+      :array unless from.nil? || to.nil? || from == to
     end
 
     # Options are strict: raise rather than ignore options that a copy cannot use, whatever their value, apart from a

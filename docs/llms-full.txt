@@ -6601,7 +6601,8 @@ file name, so a copy can also convert the file:
 
 * from one storage location to another, such as from SFTP to S3;
 * from one compression or encryption to another, such as from `.gz` to `.pgp`;
-* from one format to another, such as from CSV to JSON or Parquet.
+* from one format to another, such as from CSV to JSON or Parquet, see
+  [Converting rows and records](#converting-rows-and-records).
 
 ## Copying a file
 
@@ -6635,6 +6636,13 @@ IOStreams.path("xyz.csv.pgp").option(:pgp, recipient: "receiver@example.org").co
 ~~~
 
 A copy without a mode returns the number of bytes copied, as written to the target before its streams.
+
+A copy without a mode into a file of another format, such as `people.csv` into `people.json` or `people.parquet`,
+copies the rows, as the `:array` mode does, see [Converting rows and records](#converting-rows-and-records), so that
+the target is a file of its own format, rather than CSV text in a JSON or Parquet file, and returns the number of rows
+copied. A Parquet target needs a schema for that, its own or one that the source declares, as in the `:array` mode. A
+source or target whose format is not known, such as an IO or a `.txt` file, is copied as it is, and so is a
+spreadsheet to or from CSV, since its text is CSV.
 
 The source of a copy in the `:array` or `:hash` mode can also be an Active Record relation, whose rows are read with
 one query, and written by the types of its columns, see [Exporting queries](queries):
@@ -10141,6 +10149,7 @@ Start with the changes that apply to your application:
 | Reads rows or records that can be blank, such as CSV exports with lines of only commas, or JSON records of only nulls | [Blank rows are the same in every format](#blank-rows-are-the-same-in-every-format) |
 | Reads records without a schema from files whose header row repeats a column, such as `a,a,b` | [Two columns of the same key raise `InvalidHeader`](#two-columns-of-the-same-key-raise-invalidheader) |
 | Supplies options to `#option`, `#stream`, `#reader`, `#writer` or the copy methods | [Reading, writing and options](#reading-writing-and-options) |
+| Copies a file into one of another format without a `mode:`, such as `.csv` into `.json` | [A copy without a mode converts the format](#a-copy-without-a-mode-converts-the-format) |
 | Calls methods such as `#rewind`, `#pos` or `#size` on the IO that a block receives | [The stream of a reader block is not the reader of a gem](#the-stream-of-a-reader-block-is-not-the-reader-of-a-gem), and for S3 and HTTP [S3 objects are read without a temp file](#s3-objects-are-read-without-a-temp-file) and [S3 objects are written without a temp file](#s3-objects-are-written-without-a-temp-file) |
 | Reads or writes an IO supplied with `IOStreams.stream(io)` | [Gzip and `.enc` streams leave your IO open](#gzip-and-enc-streams-leave-your-io-open), [Text written with an encoding to your IO keeps it](#text-written-with-an-encoding-to-your-io-keeps-it), [BZip2 leaves your IO in its mode](#bzip2-leaves-your-io-in-its-mode), and [A failed write to your IO is not completed](#a-failed-write-to-your-io-is-not-completed) |
 | Reads or writes PGP files, or manages PGP keys | [PGP](#pgp) |
@@ -11005,6 +11014,20 @@ option, instead of ignoring it. v2.2 reports such an option as deprecated. Optio
 
 Fix: remove the option, which had no effect. To configure a stream, use `#option` or `#stream`, for
 example `path.option(:pgp, passphrase: "secret").reader { |io| io.read }`.
+
+#### A copy without a mode converts the format
+
+`#copy_from` and `#copy_to` without a `mode:` now copy the rows of the source, as the `:array` mode does, when the
+source and target are in different tabular formats, as their file names or `#format` give them, such as `people.csv`
+into `people.json`, `people.psv` or `people.parquet`, so that the target is a file of its own format, and return the
+number of rows copied. Previously the copy wrote the text of the source into the target as it was, such as CSV text
+into a file named `.json`, which then did not read as JSON, and returned the number of bytes. A Parquet target needs a
+schema, as in the `:array` mode. A source or target whose format is not known, such as an IO or a `.txt` file, a
+source and target of the same format, and a spreadsheet to or from CSV are still copied as they are.
+
+Fix: nothing, unless the code relied on the copy keeping the text of the source, or on its number of bytes: then name
+the target with the extension of the source's format, or copy it with `convert: false`, which copies the data as it is
+stored.
 
 #### An option for a format applies to each of its extensions
 

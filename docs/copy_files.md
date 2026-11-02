@@ -17,7 +17,8 @@ file name, so a copy can also convert the file:
 
 * from one storage location to another, such as from SFTP to S3;
 * from one compression or encryption to another, such as from `.gz` to `.pgp`;
-* from one format to another, such as from CSV to JSON or Parquet.
+* from one format to another, such as from CSV to JSON or Parquet, see
+  [Converting rows and records](#converting-rows-and-records).
 
 ## Copying a file
 
@@ -51,6 +52,13 @@ IOStreams.path("xyz.csv.pgp").option(:pgp, recipient: "receiver@example.org").co
 ~~~
 
 A copy without a mode returns the number of bytes copied, as written to the target before its streams.
+
+A copy without a mode into a file of another format, such as `people.csv` into `people.json` or `people.parquet`,
+copies the rows, as the `:array` mode does, see [Converting rows and records](#converting-rows-and-records), so that
+the target is a file of its own format, rather than CSV text in a JSON or Parquet file, and returns the number of rows
+copied. A Parquet target needs a schema for that, its own or one that the source declares, as in the `:array` mode. A
+source or target whose format is not known, such as an IO or a `.txt` file, is copied as it is, and so is a
+spreadsheet to or from CSV, since its text is CSV.
 
 The source of a copy in the `:array` or `:hash` mode can also be an Active Record relation, whose rows are read with
 one query, and written by the types of its columns, see [Exporting queries](queries):
