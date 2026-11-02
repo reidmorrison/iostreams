@@ -121,22 +121,28 @@ module IOStreams
       def int64(value)
         return value if INT64.cover?(value)
 
-        raise(IOStreams::Errors::InvalidValue, "Field #{@field.name.inspect}: #{value.inspect} is outside the range of a " \
-                                               "Parquet int64")
+        invalid(value, "#{value.inspect} is outside the range of a Parquet int64")
       end
 
       def decimal(value)
         unless value.finite?
-          raise(IOStreams::Errors::InvalidValue, "Field #{@field.name.inspect}: #{value.inspect} is not finite, so it " \
-                                                 "cannot be written as a Parquet decimal")
+          invalid(value, "#{IOStreams::Schema::Field.special_text(value)} is not finite, so it cannot be written as a " \
+                         "Parquet decimal")
         end
 
         rounded = @field.round(value)
         return rounded if rounded.abs < 10**(PRECISION - @field.decimals)
 
-        raise(IOStreams::Errors::InvalidValue, "Field #{@field.name.inspect}: #{value.to_s('F')} has more than " \
-                                               "#{PRECISION - @field.decimals} digits before its decimal point, which " \
-                                               "a Parquet decimal(#{PRECISION}, #{@field.decimals}) cannot hold")
+        invalid(value, "#{value.to_s('F')} has more than #{PRECISION - @field.decimals} digits before its decimal " \
+                       "point, which a Parquet decimal(#{PRECISION}, #{@field.decimals}) cannot hold")
+      end
+
+      # Raises `IOStreams::Errors::InvalidValue` for a value of the column that Parquet cannot hold, naming its field,
+      # and holding the value, see `IOStreams::Errors::InvalidValue#value`, as a field raises for a value that is not of
+      # its type.
+      def invalid(value, problem)
+        message = "Field #{@field.name.inspect}: #{problem}"
+        raise(IOStreams::Errors::InvalidValue.new(message, field: @field.name, value: value))
       end
     end
   end

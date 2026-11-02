@@ -761,6 +761,10 @@ A schema reads the same records as the options it replaces, named as above, exce
   keep the name and give the field the column as an alias, such as `{name: "prnom", aliases: ["Prénom"]}`.
 * A key of a record written that is the field only once compared loosely, such as `LastName` for `last_name`, is
   written, where `columns:` wrote an empty value.
+* A `Float` or `BigDecimal` that is not finite is written as `INF` or `-INF`, as Frictionless spells them, where the
+  column options wrote `Infinity` or `-Infinity`, and writing one to JSON raises `IOStreams::Errors::InvalidValue`,
+  where the json gem raised `JSON::GeneratorError`, and a Rails app, whose ActiveSupport writes it, wrote `null`, see
+  [Types](schemas#types).
 
 ##### Checking a schema before upgrading
 
@@ -1800,6 +1804,8 @@ for each one.
 - The message of an `IOStreams::Errors::InvalidValue` that a reader of rows or records raises ends with the record and
   the line, such as `..., in record 6 on line 7`. `#reason` returns the message without them, for code that compares
   the whole message.
+- Without a schema, a `Float` or `BigDecimal` that is not finite is written to CSV, and the other formats of text, as
+  `INF` or `-INF`, as Frictionless spells them, where v2.1 wrote `Infinity` or `-Infinity`.
 
 ## Upgrading to v2.2
 

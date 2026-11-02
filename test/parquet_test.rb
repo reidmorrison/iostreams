@@ -505,9 +505,14 @@ class ParquetTest < Minitest::Test
       assert_equal "existing", File.read(File.join(dir, "people.parquet"))
     end
 
-    it "raises for a number that a decimal cannot hold" do
+    it "raises for a number that a decimal cannot hold, naming its field, as Frictionless spells it" do
       error = assert_raises(IOStreams::Errors::InvalidValue) { write(path.schema(schema), [{"id" => 1, "amount" => "NaN"}]) }
-      assert_match(/\AField "amount": .* is not finite, so it cannot be written as a Parquet decimal/, error.message)
+      assert_match(/\AField "amount": NaN is not finite, so it cannot be written as a Parquet decimal/, error.message)
+      assert_equal "amount", error.field
+      assert_predicate error.value, :nan?
+
+      error = assert_raises(IOStreams::Errors::InvalidValue) { write(path.schema(schema), [{"id" => 1, "amount" => "-Infinity"}]) }
+      assert_match(/\AField "amount": -INF is not finite/, error.message)
     end
 
     it "rounds a number to its decimals as CSV writes it" do
@@ -543,6 +548,7 @@ class ParquetTest < Minitest::Test
         writer << records[0]
         error = assert_raises(IOStreams::Errors::InvalidValue) { writer << {"id" => 2**63} }
         assert_match(/Field "id": .* outside the range of a Parquet int64/, error.message)
+        assert_equal ["id", 2**63], [error.field, error.value]
         writer << {"id" => -(2**63)}
         break
       end
@@ -555,6 +561,7 @@ class ParquetTest < Minitest::Test
 
       error = assert_raises(IOStreams::Errors::InvalidValue) { write(path.schema(wide), [{"amount" => "123.5"}]) }
       assert_match(/Field "amount": 123.5 has more than 2 digits before its decimal point/, error.message)
+      assert_equal ["amount", BigDecimal("123.5")], [error.field, error.value]
       write(path.schema(wide), [{"amount" => "99.5"}])
 
       assert_equal [{"amount" => BigDecimal("99.5")}], read

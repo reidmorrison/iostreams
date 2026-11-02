@@ -542,6 +542,13 @@ They end with the transaction, or are set back in a transaction that was already
 A cursor never runs its query in parallel, so a query that PostgreSQL runs with parallel workers otherwise, such as an
 aggregate of a large table, can take longer to export than it takes in `psql`.
 
+A `numeric` column can hold `'NaN'`, and from PostgreSQL 14 one without a scale also `'Infinity'` and `'-Infinity'`, as
+can a `real` or `double precision` column, which Active Record reads as a `BigDecimal` or `Float` that is not finite.
+CSV writes them as `NaN`, `INF` and `-INF`, as Frictionless spells them, while JSON, which cannot hold them, and a
+Parquet decimal raise `IOStreams::Errors::InvalidValue`, naming the column. To export such a column to them, select it
+as a missing value, such as `CASE WHEN amount = 'NaN' THEN NULL ELSE amount END AS amount`, or as its text, under
+another name, such as `amount::text AS amount_text`, which is a `string`.
+
 When the block raises, or the export is interrupted, such as by `Timeout`, Active Record rolls back the transaction of
 the cursor, which cancels a fetch that is still running. On JRuby, PgJDBC waits for a fetch in Java, which a `Timeout`
 interrupts only once the fetch returns, see [JRuby](#jruby). A failure to close the cursor, after the block finishes or
