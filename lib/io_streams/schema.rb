@@ -827,11 +827,12 @@ module IOStreams
       keys.uniq { |_label, key| key.map(&:object_id) }.freeze
     end
 
-    # Returns [Array<Array<String>>] the names of the fields of each of the `uniqueKeys`, see above.
+    # Returns [Array<Array<String>>] the names of the fields of each of the `uniqueKeys`, see above, which Frictionless
+    # requires to be an Array of at least one key.
     def unique_key_names(unique_keys)
       return [] if unique_keys.nil?
 
-      valid = unique_keys.is_a?(Array) &&
+      valid = unique_keys.is_a?(Array) && !unique_keys.empty? &&
               unique_keys.all? { |names| names.is_a?(Array) && !names.empty? && names.all? { |name| name?(name) } }
       return unique_keys.map { |names| check_key("uniqueKeys", names.map(&:to_s)) } if valid
 
@@ -852,13 +853,16 @@ module IOStreams
 
     # Returns [Array<IOStreams::Schema::Field>] the fields of the supplied names of a key.
     #
-    # Raises ArgumentError for a name that is not that of a field.
+    # Raises ArgumentError for a name that is not that of a field, or is that of a field that only holds the place of a
+    # column, see `skip` in `IOStreams::Schema::Field`, whose values are never read.
     def key_fields(property, names)
       names.map do |name|
         field = fields.find { |each_field| each_field.name.to_s == name }
-        next field if field
+        raise(ArgumentError, "The schema #{property} names #{name.inspect}, which is not a field of the schema") unless field
+        next field unless field.skip?
 
-        raise(ArgumentError, "The schema #{property} names #{name.inspect}, which is not a field of the schema")
+        raise(ArgumentError, "The schema #{property} names #{name.inspect}, a field with skip: true, whose values are " \
+                             "never read")
       end
     end
 

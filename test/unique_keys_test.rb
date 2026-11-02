@@ -13,6 +13,13 @@ class UniqueKeysTest < Minitest::Test
       records
     end
 
+    # Returns [Array] the records read from a slice with the schema, as a worker reads them.
+    def read_slice(slice, schema)
+      records = []
+      IOStreams.stream(slice).schema(schema).each(:hash) { |record| records << record }
+      records
+    end
+
     # Returns [String] the text written for the records with the schema.
     def write(records, schema, mode = :hash, file_name: "people.csv")
       output = StringIO.new
@@ -29,7 +36,7 @@ class UniqueKeysTest < Minitest::Test
         assert_equal [{"id" => 1, "name" => "a"}, {"id" => 2, "name" => "b"}], read("id,name\n1,a\n2,b\n", schema)
         error = assert_raises(IOStreams::Errors::InvalidValue) { read("id,name\n1,a\n2,b\n01,c\n", schema) }
 
-        assert_equal 'Field "id": 1 is not unique, it is the value of an earlier record', error.reason
+        assert_equal 'Field "id": "1" is not unique, it is the value of an earlier record', error.reason
         assert_equal "id", error.field
         assert_equal 1, error.value
         assert_equal 3, error.record_number
@@ -63,8 +70,58 @@ class UniqueKeysTest < Minitest::Test
         records  = read("id,name\n1,a\n1,b\n2,c\n", schema, on_invalid: ->(row) { problems << row })
 
         assert_equal [{"id" => 1, "name" => "a"}, {"id" => 2, "name" => "c"}], records
-        assert_equal ['Field "id": 1 is not unique, it is the value of an earlier record'], problems.flat_map(&:errors).map(&:reason)
+        assert_equal ['Field "id": "1" is not unique, it is the value of an earlier record'], problems.flat_map(&:errors).map(&:reason)
         assert_equal [2], problems.map(&:record_number)
+      end
+
+      it "names the value as its field writes it" do
+        schema = {fields: [{name: "pay", type: "number", decimals: 2, constraints: {unique: true}}]}
+
+        error = assert_raises(IOStreams::Errors::InvalidValue) { read("pay\n1\n1.00\n", schema) }
+        assert_equal 'Field "pay": "1.00" is not unique, it is the value of an earlier record', error.reason
+        error = assert_raises(IOStreams::Errors::InvalidValue) do
+          write([{"pay" => 1.5}, {"pay" => BigDecimal("1.5")}], schema, file_name: "pay.json")
+        end
+        assert_equal 'Field "pay": "1.50" is not unique, it is the value of an earlier record', error.reason
+      end
+
+      it "does not remember the value of a record that raises, so a record after it can have it" do
+        schema = {
+          uniqueKeys: [["id"], ["code"]],
+          fields:     [{name: "id", type: "integer"}, {name: "code"}, {name: "n", type: "integer"}]
+        }
+        problems = []
+        records  = read("id,code,n\n1,a,1\n2,b,x\n2,a,3\n2,c,4\n", schema, on_invalid: ->(row) { problems << row })
+
+        # The record of line 3 does not count, since its n is not valid, and that of line 4, since its code is not unique,
+        # so neither its id 2, which was checked before its code, nor that of line 3 is remembered.
+        assert_equal [{"id" => 1, "code" => "a", "n" => 1}, {"id" => 2, "code" => "c", "n" => 4}], records
+        assert_equal [2, 3], problems.map(&:record_number)
+      end
+
+      it "remembers a copy of each value, which a change to the record read does not change" do
+        schema = {uniqueKeys: [%w[first last]], fields: [{name: "first"}, {name: "last"}]}
+
+        assert_raises(IOStreams::Errors::InvalidValue) do
+          IOStreams.stream(StringIO.new("first,last\njack,jones\njack,jones\n")).file_name("a.csv").schema(schema).each(:hash) do |record|
+            record["first"].upcase!
+          end
+        end
+      end
+
+      it "checks the rows of each slice on its own, and every row of the file once when slicing with validate: true" do
+        slices = []
+        IOStreams.stream(StringIO.new("id,name\n1,a\n2,b\n1,c\n")).file_name("a.csv").schema(schema).each(:slice, size: 2) do |slice|
+          slices << slice
+        end
+
+        assert_equal([2, 1], slices.map { |slice| read_slice(slice, schema).size })
+        handed = []
+        assert_raises(IOStreams::Errors::InvalidValue) do
+          IOStreams.stream(StringIO.new("id,name\n1,a\n2,b\n1,c\n")).file_name("a.csv").schema(schema).
+            each(:slice, size: 2, validate: true) { |slice| handed << slice }
+        end
+        assert_equal [2], handed.map(&:size)
       end
 
       it "raises for a value written before" do
@@ -93,7 +150,7 @@ class UniqueKeysTest < Minitest::Test
         assert_equal 3, read("region,id,name\nUS,1,a\nCA,1,b\nUS,2,c\n", schema).size
         error = assert_raises(IOStreams::Errors::InvalidValue) { read("region,id,name\nUS,1,a\nCA,1,b\nUS,1,c\n", schema) }
 
-        assert_equal 'The primaryKey "region", "id": ["US", 1] is not unique, it is the value of an earlier record', error.reason
+        assert_equal 'The primaryKey "region", "id": "US", "1" is not unique, it is the value of an earlier record', error.reason
         assert_equal %w[region id], error.field
         assert_equal ["US", 1], error.value
         assert_equal 3, error.record_number
@@ -127,7 +184,8 @@ class UniqueKeysTest < Minitest::Test
         [
           {primaryKey: [], fields: [{name: "id"}]}, {primaryKey: [1], fields: [{name: "id"}]},
           {primaryKey: %w[id id], fields: [{name: "id"}]}, {primaryKey: ["code"], fields: [{name: "id"}]},
-          {primaryKey: 1, fields: [{name: "id"}]}, {primaryKey: "id", fields: [{name: "id", allowBlank: true}]}
+          {primaryKey: 1, fields: [{name: "id"}]}, {primaryKey: "id", fields: [{name: "id", allowBlank: true}]},
+          {primaryKey: "id", fields: [{name: "id", skip: true}, {name: "a"}]}
         ].each do |descriptor|
           assert_raises(ArgumentError, descriptor.inspect) { IOStreams::Schema.new(descriptor) }
         end
@@ -147,7 +205,7 @@ class UniqueKeysTest < Minitest::Test
       it "checks each key on its own" do
         assert_equal 2, read("email,first,last\na@x,Jack,Jones\nb@x,Jack,Smith\n", schema).size
         error = assert_raises(IOStreams::Errors::InvalidValue) { read("email,first,last\na@x,Jack,Jones\nb@x,Jack,Jones\n", schema) }
-        assert_equal 'The uniqueKey "first", "last": ["Jack", "Jones"] is not unique, it is the value of an earlier record',
+        assert_equal 'The uniqueKey "first", "last": "Jack", "Jones" is not unique, it is the value of an earlier record',
                      error.reason
         error = assert_raises(IOStreams::Errors::InvalidValue) { read("email,first,last\na@x,Jack,Jones\na@x,Jill,Jones\n", schema) }
         assert_equal 'The uniqueKey "email": "a@x" is not unique, it is the value of an earlier record', error.reason
@@ -157,11 +215,14 @@ class UniqueKeysTest < Minitest::Test
         assert_equal 3, read("email,first,last\n,Jack,\n,Jack,\n,,Jones\n", schema).size
       end
 
-      it "raises for keys that are not Arrays of the names of fields" do
-        [[[]], ["email"], [[1]], [["code"]], [%w[email email]], "email"].each do |keys|
+      it "raises for keys that are not Arrays of the names of fields, none at all, or a field with skip: true" do
+        [[], [[]], ["email"], [[1]], [["code"]], [%w[email email]], "email"].each do |keys|
           assert_raises(ArgumentError, keys.inspect) { IOStreams::Schema.new(schema.merge(uniqueKeys: keys)) }
         end
-        assert_equal [], IOStreams::Schema.new(schema.merge(uniqueKeys: [])).to_h[:uniqueKeys]
+        error = assert_raises(ArgumentError) do
+          IOStreams::Schema.new(uniqueKeys: [["code"]], fields: [{name: "id"}, {name: "code", skip: true}])
+        end
+        assert_equal 'The schema uniqueKeys names "code", a field with skip: true, whose values are never read', error.message
       end
     end
 
@@ -206,6 +267,34 @@ class UniqueKeysTest < Minitest::Test
         end
       end
 
+      it "remembers the values of a record only once both the schema of the file and the contract accept it" do
+        contract = IOStreams::Contract.new(
+          fieldsMatch: "partial",
+          fields:      [{name: "id", type: "integer"}, {name: "status", constraints: {enum: %w[open closed]}}]
+        )
+        schema   = {fields: [{name: "id", type: "integer", constraints: {unique: true}}, {name: "status"}]}
+        problems = []
+        records  = []
+        stream   = IOStreams.stream(StringIO.new("id,status\n1,bad\n1,open\n1,closed\n")).file_name("a.csv")
+        stream.schema(schema).as(contract).each(:hash, on_invalid: ->(row) { problems << row }) { |record| records << record }
+
+        assert_equal [{"id" => 1, "status" => "open"}], records
+        assert_equal [1, 3], problems.map(&:record_number)
+      end
+
+      it "remembers the values of a record written only once both the contract and the schema of the file accept it" do
+        contract = IOStreams::Contract.new(primaryKey: "id", fields: [{name: "id", type: "integer"}, {name: "n", type: "integer"}])
+        schema   = {fields: [{name: "id", type: "integer"}, {name: "n", type: "integer", constraints: {maximum: 5}}]}
+        output   = StringIO.new
+        IOStreams.stream(output).file_name("a.csv").schema(schema).as(contract).writer(:hash) do |io|
+          assert_raises(IOStreams::Errors::InvalidValue) { io << {"id" => 1, "n" => 9} }
+          io << {"id" => 1, "n" => 2}
+          assert_raises(IOStreams::Errors::InvalidValue) { io << {"id" => 1, "n" => 3} }
+        end
+
+        assert_equal "id,n\n1,2\n", output.string
+      end
+
       it "declares them with primary_key, unique_keys and unique_limit, which to_dsl writes" do
         contract = Class.new(IOStreams::Contract) do
           unique_limit 10
@@ -231,7 +320,9 @@ class UniqueKeysTest < Minitest::Test
             unique_keys [["email"]]
           end
         RUBY
-        assert_raises(ArgumentError) { Class.new(IOStreams::Contract) { primary_key "id" } }
+        error = assert_raises(ArgumentError) { Class.new(IOStreams::Contract) { primary_key "id" } }
+        assert_equal 'The contract has no field named "id": declare primary_key after the fields that it names', error.message
+        assert_raises(ArgumentError) { Class.new(IOStreams::Contract) { unique_keys [["id"]] } }
         assert_equal contract.to_h, Class.new(IOStreams::Contract) { class_eval(dsl.lines[1..-2].join, __FILE__, __LINE__) }.to_h
       end
     end

@@ -103,8 +103,13 @@ module IOStreams
         @write_plans = {}
         @write_keys  = nil
         @write_plan  = nil
-        # The values seen of each field and key that must be unique, of this read or write, or nil.
-        @unique      = schema.uniqueness
+        # The values seen of each field and key that must be unique, of this read or write, or nil, the values of the
+        # last row or record checked that wait to be remembered, see #remember_unique, and the position of each field of
+        # the uniqueness in the rows and records of each kind, by the plan or columns that it was found for, see
+        # #unique_positions.
+        @unique           = schema.uniqueness
+        @pending          = nil
+        @unique_positions = {}
       end
 
       # Matches the columns of a header row read to the fields. The columns without a name at the end of the header row,
@@ -289,12 +294,16 @@ module IOStreams
       # Raises `IOStreams::Errors::InvalidHeader` when the row has values after its last column, see #check_extra.
       # Raises `IOStreams::Errors::InvalidValue` when a value of a field or key that must be unique is not, see
       # `IOStreams::Schema::Uniqueness`, unless `unique` is false, for a row read again, see
-      # `IOStreams::Schema::ContractColumns#value_errors`.
-      def row(values, unique: true)
+      # `IOStreams::Schema::ContractColumns#value_errors`. The values that must be unique are remembered at once, unless
+      # `remember` is false, when they wait for #remember_unique.
+      def row(values, unique: true, remember: true)
         columns = matched
         check_extra(values, @width, "column")
         row = columns.map { |field, index| read_value(field, index && values[index]) }
-        @unique.check(columns.each_with_index.map { |(field, _index), position| [field, row[position]] }) if @unique && unique
+        if @unique && unique
+          positions = unique_positions(:row, columns) { |field| columns.index { |each_field, _| each_field.equal?(field) } }
+          check_unique(row, positions, remember)
+        end
         @extra.each { |extra| row << values[extra.first] }
         row
       end
@@ -304,12 +313,18 @@ module IOStreams
       # that the schema keeps, see #extra_columns, as they are.
       #
       # Raises `IOStreams::Errors::InvalidHeader` when the row has values after its last column, see #check_extra.
-      def record(values)
+      # Raises `IOStreams::Errors::InvalidValue` when a value of a field or key that must be unique is not, as for #row.
+      def record(values, remember: true)
         columns = matched
         check_extra(values, @width, "column")
         record = {}
         columns.each { |field, index, key| record[key] = read_value(field, index && values[index]) }
-        @unique&.check(columns.map { |field, _index, key| [field, record[key]] })
+        if @unique
+          positions = unique_positions(:record, columns) do |field|
+            columns.find { |each_field, _| each_field.equal?(field) }&.last
+          end
+          check_unique(record, positions, remember)
+        end
         @extra.each { |index, key| record[key] = values[index] }
         record
       end
@@ -320,14 +335,18 @@ module IOStreams
       #
       # Raises `IOStreams::Errors::InvalidHeader` when its keys do not match the fields, see
       # `IOStreams::Schema#check_columns`.
-      def read_hash(hash, unique: true)
+      # Raises `IOStreams::Errors::InvalidValue` when a value of a field or key that must be unique is not, as for #row.
+      def read_hash(hash, unique: true, remember: true)
         record = {}
         plan   = read_plan(hash.keys)
         plan.each do |field, key, name|
           value        = hash[key] unless key.nil?
           record[name] = field ? read_value(field, value) : value
         end
-        @unique.check(plan.filter_map { |field, _key, name| [field, record[name]] if field }) if @unique && unique
+        if @unique && unique
+          positions = unique_positions(:hash, plan) { |field| plan.find { |each_field, _| each_field&.equal?(field) }&.last }
+          check_unique(record, positions, remember)
+        end
         record
       end
 
@@ -339,7 +358,7 @@ module IOStreams
       # `IOStreams::Schema#check_columns`.
       # Raises ArgumentError when the schema keeps the keys that it does not list, see #extra_columns, which the rows
       # cannot hold, since each record can have other keys, which the header row of the rows does not name.
-      def read_row(hash)
+      def read_row(hash, remember: true)
         if @keep_extra
           raise(ArgumentError, "A schema with extraColumns \"keep\" cannot read the rows of a format whose records " \
                                "supply their own keys, such as JSON, since each record can have keys that the header row " \
@@ -349,7 +368,10 @@ module IOStreams
         keys = hash.keys
         plan = keys.eql?(@row_keys) ? @row_plan : row_plan(keys)
         row  = plan.map { |field, key| read_value(field, key.nil? ? nil : hash[key]) }
-        @unique&.check(plan.each_with_index.map { |(field, _key), position| [field, row[position]] })
+        if @unique
+          positions = unique_positions(:hash_row, plan) { |field| plan.index { |each_field, _| each_field.equal?(field) } }
+          check_unique(row, positions, remember)
+        end
         row
       end
 
@@ -364,14 +386,27 @@ module IOStreams
       # Raises `IOStreams::Errors::TypeMismatch` when it is neither a Hash nor an Array.
       #
       # Raises `IOStreams::Errors::InvalidValue` when a value of a field or key that must be unique is not, see
-      # `IOStreams::Schema::Uniqueness`, compared as it is written.
-      def render(row, form, keyed)
+      # `IOStreams::Schema::Uniqueness`, compared as it is written, and remembered as for #row.
+      def render(row, form, keyed, remember: true)
         out = render_row(row, form, keyed)
         if @unique
-          fields = @schema.fields
-          @unique.check(fields.each_with_index.map { |field, index| [field, keyed ? out[field.name] : out[index]] })
+          fields    = @schema.fields
+          positions = unique_positions(keyed ? :keyed : :values, fields) do |field|
+            keyed ? field.name : fields.index { |each_field| each_field.equal?(field) }
+          end
+          check_unique(out, positions, remember)
         end
         out
+      end
+
+      # Remembers the values that must be unique of the last row or record read or written with `remember: false`, once
+      # a contract has read or written it too, see `IOStreams::Schema::ContractColumns`, so that a row or record that
+      # the contract rejects adds none of them, see `IOStreams::Schema::Uniqueness`.
+      def remember_unique
+        return if @pending.nil?
+
+        @unique.add(@pending)
+        @pending = nil
       end
 
       # Returns nil, the line of a blank record or row, which a file writes as a blank line, see
@@ -394,6 +429,30 @@ module IOStreams
       end
 
       private
+
+      # Checks the values of a row or record that must be unique, at the supplied position of each field of the
+      # uniqueness, see `IOStreams::Schema::Uniqueness#check`, and remembers them, unless `remember` is false, when they
+      # wait for #remember_unique.
+      def check_unique(values, positions, remember)
+        pending = @unique.check(values, positions)
+        if remember
+          @unique.add(pending)
+        else
+          @pending = pending
+        end
+      end
+
+      # Returns [Array] the position of each field of the uniqueness, see `IOStreams::Schema::Uniqueness#fields`, in the
+      # rows or records of a kind, which the block finds once for each list of columns or plan of keys, rather than for
+      # each value, since they are usually the same for every row.
+      def unique_positions(kind, plan, &)
+        last = @unique_positions[kind]
+        return last.last if last&.first.equal?(plan)
+
+        positions = @unique.fields.map(&)
+        @unique_positions[kind] = [plan, positions]
+        positions
+      end
 
       # Returns [Array|Hash] the value of each field of the schema, in the form that the format writes it, see #render.
       def render_row(row, form, keyed)

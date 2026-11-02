@@ -562,6 +562,18 @@ module IOStreams
       # `IOStreams::Schema::Constraints`.
       def unique? = @constraints.unique?
 
+      # Returns [String] the text of a value of this field, as a file of text writes it, see #render, such as "1.50" for
+      # the number `BigDecimal("1.5")` with 2 decimals, from the value itself, or from the form that #render gave it,
+      # such as the text of a number of JSON, for the message of an error, see `IOStreams::Schema::Uniqueness`.
+      def text_of(value)
+        case value
+        when nil then ""
+        when String then value
+        when JsonNumber then value.text
+        else defined?(::JSON::Fragment) && value.is_a?(::JSON::Fragment) ? value.json : text(value)
+        end
+      end
+
       # Returns [true|false] whether the text is one of the missing values of the field, see `missingValues` above, such
       # as the text of a cell of a spreadsheet, see `IOStreams::Xlsx::Reader::Rows`, or of a number that a fixed width
       # file writes, see `IOStreams::Tabular::Parser::Fixed`.

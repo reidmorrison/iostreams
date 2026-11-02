@@ -4559,13 +4559,21 @@ end
   with `nil` in any field of a key is not compared, as SQL compares a unique key, and neither is `nil` of a field
   whose `constraints` are `unique`.
 * Each field and key is checked on its own, as Frictionless requires, and values are compared as their fields read
-  them, so `1` and `01` of an `integer` are the same. Writing compares the values as it writes them, such as their text.
-* A record whose values are not valid, such as one that `on_invalid:` hands on, does not count.
+  them, so `1` and `01` of an `integer` are the same, and a `number` with `decimals` once it is rounded to them, so
+  `1.001` and `1.004` with `decimals: 2` are both `1.00`. Writing compares the values as it writes them, such as their
+  text, and names a value in its message as its field writes it, such as `"1.00"`.
+* A record whose values are not valid, such as one that `on_invalid:` hands on, does not count, nor does one that a
+  [contract](contracts) rejects, read through the schema of the file, which counts only once both have read it.
+* `primaryKey` and `uniqueKeys` name fields that are read, so a field with `skip: true` raises `ArgumentError`, and
+  `uniqueKeys` holds at least one key, as Frictionless requires.
 
 Each read or write remembers the values that it has seen, so the check applies to one read of one file: the slices of
-a file that several workers read are each checked on their own, as is each file read by a job. It remembers up to
-1,000,000 distinct values of each field and key, so that a large file does not fill the memory, and raises
-`IOStreams::Errors::UniqueLimitExceeded` once it would need to remember more, rather than miss a duplicate. The
+a file that several workers read are each checked on their own, as is each file read by a job, while
+`each(:slice, validate: true)` reads the whole file once while it slices it, so it checks every row, see
+[Background Jobs](background_jobs). It remembers up to 1,000,000 distinct values of each field and key, so that a large
+file does not fill the memory, and raises `IOStreams::Errors::UniqueLimitExceeded` once it would need to remember more,
+rather than miss a duplicate. Each field and key has its own limit, and remembering costs memory: about 60 MB for
+1,000,000 Integers, and about 190 MB for 1,000,000 Strings such as UUIDs, or keys of several fields. The
 `uniqueLimit` of the schema, which IOStreams adds, changes how many: raise it for a larger file, or check the uniqueness
 of a very large one elsewhere, such as with a unique index of a database. `foreignKeys` is not supported yet, so it
 raises `ArgumentError`.
@@ -6432,6 +6440,11 @@ end
 
 The slices still hold the rows as they are in the file. Validating parses every row twice, once here and once in the
 job, so it is worth it when starting work on a file that is only partly valid is worse than reading it slower.
+
+Values that must be [unique](schemas#unique-values), such as those of a `primaryKey`, are unique within one read, so a
+job that reads its slice checks only the rows of that slice, and cannot see a duplicate in another slice. Validating
+reads the whole file once while it is sliced, so it checks them across the whole file, and raises for a duplicate
+before the slice that holds it is handed on.
 
 ### Hand on the slices only once the file is read
 

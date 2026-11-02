@@ -151,13 +151,19 @@ module IOStreams
       # Sets the field, or fields, whose values identify each record, such as `primary_key "id"` or
       # `primary_key ["region", "id"]`, by their names in the schema, see `primaryKey` in `IOStreams::Schema`, after
       # the fields that it names are declared.
+      #
+      # Raises ArgumentError for a name that is not that of a field declared before it.
       def primary_key(value)
+        check_key_names("primary_key", Array(value))
         set_property(:primaryKey, value)
       end
 
       # Sets the fields of each key whose values must be unique, such as `unique_keys [["email"]]`, see `uniqueKeys` in
       # `IOStreams::Schema`, after the fields that it names are declared.
+      #
+      # Raises ArgumentError for a name that is not that of a field declared before it.
       def unique_keys(value)
+        check_key_names("unique_keys", value.is_a?(Array) ? value.flatten : [])
         set_property(:uniqueKeys, value)
       end
 
@@ -435,6 +441,17 @@ module IOStreams
         end
         field[:constraints] = {**(field[:constraints] || {}), required: true} if required
         field
+      end
+
+      # Raises ArgumentError for a name of a key, see #primary_key, that is not that of a field declared before it, since
+      # the contract checks its properties as each is set.
+      def check_key_names(method, names)
+        declared = @schema ? fields.map { |field| field.name.to_s } : []
+        missing  = names.find { |name| (name.is_a?(String) || name.is_a?(Symbol)) && !declared.include?(name.to_s) }
+        return if missing.nil?
+
+        raise(ArgumentError, "The contract has no field named #{missing.to_s.inspect}: declare #{method} after the " \
+                             "fields that it names")
       end
 
       def set_property(property, value)

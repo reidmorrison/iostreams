@@ -496,6 +496,11 @@ end
 The slices still hold the rows as they are in the file. Validating parses every row twice, once here and once in the
 job, so it is worth it when starting work on a file that is only partly valid is worse than reading it slower.
 
+Values that must be [unique](schemas#unique-values), such as those of a `primaryKey`, are unique within one read, so a
+job that reads its slice checks only the rows of that slice, and cannot see a duplicate in another slice. Validating
+reads the whole file once while it is sliced, so it checks them across the whole file, and raises for a duplicate
+before the slice that holds it is handed on.
+
 ### Hand on the slices only once the file is read
 
 `each(:slice)` yields each slice as soon as it is read, so when reading fails part way through, such as for a value

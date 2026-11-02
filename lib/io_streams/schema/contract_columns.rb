@@ -93,25 +93,29 @@ module IOStreams
       end
 
       # Returns [Array] the value of each field of the contract, from the values of a row of the columns of the file.
+      #
+      # The values that must be unique of the schema of the file, and of the contract, are each checked, then
+      # remembered only once both have read the row, so that a row that the contract rejects adds none of them, see
+      # `IOStreams::Schema::Uniqueness`. The same for each row and record read and written.
       def row(values)
-        @contract.row(@source.row(values))
+        remember_unique { @contract.row(@source.row(values, remember: false), remember: false) }
       end
 
       # Returns [Hash] the record of the contract, from the values of a row of the columns of the file.
       def record(values)
-        @contract.record(@source.row(values))
+        remember_unique { @contract.record(@source.row(values, remember: false), remember: false) }
       end
 
       # Returns [Hash] the record of the contract, from a record of a format whose records supply their own keys, such
       # as JSON, which the schema of the file reads first.
       def read_hash(hash)
-        @contract.read_hash(@source.read_hash(hash))
+        remember_unique { @contract.read_hash(@source.read_hash(hash, remember: false), remember: false) }
       end
 
       # Returns [Array] the value of each field of the contract, in order, from a record of a format whose records
       # supply their own keys, such as JSON.
       def read_row(hash)
-        @contract.read_row(@source.read_hash(hash))
+        remember_unique { @contract.read_row(@source.read_hash(hash, remember: false), remember: false) }
       end
 
       # Returns [Array<IOStreams::Errors::InvalidValue>] an error for each field of the file whose value of the supplied row
@@ -132,10 +136,12 @@ module IOStreams
       # `IOStreams::Schema::Columns#render`, then rendered by the schema of the file, in the column of the field of the
       # file that each field of the contract matched, in the supplied form.
       def render(row, form, keyed)
-        values = @contract.render(row, :typed, true)
-        record = {}
-        renames.each { |name, label| record[label] = values[name] }
-        @source.render(record, form, keyed)
+        remember_unique do
+          values = @contract.render(row, :typed, true, remember: false)
+          record = {}
+          renames.each { |name, label| record[label] = values[name] }
+          @source.render(record, form, keyed, remember: false)
+        end
       end
 
       # Raises for a blank row written when a field of the contract, or of the schema of the file, needs a value, see
@@ -158,6 +164,16 @@ module IOStreams
       end
 
       private
+
+      # Returns the result of the block, which reads or writes a row or record by the schema of the file and the contract
+      # without remembering the values that must be unique, once it has, then asks both to remember them, see
+      # `IOStreams::Schema::Columns#remember_unique`.
+      def remember_unique
+        result = yield
+        @source.remember_unique
+        @contract.remember_unique
+        result
+      end
 
       # Returns [Array<String|Symbol>] the keys of the fields of the contract, once it is matched to the keys of the
       # records that the schema of the file reads, which raises `IOStreams::Errors::InvalidHeader` when they do not
