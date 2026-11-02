@@ -33,7 +33,8 @@ module IOStreams
     #     A value that each value of the field must be greater than, or less than, of the same types as `minimum`.
     #
     #   minLength, maxLength: [Integer]
-    #     The fewest and the most characters of a string, or items of a list, an array or an object.
+    #     The fewest and the most characters of a string, the bytes of a string with the format "binary", or the items of
+    #     a list, an array or an object.
     #
     #   pattern: [String]
     #     A Ruby regular expression that the whole text of a string must match, as if it were wrapped in
@@ -260,7 +261,8 @@ module IOStreams
 
       # Returns [Hash] the constraints with String keys.
       #
-      # Raises ArgumentError for a constraint that is not supported, or that does not apply to the type of the field.
+      # Raises ArgumentError for a constraint that is not supported, or that does not apply to the type of the field, such
+      # as a `pattern` of a string of bytes, `format: "binary"`, which is not text.
       def check_hash(constraints)
         return {} if constraints.nil?
         unless constraints.is_a?(Hash)
@@ -270,6 +272,10 @@ module IOStreams
         constraints = constraints.transform_keys(&:to_s)
         constraints.each_key do |constraint|
           raise(ArgumentError, "Field #{@name.inspect}: #{problem(constraint)}") unless SUPPORTED.include?(constraint)
+          if constraint == "pattern" && @field.binary?
+            raise(ArgumentError, "Field #{@name.inspect}: the constraint \"pattern\" does not apply to bytes, a string " \
+                                 "with the format \"binary\", which are not text")
+          end
 
           types = TYPES[constraint]
           next if types.nil? || types.include?(@field.type)

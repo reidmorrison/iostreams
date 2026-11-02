@@ -318,6 +318,61 @@ class FrictionlessTypesTest < Minitest::Test
         assert_equal bytes, binary.render("AP9oaQ==", :typed)
         assert_equal bytes, binary.load(binary.dump(bytes))
         assert_raises(IOStreams::Errors::InvalidValue) { field(type: "string", format: "binary", constraints: {maxLength: 2}).cast(bytes) }
+        assert_equal "AP9oaQ==", binary.render(bytes, :scalar)
+      end
+
+      it "reads base64 text with whitespace, such as the line breaks of MIME, and raises for text of only whitespace" do
+        binary = field(type: "string", format: "binary")
+
+        assert_equal "\x00\xFFhi".b, binary.cast("AP9o\r\naQ==\n")
+        assert_equal "\x00\xFFhi".b, binary.cast(" AP9o aQ== ")
+        assert_raises(IOStreams::Errors::InvalidValue) { binary.cast("  ") }
+        assert_raises(IOStreams::Errors::InvalidValue) { binary.cast("AP9oaQ=") }
+      end
+
+      it "reads the base64 text of a format of text even when it is binary text, such as read with encoding BINARY" do
+        schema = {fields: [{name: "data", type: "string", format: "binary"}]}
+        File.binwrite(File.join(dir, "data.csv"), "data\nAP9oaQ==\n")
+        File.binwrite(File.join(dir, "data.json"), %({"data":"AP9oaQ=="}\n))
+
+        assert_equal [{"data" => "\x00\xFFhi".b}], read(IOStreams.path(dir, "data.csv").encoding("BINARY").schema(schema))
+        assert_equal [{"data" => "\x00\xFFhi".b}], read(IOStreams.path(dir, "data.json").encoding("BINARY").schema(schema))
+        assert_equal "\x00\xFFhi".b, field(type: "string", format: "binary").parse("AP9oaQ==".b, :text)
+        assert_equal "AP9oaQ==".b, field(type: "string", format: "binary").parse("AP9oaQ==".b, :typed)
+      end
+
+      it "raises for a pattern of bytes, which are not text, and counts their bytes for minLength and maxLength" do
+        error = assert_raises(ArgumentError) { field(type: "string", format: "binary", constraints: {pattern: "a+"}) }
+        assert_equal 'Field "value": the constraint "pattern" does not apply to bytes, a string with the format "binary", which ' \
+                     "are not text", error.message
+        assert_equal "abc".b, field(type: "string", format: "binary", constraints: {minLength: 3}).cast("YWJj")
+      end
+
+      it "copies the bytes of a Parquet binary column to CSV as their base64 text, which reads back" do
+        skip "The parquet gem is a Rust extension, which JRuby cannot load" if defined?(JRuby)
+
+        schema = {fields: [{name: "id", type: "integer"}, {name: "data", type: "string", format: "binary"}]}
+        record = {"id" => 1, "data" => "\x00\xFFhi".b}
+        write("data.parquet", schema, [record])
+        IOStreams.path(dir, "data.csv").copy_from(IOStreams.path(dir, "data.parquet"), mode: :hash)
+
+        assert_equal "id,data\n1,AP9oaQ==\n", IOStreams.path(dir, "data.csv").read
+        assert_equal [record], read(IOStreams.path(dir, "data.csv").schema(schema))
+      end
+
+      it "keeps the format of a string, which says what its values are, in a contract and the schema that a copy takes" do
+        schema = IOStreams::Schema.new(
+          fields: [
+            {name: "data", type: "string", format: "binary"},
+            {name: "on", type: "date", format: "%d/%m/%Y"},
+            {name: "at", type: "geopoint", format: "array"}
+          ]
+        )
+
+        assert_equal [{name: "data", type: "string", format: "binary"}, {name: "on", type: "date"}, {name: "at", type: "geopoint"}],
+                     schema.without_text.fields.map(&:to_h)
+        assert_equal [{name: "data", type: "string", format: "binary"}, {name: "on", type: "date"}, {name: "at", type: "geopoint"}],
+                     schema.to_contract.fields.map(&:to_h)
       end
 
       it "raises for any other format, including any, which Frictionless defines only for dates and times" do
@@ -339,7 +394,11 @@ class FrictionlessTypesTest < Minitest::Test
         assert_equal [record], read(csv)
         assert_equal [record], read(write("data.json", schema, [record]))
         assert_equal [record], read(write("data.xlsx", schema, [record]))
-        next if defined?(JRuby)
+        lines = []
+        IOStreams.path(dir, "data.xlsx").each(:line) { |line| lines << line }
+
+        assert_equal "123e4567-e89b-12d3-a456-426614174000,AP9oaQ==", lines.last
+        skip "The parquet gem is a Rust extension, which JRuby cannot load" if defined?(JRuby)
 
         parquet = write("data.parquet", schema, [record])
 

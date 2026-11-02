@@ -210,6 +210,11 @@ module IOStreams
       # that of a date, so that the CSV text of a spreadsheet reads back too.
       SCALAR_TEXT_TYPES = %w[list geopoint array object yearmonth].freeze
 
+      # The types whose `format` says how a file writes the text of their values, which a contract and the target of a
+      # copy leave out, see #to_contract_h and #without_text_h, while that of a string, such as "email" or "binary",
+      # says what its values are, so it is kept.
+      TEXT_FORMAT_TYPES = %w[date datetime time geopoint].freeze
+
       # The properties of a field that only describe it to people.
       DESCRIPTIVE_PROPERTIES = %w[title description example rdfType].freeze
 
@@ -390,13 +395,16 @@ module IOStreams
       # Returns [Hash] the properties of this field without those that lay out a file, see LAYOUT_PROPERTIES, nor the
       # `format` of its text, for a contract, see `IOStreams::Schema#to_contract`.
       def to_contract_h
-        to_h.except(*LAYOUT_PROPERTIES.map(&:to_sym), :format)
+        properties = to_h.except(*LAYOUT_PROPERTIES.map(&:to_sym))
+        TEXT_FORMAT_TYPES.include?(type) ? properties.except(:format) : properties
       end
 
       # Returns [Hash] the properties of this field without those that say how a file writes the text of its values,
       # see TEXT_PROPERTIES, see `IOStreams::Schema#without_text`.
       def without_text_h
-        to_h.except(*TEXT_PROPERTIES.map(&:to_sym))
+        names = TEXT_PROPERTIES.map(&:to_sym)
+        names.delete(:format) unless TEXT_FORMAT_TYPES.include?(type)
+        to_h.except(*names)
       end
 
       # Returns [true|false] whether the other is a field of the same properties, see #to_h, and missing values, which
@@ -806,10 +814,17 @@ module IOStreams
       # Returns the value read from a format whose values are in the supplied form, see #render, converted to the type of
       # this field, as #cast converts it, apart from a Hash or an Array of an object or array field read from JSON,
       # `:json`, which is already what JSON holds, so that it is only checked to be of the class of the field, rather
-      # than converted again, see .json_data, which takes several times as long as JSON takes to read it.
+      # than converted again, see .json_data, which takes several times as long as JSON takes to read it, and the text of
+      # a string of bytes, `format: "binary"`, read from a format of text, `:text` or `:json`, such as CSV, fixed width
+      # or JSON, which is always their base64 text, also binary text, such as that read with `encoding("BINARY")`, while
+      # #cast takes a binary String as the bytes themselves, as a format whose values are Ruby objects holds them,
+      # `:typed`, such as Parquet, a query, or a record that the application writes.
       #
       # Raises `IOStreams::Errors::InvalidValue` as #cast does.
       def parse(value, form)
+        if binary? && form != :typed && value.is_a?(String) && value.encoding == ::Encoding::BINARY
+          return cast(value.dup.force_encoding(::Encoding::UTF_8))
+        end
         return cast(value) unless form == :json && json_structure?(value)
 
         value.is_a?(json_class) ? value : invalid(value)
@@ -841,7 +856,7 @@ module IOStreams
         return (@missing.text if form == :text) if value.nil?
         return value if form == :typed
         return json(value) if form == :json
-        return value if form == :scalar && !SCALAR_TEXT_TYPES.include?(type)
+        return value if form == :scalar && !@scalar_text
 
         text(value)
       end
@@ -1128,6 +1143,8 @@ module IOStreams
           @format = check_format(descriptor["format"])
         else @format = check_format(descriptor["format"])
         end
+        # Whether a cell that holds one value holds its text, see #render's `:scalar` form: bytes as their base64 text.
+        @scalar_text = SCALAR_TEXT_TYPES.include?(type) || binary?
       end
 
       # Returns [IOStreams::Schema::MissingValues|nil] the field's own missing values, see `missingValues` above, or nil
@@ -1347,13 +1364,18 @@ module IOStreams
         false
       end
 
-      # Returns [String] the bytes of a binary string: a binary String as it is, such as of a Parquet binary column or a
-      # query, or the bytes of the base64 text of any other String, see `format` above.
+      # Returns [String] the bytes of a binary string: a binary String as it is, such as of a Parquet binary column, a
+      # query, or a record that the application writes, or the bytes of the base64 text of any other String, see
+      # `format` above, apart from its whitespace, such as the line breaks of MIME base64, while text of only whitespace
+      # raises, as it does for the other types that are not text.
       def cast_binary(value)
         return invalid(value, "binary") unless value.is_a?(String)
         return value if value.encoding == ::Encoding::BINARY
 
-        value.strip.unpack1("m0")
+        base64 = value.delete("\r\n\t ")
+        return invalid(value, "binary") if base64.empty?
+
+        base64.unpack1("m0")
       rescue ArgumentError
         invalid(value, "binary")
       end

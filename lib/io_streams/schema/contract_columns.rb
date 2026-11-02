@@ -77,12 +77,6 @@ module IOStreams
       end
 
       # Returns [Array<Integer>] the positions of the values of the rows of the file rendered whose field of the schema of
-      # the file is a `string` of bytes, see `IOStreams::Schema::Columns#binary_positions`.
-      def binary_positions
-        @source.binary_positions
-      end
-
-      # Returns [Array<Integer>] the positions of the values of the rows of the file rendered whose field of the schema of
       # the file is a `string`, see `IOStreams::Schema::Columns#text_positions`.
       def text_positions
         @source.text_positions

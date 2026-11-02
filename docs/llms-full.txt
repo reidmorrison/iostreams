@@ -4136,12 +4136,31 @@ checked to be, raising `IOStreams::Errors::InvalidValue`, such as `Field "email"
 | `uuid` | is a UUID of 32 hexadecimal digits, in any case, in groups of 8-4-4-4-12 separated by `-`, such as `123e4567-e89b-12d3-a456-426614174000`, which is read as it is |
 | `binary` | is bytes, read from their base64 text, and written as it, in CSV, JSON and a spreadsheet |
 
-A `binary` field reads a binary `String`, whose encoding is `BINARY`, as the bytes themselves, such as of a Parquet
-binary column, or of a PostgreSQL `bytea` column of a query, and any other text as base64, so write bytes to it as a
-binary `String`, such as `data.b`. The `:hash` and `:array` formats hold the bytes, and Parquet writes them to a
-binary column, which `#infer_schema` declares as a `string` with `format: "binary"`. Its `minLength` and `maxLength`
-count the bytes. A `format` of `any`, which Frictionless defines only for a date, datetime or time, raises
-`ArgumentError`, as does any other.
+A `binary` field reads the text of a format of text, such as CSV, fixed width or JSON, as base64, also when it is read
+as binary text, such as with `encoding("BINARY")`, and the whitespace within it, such as the line breaks of MIME
+base64, is left out, while text of only whitespace raises, as it does for the other types that are not text. A source
+whose values are Ruby objects holds the bytes themselves, as a binary `String`, whose encoding is `BINARY`, such as a
+Parquet binary column, or a PostgreSQL `bytea` column of a query, so write bytes to it as a binary `String`, such as
+`data.b`, while any other text is read as base64. The `:hash` and `:array` formats hold the bytes, and Parquet writes
+them to a binary column, which `#infer_schema` declares as a `string` with `format: "binary"`. Its `minLength` and
+`maxLength` count the bytes, where frictionless-py counts the characters of their base64 text, and a `pattern` raises
+`ArgumentError`, since bytes are not text. A `format` of `any`, which Frictionless defines only for a date, datetime or
+time, raises `ArgumentError`, as does any other.
+
+A Parquet `BYTE_ARRAY` column without the annotation that says that it holds text, `UTF8`, is declared as bytes, so a
+copy of it to CSV or JSON writes its base64 text. When such a column holds text, as some older writers left it, read it
+as text with a schema whose field is a `string` without a `format`.
+
+The `format` of a string says what its values are, so a [contract](contracts), and the target of a copy that takes the
+types of its source, keep it, while the `format` of a date, a time or a geopoint, which says how a file writes their
+text, is left to the file. These checks differ from frictionless-py in a few ways:
+
+* `uuid` reads only the 8-4-4-4-12 form with `-`, not 32 digits without them, braces, or a `urn:uuid:` prefix, which
+  frictionless-py reads.
+* `uri` does not read a space, a character that is not ASCII, or an IRI, which frictionless-py reads: percent-encode
+  them, such as `%20` for a space.
+* `email` does not read an internationalized address, whose name or domain is not ASCII, and reads an address without
+  a top level domain, such as `jack@localhost`.
 
 ### Lists, years, months and points
 

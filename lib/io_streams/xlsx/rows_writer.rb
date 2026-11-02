@@ -32,14 +32,10 @@ module IOStreams
       #
       #   text_columns: [Array<Integer>|nil]
       #     The positions of the columns whose values are text by their field, which `auto_format` leaves as they are.
-      #
-      #   binary_columns: [Array<Integer>|nil]
-      #     The positions of the columns whose values are bytes by their field, which a cell holds as their base64 text.
-      def initialize(worksheet, auto_format: false, text_columns: nil, binary_columns: nil)
-        @worksheet      = worksheet
-        @auto_format    = auto_format
-        @text_columns   = (text_columns || []).to_h { |index| [index, true] }
-        @binary_columns = (binary_columns || []).to_h { |index| [index, true] }
+      def initialize(worksheet, auto_format: false, text_columns: nil)
+        @worksheet    = worksheet
+        @auto_format  = auto_format
+        @text_columns = (text_columns || []).to_h { |index| [index, true] }
       end
 
       # Writes the row, an Array of the values of its cells, see the class.
@@ -64,18 +60,9 @@ module IOStreams
         when Time then value.getutc
         when nil, true, false, Date then value
         when Integer, Float then number(value)
-        when String then string_cell(value, index)
+        when String then @auto_format && !@text_columns.key?(index) ? auto_format(value) : value
         else value.is_a?(::BigDecimal) ? number(value) : IOStreams::Schema::Field.any_text(value)
         end
-      end
-
-      # Returns [Object] the cell of text: the base64 text of the bytes of a binary column, see #initialize, which are a
-      # binary String, unlike the name of its column in the header row, the value that the text looks like with
-      # `auto_format`, unless its column is text, or the text.
-      def string_cell(value, index)
-        return [value].pack("m0") if @binary_columns.key?(index) && value.encoding == ::Encoding::BINARY
-
-        @auto_format && !@text_columns.key?(index) ? auto_format(value) : value
       end
 
       # Returns [Numeric|String] the number, as a number of Excel, a double of which it keeps 15 significant digits, or

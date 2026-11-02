@@ -169,6 +169,18 @@ class InferSampleTest < Minitest::Test
           end
         end
 
+        it "drafts a column that it declares as any from its values, such as a fixed length byte array" do
+          Dir.mktmpdir do |dir|
+            file = File.join(dir, "codes.parquet")
+            require "parquet"
+            schema = {type: :struct, fields: [{name: "id", type: :int64}, {name: "code", type: "fixed_len_byte_array(4)"}]}
+            ::Parquet.write_rows([[1, "abcd".b], [2, "wxyz".b]].each, schema: schema, write_to: file)
+
+            assert_equal({fieldsMatch: "subset", fields: [{name: "id", type: "integer"}, {name: "code", type: "string"}]},
+                         IOStreams.path(file).infer_schema(sample: 10).to_h)
+          end
+        end
+
         it "keeps the types that it declares, such as bytes of a binary column, opening an IO once, and leaving it to be read" do
           Dir.mktmpdir do |dir|
             file = File.join(dir, "blobs.parquet")
