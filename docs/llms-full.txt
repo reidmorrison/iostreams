@@ -5048,6 +5048,10 @@ How to set a schema on a path, how the columns of a file are matched to its fiel
 properties, with the names of its properties written as Ruby writes them, such as
 `field :paid, :boolean, true_values: ["Y"]` for `{name: "paid", type: "boolean", trueValues: ["Y"]}`.
 
+A schema keeps a property that IOStreams does not know, such as one of another tool, as the spec allows, and it has no
+effect, while a property close to one that IOStreams knows, such as `trueValue` for `trueValues`, raises
+`ArgumentError`, since it is most likely mistyped, see [Frictionless compatibility](schemas#frictionless-compatibility).
+
 ## A first example
 
 Most examples on this page write a small CSV file, set a schema on its path, and read it with `each(:hash)`, which
@@ -5132,14 +5136,17 @@ end
 ~~~
 
 Text is missing only when it is exactly one of them, before anything else is done to it, so `" NA"` and `na` are not
-missing. Writing writes `nil` as an empty value, or `null` in JSON. See [Missing values](schemas#missing-values).
+missing. Writing writes `nil` as the first missing value of the field, such as `NA` for `["NA", ""]`, so that it reads
+back as `nil`, or as an empty value when that is empty text, and as `null` in JSON. See
+[Missing values](schemas#missing-values).
 
 **Compared with Frictionless**
 
-* The spec does not say how to write a missing value. frictionless-py writes the first of the missing values, such as
-  `NA` for `["NA", ""]`, while IOStreams always writes an empty value.
+* The spec does not say how to write a missing value. IOStreams writes the first of the missing values, as
+  frictionless-py does, apart from JSON, which writes `null`.
 * frictionless-py compares the text of every value with the missing values, so the JSON number `-99` is missing for
-  `["-99"]`. IOStreams compares only text, since the spec says that missing values are text, so the number is `-99`.
+  `["-99"]`. IOStreams compares only text, since the spec says that missing values are text, so the number is `-99`,
+  apart from a cell of a spreadsheet, whose text it compares, so a cell that holds the number `-99` is missing.
 
 ### Spaces around a value
 
@@ -5192,7 +5199,8 @@ To collect every row that is not valid and carry on, rather than stop at the fir
   stays `"01234"`, where an `integer` would read `1234`.
 * **From other sources** any value that is not text is read as its text, such as `"42"` for the JSON number `42`,
   apart from a `Hash` or an `Array`, which raise. A number cell of a spreadsheet is read as the digits that Excel
-  displays, such as `2134` rather than `2134.0`, see [Excel spreadsheets](formats#excel-spreadsheets).
+  displays, such as `2134` rather than `2134.0`, and a cell of a time of day as the time of its clock, such as
+  `09:30:00`, see [Excel spreadsheets](formats#excel-spreadsheets).
 * **Written as** the text.
 
 ~~~ruby
@@ -5249,8 +5257,11 @@ end
 # {"email" => "jack@example.org", "site" => "https://example.org", "id" => "123e4567-e89b-12d3-a456-426614174000", "avatar" => "hello"}
 ~~~
 
-The base64 text `aGVsbG8=` is the bytes of `hello`. Write bytes to a `binary` field as a binary `String`, such as
-`data.b`, see [Formats of strings](schemas#formats-of-strings).
+The base64 text `aGVsbG8=` is the bytes of `hello`. The text of CSV, fixed width or JSON is always base64, even when it
+is read as binary text, such as with `encoding("BINARY")`, and line breaks within it are left out. A source of Ruby
+objects, such as a Parquet binary column or a query, holds the bytes themselves, as a binary `String`, so write bytes to
+a `binary` field as one, such as `data.b`, see [Formats of strings](schemas#formats-of-strings). A spreadsheet holds
+the base64 text.
 
 **Compared with Frictionless**
 
@@ -5391,7 +5402,9 @@ Three properties of the spec describe numbers that are not written as plain digi
 * `bareNumber: false`, of a `number` or an `integer`, for text around the number, such as `95%`, `$12.50` or
   `EUR 95`. Reading removes the text without digits before and after the number. A `-` before the number, such as in
   `-$12.50`, and parentheses around it, such as `(12.50)`, as accountants write a negative number, make it negative.
-  Text with digits before or after the number, such as `12abc3`, raises. Writing writes the number alone.
+  Text with digits before or after the number, such as `12abc3`, a `-` after it, such as `12-`, and a parenthesis
+  without its pair, such as `(12.50`, raise, rather than read a number whose sign could be wrong. Writing writes the
+  number alone.
 
 ~~~ruby
 IOStreams.path("report.csv").write(<<~CSV)
@@ -5782,9 +5795,11 @@ A `list` holds several values of one type, its `itemType`, in one text, separate
 * **`itemType`** is `string`, `integer`, `number`, `boolean`, `date`, `datetime` or `time`. Default: `string`
 * **`delimiter`** is the text between the items. Default: `,`. A `string` item keeps its spaces, so give the list
   `a, b` the delimiter `", "`.
-* **Also reads** the text of a JSON array, such as `["a","b"]`, since a spreadsheet, whose cells cannot hold an array,
-  holds a list as that text.
-* **Written as** its items separated by its `delimiter`. A JSON file holds an array.
+* **From other sources** an `Array` is read as its items, such as an array of JSON, or a list column of Parquet. Text is
+  always read as delimited text, so the text of a JSON array, such as `["a","b"]`, is the items `["a"` and `"b"]`.
+* **Written as** its items separated by its `delimiter`, also to a spreadsheet, whose cells hold the same text. A JSON
+  file holds an array, and Parquet a list column. Writing an item whose text holds the `delimiter` raises, since it
+  would read back as two items.
 
 ~~~ruby
 IOStreams.path("orders.csv").write(<<~CSV)
@@ -5810,8 +5825,7 @@ end
 
 * The spec does not say what an empty item is. frictionless-py reads it as `""` for a `string` item, and raises for
   the other types. IOStreams reads it as `nil`.
-* IOStreams reads the text of a JSON array, such as `["a","b"]`, as its items. The spec and frictionless-py split it
-  at the delimiter, into `["a"` and `"b"]`.
+* JSON writes a list as an array of its items, where frictionless-py writes its delimited text.
 
 ## Geographic points
 
@@ -6003,7 +6017,7 @@ properties that IOStreams adds to the spec, such as `aliases` and `allowBlank`, 
 
 | Type | Text or value | The spec | frictionless-py 5.21 | IOStreams |
 |------|---------------|----------|----------------------|-----------|
-| every type | a missing value, written | not defined | the first of `missingValues`, such as `NA` | an empty value, or `null` in JSON |
+| every type | a missing value, written | not defined | the first of `missingValues`, such as `NA` | the first of `missingValues`, or `null` in JSON |
 | every type | the JSON number `-99`, with `missingValues: ["-99"]` | missing values are text | missing, `nil` | not missing, `-99` |
 | every type but `string` and `any` | spaces around the text, such as `" true "` or `" 2026-10-13 "` | not defined | removed around an `integer` or a `number`, raises for a `boolean`, `date`, `datetime`, `time`, `year` or `duration` | removed |
 | `string` | a value that is not text, such as the JSON number `42` | not defined | raises | `"42"` |
@@ -6043,7 +6057,8 @@ properties that IOStreams adds to the spec, such as `aliases` and `allowBlank`, 
 | `duration` | `minimum` and `maximum` | allowed | not supported | checked |
 | `object`, `array` | written | JSON | `{"a": 1}` | `{"a":1}` |
 | `list` | an empty item, such as in `a,,c` | not defined | `""` for a `string`, otherwise raises | `nil` |
-| `list` | `["a","b"]` | `["a"` and `"b"]` | `["a"` and `"b"]` | `a` and `b` |
+| `list` | an item that holds the `delimiter`, written | not defined | written as it is | raises |
+| `list` | written to JSON | not defined | the delimited text, `"a,b"` | an array, `["a","b"]` |
 | `geopoint` | the `default` format, written | `lon, lat` | `90.50,45.50` | `90.5, 45.5` |
 | `geopoint` | `1e1, 45` | not defined | reads | raises |
 | `geojson` | any value | GeoJSON | reads | raises `ArgumentError` |
