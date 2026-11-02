@@ -3233,10 +3233,11 @@ describes itself, such as a CSV file with a header row, JSON, a spreadsheet or P
 
 [Apache Parquet](https://parquet.apache.org/) files hold the type of each column, so their records are read with typed
 values, such as an `Integer`, `BigDecimal`, `Date` or `Time`, even without a schema, apart from the columns that
-[Limitations](#parquet-limitations) names. A column of times of day is read
-as a `Time` on 2000-01-01, in UTC, as a `time` field reads it. A `.parquet` file name selects the format, and it can also be compressed
-or encrypted, such as `data.parquet.pgp`. Install the [parquet](https://github.com/njaremko/parquet-ruby) gem, which is
-not available on JRuby.
+[Limitations](#parquet-limitations) names. A column of times of day is read as a `Time` on 2000-01-01, in UTC, as a
+`time` field reads it, and empty text, or empty binary data, as `nil`, a missing value, as a field reads it, see
+[Types](schemas#types). A `.parquet` file name selects the format, and it can also be compressed or encrypted, such as
+`data.parquet.pgp`. Install the [parquet](https://github.com/njaremko/parquet-ruby) gem, which is not available on
+JRuby.
 
 ~~~ruby
 IOStreams.path("s3://bucket/people.parquet").each(:hash) do |record|
@@ -3438,7 +3439,7 @@ length, ignoring what follows the last field. Otherwise every line ends where th
 length raises `IOStreams::Errors::InvalidLineLength`.
 
 When reading, each value is the text of its field without its leading and trailing spaces, converted to the type of
-its field. The keys of each record are the names of the fields as they are given, so that a field whose name is a
+its field, so that a field of only spaces is `nil`, a missing value, in every type, a `string` included. The keys of each record are the names of the fields as they are given, so that a field whose name is a
 Symbol returns a Symbol key.
 
 When writing, a number is right justified and zero filled, and a missing number is written as zero, as the
@@ -3820,8 +3821,9 @@ puts IOStreams.path("samples/orders.csv").infer_schema(sample: 1_000).to_dsl("Or
   number or a string, raises `ArgumentError`, as does `sample:` with a schema set with `#schema`, which already gives
   the types.
 * It drafts `integer`, `number` with the most decimals seen, `boolean`, and `date`, `datetime` and `time` from ISO 8601
-  text. Anything else is `string`, and text with a leading zero, such as `01234` or `007`, stays `string`. A column
-  with no value in the sample is `any`, for a person to decide.
+  text. Anything else is `string`, and text with a leading zero, such as `01234` or `007`, stays `string`, as does a
+  column with text of only whitespace, which any other type raises for. A column with no value in the sample is `any`,
+  for a person to decide.
 * It recognizes US dates, such as `10/25/2026`, and records their format on the field, as `format: "%m/%d/%Y"`. A day
   above 12 settles whether the month or the day is first. When every sampled date could be either, it drafts month
   first, and says so in the field's `description`, for the reviewer.
@@ -4047,8 +4049,9 @@ Empty text is a missing value, read as `nil` in every type, a `string` and `any`
 `missingValues` of `[""]` says, and written as an empty value, or `null` in JSON. Text of only whitespace, such as
 `"  "`, is not a missing value: a `string` or `any` field keeps it, and every other type raises
 `IOStreams::Errors::InvalidValue` for it, rather than read it as `nil`. Leading and trailing whitespace around a value
-of another type, such as ` 12 ` for an `integer`, is removed before it is read. A row whose every value is `nil` or
-blank text is still a blank row, see [Blank rows](streams#blank-rows), which is not read by the fields.
+of another type, such as ` 12 ` for an `integer`, is removed before it is read. An empty binary value, such as an
+empty `bytea` or BLOB of a query, is `nil` too, where frictionless-py keeps empty bytes. A row whose every value is
+`nil` or blank text is still a blank row, see [Blank rows](streams#blank-rows), which is not read by the fields.
 
 A value that is not one of the type of its field, such as `N/A` for an `integer`, raises
 `IOStreams::Errors::InvalidValue`, naming the field and the value, both when reading and when writing. So does a `date`
@@ -4320,7 +4323,8 @@ end
 
 A file can need a column whose values can be blank, such as a middle name that must be in every upload, but that
 many people do not have. Give its field `allowBlank: true` with `required`: a header row, or JSON record, without
-the field still raises, while a value that is `nil`, or empty text, is read and written as it is. A JSON record read
+the field still raises, while a value that is `nil`, or empty text, is read and written as `nil`, a missing value. A
+JSON record read
 through a [contract](contracts) alone is the exception: its missing key is a blank value, which the field allows:
 
 ~~~ruby
@@ -5170,7 +5174,8 @@ end
 `#each` returns the number of rows that it read, header row included, as it returns the number of lines of a file. A
 second traversal of the reader that `#reader` yields continues where the first stopped, as for a file.
 
-Each value is cast as `pluck` casts it, which is how the attributes of a model hold it, but without building a model,
+Each value is cast as `pluck` casts it, except empty text, and an empty binary value, which are `nil`, a missing
+value, see [Types](schemas#types). That is how the attributes of a model hold it, but without building a model,
 so that its methods, such as a reader that it overrides, do not run: an enum attribute is the name of its value, such
 as `"shipped"`, an encrypted attribute is its plain text, a JSON column is the value of its JSON, such as a Hash, and a
 datetime is an `ActiveSupport::TimeWithZone` in the time zone of the application. The columns of a joined table are
@@ -8864,9 +8869,10 @@ Reading an `:integer` or `:float` column of a fixed width file that holds no num
 raises `IOStreams::Errors::InvalidValue`, which names the field and the value. Previously the column was converted
 with `to_i` or `to_f`, to `0`, or to the number that its leading digits make, such as `12` for `12-`, so that a
 corrupt file was read without an error. Writing such a value also raises, as does text of only spaces, such as
-`"  "`, which the layout wrote as zeros, and a fraction written to an `:integer` column, which was truncated. An `:integer` column still reads a whole number with a decimal point, such
-as `12.0`, as `12`, as `to_i` did, but a fraction, such as `12.5`, raises. A blank column is still read as `nil`,
-and a missing number is still written as zeros.
+`"  "`, which the layout wrote as zeros, and a fraction written to an `:integer` column, which was truncated. An
+`:integer` column still reads a whole number with a decimal point, such as `12.0`, as `12`, as `to_i` did, but a
+fraction, such as `12.5`, raises. A blank column is still read as `nil`, and a missing number is still written as
+zeros.
 
 Fix: correct the data, or read the column as a string, with `type: "string"` in the schema, and convert it in the
 application.

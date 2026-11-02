@@ -37,7 +37,7 @@ module IOStreams
     #                 format of JSON as an object.
     #     "array":    an Array, read from the text of a JSON array, such as `[1,2]`, and written as that text, or by a
     #                 format of JSON as an array.
-    #     "any":      the value as it is read, without converting it.
+    #     "any":      the value as it is read, without converting it, apart from empty text, which is nil.
     #     Default: "any"
     #
     #   format: [String]

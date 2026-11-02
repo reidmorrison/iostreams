@@ -5,7 +5,9 @@ module IOStreams
     # Reads the rows of a Parquet file, each one as a Hash of its typed values by the names of its columns, such as an
     # Integer, BigDecimal, Date, Time, or an Array or Hash for a nested column. A time of day of a column of the file is a
     # Time on 2000-01-01, see `IOStreams::Schema::Field.time_of_day`, rather than on the day that the `parquet` gem reads
-    # it.
+    # it, and empty text of a column of text or of type "any" is nil, a missing value, as a field of the schema that the
+    # file declares reads it, see `IOStreams::Schema::Field#cast`, so that the rows read without a schema hold the values
+    # that their slices and copies do, which are read by that schema.
     #
     # A Parquet file records its columns at its end, so it is read from a file, and any other input is first copied
     # into a temp file, see `IOStreams::Reader.stream`.
@@ -49,7 +51,7 @@ module IOStreams
       end
 
       # Yields [Hash<String, Object>] each row, by the names of its columns, in the order of the columns, with each time of
-      # day on 2000-01-01, see #time_columns.
+      # day on 2000-01-01, see #time_columns, and empty text as nil, see #text_columns.
       #
       # Raises the RuntimeError of the parquet gem, tagged as `IOStreams::Errors::Corrupt`, for a file that it cannot
       # read, see .failure_kind.
@@ -60,8 +62,10 @@ module IOStreams
       def each(&block)
         in_block = false
         times    = time_columns
+        texts    = text_columns
         ::Parquet.each_row(@file_name, columns: @columns) do |row|
           times.each { |name| (time = row[name]) && (row[name] = Schema::Field.time_of_day(time)) }
+          texts.each { |name| row[name] = nil if row[name] == "" }
           in_block = true
           block.call(row)
           # Not reset in an ensure, which would clear it before the exception that the block raised reaches the rescue.
@@ -156,6 +160,14 @@ module IOStreams
       # within a column of structs or lists, which IOStreams does not write.
       def time_columns
         names = fields.filter_map { |field| field["name"] if field.dig("logical_type", "type") == "Time" }
+        @columns ? names & @columns : names
+      end
+
+      # Returns [Array<String>] the names of the columns that are read whose values can be empty text, those of text or
+      # of type "any", such as binary, whose empty text #each reads as nil, a missing value, as a field of that type
+      # reads it, see #declared_schema. Only a column of the file itself, not text within a column of structs or lists.
+      def text_columns
+        names = fields.filter_map { |field| field["name"] if EMPTY_TYPES.include?(declared_field(field)[:type]) }
         @columns ? names & @columns : names
       end
 

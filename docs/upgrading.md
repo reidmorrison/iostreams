@@ -559,9 +559,10 @@ Reading an `:integer` or `:float` column of a fixed width file that holds no num
 raises `IOStreams::Errors::InvalidValue`, which names the field and the value. Previously the column was converted
 with `to_i` or `to_f`, to `0`, or to the number that its leading digits make, such as `12` for `12-`, so that a
 corrupt file was read without an error. Writing such a value also raises, as does text of only spaces, such as
-`"  "`, which the layout wrote as zeros, and a fraction written to an `:integer` column, which was truncated. An `:integer` column still reads a whole number with a decimal point, such
-as `12.0`, as `12`, as `to_i` did, but a fraction, such as `12.5`, raises. A blank column is still read as `nil`,
-and a missing number is still written as zeros.
+`"  "`, which the layout wrote as zeros, and a fraction written to an `:integer` column, which was truncated. An
+`:integer` column still reads a whole number with a decimal point, such as `12.0`, as `12`, as `to_i` did, but a
+fraction, such as `12.5`, raises. A blank column is still read as `nil`, and a missing number is still written as
+zeros.
 
 Fix: correct the data, or read the column as a string, with `type: "string"` in the schema, and convert it in the
 application.

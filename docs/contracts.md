@@ -307,8 +307,9 @@ puts IOStreams.path("samples/orders.csv").infer_schema(sample: 1_000).to_dsl("Or
   number or a string, raises `ArgumentError`, as does `sample:` with a schema set with `#schema`, which already gives
   the types.
 * It drafts `integer`, `number` with the most decimals seen, `boolean`, and `date`, `datetime` and `time` from ISO 8601
-  text. Anything else is `string`, and text with a leading zero, such as `01234` or `007`, stays `string`. A column
-  with no value in the sample is `any`, for a person to decide.
+  text. Anything else is `string`, and text with a leading zero, such as `01234` or `007`, stays `string`, as does a
+  column with text of only whitespace, which any other type raises for. A column with no value in the sample is `any`,
+  for a person to decide.
 * It recognizes US dates, such as `10/25/2026`, and records their format on the field, as `format: "%m/%d/%Y"`. A day
   above 12 settles whether the month or the day is first. When every sampled date could be either, it drafts month
   first, and says so in the field's `description`, for the reviewer.

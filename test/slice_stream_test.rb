@@ -135,6 +135,12 @@ class SliceStreamTest < Minitest::Test
           assert_equal [false, false], list.map(&:blank_rows?)
           assert_equal(expected, list.flat_map { |part| each(IOStreams.stream(part).schema(schema)) })
         end
+
+        it "reads empty text as nil, a missing value" do
+          empty = IOStreams::Slice.new([["", nil]], header: %w[name age].freeze, format: :array, blank_rows: false)
+
+          assert_equal [{"name" => nil, "age" => nil}], each(IOStreams.stream(empty).schema(schema))
+        end
       end
 
       describe "of a slice without a header row" do

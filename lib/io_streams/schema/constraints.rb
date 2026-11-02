@@ -55,7 +55,7 @@ module IOStreams
 
       # Returns nil, the value of a field that has none, unless each value of the field must be present, see
       # #value_required?, which raises `IOStreams::Errors::InvalidValue`, holding the value as it was read, such as nil or
-      # blank text, see `IOStreams::Errors::InvalidValue#value`.
+      # empty text, see `IOStreams::Errors::InvalidValue#value`.
       def no_value(value = nil)
         return unless value_required?
 

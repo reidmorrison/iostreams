@@ -86,6 +86,33 @@ class ParquetTest < Minitest::Test
       ENV["TZ"] = original
     end
 
+    describe "empty text that another writer stored" do
+      before do
+        require "parquet"
+        columns = [{"name" => "string"}, {"data" => "binary"}, {"note" => "string"}, {"age" => "int64"}]
+        ::Parquet.write_rows([["", "".b, " ", 1]].each, schema: columns, write_to: path.to_s)
+      end
+
+      let :missing do
+        [{"name" => nil, "data" => nil, "note" => " ", "age" => 1}]
+      end
+
+      it "reads empty text, and empty binary data, as nil, a missing value, without a schema, as its slices and copies do" do
+        slices = []
+        path.each(:slice, size: 10) { |slice| slices << slice }
+        output = StringIO.new
+        path.copy_to(IOStreams.stream(output).format(:json), mode: :hash)
+
+        assert_equal missing, read
+        assert_equal(missing, slices.flat_map { |slice| read(IOStreams.stream(slice)) })
+        assert_equal %({"name":null,"data":null,"note":" ","age":1}\n), output.string
+      end
+
+      it "reads it as nil with a schema too" do
+        assert_equal missing, read(path.schema(path.infer_schema))
+      end
+    end
+
     it "reads slices that carry the schema of the file, whose values JSON keeps exactly" do
       path = IOStreams.path(dir, "people.parquet")
       path.schema(schema).writer(:hash) { |io| records.each { |record| io << record } }

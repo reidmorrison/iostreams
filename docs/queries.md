@@ -142,7 +142,8 @@ end
 `#each` returns the number of rows that it read, header row included, as it returns the number of lines of a file. A
 second traversal of the reader that `#reader` yields continues where the first stopped, as for a file.
 
-Each value is cast as `pluck` casts it, which is how the attributes of a model hold it, but without building a model,
+Each value is cast as `pluck` casts it, except empty text, and an empty binary value, which are `nil`, a missing
+value, see [Types](schemas#types). That is how the attributes of a model hold it, but without building a model,
 so that its methods, such as a reader that it overrides, do not run: an enum attribute is the name of its value, such
 as `"shipped"`, an encrypted attribute is its plain text, a JSON column is the value of its JSON, such as a Hash, and a
 datetime is an `ActiveSupport::TimeWithZone` in the time zone of the application. The columns of a joined table are

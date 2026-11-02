@@ -170,8 +170,9 @@ Empty text is a missing value, read as `nil` in every type, a `string` and `any`
 `missingValues` of `[""]` says, and written as an empty value, or `null` in JSON. Text of only whitespace, such as
 `"  "`, is not a missing value: a `string` or `any` field keeps it, and every other type raises
 `IOStreams::Errors::InvalidValue` for it, rather than read it as `nil`. Leading and trailing whitespace around a value
-of another type, such as ` 12 ` for an `integer`, is removed before it is read. A row whose every value is `nil` or
-blank text is still a blank row, see [Blank rows](streams#blank-rows), which is not read by the fields.
+of another type, such as ` 12 ` for an `integer`, is removed before it is read. An empty binary value, such as an
+empty `bytea` or BLOB of a query, is `nil` too, where frictionless-py keeps empty bytes. A row whose every value is
+`nil` or blank text is still a blank row, see [Blank rows](streams#blank-rows), which is not read by the fields.
 
 A value that is not one of the type of its field, such as `N/A` for an `integer`, raises
 `IOStreams::Errors::InvalidValue`, naming the field and the value, both when reading and when writing. So does a `date`
@@ -443,7 +444,8 @@ end
 
 A file can need a column whose values can be blank, such as a middle name that must be in every upload, but that
 many people do not have. Give its field `allowBlank: true` with `required`: a header row, or JSON record, without
-the field still raises, while a value that is `nil`, or empty text, is read and written as it is. A JSON record read
+the field still raises, while a value that is `nil`, or empty text, is read and written as `nil`, a missing value. A
+JSON record read
 through a [contract](contracts) alone is the exception: its missing key is a blank value, which the field allows:
 
 ~~~ruby

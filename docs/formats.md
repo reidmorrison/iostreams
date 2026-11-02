@@ -400,10 +400,11 @@ describes itself, such as a CSV file with a header row, JSON, a spreadsheet or P
 
 [Apache Parquet](https://parquet.apache.org/) files hold the type of each column, so their records are read with typed
 values, such as an `Integer`, `BigDecimal`, `Date` or `Time`, even without a schema, apart from the columns that
-[Limitations](#parquet-limitations) names. A column of times of day is read
-as a `Time` on 2000-01-01, in UTC, as a `time` field reads it. A `.parquet` file name selects the format, and it can also be compressed
-or encrypted, such as `data.parquet.pgp`. Install the [parquet](https://github.com/njaremko/parquet-ruby) gem, which is
-not available on JRuby.
+[Limitations](#parquet-limitations) names. A column of times of day is read as a `Time` on 2000-01-01, in UTC, as a
+`time` field reads it, and empty text, or empty binary data, as `nil`, a missing value, as a field reads it, see
+[Types](schemas#types). A `.parquet` file name selects the format, and it can also be compressed or encrypted, such as
+`data.parquet.pgp`. Install the [parquet](https://github.com/njaremko/parquet-ruby) gem, which is not available on
+JRuby.
 
 ~~~ruby
 IOStreams.path("s3://bucket/people.parquet").each(:hash) do |record|
@@ -605,7 +606,7 @@ length, ignoring what follows the last field. Otherwise every line ends where th
 length raises `IOStreams::Errors::InvalidLineLength`.
 
 When reading, each value is the text of its field without its leading and trailing spaces, converted to the type of
-its field. The keys of each record are the names of the fields as they are given, so that a field whose name is a
+its field, so that a field of only spaces is `nil`, a missing value, in every type, a `string` included. The keys of each record are the names of the fields as they are given, so that a field whose name is a
 Symbol returns a Symbol key.
 
 When writing, a number is right justified and zero filled, and a missing number is written as zero, as the
