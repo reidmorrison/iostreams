@@ -112,8 +112,18 @@ module IOStreams
       def to_record(row)
         values = to_array(row)
         record = {}
-        hash_columns.each { |column, index| record[column] = values[index] }
+        record_columns.each { |column, index| record[column] = values[index] }
         record
+      end
+
+      # Returns [Array<Array(String, Integer)>] each column that is a key of the records that #to_hash returns, with its
+      # position in a row: every column except a blank one, which is not a key, worked out once for the columns.
+      #
+      # Raises `IOStreams::Errors::InvalidHeader` for two columns that are the same key, such as `a` and `a`, or
+      # `Amount ($)` and `Amount (€)`, which both cleanse to `amount_`, see #cleanse!, since a record cannot hold both,
+      # rather than keep the value of only one of them, naming them as the header row holds them, see #row.
+      def record_columns
+        @record_columns ||= check_keys(columns.each_with_index.reject { |column, _index| IOStreams::Utils.blank?(column) })
       end
 
       def to_array(row, cleanse = true)
@@ -136,16 +146,24 @@ module IOStreams
 
       def array_to_hash(row)
         hash = {}
-        hash_columns.each { |column, index| hash[column] = row[index] }
+        record_columns.each { |column, index| hash[column] = row[index] }
         hash
       end
 
-      # Returns [Array<Array(String, Integer)>] each column that #to_hash returns, with its position in a row:
-      # every column except a blank one.
+      # Returns [Array<Array(String, Integer)>] the supplied columns, each with its position, see #record_columns, when
+      # no two of them are the same key.
       #
-      # Worked out once for the columns, rather than for every row, and again when #columns= changes them.
-      def hash_columns
-        @hash_columns ||= columns.each_with_index.reject { |column, _index| IOStreams::Utils.blank?(column) }
+      # Raises `IOStreams::Errors::InvalidHeader` for two columns that are the same key, see #record_columns.
+      def check_keys(named)
+        repeated = named.group_by(&:first).values.find { |pairs| pairs.size > 1 }
+        return named unless repeated
+
+        labels = repeated.map { |_column, index| (row || columns)[index].inspect }
+        raise(IOStreams::Errors::InvalidHeader,
+              "The columns #{labels.join(' and ')} are the same key, #{repeated.first.first.inspect}, which a record " \
+              "without a schema cannot hold twice: rename one of them, or set a schema whose fields name each one, " \
+              "which can be two fields of the same name for a format whose columns are in order, such as CSV, read as " \
+              "rows")
       end
 
       # Returns [Hash] the values of the hash for each column, see #column_values, by the key that supplies each one,
@@ -188,10 +206,10 @@ module IOStreams
       end
 
       # Changes the columns, converting the column names to strings, and forgets what was worked out from them, see
-      # #hash_columns and #clear_plans.
+      # #record_columns and #clear_plans.
       def change_columns(columns)
-        @columns      = stringify(columns)
-        @hash_columns = nil
+        @columns        = stringify(columns)
+        @record_columns = nil
         clear_plans
       end
 

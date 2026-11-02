@@ -83,7 +83,11 @@ Without a [schema](schemas), every value is read as text, and written as its tex
 * `each(:hash)` keys each record by the columns of the header row, cleansed: lower case, with spaces and dashes
   replaced with `_`, and other punctuation removed, while letters and digits of any language are kept. So the column
   `First Name` is the key `first_name`, `Zip-Code` is `zip_code`, `Amount ($)` is `amount_`, and `Prénom` is `prénom`.
-  A column whose name has nothing left once cleansed, such as `#`, is skipped. JSON keys are used as they are.
+  A column whose name has nothing left once cleansed, such as `#`, is skipped. JSON keys are used as they are. Two
+  columns that are the same key, such as a header row of `a,a,b`, or `First Name` and `first_name`, raise
+  `IOStreams::Errors::InvalidHeader` before the first record, since a record cannot hold both, rather than keep the
+  value of only one of them, as writing rows to JSON under such a header row does. `each(:array)` still reads the
+  rows, and a [schema](schemas) can name both, with two fields of the same name.
 * `each(:array)` yields the header row as it is, then each row of values. A JSON or Parquet file has no header row, so
   its first row is a header row of the keys of its first record, and each row after it the values of a record in
   that order, see [JSON files](#json-files). The header row is an `IOStreams::Row::HeaderRow`, an Array that says

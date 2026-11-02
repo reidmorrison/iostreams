@@ -28,6 +28,30 @@ class RecordReaderTest < Minitest::Test
     end
 
     describe "#each" do
+      it "raises InvalidHeader for a header row of two columns that are the same key, which a record cannot hold" do
+        ["a,a,b\n1,2,3\n", "First Name,first_name,b\n1,2,3\n"].each do |csv|
+          source = -> { IOStreams.stream(StringIO.new(csv)).format(:csv) }
+          error  = assert_raises(IOStreams::Errors::InvalidHeader) { source.call.each(:hash) { |_record| nil } }
+          assert_match(/\AThe columns ".*" and ".*" are the same key/, error.message)
+          assert_raises(IOStreams::Errors::InvalidHeader) do
+            IOStreams.stream(StringIO.new).format(:json).copy_from(source.call, mode: :hash)
+          end
+          rows = []
+          source.call.each(:array) { |row| rows << row }
+
+          assert_equal %w[1 2 3], rows.last
+        end
+        # Rows keep both columns, apart from those written to a format of keyed records, such as JSON.
+        output = StringIO.new
+        IOStreams.stream(output).format(:csv).copy_from(IOStreams.stream(StringIO.new("a,a,b\n1,2,3\n")).format(:csv), mode: :array)
+
+        assert_equal "a,a,b\n1,2,3\n", output.string
+        assert_raises(IOStreams::Errors::InvalidHeader) do
+          IOStreams.stream(StringIO.new).format(:json).copy_from(IOStreams.stream(StringIO.new("a,a,b\n1,2,3\n")).format(:csv),
+                                                                 mode: :array)
+        end
+      end
+
       it "csv file" do
         records = []
         IOStreams.path(file_name).reader(:hash) do |io|

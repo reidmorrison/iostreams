@@ -41,6 +41,7 @@ Start with the changes that apply to your application:
 | Writes a `Time` or `DateTime` through a `date` field of a schema | [A date field takes a time only at midnight](#a-date-field-takes-a-time-only-at-midnight) |
 | Reads JSON, fixed width or Parquet files with `each(:array)` or `reader(:array)`, or uploads them to Rocket Job in its `:array` mode | [Rows of JSON, fixed width and Parquet files are Arrays](#rows-of-json-fixed-width-and-parquet-files-are-arrays) |
 | Reads rows or records that can be blank, such as CSV exports with lines of only commas, or JSON records of only nulls | [Blank rows are the same in every format](#blank-rows-are-the-same-in-every-format) |
+| Reads records without a schema from files whose header row repeats a column, such as `a,a,b` | [Two columns of the same key raise `InvalidHeader`](#two-columns-of-the-same-key-raise-invalidheader) |
 | Supplies options to `#option`, `#stream`, `#reader`, `#writer` or the copy methods | [Reading, writing and options](#reading-writing-and-options) |
 | Calls methods such as `#rewind`, `#pos` or `#size` on the IO that a block receives | [The stream of a reader block is not the reader of a gem](#the-stream-of-a-reader-block-is-not-the-reader-of-a-gem), and for S3 and HTTP [S3 objects are read without a temp file](#s3-objects-are-read-without-a-temp-file) and [S3 objects are written without a temp file](#s3-objects-are-written-without-a-temp-file) |
 | Reads or writes an IO supplied with `IOStreams.stream(io)` | [Gzip and `.enc` streams leave your IO open](#gzip-and-enc-streams-leave-your-io-open), [Text written with an encoding to your IO keeps it](#text-written-with-an-encoding-to-your-io-keeps-it), [BZip2 leaves your IO in its mode](#bzip2-leaves-your-io-in-its-mode), and [A failed write to your IO is not completed](#a-failed-write-to-your-io-is-not-completed) |
@@ -338,6 +339,17 @@ IOStreams.path("people.csv").each(:hash, skip_blanks: true) do |person|
   p person
 end
 ~~~
+
+#### Two columns of the same key raise `InvalidHeader`
+
+Reading records without a schema, with `each(:hash)` or a copy in the `:hash` mode, of a file whose header row has two
+columns that are the same key, such as `a,a,b`, or `First Name` and `first_name`, which cleanse to the same key, now
+raises `IOStreams::Errors::InvalidHeader` before the first record, naming both columns, and so does writing rows to
+JSON under such a header row. Previously each record held only the value of the last of them, such as
+`{"a" => "2", "b" => "3"}` for the row `1,2,3`, without an error. v2.2 reports such a header row as deprecated.
+
+Fix: rename one of the columns, or read its rows with `each(:array)`, which keeps the value of each column, with or
+without a [schema](schemas), whose fields can be two fields of the same name.
 
 #### Hash keys match columns once cleansed
 

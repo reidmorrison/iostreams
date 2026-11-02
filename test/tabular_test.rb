@@ -415,10 +415,18 @@ class TabularTest < Minitest::Test
         assert_equal({"first" => "1", "fourth" => "4"}, tabular.record_parse("1,2,3,4"))
       end
 
-      it "returns the value of the last column when two have the same name" do
-        tabular.header.columns = %w[a b a]
+      it "raises InvalidHeader for two columns that are the same key, rather than keep the value of only one of them" do
+        [%w[a b a], ["Amount", "b", "amount "]].each do |columns|
+          tabular.header.columns = columns
+          tabular.header.cleanse!
+          error = assert_raises(IOStreams::Errors::InvalidHeader) { tabular.record_parse("1,2,3") }
 
-        assert_equal({"a" => "3", "b" => "2"}, tabular.record_parse("1,2,3"))
+          assert_equal "The columns #{columns[0].inspect} and #{columns[2].inspect} are the same key, \"#{columns[0].downcase}\", " \
+                       "which a record without a schema cannot hold twice: rename one of them, or set a schema whose fields " \
+                       "name each one, which can be two fields of the same name for a format whose columns are in order, " \
+                       "such as CSV, read as rows", error.message
+          assert_equal %w[1 2 3], tabular.row_parse("1,2,3")
+        end
       end
 
       it "uses the columns set after a row is parsed" do
