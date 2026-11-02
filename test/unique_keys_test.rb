@@ -5,6 +5,25 @@ require_relative "test_helper"
 # The values of a field with the constraint `unique`, of the `primaryKey`, and of each of the `uniqueKeys` of a schema
 # must be unique within each read or write of a file, as Frictionless defines them.
 class UniqueKeysTest < Minitest::Test
+  # A store of slices, see `IOStreams::Slice::Target`, of 2 rows each.
+  class Store
+    include IOStreams::Slice::Target
+
+    attr_reader :slices
+
+    def initialize
+      @slices = []
+    end
+
+    def slice_size
+      2
+    end
+
+    def write_slice(slice)
+      @slices << slice
+    end
+  end
+
   describe "unique values" do
     # Returns [Array] the records read from the CSV text with the schema.
     def read(text, schema, mode = :hash, file_name: "people.csv", **)
@@ -18,6 +37,14 @@ class UniqueKeysTest < Minitest::Test
       records = []
       IOStreams.stream(slice).schema(schema).each(:hash) { |record| records << record }
       records
+    end
+
+    # Returns [Array<IOStreams::Slice>] the slices of 2 rows of the CSV text, read without a schema, so that nothing
+    # checks their values while they are sliced.
+    def slices_of(text)
+      slices = []
+      IOStreams.stream(StringIO.new(text)).file_name("a.csv").each(:slice, size: 2) { |slice| slices << slice }
+      slices
     end
 
     # Returns [String] the text written for the records with the schema.
@@ -109,19 +136,81 @@ class UniqueKeysTest < Minitest::Test
         end
       end
 
-      it "checks the rows of each slice on its own, and every row of the file once when slicing with validate: true" do
-        slices = []
-        IOStreams.stream(StringIO.new("id,name\n1,a\n2,b\n1,c\n")).file_name("a.csv").schema(schema).each(:slice, size: 2) do |slice|
-          slices << slice
-        end
+      it "does not check the rows of a slice, which is only a part of a file, which slicing with validate: true checks" do
+        text   = "id,name\n1,a\n1,b\n2,c\n1,d\n"
+        slices = slices_of(text)
 
-        assert_equal([2, 1], slices.map { |slice| read_slice(slice, schema).size })
+        assert_equal([2, 2], slices.map { |slice| read_slice(slice, schema).size })
+        contract = IOStreams::Contract.new(primaryKey: "id", fields: [{name: "id", type: "integer"}, {name: "name"}])
+        records  = []
+        IOStreams.stream(slices.first).as(contract).each(:hash) { |record| records << record }
+
+        assert_equal [{"id" => 1, "name" => "a"}, {"id" => 1, "name" => "b"}], records
+        sliced = []
+        IOStreams.stream(slices.first).schema(schema).each(:slice, size: 1, validate: true) { |slice| sliced << slice }
+
+        assert_equal [1, 1], sliced.map(&:size)
         handed = []
-        assert_raises(IOStreams::Errors::InvalidValue) do
+        error  = assert_raises(IOStreams::Errors::InvalidValue) do
           IOStreams.stream(StringIO.new("id,name\n1,a\n2,b\n1,c\n")).file_name("a.csv").schema(schema).
             each(:slice, size: 2, validate: true) { |slice| handed << slice }
         end
         assert_equal [2], handed.map(&:size)
+        assert_equal 3, error.record_number
+      end
+
+      it "still checks the other constraints of the rows of a slice, such as the required fields of a primaryKey" do
+        slice = slices_of("id,name\n,a\n").first
+
+        assert_raises(IOStreams::Errors::InvalidValue) { read_slice(slice, {primaryKey: "id", fields: schema[:fields]}) }
+      end
+
+      it "checks every row of the file written to a store of slices with validate: true, across its slices" do
+        store = Store.new
+        error = assert_raises(IOStreams::Errors::InvalidValue) do
+          IOStreams.stream(store).format(:csv).schema(schema).writer(:line, validate: true) do |io|
+            %w[id,name 1,a 2,b 1,c].each { |line| io << line }
+          end
+        end
+
+        assert_equal 3, error.record_number
+        assert_equal [2], store.slices.map(&:size)
+        store = Store.new
+        assert_raises(IOStreams::Errors::InvalidValue) do
+          IOStreams.stream(store).schema(schema).copy_from(StringIO.new("id,name\n1,a\n2,b\n1,c\n"), mode: :line, validate: true)
+        end
+        assert_equal [2], store.slices.map(&:size)
+      end
+
+      it "does not check the lines written to a store of slices without validate: true, but a writer of records checks its own" do
+        store = Store.new
+        IOStreams.stream(store).format(:csv).schema(schema).writer(:line) do |io|
+          %w[id,name 1,a 2,b 1,c].each { |line| io << line }
+        end
+
+        assert_equal [2, 1], store.slices.map(&:size)
+        store = Store.new
+        assert_raises(IOStreams::Errors::InvalidValue) do
+          IOStreams.stream(store).format(:csv).schema(schema).writer(:hash) do |io|
+            [{"id" => 1}, {"id" => 2}, {"id" => 1}].each { |record| io << record }
+          end
+        end
+      end
+
+      it "checks every row of the slices written to a file with validate: true, across the slices" do
+        slices = slices_of("id,name\n1,a\n2,b\n1,c\n")
+        output = StringIO.new
+        IOStreams.stream(output).file_name("a.csv").schema(schema).writer(:slice) do |io|
+          slices.each { |slice| io << slice }
+        end
+
+        assert_equal "id,name\n1,a\n2,b\n1,c\n", output.string
+        error = assert_raises(IOStreams::Errors::InvalidValue) do
+          IOStreams.stream(StringIO.new).file_name("a.csv").schema(schema).writer(:slice, validate: true) do |io|
+            slices.each { |slice| io << slice }
+          end
+        end
+        assert_equal 3, error.record_number
       end
 
       it "raises for a value written before" do

@@ -673,10 +673,14 @@ end
 * `primaryKey` and `uniqueKeys` name fields that are read, so a field with `skip: true` raises `ArgumentError`, and
   `uniqueKeys` holds at least one key, as Frictionless requires.
 
-Each read or write remembers the values that it has seen, so the check applies to one read of one file: the slices of
-a file that several workers read are each checked on their own, as is each file read by a job, while
-`each(:slice, validate: true)` reads the whole file once while it slices it, so it checks every row, see
-[Background Jobs](background_jobs). It remembers up to 1,000,000 distinct values of each field and key, so that a large
+Each read or write remembers the values that it has seen, so the check applies to one read or write of a whole file,
+such as each file read by a job. A slice is only a part of a file, so reading one, as a worker does, does not check
+them, since another slice may hold the same value. They are checked across the whole file by
+`each(:slice, validate: true)`, which reads every row of the file once while it slices it, by a write to a store of
+slices with `validate: true`, and by `writer(:slice, validate: true)`, which parses every row of the slices that it
+writes, while without `validate: true` none of them parses the rows, so none checks them, see
+[Background Jobs](background_jobs). A writer of rows or records checks the rows that it writes, as any write does, also
+to a store of slices. It remembers up to 1,000,000 distinct values of each field and key, so that a large
 file does not fill the memory, and raises `IOStreams::Errors::UniqueLimitExceeded` once it would need to remember more,
 rather than miss a duplicate. Each field and key has its own limit, and remembering costs memory: about 60 MB for
 1,000,000 Integers, and about 190 MB for 1,000,000 Strings such as UUIDs, or keys of several fields. The

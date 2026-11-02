@@ -40,12 +40,17 @@ module IOStreams
       #     `IOStreams::Schema::ContractColumns`.
       #     Default: nil
       #
+      #   part_of_file: [true|false]
+      #     Whether the rows are only a part of a file, such as those of a slice, so that the values that must be unique
+      #     within the file are not checked, see `IOStreams::Schema::Columns#initialize`.
+      #     Default: false
+      #
       #   See `IOStreams::Tabular::Mapping#initialize` for the others.
       #
       # Raises ArgumentError when the rows of a format with a header row, such as CSV, have none, and the schema cannot
       # describe them, see `IOStreams::Schema#check_fields_in_order`.
       def initialize(schema, header:, parser:, format:, blank_rows: true, headerless: nil, typed: false, every_field: false,
-                     contract: nil)
+                     contract: nil, part_of_file: false)
         super(header: header, parser: parser, format: format, blank_rows: blank_rows)
         @schema          = schema
         # The form of the values that the format reads and writes, see `IOStreams::Tabular::Parser::Base.value_form`,
@@ -53,13 +58,15 @@ module IOStreams
         @form            = parser.class.value_form
         @columns         =
           if contract
-            IOStreams::Schema::ContractColumns.new(schema.columns(typed: typed, every_field: true, form: @form),
-                                                   contract.columns(every_field: true, form: @form, read: true))
+            IOStreams::Schema::ContractColumns.new(
+              schema.columns(typed: typed, every_field: true, form: @form, part_of_file: part_of_file),
+              contract.columns(every_field: true, form: @form, read: true, part_of_file: part_of_file)
+            )
           else
             # A contract reads a key that a record leaves out as a missing value, while a schema of the file keeps the
             # rule of `fieldsMatch` for each record, as in v2.2.
             schema.columns(typed: typed, every_field: every_field, keys_vary: every_field && parser.class.keys_vary?,
-                           form: @form)
+                           form: @form, part_of_file: part_of_file)
           end
         @requires_header = parser.requires_header? && (headerless.nil? ? schema.header? : !headerless)
         # Whether each row is a record whose keys are its columns, such as JSON, rather than the values in the order of

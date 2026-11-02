@@ -312,7 +312,8 @@ end
   format, such as CSV results written to a JSON file, is read by its header row and written in the format of the file.
 * Every slice must come from the same file, or the same kind of results: a slice with another header row or format
   raises `ArgumentError`.
-* `validate: true` parses each row before it is written, to catch a value that is not valid before it reaches the file.
+* `validate: true` parses each row before it is written, to catch a value that is not valid before it reaches the file,
+  and a value that must be [unique](schemas#unique-values) that an earlier slice had.
 * As for any writer, the file is kept when the block returns, and not when it raises.
 * A job whose input slice holds more rows than the `slice_size` of its store of results, 100 unless the store says
   otherwise, writes more than one result slice, each with the number of its input slice, so they are still in the
@@ -496,10 +497,10 @@ end
 The slices still hold the rows as they are in the file. Validating parses every row twice, once here and once in the
 job, so it is worth it when starting work on a file that is only partly valid is worse than reading it slower.
 
-Values that must be [unique](schemas#unique-values), such as those of a `primaryKey`, are unique within one read, so a
-job that reads its slice checks only the rows of that slice, and cannot see a duplicate in another slice. Validating
-reads the whole file once while it is sliced, so it checks them across the whole file, and raises for a duplicate
-before the slice that holds it is handed on.
+Values that must be [unique](schemas#unique-values), such as those of a `primaryKey`, are unique within the whole
+file, so a job that reads its slice does not check them, since another slice may hold the same value. Validating reads
+the whole file once while it is sliced, so it checks them across the whole file, and raises for a duplicate before the
+slice that holds it is handed on. Without `validate: true`, nothing checks them before the jobs run.
 
 ### Hand on the slices only once the file is read
 
@@ -637,7 +638,8 @@ end
   as it has been read, before the first slice, and also for a file that has a header row and no rows. Use it, for
   example, to record the columns of the upload. It is not called for a file without a header row, such as JSON.
 * **Validating as you write.** `validate: true` parses each row before the slice that holds it is written, as for
-  `each(:slice)`: `writer(:hash, validate: true)` or `copy_from(path, mode: :line, validate: true)`.
+  `each(:slice)`: `writer(:hash, validate: true)` or `copy_from(path, mode: :line, validate: true)`. It parses every
+  row of the write, so it checks the values that must be [unique](schemas#unique-values) across all of its slices.
 
 The store decides the size of its slices, rather than each call, since it knows how it keeps them.
 

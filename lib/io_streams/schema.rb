@@ -333,10 +333,12 @@ module IOStreams
     # writer holds while it reads or writes the file. With `every_field`, each record and row read has every field, nil
     # for a field that the file does not have, as a contract reads them, see `IOStreams::Contract`, with `keys_vary`
     # a key that a record leaves out is a missing value, `form` is the form of the values read, see
-    # `IOStreams::Schema::Columns#initialize`, and with `read` the values read are those that the schema of the file
-    # already read, see `IOStreams::Schema::ContractColumns`.
-    def columns(typed: false, every_field: false, keys_vary: false, form: :typed, read: false)
-      Columns.new(self, typed: typed, every_field: every_field, keys_vary: keys_vary, form: form, read: read)
+    # `IOStreams::Schema::Columns#initialize`, with `read` the values read are those that the schema of the file
+    # already read, see `IOStreams::Schema::ContractColumns`, and with `part_of_file` the rows are only a part of the
+    # file, such as those of a slice, whose values that must be unique within the file are not checked.
+    def columns(typed: false, every_field: false, keys_vary: false, form: :typed, read: false, part_of_file: false)
+      Columns.new(self, typed: typed, every_field: every_field, keys_vary: keys_vary, form: form, read: read,
+                        part_of_file: part_of_file)
     end
 
     # Returns [Array<String>] the properties of this schema that lay out a file, see LAYOUT_PROPERTIES, each as it

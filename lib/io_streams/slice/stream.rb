@@ -11,7 +11,8 @@ module IOStreams
     # Its rows start with the header row that the slice carries, which the tabular reads, see
     # `IOStreams::Tabular#read_header`, so that each row is read by the columns of the file that it came from, in the
     # format that the slice carries, see #format, and a row whose every value is blank is a blank row unless the slice
-    # says that each of its rows is a record, see #tabular.
+    # says that each of its rows is a record, see #tabular. The values that a schema says must be unique within a file
+    # are not checked, since a slice is only a part of one, see #tabular.
     #
     # The record numbers of the rows are those that the slice holds, see `IOStreams::Slice#record_number_at`: `resume_at:`
     # names one of them, see #reader, and the slices read from it keep them, as they keep the line of each row.
@@ -96,9 +97,14 @@ module IOStreams
       # columns: matched to its fields by their keys or header row, and restored to the types of the fields from the
       # forms that the store returned them in, see `IOStreams::Schema::Field#restore`. A schema or a contract set on the
       # stream reads them instead, still restoring each value from the form that the store returned it in.
+      #
+      # A slice is only a part of a file, so the values of the fields and keys of a schema that must be unique within the
+      # file, such as those of its `primaryKey`, are not checked, since another slice may hold the same value, see
+      # `part_of_file:` of `IOStreams::Tabular#initialize`: slicing the file with `validate: true` checks them across the
+      # whole file, see `IOStreams::Stream#each`.
       def tabular(**)
         super(default_schema: io_stream.schema, blank_rows: io_stream.blank_rows?, headerless: !io_stream.header?,
-              typed: io_stream.typed?, **)
+              typed: io_stream.typed?, part_of_file: true, **)
       end
 
       # Returns [IOStreams::Schema] the schema of the values of the rows of the slice, see `IOStreams::Slice#schema`,

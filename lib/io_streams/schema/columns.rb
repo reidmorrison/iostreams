@@ -15,7 +15,8 @@ module IOStreams
     #
     # Each reader or writer has its own, see `IOStreams::Schema#columns`, since it holds the columns of its file, and the
     # values seen of each field and key whose values must be unique within it, see `IOStreams::Schema#uniqueness`,
-    # which it checks for each row and record that it reads or writes, once it has converted its values.
+    # which it checks for each row and record that it reads or writes, once it has converted its values, unless its rows
+    # are only a part of the file, such as those of a slice, which cannot tell whether a value is unique within it.
     class Columns
       # The most sets of keys whose plans it keeps, see #read_plan and #write_plan, so that records whose keys vary, such
       # as JSON records that leave out the keys without a value, are matched once for each set of keys, while records
@@ -64,7 +65,15 @@ module IOStreams
       #     contract converts to the types of its fields without comparing them with its missing values, which describe
       #     the text of a file, see `IOStreams::Schema::ContractColumns`.
       #     Default: false
-      def initialize(schema, typed: false, every_field: false, keys_vary: false, form: :typed, read: false)
+      #
+      #   part_of_file: [true|false]
+      #     Whether the rows and records are only a part of a file, such as the rows of a slice, see
+      #     `IOStreams::Slice::Stream`, so that the values of the fields and keys that must be unique within the file are
+      #     not checked, see `IOStreams::Schema#uniqueness`, since they may be those of another part of it, while the
+      #     whole file, such as when it is sliced with `validate: true`, checks them.
+      #     Default: false
+      def initialize(schema, typed: false, every_field: false, keys_vary: false, form: :typed, read: false,
+                     part_of_file: false)
         @schema       = schema
         @typed        = typed
         @form         = form
@@ -107,7 +116,7 @@ module IOStreams
         # last row or record checked that wait to be remembered, see #remember_unique, and the position of each field of
         # the uniqueness in the rows and records of each kind, by the plan or columns that it was found for, see
         # #unique_positions.
-        @unique           = schema.uniqueness
+        @unique           = schema.uniqueness unless part_of_file
         @pending          = nil
         @unique_positions = {}
       end
