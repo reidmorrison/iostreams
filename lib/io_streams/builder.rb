@@ -364,8 +364,7 @@ module IOStreams
 
     # Returns [Class] the class that reads or writes the stream: the class registered for it, or, to read a file with a
     # schema, see #schema=, the class that the registered reader answers for it, when it reads a file with a schema
-    # differently, such as a spreadsheet, whose CSV text then holds each number as Excel displays it, see
-    # `IOStreams::Xlsx::Reader.schema_reader`.
+    # differently, such as the reader of a spreadsheet, see `IOStreams::Xlsx::Reader.schema_reader`.
     def stream_class(type, stream)
       klass = class_for_stream(type, stream)
       return klass if type != :reader || @schema.nil? || !klass.respond_to?(:schema_reader)

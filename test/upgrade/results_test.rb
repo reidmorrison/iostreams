@@ -115,7 +115,7 @@ class UpgradeResultsTest < Minitest::Test
         assert_equal [%w[id amount zip ok note], *records.map(&:values)], read_all(path, :array)
       end
 
-      it "reads a number cell into a string field as the text that Excel shows" do
+      it "reads a number cell into a string field as the number that the cell holds, without a decimal point for a whole number" do
         strings = IOStreams.path(__dir__, "files", "cells.xlsx").schema(fields: %w[id amount zip ok note].map { |name| {name: name, type: "string"} })
         records = [
           {"id" => "1001", "amount" => "12.5", "zip" => "01234", "ok" => "true", "note" => "x"},
@@ -123,6 +123,62 @@ class UpgradeResultsTest < Minitest::Test
         ]
 
         assert_equal records, read_all(strings, :hash)
+      end
+
+      # A whole number below 2**53, which a Float holds exactly, keeps every digit, such as a card number of 16 digits,
+      # and any other number has the 15 significant digits that Excel displays, without its number format, such as the
+      # 0.125 of 12.5%, in plain digits, rather than an exponent. A cell without a type, as Excel itself writes a number,
+      # is a number too. A date and time is the time of its clock, in UTC, and a date is its date.
+      it "reads each kind of number cell into the field of its type" do
+        numbers = IOStreams.path(__dir__, "files", "numbers.xlsx").schema(
+          fields: %w[card small million big general percent].map { |name| {name: name, type: "string"} } +
+            [{name: "at", type: "datetime"}, {name: "on", type: "date"}]
+        )
+        record = {
+          "card"    => "4111111111111111",
+          "small"   => "0.0000001",
+          "million" => "1000000000000000",
+          "big"     => "150000000000000000000",
+          "general" => "2134",
+          "percent" => "0.125",
+          "at"      => Time.utc(2026, 10, 25, 9, 30),
+          "on"      => Date.new(2026, 10, 25)
+        }
+
+        assert_equal [record], read_all(numbers, :hash)
+      end
+
+      # Which cells are dates and times is decided by their number formats as Excel defines them: a custom format of only
+      # a year, month or day, such as `yyyy-mm-dd` or `dd/mm/yyyy`, is a date, one with hours or seconds too, such as
+      # `dd/mm/yyyy hh:mm`, is a date and time, and a `d` or `y` in quoted text, such as `0.00" days"`, is not a date.
+      it "reads a cell of a custom date format into a date field as its date" do
+        dates = IOStreams.path(__dir__, "files", "dates.xlsx").schema(
+          fields: [
+            {name: "iso", type: "date"},
+            {name: "dmy", type: "date"},
+            {name: "at", type: "datetime"},
+            {name: "days", type: "number"}
+          ]
+        )
+        record = {
+          "iso"  => Date.new(2026, 10, 25),
+          "dmy"  => Date.new(2026, 10, 25),
+          "at"   => Time.utc(2026, 10, 25, 9, 30),
+          "days" => BigDecimal("3.5")
+        }
+
+        assert_equal [record], read_all(dates, :hash)
+      end
+
+      # A cell of a time of day, of a built-in time format, such as `h:mm:ss`, or a custom one, such as `hh:mm:ss`, is
+      # the time of its clock, with the milliseconds that Excel holds when it has any.
+      it "reads a cell of a time of day into a string field as the time of its clock" do
+        times = IOStreams.path(__dir__, "files", "times.xlsx").schema(
+          fields: %w[clock custom half].map { |name| {name: name, type: "string"} }
+        )
+        record = {"clock" => "09:30:00", "custom" => "09:30:00", "half" => "09:30:00.500"}
+
+        assert_equal [record], read_all(times, :hash)
       end
     end
 
