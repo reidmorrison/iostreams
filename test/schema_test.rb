@@ -1235,6 +1235,7 @@ class SchemaTest < Minitest::Test
           assert_equal(-28_800, datetime.cast("2026-10-31T09:30:00.25-08").utc_offset)
           assert_equal Time.utc(2026, 10, 31, 9, 30), datetime.cast("2026-10-31T09:30:00-0000")
           assert_equal 0, datetime.cast("2026-10-31T09:30:00-0000").utc_offset
+          assert_predicate datetime.cast("2026-10-31T09:30:00-0000"), :utc?
           assert_equal Time.new(2000, 1, 1, 9, 30, 0, "+05:00"), field(type: "time").cast("09:30:00+05")
         end
 
@@ -1246,7 +1247,7 @@ class SchemaTest < Minitest::Test
           assert_raises(IOStreams::Errors::InvalidValue) { field(type: "time").cast("09:30:00+0560") }
         end
 
-        it "reads a space in place of the T, as databases and spreadsheets write it, and an offset without a colon" do
+        it "reads a space in place of the T, as databases write it, and an offset without a colon" do
           assert_equal Time.utc(2026, 10, 13, 9, 30), datetime.cast("2026-10-13 09:30:00")
           assert_predicate datetime.cast("2026-10-13 09:30:00"), :utc?
           assert_equal Time.new(2026, 10, 13, 9, 30, 0.5r, "+05:30"), datetime.cast("2026-10-13 09:30:00.5+0530")

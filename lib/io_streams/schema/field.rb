@@ -948,26 +948,17 @@ module IOStreams
         "#{clock}#{time.utc? ? 'Z' : time.strftime('%:z')}"
       end
 
-      # Returns [Time] the time of the text that DATETIME matched, in UTC without an offset, in the form that
-      # `Time.iso8601` reads, with a T between its date and its time, and a colon in its offset.
+      # Returns [Time] the time of the text that DATETIME matched, in UTC without an offset, read with `Time.iso8601`,
+      # which reads each form of its offset, such as `+05:30`, `+0530` or `+05`, so that only a space in place of the T
+      # is replaced, and Z added to text without an offset.
       def iso_datetime(match)
-        Time.iso8601("#{match[1]}T#{match[2]}#{iso_offset(match[3])}")
+        Time.iso8601("#{match[1]}T#{match[2]}#{match[3] || 'Z'}")
       end
 
-      # Returns [Time] the time of day, on 2000-01-01, of the text that TIME matched, in UTC without an offset, see
-      # #iso_datetime.
+      # Returns [Time] the time of day, on 2000-01-01, of the text that TIME matched, in UTC without an offset, read with
+      # `Time.iso8601`, see #iso_datetime, so that only Z is added to text without an offset.
       def iso_clock(clock)
-        Time.iso8601("2000-01-01T#{clock[1]}:#{clock[2]}:#{clock[3]}#{clock[4]}#{iso_offset(clock[5])}")
-      end
-
-      # Returns [String] the offset from UTC as `Time.iso8601` reads it: Z without one, and its hours and minutes with
-      # a colon between them, such as `+05:30` for `+0530`, and `+05:00` for `+05`.
-      def iso_offset(offset)
-        return "Z" if offset.nil?
-        return offset if offset == "Z" || offset.include?(":")
-        return "#{offset}:00" if offset.length == 3
-
-        "#{offset[0, 3]}:#{offset[3, 2]}"
+        Time.iso8601("2000-01-01T#{clock[0]}#{'Z' unless clock[5]}")
       end
 
       # Returns [Date] the date of ISO 8601 text, see #load.
