@@ -668,10 +668,10 @@ and `#copy_to`, whose options only apply to the target.
 * `format` For a `date` or a `datetime`, the strptime pattern of its text, such as `"%d/%m/%Y"` or `"%Y%m%d"`, in
   the syntax of Python's strptime, as Frictionless defines it: `%Y` reads exactly 4 digits, so that `31/10/26` raises
   `IOStreams::Errors::InvalidValue` with `%d/%m/%Y`, as do `%G` and the year of a directive that reads several, such
-  as `%F` and `%c`, while `%y` reads exactly 2 digits, the time of a `datetime` must be on a clock, so that the hour
-  `24` of `%H`, such as `24:00`, and a leap second, `60` of `%S`, raise, rather than read the next day or the second
-  before it, and `%f` reads 1 to 6 digits of microseconds, such as `5` for half a second, and writes 6, such as
-  `500000`. A pattern that starts with `fmt:`, as Data Package v0 wrote it, such
+  as `%F` and `%c`, while `%y` reads exactly 2 digits, the time of a `date` or a `datetime` must be on a clock, so
+  that the hour `24` of `%H`, such as `24:00`, and a leap second, `60` of `%S`, raise, rather than read the next day
+  or the second before it, or be ignored by a `date`, and `%f` reads 1 to 6 digits of microseconds, such as `5` for
+  half a second, and writes 6, such as `500000`. A pattern that starts with `fmt:`, as Data Package v0 wrote it, such
   as `"fmt:%d/%m/%Y"`, has that prefix removed, so that `"fmt:default"` is the default form. Ruby's own directives,
   such as `%N`, `%L` and `%s`, also work, but other Frictionless tools do not read them, and `%s` reads whole seconds,
   ignoring a fraction after it, such as that of `%s.%f`. Default: ISO 8601.

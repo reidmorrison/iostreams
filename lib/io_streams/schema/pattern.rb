@@ -12,6 +12,8 @@ module IOStreams
     #   %y  the year of the century in exactly 2 digits, as Python reads it, such as "05", where Ruby also reads "5".
     #   %f  the microseconds, which Ruby does not have: 1 to 6 digits of the fraction of a second when reading, such as
     #       "5" for half a second, and 6 digits when writing, such as "500000".
+    #   %H  the hour, from 00 to 23, as Python reads it, where Ruby also reads 24, and `%S` the second, from 00 to 59,
+    #       where Ruby also reads the leap second 60, see #parts.
     #
     # Every other directive is Ruby's, which reads and writes the directives of Python the same way. A directive that
     # reads several, such as `%F`, `%c` or Ruby's `%+`, reads its year as they do, see COMPOSITES. Ruby's own
@@ -86,10 +88,10 @@ module IOStreams
 
       # Returns [Hash] the parts of the text, as `Date._strptime` returns them, such as `{year: 2026, mon: 10}`.
       # Returns nil when the pattern does not match all of the text, or a year does not have exactly 4 digits, or 2 for
-      # `%y`, or microseconds 1 to 6, as Python reads them.
+      # `%y`, or microseconds 1 to 6, or its time is not on a clock, see #clock?, as Python reads them.
       def parts(text)
         parts = Date._strptime(text, @read)
-        return if parts.nil? || parts.key?(:leftover)
+        return if parts.nil? || parts.key?(:leftover) || !clock?(parts)
 
         parts if @checks.all? { |prefix, digits| digits.match?(text, offset(text, prefix)) }
       end
@@ -105,6 +107,14 @@ module IOStreams
       end
 
       private
+
+      # Returns [true|false] whether the time of the parts is on a clock, from 00:00:00 to 23:59:59, as Python's strptime
+      # reads it, for a date as for a time, rather than the hour 24 of `%H`, which `DateTime` moves into the next day, or
+      # a leap second, 60 of `%S`, which it reads as the second before it, and `Date` ignores. Ruby's strptime reads no
+      # minute of 60 or more.
+      def clock?(parts)
+        parts.fetch(:hour, 0) < 24 && parts.fetch(:sec, 0) < 60
+      end
 
       # Returns [String] the pattern with each directive that reads several replaced with them, see COMPOSITES, and the
       # modifier of each directive that has one removed, see MODIFIED, which Ruby's strptime reads the same way.

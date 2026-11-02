@@ -1294,6 +1294,14 @@ class SchemaTest < Minitest::Test
           assert_equal "13/10/2026", pattern.render(Date.new(2026, 10, 13), :json)
         end
 
+        it "raises for a time in its format that is not on a clock, the hour 24 or a leap second, as Python's strptime does" do
+          pattern = field(type: "date", format: "%Y-%m-%d %H:%M:%S")
+
+          assert_raises(IOStreams::Errors::InvalidValue) { pattern.cast("2026-10-13 24:00:00") }
+          assert_raises(IOStreams::Errors::InvalidValue) { pattern.cast("2026-10-13 23:59:60") }
+          assert_equal Date.new(2026, 10, 13), pattern.cast("2026-10-13 23:59:59")
+        end
+
         it "reads exactly 4 digits for %Y, as Python's strptime does, rather than as many as there are" do
           pattern = field(type: "date", format: "%d/%m/%Y")
 
@@ -1437,6 +1445,7 @@ class SchemaTest < Minitest::Test
           assert_raises(IOStreams::Errors::InvalidValue) { field(type: "datetime", format: "%Y%m%d%H%M").cast("202610132400") }
           assert_equal Time.utc(2026, 10, 13, 23, 59, 59), pattern.cast("2026-10-13 23:59:59")
           assert_equal Time.utc(2026, 10, 13), pattern.cast("2026-10-13 00:00:00")
+          assert_equal Time.utc(2026, 10, 13, 23, 30), field(type: "datetime", format: "%Y-%m-%d %I:%M %p").cast("2026-10-13 11:30 PM")
         end
 
         it "reads a space in place of the T" do

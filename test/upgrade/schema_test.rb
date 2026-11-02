@@ -287,6 +287,14 @@ class UpgradeSchemaTest < Minitest::Test
           assert_raises(IOStreams::Errors::InvalidValue) { read("at\n2026-10-31 23:59:60\n", schema: schema) }
         end
 
+        it "raises for a date whose format has a time that is not on a clock, the hour 24 of %H or a leap second" do
+          schema = {fields: [{name: "joined", type: "date", format: "%Y-%m-%d %H:%M:%S"}]}
+
+          assert_equal [{"joined" => Date.new(2026, 10, 31)}], read("joined\n2026-10-31 23:59:59\n", schema: schema)
+          assert_raises(IOStreams::Errors::InvalidValue) { read("joined\n2026-10-31 24:00:00\n", schema: schema) }
+          assert_raises(IOStreams::Errors::InvalidValue) { read("joined\n2026-10-31 23:59:60\n", schema: schema) }
+        end
+
         it "removes the prefix fmt: that Data Package v0 wrote before a pattern" do
           schema = {fields: [{name: "joined", type: "date", format: "fmt:%d/%m/%Y"}]}
 
