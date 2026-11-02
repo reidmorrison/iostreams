@@ -9,6 +9,7 @@ module IOStreams
     autoload :Cells,  "io_streams/xlsx/cells"
     autoload :Reader, "io_streams/xlsx/reader"
     autoload :RowsWriter, "io_streams/xlsx/rows_writer"
+    autoload :Workbook, "io_streams/xlsx/workbook"
     autoload :Writer, "io_streams/xlsx/writer"
 
     # Returns [Class] the class that reads a workbook.

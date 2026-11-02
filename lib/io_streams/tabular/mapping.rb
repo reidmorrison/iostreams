@@ -188,6 +188,12 @@ module IOStreams
         []
       end
 
+      # Returns [Array<Integer>] the positions of the values of the rows rendered whose field is a `time`, a time of day,
+      # see `IOStreams::Tabular#time_positions`: none without a schema, whose values have no type.
+      def time_positions
+        []
+      end
+
       private
 
       # Returns [Array|Hash] the values of the line, which the parser parses, or a row already read, as it is.

@@ -32,10 +32,16 @@ module IOStreams
       #
       #   text_columns: [Array<Integer>|nil]
       #     The positions of the columns whose values are text by their field, which `auto_format` leaves as they are.
-      def initialize(worksheet, auto_format: false, text_columns: nil)
+      #
+      #   time_columns: [Array<Integer>|nil]
+      #     The positions of the columns whose values are times of day by their field, a `time`, whose cells are written
+      #     as times of day, the clock of each value, see `IOStreams::Xlsx::Workbook.time_of_day`, rather than as dates
+      #     and times.
+      def initialize(worksheet, auto_format: false, text_columns: nil, time_columns: nil)
         @worksheet    = worksheet
         @auto_format  = auto_format
         @text_columns = (text_columns || []).to_h { |index| [index, true] }
+        @time_columns = (time_columns || []).to_h { |index| [index, true] }
       end
 
       # Writes the row, an Array of the values of its cells, see the class.
@@ -58,7 +64,7 @@ module IOStreams
       def cell(value, index)
         case value
         when DateTime then value.to_time.getutc
-        when Time then value.getutc
+        when Time then @time_columns.key?(index) ? Workbook.time_of_day(value) : value.getutc
         when nil, true, false, Date then value
         when Integer, Float then number(value)
         when String then @auto_format && !@text_columns.key?(index) ? auto_format(value) : value

@@ -325,6 +325,58 @@ class XlsxWriterTest < Minitest::Test
       end
     end
 
+    describe "a time of day" do
+      let(:schema) do
+        {
+          fields: [
+            {name: "starts", type: "time"},
+            {name: "ny", type: "time", timeZone: "America/New_York"},
+            {name: "at", type: "datetime"}
+          ]
+        }
+      end
+
+      it "writes the clock of a time field as a cell of a time of day, Excel's format h:mm:ss, which reads back" do
+        path = IOStreams.path(file_name).schema(schema)
+        path.writer(:hash) do |io|
+          io << {"starts" => Time.new(2000, 1, 1, 9, 30, 0.5r, "+05:00"), "ny" => Time.utc(2000, 1, 1, 14, 30),
+                 "at" => Time.utc(2026, 7, 1, 9, 30)}
+        end
+        data = File.binread(file_name)
+
+        assert_includes worksheet_xml(data, "xl/styles.xml"), '<xf numFmtId="21" '
+        assert_match(/<c r="A2" s="3"><v>0\.39/, worksheet_xml(data))
+        assert_match(/<c r="C2" s="2"><v>46204\.39/, worksheet_xml(data))
+        records = []
+        path.each(:hash) { |record| records << record }
+
+        assert_equal [{"starts" => Time.utc(2000, 1, 1, 9, 30, 0.5r), "ny" => Time.utc(2000, 1, 1, 14, 30),
+                       "at" => Time.utc(2026, 7, 1, 9, 30)}], records
+        lines = []
+        IOStreams.path(file_name).each(:line) { |line| lines << line }
+
+        assert_equal "09:30:00.500,09:30:00", lines.last.split(",").first(2).join(",")
+        strings = []
+        IOStreams.path(file_name).schema(fieldsMatch: "subset", fields: [{name: "starts", type: "string"}]).each(:hash) do |record|
+          strings << record
+        end
+
+        assert_equal "09:30:00.500", strings.first["starts"]
+      end
+
+      it "raises before it writes for a version of xlsxtream that writes the styles of its cells otherwise" do
+        style = ::Xlsxtream::Row::TIME_STYLE
+        ::Xlsxtream::Row.send(:remove_const, :TIME_STYLE)
+        ::Xlsxtream::Row.const_set(:TIME_STYLE, 9)
+        error = assert_raises(IOStreams::Errors::Error) { write { |io| io << "a\n" } }
+
+        assert_match(/xlsxtream .* no longer writes the styles of its cells/, error.message)
+      ensure
+        ::Xlsxtream::Row.send(:remove_const, :TIME_STYLE)
+        ::Xlsxtream::Row.const_set(:TIME_STYLE, style)
+      end
+    end
+
     describe "the format of the rows" do
       it "writes each value into its own cell, whatever format the file name names before the extension" do
         path = IOStreams.path(File.join(dir, "report.psv.xlsx"))

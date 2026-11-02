@@ -475,6 +475,13 @@ module IOStreams
       @mapping.text_positions
     end
 
+    # Returns [Array<Integer>] the positions of the values of the rows rendered whose field is a `time`, a time of day,
+    # which a format that writes the values themselves, such as a spreadsheet, writes as a time of day rather than a
+    # date and time, see `IOStreams::Xlsx::RowsWriter`, or none without a schema, whose values have no type.
+    def time_positions
+      @mapping.time_positions
+    end
+
     # Raises `IOStreams::Errors::IncompatibleType` for a column of the schema that the block returns, which a source
     # declares when it is opened, such as a Parquet file, whose type can never be that of its field of the contract that
     # its rows are read through, without a schema, see `IOStreams::Schema#check_types`. The block is called only then,

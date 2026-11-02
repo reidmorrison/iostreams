@@ -82,6 +82,12 @@ module IOStreams
         @source.text_positions
       end
 
+      # Returns [Array<Integer>] the positions of the values of the rows of the file rendered whose field of the schema of
+      # the file is a `time`, see `IOStreams::Schema::Columns#time_positions`.
+      def time_positions
+        @source.time_positions
+      end
+
       # Returns [true|false] whether the columns of the file read are known, see #match.
       def matched?
         @source.matched? && !@renames.nil?

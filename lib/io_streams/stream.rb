@@ -1390,7 +1390,8 @@ module IOStreams
     def open_rows_writer(tabular, delimiter, &)
       if stream_rows?
         reject_row_options!(tabular, delimiter: delimiter)
-        return rows_stream(text_columns: tabular.text_positions).send(:open_writer, &)
+        return rows_stream(text_columns: tabular.text_positions, time_columns: tabular.time_positions).
+               send(:open_writer, &)
       end
 
       unless tabular.lines?

@@ -331,8 +331,9 @@ a file, such as `1234.5` as `12345` with `groupChar: "."`: copy them with `copy_
 
 Writing writes a workbook with one worksheet, with the `xlsxtream` gem. The rows and records are written as the types
 of their values, by the fields of a schema or contract when there is one, so that a number is a number cell, a `Date` a
-date, a `Time` a date and time, holding its clock in UTC, or in the `timeZone` of its field, and text, such as
-`"01234"`, is text. A `BigDecimal` is written as the `Float` that Excel
+date, a `Time` a date and time, holding its clock in UTC, or in the `timeZone` of its field, the value of a `time`
+field a time of day, of Excel's time format `h:mm:ss`, holding its own clock, or that of the `timeZone` of its field,
+and text, such as `"01234"`, is text. A `BigDecimal` is written as the `Float` that Excel
 holds, shown without the `decimals` of its field, see [Limitations](#spreadsheet-limitations). A field whose value is
 not one value, a `list`, `geopoint`, `array` or `object`, and a `yearmonth`, is written as its text, as CSV writes it,
 such as `a,b` or `2026-10`, and a `Hash` or an `Array` of a field of type `any`, or without a schema, as its JSON:
@@ -396,17 +397,9 @@ end
 # {"id" => 1001, "amount" => 0.125e2, "ordered_at" => 2026-10-25 09:30:00 UTC, "zip" => "01234"}
 ~~~
 
-A time of day, such as the value of a `time` field, is written as a date and time on 2000-01-01, such as
-`2000-01-01 09:30`, since the `xlsxtream` gem cannot write a cell of a time format. The rows of the spreadsheet read it
-back as a `Time` that a `time` field takes, but its lines, its CSV text, hold `2000-01-01T09:30:00Z`, which a `time`
-field raises `IOStreams::Errors::InvalidValue` for, so a CSV copy of the spreadsheet made without a mode does not read
-back. Copy it in the `:hash` mode with a schema or contract that gives the column the type `time`, which writes the
-time of day, `09:30:00`:
-
-~~~ruby
-# Hours is a contract with the field {name: "opens", type: "time"}.
-IOStreams.path("hours.csv").copy_from(IOStreams.path("hours.xlsx").as(Hours), mode: :hash)
-~~~
+A time of day without a `time` field, such as a `Time` on 2000-01-01 of a field of type `any` or without a schema, is
+written as a date and time on 2000-01-01, such as `2000-01-01 09:30`, since nothing says that it is a time of day.
+Give the column the type `time`, so that its cells are times of day, whose lines, its CSV text, hold `09:30:00`.
 
 A cell of an elapsed time format, such as `[h]:mm:ss`, is read as a time, rather than as the length of time that Excel
 shows. One of less than a day, such as `9:00:00`, is a time of day, and one of a day or more, such as `36:00:00`, is

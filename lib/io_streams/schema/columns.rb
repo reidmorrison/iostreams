@@ -300,6 +300,12 @@ module IOStreams
         @schema.fields.each_index.select { |index| @schema.fields[index].type == "string" }
       end
 
+      # Returns [Array<Integer>] the position of each value of a row rendered whose field is a `time`, a time of day, as
+      # #text_positions finds them.
+      def time_positions
+        @schema.fields.each_index.select { |index| @schema.fields[index].type == "time" }
+      end
+
       # Returns [Array<Integer>] the position of each value of a row rendered whose field is a `string` of bytes, with
       # `format: "binary"`, see `IOStreams::Schema::Field#binary?`, as #text_positions finds them.
       def binary_positions

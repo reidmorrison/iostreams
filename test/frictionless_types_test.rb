@@ -523,7 +523,8 @@ class FrictionlessTypesTest < Minitest::Test
         lines = []
         IOStreams.path(dir, "times.xlsx").each(:line) { |line| lines << line }
 
-        assert_equal "2026-07-01T09:30:00Z,2000-01-01T09:30:00Z", lines.last
+        # A time field writes a cell of a time of day, whose text is its clock.
+        assert_equal "2026-07-01T09:30:00Z,09:30:00", lines.last
       end
 
       it "reads the clock of a spreadsheet's cell in its zone, and writes the UTC clock without a zone" do

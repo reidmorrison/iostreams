@@ -788,9 +788,15 @@ module IOStreams
 
       # Returns [Time] the clock that the zone of this datetime or time field shows at the time, see `timeZone` above, as
       # a Time in UTC that holds that clock, for a format whose values hold a clock without a zone, such as a cell of a
-      # spreadsheet, see #render, which #time_of_clock reads back as the same time. Without a zone, the clock in UTC.
+      # spreadsheet, see #render, which #time_of_clock reads back as the same time. Without a zone, the clock in UTC of
+      # a datetime, and the own clock of a time of day, on 2000-01-01, as its text is written, see #time_text, such as
+      # 09:30 for 09:30 at +05:00, rather than 04:30.
       def clock_of(time)
-        return time.getutc unless @zone
+        unless @zone
+          return time.getutc unless type == "time"
+
+          return Time.utc(2000, 1, 1, time.hour, time.min, time.sec + time.subsec)
+        end
 
         local = @zone.convert(time)
         Time.utc(local.year, local.month, local.day, local.hour, local.min, local.sec + local.subsec)
@@ -952,8 +958,8 @@ module IOStreams
       #           `:hash`, and a geopoint as its point, `[lon, lat]`, whatever its format.
       #   :scalar the value itself, as for `:typed`, apart from a list, a geopoint, an array, an object and a yearmonth, as
       #           their text, as for `:text`, for a format each of whose cells holds one value, such as a spreadsheet,
-      #           and a time of a datetime or time field with a `timeZone`, as the clock of its zone, see #clock_of,
-      #           since such a cell holds a clock without a zone.
+      #           and a time of a datetime or time field with a `timeZone`, as the clock of its zone, and of a time
+      #           field without one, as its own clock, see #clock_of, since such a cell holds a clock without a zone.
       #
       # A Hash or an Array of an object or array field is written to JSON, or as its JSON text, as the JSON format
       # converts the values within it, see #render_json_structure, rather than first converted as JSON holds it, see
@@ -974,7 +980,7 @@ module IOStreams
         return missing_text(form) if value.nil?
         return value if form == :typed
         return json(value) if form == :json
-        return clock_of(value) if form == :scalar && @zone
+        return clock_of(value) if form == :scalar && (@zone || type == "time")
         return value if form == :scalar && !@scalar_text
 
         text(value)
