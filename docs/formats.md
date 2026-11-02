@@ -296,6 +296,9 @@ shows. A number of a date
 or time format that is not a date that Excel holds, such as a negative number, which Excel shows as `####`, is its
 number, in the lines and in the rows. A field whose `missingValues` hold text other than empty text, such as `"-99"`,
 compares that text of each cell with them, whatever the type of the cell, see [Missing values](schemas#missing-values).
+A `datetime` or `time` field with a `timeZone` reads the clock of a cell of a date and time, or of a time of day, in its
+zone, since a cell holds no zone, such as `2026-07-01 09:30` as `13:30` UTC in `America/New_York`, see
+[Time zones](schemas#time-zones), while the lines, which have no schema, hold the clock as UTC, as above.
 
 A `list` field reads a cell that holds its text, such as `1.5,2`, as its items, and a cell that holds one value, such as
 the number `1.5`, as a list of that one item, `[1.5]`, as the CSV text of the cell reads, see
@@ -308,7 +311,8 @@ the rows and records, which are cells rather than lines.
 
 Writing writes a workbook with one worksheet, with the `xlsxtream` gem. The rows and records are written as the types
 of their values, by the fields of a schema or contract when there is one, so that a number is a number cell, a `Date` a
-date, a `Time` a date and time, and text, such as `"01234"`, is text. A `BigDecimal` is written as the `Float` that Excel
+date, a `Time` a date and time, holding its clock in UTC, or in the `timeZone` of its field, and text, such as
+`"01234"`, is text. A `BigDecimal` is written as the `Float` that Excel
 holds, shown without the `decimals` of its field, see [Limitations](#spreadsheet-limitations). A field whose value is
 not one value, a `list`, `geopoint`, `array` or `object`, and a `yearmonth`, is written as its text, as CSV writes it,
 such as `a,b` or `2026-10`, and a `Hash` or an `Array` of a field of type `any`, or without a schema, as its JSON:

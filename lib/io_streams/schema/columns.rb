@@ -53,11 +53,12 @@ module IOStreams
       #     missing column as CSV does, and so does a schema of a file without a contract, as in v2.2.
       #     Default: false
       #
-      #   form: [:text|:json|:typed]
+      #   form: [:text|:json|:typed|:scalar]
       #     The form of the values of the rows and records read, that of the format that reads them, see
-      #     `IOStreams::Tabular::Parser::Base.value_form`, which each field reads them from, see
+      #     `IOStreams::Tabular::Parser::Base.value_form`, or of the stream that reads them, see
+      #     `IOStreams::StreamFormat#rows_value_form`, which each field reads them from, see
       #     `IOStreams::Schema::Field#parse`, such as `:json` for JSON, whose objects and arrays are already what JSON
-      #     holds.
+      #     holds, or `:scalar` for the cells of a spreadsheet.
       #     Default: :typed, values of any class
       #
       #   read: [true|false]

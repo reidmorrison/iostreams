@@ -392,9 +392,12 @@ end
 * `%s` and `%Q`, the seconds and milliseconds since 1970, are a time whatever the `timeZone`.
 * A Parquet column of times of day holds the clock that the schema writes, without an offset, so it is read in the
   `timeZone` of its field too, and `09:30` in New York reads back as `09:30`. A spreadsheet's date and time cells hold
-  no zone either: IOStreams writes a time as its clock in UTC, and reads a cell's clock as UTC, so a time reads back as
-  the same time, whatever the `timeZone`, while a spreadsheet made by hand whose cells hold the clocks of another zone
-  is read as UTC.
+  no zone either, so a field with a `timeZone` writes the clock of its zone to a cell, such as `2026-07-01 09:30` for
+  `13:30` UTC in New York, and reads the clock of a cell in its zone, as it reads the text `2026-07-01 09:30:00`, so a
+  spreadsheet made by hand in New York reads as the times that were entered, while a field without a `timeZone` writes
+  and reads the clock in UTC. The lines of a spreadsheet, its CSV text, have no schema, so they hold the clock of a
+  date and time as UTC, such as `2026-07-01T09:30:00Z`, which a field reads as that time, whatever its `timeZone`, so
+  read the rows of a spreadsheet, rather than its lines, with a field that has one.
 * A [contract](contracts) keeps the `timeZone` of a field, while the target of a copy that takes the types of its
   source writes in its own, UTC unless its schema says otherwise.
 * The name of a zone needs the tzinfo gem, which Rails includes, and the IANA time zone database, which Linux and macOS

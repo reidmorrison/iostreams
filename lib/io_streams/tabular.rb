@@ -149,9 +149,10 @@ module IOStreams
     #     Default: nil, the lines are those of the format of the rows.
     #
     #   value_form: [Symbol|nil]
-    #     The form in which the rows written hold the values of a schema, see `IOStreams::Schema::Field#render`, when the
-    #     stream that writes them decides it, such as `:scalar` for the cells of a spreadsheet, see
-    #     `IOStreams::StreamFormat#rows_value_form`. Not an option of a call that reads or writes rows.
+    #     The form in which the rows read and written hold the values of a schema, see `IOStreams::Schema::Field#parse`
+    #     and `IOStreams::Schema::Field#render`, when the stream that reads and writes them decides it, such as `:scalar`
+    #     for the cells of a spreadsheet, see `IOStreams::StreamFormat#rows_value_form`. Not an option of a call that
+    #     reads or writes rows.
     #     Default: nil, the form of the format, see `IOStreams::Tabular::Parser::Base.value_form`.
     #
     # Raises ArgumentError for a `headerless` that is not true, false or nil, or a `typed` or `part_of_file` that is not

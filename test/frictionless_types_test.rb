@@ -492,12 +492,46 @@ class FrictionlessTypesTest < Minitest::Test
         assert_equal [{"at" => Time.new(2000, 1, 1, 9, 30, 0, "-05:00")}], read(IOStreams.path(dir, "b.parquet").schema(schema))
       end
 
-      it "writes the time of a spreadsheet's cell as its UTC clock, which reads back as the same time" do
+      it "writes the clock of its zone to a spreadsheet's cell, which reads back as the same time" do
         schema = {fields: [{name: "at", type: "datetime", timeZone: "America/New_York"}, {name: "on", type: "time", timeZone: "America/New_York"}]}
         record = {"at" => Time.utc(2026, 7, 1, 13, 30), "on" => Time.new(2000, 1, 1, 9, 30, 0, "-05:00")}
         path   = write("times.xlsx", schema, [record])
 
         assert_equal [record], read(path)
+        assert_equal [{"at" => Time.utc(2026, 7, 1, 9, 30), "on" => Time.utc(2000, 1, 1, 9, 30)}], read(IOStreams.path(dir, "times.xlsx"))
+        lines = []
+        IOStreams.path(dir, "times.xlsx").each(:line) { |line| lines << line }
+
+        assert_equal "2026-07-01T09:30:00Z,2000-01-01T09:30:00Z", lines.last
+      end
+
+      it "reads the clock of a spreadsheet's cell in its zone, and writes the UTC clock without a zone" do
+        IOStreams.path(dir, "cells.xlsx").writer(:array) do |io|
+          io << %w[at]
+          io << [Time.utc(2026, 7, 1, 9, 30)]
+          io << [Time.utc(2026, 1, 1, 9, 30)]
+        end
+
+        zoned = IOStreams.path(dir, "cells.xlsx").schema(fields: [{name: "at", type: "datetime", timeZone: "America/New_York"}])
+        plain = IOStreams.path(dir, "cells.xlsx").schema(fields: [{name: "at", type: "datetime"}])
+
+        assert_equal [{"at" => Time.utc(2026, 7, 1, 13, 30)}, {"at" => Time.utc(2026, 1, 1, 14, 30)}], read(zoned)
+        assert_equal [{"at" => Time.utc(2026, 7, 1, 9, 30)}, {"at" => Time.utc(2026, 1, 1, 9, 30)}], read(plain)
+        path = write("utc.xlsx", {fields: [{name: "at", type: "datetime"}]}, [{"at" => Time.new(2026, 7, 1, 9, 30, 0, "-04:00")}])
+
+        assert_equal [{"at" => Time.utc(2026, 7, 1, 13, 30)}], read(IOStreams.path(path.to_s))
+      end
+
+      it "raises for a spreadsheet's cell whose clock its zone skips" do
+        IOStreams.path(dir, "cells.xlsx").writer(:array) do |io|
+          io << %w[at]
+          io << [Time.utc(2026, 3, 8, 2, 30)]
+        end
+
+        error = assert_raises(IOStreams::Errors::InvalidValue) do
+          read(IOStreams.path(dir, "cells.xlsx").schema(fields: [{name: "at", type: "datetime", timeZone: "America/New_York"}]))
+        end
+        assert_includes error.message, "is no time in America/New_York, whose clocks skip it"
       end
 
       it "is kept by a contract, and left out of the schema that the target of a copy takes, which writes its own" do

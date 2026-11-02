@@ -347,6 +347,21 @@ class XlsxRowsTest < Minitest::Test
           assert_equal [record], read(strings)
         end
 
+        it "reads the clock of a cell of a date and time, or of a time of day, in the timeZone of its field" do
+          zoned = IOStreams.path(file_name).schema(
+            fieldsMatch: "subset",
+            fields:      [
+              {name: "at_ms", type: "datetime", timeZone: "-05:00"},
+              {name: "clock", type: "time", timeZone: "America/New_York"},
+              {name: "shift", type: "time", timeZone: "+05:30"}
+            ]
+          )
+
+          assert_equal [{"at_ms" => Time.utc(2026, 3, 8, 7, 30, 0.5), "clock" => Time.new(2000, 1, 1, 9, 30, 0, "-05:00"),
+                         "shift" => Time.new(2000, 1, 1, 9, 30, 0, "+05:30")}],
+                       read(zoned)
+        end
+
         it "reads back through a contract as the same values as the rows of the workbook, once copied to a CSV file" do
           csv = File.join(dir, "copy.csv")
           IOStreams.path(csv).copy_from(file_name)

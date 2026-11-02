@@ -70,9 +70,9 @@ module IOStreams
     end
 
     # Returns [Symbol] the form in which the rows that this format reads and writes itself, see #rows_format, hold the
-    # values of the fields of a schema, see `IOStreams::Schema::Field#render`: `:typed`, the values themselves, unless a
-    # format whose cells each hold one value, such as a spreadsheet, says `:scalar`, so that a list or a geopoint is
-    # its text.
+    # values of the fields of a schema, see `IOStreams::Schema::Field#parse` and `IOStreams::Schema::Field#render`:
+    # `:typed`, the values themselves, unless a format whose cells each hold one value, such as a spreadsheet, says
+    # `:scalar`, so that a list or a geopoint is its text, and a time is the clock of the zone of its field.
     def rows_value_form
       :typed
     end

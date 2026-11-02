@@ -53,7 +53,8 @@ module IOStreams
 
       # Returns the value of the cell at the supplied position, in a form that `xlsxtream` writes as its type: a time in
       # UTC, as `IOStreams::Xlsx::Cells` reads the clock of a cell, since `xlsxtream` writes the clock of a time without
-      # its offset, and a number that a cell cannot hold, see #number, as its text.
+      # its offset, which for a field with a `timeZone` is already the clock of its zone, as the field renders it, see
+      # `IOStreams::Schema::Field#render`, and a number that a cell cannot hold, see #number, as its text.
       def cell(value, index)
         case value
         when DateTime then value.to_time.getutc

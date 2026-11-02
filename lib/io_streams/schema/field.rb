@@ -722,15 +722,28 @@ module IOStreams
         @checks ? @constraints.check(convert(value), value) : convert(value)
       end
 
-      # Returns [Time] the time of day, on 2000-01-01, of the clock of a time that holds no offset from UTC, such as a
-      # value of a Parquet column of times of day, whose clock is the one that a schema writes, read in the zone of this
-      # time field, as text without an offset is read, see `timeZone` above, otherwise in UTC.
+      # Returns [Time] the time of the clock of a time that holds no offset from UTC, whose clock is the one that a schema
+      # writes, read in the zone of this datetime or time field, as text without an offset is read, see `timeZone` above,
+      # otherwise in UTC: such as a value of a Parquet column of times of day, or a cell of a spreadsheet, see #parse. A
+      # time of day is on 2000-01-01.
       #
       # Raises `IOStreams::Errors::InvalidValue` for a clock that the zone skips.
       def time_of_clock(time)
-        @zone ? in_zone(time) : self.class.time_of_day(time)
+        return in_zone(time) if @zone
+
+        type == "time" ? self.class.time_of_day(time) : time.getutc
       rescue TimeZone::SkippedClock => e
         invalid(time, "#{type}, since #{e.message}")
+      end
+
+      # Returns [Time] the clock that the zone of this datetime or time field shows at the time, see `timeZone` above, as
+      # a Time in UTC that holds that clock, for a format whose values hold a clock without a zone, such as a cell of a
+      # spreadsheet, see #render, which #time_of_clock reads back as the same time. Without a zone, the clock in UTC.
+      def clock_of(time)
+        return time.getutc unless @zone
+
+        local = @zone.convert(time)
+        Time.utc(local.year, local.month, local.day, local.hour, local.min, local.sec + local.subsec)
       end
 
       # Returns the value converted to the type of this field, as #cast converts it, apart from its missing values, which
@@ -833,7 +846,9 @@ module IOStreams
       end
 
       # Returns the value read from a format whose values are in the supplied form, see #render, converted to the type of
-      # this field, as #cast converts it, apart from a Hash or an Array of an object or array field read from JSON,
+      # this field, as #cast converts it, apart from a Time of a datetime or time field with a `timeZone` read in the
+      # `:scalar` form, such as a cell of a spreadsheet, which holds the clock of the zone, see #time_of_clock, and a
+      # Hash or an Array of an object or array field read from JSON,
       # `:json`, which is already what JSON holds, so that it is only checked to be of the class of the field, rather
       # than converted again, see .json_data, which takes several times as long as JSON takes to read it, and the text of
       # a string of bytes, `format: "binary"`, read from a format of text, `:text` or `:json`, such as CSV, fixed width
@@ -846,6 +861,7 @@ module IOStreams
         if binary? && form != :typed && value.is_a?(String) && value.encoding == ::Encoding::BINARY
           return cast(value.dup.force_encoding(::Encoding::UTF_8))
         end
+        return cast(time_of_clock(value)) if form == :scalar && @zone && value.is_a?(Time)
         return cast(value) unless form == :json && json_structure?(value)
 
         value.is_a?(json_class) ? value : invalid(value)
@@ -859,7 +875,9 @@ module IOStreams
       #   :typed  the value itself, such as `BigDecimal("12.5")`, for a format whose rows are Ruby objects, such as
       #           `:hash`, and a geopoint as its point, `[lon, lat]`, whatever its format.
       #   :scalar the value itself, as for `:typed`, apart from a list, a geopoint, an array, an object and a yearmonth, as
-      #           their text, as for `:text`, for a format each of whose cells holds one value, such as a spreadsheet.
+      #           their text, as for `:text`, for a format each of whose cells holds one value, such as a spreadsheet,
+      #           and a time of a datetime or time field with a `timeZone`, as the clock of its zone, see #clock_of,
+      #           since such a cell holds a clock without a zone.
       #
       # A Hash or an Array of an object or array field is written to JSON, or as its JSON text, as the JSON format
       # converts the values within it, see #render_json_structure, rather than first converted as JSON holds it, see
@@ -877,6 +895,7 @@ module IOStreams
         return (@missing.text if form == :text) if value.nil?
         return value if form == :typed
         return json(value) if form == :json
+        return clock_of(value) if form == :scalar && @zone
         return value if form == :scalar && !@scalar_text
 
         text(value)
