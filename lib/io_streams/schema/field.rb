@@ -462,12 +462,17 @@ module IOStreams
         "#<#{self.class.name} #{to_h.inspect}>"
       end
 
-      # Returns [Time] the time of the DateTime, at its offset from UTC.
+      # Returns [Time] the time of the DateTime, at its offset from UTC, in UTC when its offset is zero, since a DateTime
+      # does not tell UTC from another zone at that offset, so that it is written as a Time in UTC is, with `Z`.
       #
       # Unlike `DateTime#to_time` in ActiveSupport 7, which converts it to the local time zone of the server, unless
       # `ActiveSupport.to_time_preserves_timezone` is set.
       def self.time_of(datetime)
         seconds = datetime.sec + datetime.sec_fraction
+        if datetime.offset.zero?
+          return Time.utc(datetime.year, datetime.month, datetime.day, datetime.hour, datetime.minute, seconds)
+        end
+
         Time.new(datetime.year, datetime.month, datetime.day, datetime.hour, datetime.minute, seconds,
                  (datetime.offset * 86_400).to_i)
       end

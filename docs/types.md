@@ -551,7 +551,8 @@ end
   every server, or in the `timeZone` of the field, see [Time zones](#time-zones).
 * **Written as** ISO 8601 with its offset, such as `2026-10-13T09:30:00Z` for UTC or `2026-10-13T09:30:00+05:30`, or
   in its `format`. A fraction of a second is written in groups of 3 digits, as many as it needs, such as `.100`,
-  `.250` or `.123456`.
+  `.250` or `.123456`. A `DateTime` at an offset of zero is in UTC, written with `Z`, as a `Time` in UTC is, since a
+  `DateTime` does not tell UTC from another zone at that offset.
 
 ~~~ruby
 IOStreams.path("visits.csv").write(<<~CSV)

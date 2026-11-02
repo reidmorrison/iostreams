@@ -116,7 +116,7 @@ module Tabular
           it "writes a BigDecimal, Date or Time as its usual text, rather than the text that CSV writes for it" do
             row = [BigDecimal("12.5"), Time.at(0).utc, Date.new(2026, 10, 13), DateTime.new(2026, 10, 13, 9, 30)]
 
-            assert_equal "12.5,1970-01-01T00:00:00Z,2026-10-13,2026-10-13T09:30:00+00:00", parser.render(row)
+            assert_equal "12.5,1970-01-01T00:00:00Z,2026-10-13,2026-10-13T09:30:00Z", parser.render(row)
           end
 
           # The parser writes most lines itself, so check that each is the same, in the same encoding, or raises
