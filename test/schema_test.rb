@@ -1420,6 +1420,25 @@ class SchemaTest < Minitest::Test
           end
         end
 
+        it "raises for the hour 24, which ISO 8601 allows for the end of a day, rather than read the next day" do
+          ["2026-10-13T24:00:00", "2026-10-13T24:00:00Z", "2026-10-13 24:00:00+05:00", "2026-10-13T24:00:00.000Z"].each do |text|
+            error = assert_raises(IOStreams::Errors::InvalidValue, text) { datetime.cast(text) }
+            assert_equal %(Field "value": #{text.inspect} is not a valid datetime), error.message
+          end
+          assert_equal Time.utc(2026, 10, 13, 23, 59, 59), datetime.cast("2026-10-13T23:59:59Z")
+          assert_equal Time.utc(2026, 10, 13), datetime.cast("2026-10-13T00:00:00Z")
+        end
+
+        it "raises for a time that is not on a clock read with a format, the hour 24 or a leap second, as Python's strptime does" do
+          pattern = field(type: "datetime", format: "%Y-%m-%d %H:%M:%S")
+
+          assert_raises(IOStreams::Errors::InvalidValue) { pattern.cast("2026-10-13 24:00:00") }
+          assert_raises(IOStreams::Errors::InvalidValue) { pattern.cast("2026-10-13 23:59:60") }
+          assert_raises(IOStreams::Errors::InvalidValue) { field(type: "datetime", format: "%Y%m%d%H%M").cast("202610132400") }
+          assert_equal Time.utc(2026, 10, 13, 23, 59, 59), pattern.cast("2026-10-13 23:59:59")
+          assert_equal Time.utc(2026, 10, 13), pattern.cast("2026-10-13 00:00:00")
+        end
+
         it "reads a space in place of the T" do
           assert_equal Time.utc(2026, 10, 31, 9, 30), datetime.cast("2026-10-31 09:30:00")
           assert_predicate datetime.cast("2026-10-31 09:30:00"), :utc?

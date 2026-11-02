@@ -171,11 +171,12 @@ module IOStreams
       # `Float()` and `BigDecimal()` raise for before Ruby 3.4.
       BARE_POINT = /\.(?=[eE]|\z)/
       DATE     = /\A\d{4}-\d{2}-\d{2}\z/
-      # The text of a datetime without a format: ISO 8601 with seconds, below 60, with a T or a space between its date
-      # and its time, and an offset from UTC, Z, or the hours, with or without minutes, below 60, with or without a
-      # colon between them, such as `+05:30`, `+0530` or `+05`, as PostgreSQL writes it, or none, which is UTC. The
-      # date, the time and the offset are captured.
-      DATETIME = /\A(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2}:[0-5]\d(?:\.\d+)?)(Z|[+-]\d{2}(?::?[0-5]\d)?)?\z/
+      # The text of a datetime without a format: ISO 8601 with seconds, on a clock, its hour below 24 and its minute and
+      # second below 60, rather than the `24:00:00` that ISO 8601 allows for the end of a day, which `Time.iso8601` reads
+      # as the midnight of the next day, with a T or a space between its date and its time, and an offset from UTC, Z, or
+      # the hours, with or without minutes, below 60, with or without a colon between them, such as `+05:30`, `+0530` or
+      # `+05`, as PostgreSQL writes it, or none, which is UTC. The date, the time and the offset are captured.
+      DATETIME = /\A(\d{4}-\d{2}-\d{2})[T ]((?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d+)?)(Z|[+-]\d{2}(?::?[0-5]\d)?)?\z/
       # The zones of text read with a format that are UTC, rather than an offset of zero, such as `+00:00` or `+0000`,
       # which a time keeps, as `Time.iso8601` reads them, see #cast_datetime: `Z`, `UTC`, `UT`, and `-00:00`, `-0000` or
       # `-00`, which RFC 3339 and RFC 2822 give a time in UTC whose local offset is not known.
@@ -804,7 +805,9 @@ module IOStreams
       end
 
       # Returns [Date|Time] the text read with the strptime pattern of the format, which must match all of the text,
-      # see `IOStreams::Schema::Pattern#parts`, and whose date must exist, see #cast_datetime.
+      # see `IOStreams::Schema::Pattern#parts`, whose date must exist, see #cast_datetime, and whose time must be on a
+      # clock, see #clock_time?, as Python's strptime reads it, since `DateTime` moves 24:00:00 into the next day, and
+      # reads a leap second as the second before it.
       #
       # A time is at the offset from UTC that its zone gives, or in UTC without one, see #cast_datetime. A zone whose
       # offset is not known, such as "XYZ", raises, rather than be read in the time zone of the process.
@@ -815,6 +818,7 @@ module IOStreams
           return invalid(text)
         end
         return @format.date(text) if klass == Date
+        return invalid(text) unless clock_time?(parts.fetch(:hour, 0), parts.fetch(:min, 0), parts.fetch(:sec, 0))
         return invalid(text) if parts.key?(:zone) && parts[:offset].nil?
 
         # A DateTime reads text without an offset as UTC, and knows the offset of every zone that Date._strptime knows,
@@ -832,6 +836,11 @@ module IOStreams
       # `+00:00` or `+0000`, which a time keeps, as it does without a format, see UTC_ZONE.
       def zero_offset?(parts)
         parts[:offset]&.zero? && !UTC_ZONE.match?(parts[:zone])
+      end
+
+      # Returns [true|false] whether the hour, minute and second are those of a clock, from 00:00:00 to 23:59:59.
+      def clock_time?(hour, minute, second)
+        hour < 24 && minute < 60 && second < 60
       end
 
       def number_text(value)

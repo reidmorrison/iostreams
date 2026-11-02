@@ -236,6 +236,12 @@ class UpgradeSchemaTest < Minitest::Test
           assert_raises(IOStreams::Errors::InvalidValue) { read("at\n2026-10-31 23:59:60Z\n", schema: schema) }
         end
 
+        it "raises for the hour 24, rather than read the next day" do
+          assert_raises(IOStreams::Errors::InvalidValue) { read("at\n2026-10-31T24:00:00Z\n", schema: schema) }
+          assert_raises(IOStreams::Errors::InvalidValue) { read("at\n2026-10-31 24:00:00\n", schema: schema) }
+          assert_raises(IOStreams::Errors::InvalidValue) { write([{"at" => "2026-10-31T24:00:00Z"}], schema: schema) }
+        end
+
         it "still writes ISO 8601, with a T, and an offset with a colon, or Z" do
           written = write([{"at" => "2026-10-31 09:30:00+0530"}, {"at" => "2026-10-31 09:30:00"}], schema: schema)
 
@@ -271,6 +277,14 @@ class UpgradeSchemaTest < Minitest::Test
 
           assert_equal [{"joined" => Date.new(2026, 10, 31)}], read("joined\n31/10/26\n", schema: schema)
           assert_raises(IOStreams::Errors::InvalidValue) { read("joined\n1/2/5\n", schema: schema) }
+        end
+
+        it "raises for a datetime that is not on a clock, the hour 24 of %H or a leap second, as Python's strptime does" do
+          schema = {fields: [{name: "at", type: "datetime", format: "%Y-%m-%d %H:%M:%S"}]}
+
+          assert_equal [{"at" => Time.utc(2026, 10, 31, 23, 59, 59)}], read("at\n2026-10-31 23:59:59\n", schema: schema)
+          assert_raises(IOStreams::Errors::InvalidValue) { read("at\n2026-10-31 24:00:00\n", schema: schema) }
+          assert_raises(IOStreams::Errors::InvalidValue) { read("at\n2026-10-31 23:59:60\n", schema: schema) }
         end
 
         it "removes the prefix fmt: that Data Package v0 wrote before a pattern" do
