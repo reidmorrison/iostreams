@@ -275,7 +275,8 @@ class AsTest < Minitest::Test
 
           assert_equal [{"id" => 1, "code" => "N/A", "note" => nil}],
                        read(text("id,code,note\n1,N/A,\n").schema(schema).as(contract))
-          assert_equal [{"id" => 1, "code" => nil, "note" => nil}], read(text("id,code,note\n1,N/A,\n").as(contract))
+          # Without "" among the missing values of the contract, an empty value is empty text, also without quotes.
+          assert_equal [{"id" => 1, "code" => nil, "note" => ""}], read(text("id,code,note\n1,N/A,\n").as(contract))
         end
 
         it "raises before the first row for a required field of the contract that the schema does not have" do

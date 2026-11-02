@@ -341,9 +341,9 @@ As Frictionless requires, a list holds either text or such objects, not both, an
 otherwise setting the schema raises `ArgumentError`, naming the text or label that it repeats.
 
 Without `""`, empty text is a value: a `string` or `any` field reads it as `""`, and every other type raises
-`IOStreams::Errors::InvalidValue` for it. An empty value of CSV without quotes, such as the second value of `a,,b`, is
-still `nil` whatever the missing values, since the CSV parser reads it as no value, while a quoted one, `""`, is empty
-text. A required field raises for a missing value, as it does for `nil`.
+`IOStreams::Errors::InvalidValue` for it. An empty value of CSV is empty text with a schema, with or without quotes,
+such as the second value of `a,,b`, as frictionless-py reads it, so the missing values decide it too. A required field
+raises for a missing value, as it does for `nil`.
 
 A value that is not text, such as a number of JSON, a Parquet file or a query, is never a missing value, apart from a
 cell of a spreadsheet, whose text is compared with them, as Frictionless compares the text of a value before it reads its

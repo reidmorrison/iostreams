@@ -123,7 +123,8 @@ IOStreams.path("example.psv").read
 ~~~
 
 In CSV, a value that is empty is read as `nil`, and a quoted empty value, `""`, as an empty String, unless a
-[schema](schemas#types) reads it, which reads empty text as `nil`, a missing value, as Frictionless does.
+[schema](schemas#types) reads it, which reads both as empty text, which is `nil`, a missing value, as Frictionless
+does, unless its [missing values](schemas#missing-values) say otherwise.
 
 ## JSON files
 

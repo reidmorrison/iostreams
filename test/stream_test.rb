@@ -1469,13 +1469,30 @@ class StreamTest < Minitest::Test
         assert_equal records, read(fixed, file_name: "a.fixed", schema: digits)
       end
 
-      it "reads empty text as a value with missingValues [], apart from an empty value of CSV, which is nil" do
+      it "reads empty text as a value with missingValues [], also an empty value of CSV without quotes" do
         schema = {missingValues: [], fields: [{name: "name"}, {name: "city"}, {name: "age", type: "integer"}]}
 
-        assert_equal [{"name" => "", "city" => nil, "age" => 7}], read(%(name,city,age\n"",,7\n), schema: schema)
+        assert_equal [{"name" => "", "city" => "", "age" => 7}], read(%(name,city,age\n"",,7\n), schema: schema)
+        assert_equal [{"name" => "", "city" => "", "age" => 7}], read(%(name,city,age\n"",,7\n), schema: schema.merge(missingValues: ["NA"]))
+        # A line break within quotes, which the csv gem reads.
+        assert_equal [{"name" => "a\nb", "city" => "", "age" => 7}], read(%(name,city,age\n"a\nb",,7\n), schema: schema)
         assert_equal [{"name" => "", "city" => "", "age" => 7}], read(%(name|city|age\n||7\n), file_name: "a.psv", schema: schema)
         assert_equal [{"name" => "", "city" => nil, "age" => 7}],
                      read(%({"name":"","city":null,"age":7}\n), file_name: "a.json", schema: schema)
+      end
+
+      it "reads an empty value of CSV without quotes as a missing value by the default missing values, or without a schema" do
+        schema = {fields: [{name: "name"}, {name: "city"}, {name: "age", type: "integer"}]}
+
+        assert_equal [{"name" => "Jack", "city" => nil, "age" => nil}], read(%(name,city,age\nJack,,\n), schema: schema)
+        assert_equal [{"name" => "Jack", "city" => nil, "age" => nil}], read(%(name,city,age\nJack,,\n), schema: nil)
+        assert_equal [{"name" => "Jack", "age" => 7}],
+                     read(%(name,,age\nJack,x,7\n), schema: {fieldsMatch: "subset", fields: [{name: "name"}, {name: "age", type: "integer"}]})
+        error = assert_raises(IOStreams::Errors::InvalidValue) do
+          read(%(name,city,age\nJack,,\n), schema: schema.merge(missingValues: ["NA"]))
+        end
+
+        assert_equal "age", error.field
       end
 
       it "reads and writes the text of numbers with groupChar, decimalChar and bareNumber, and JSON as plain numbers" do

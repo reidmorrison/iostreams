@@ -138,17 +138,14 @@ missing. Writing writes `nil` as the first missing value of the field, such as `
 back as `nil`, or as an empty value when that is empty text, and as `null` in JSON. See
 [Missing values](schemas#missing-values).
 
-An empty CSV value without quotes, such as the middle value of `a,,b`, holds no text, so it is always `nil`, whatever
-the missing values. Of empty values, the missing values decide only what one within quotes, `""`, is: without `""`
-among them, a `string` or `any` field reads it as `""`, and the other types raise for it.
+An empty CSV value is empty text, with or without quotes, such as the middle value of `a,,b` or `a,"",b`, so the
+missing values decide what it is: without `""` among them, a `string` or `any` field reads it as `""`, and the other
+types raise for it.
 
 **Compared with Frictionless**
 
 * The spec does not say how to write a missing value. IOStreams writes the first of the missing values, as
   frictionless-py does, apart from JSON, which writes `null`.
-* frictionless-py reads an empty CSV value the same with or without quotes. Without `""` among the missing values, it
-  reads both as `""` for a `string` or `any`, and raises for the other types. IOStreams reads an empty value without
-  quotes as `nil`.
 * frictionless-py compares the text of every value with the missing values, so the JSON number `-99` is missing for
   `["-99"]`. IOStreams compares only text, since the spec says that missing values are text, so the number is `-99`,
   apart from a cell of a spreadsheet, whose text it compares, so a cell that holds the number `-99` is missing.
@@ -1104,7 +1101,6 @@ properties that IOStreams adds to the spec, such as `aliases` and `allowBlank`, 
 | Type | Text or value | The spec | frictionless-py 5.21 | IOStreams |
 |------|---------------|----------|----------------------|-----------|
 | every type | a missing value, written | not defined | the first of `missingValues`, such as `NA` | the first of `missingValues`, or `null` in JSON |
-| every type | an empty CSV value without quotes, such as in `a,,b`, with `missingValues: ["NA"]` | not defined | `""` for a `string` or `any`, otherwise raises | `nil` |
 | every type | the JSON number `-99`, with `missingValues: ["-99"]` | missing values are text | missing, `nil` | not missing, `-99` |
 | every type | `missingValues` that repeat a text, such as `["NA", "NA"]` | each one once | accepted | raises `ArgumentError` |
 | every type | `missingValues` of both text and objects | not allowed | rejects the schema | raises `ArgumentError` |

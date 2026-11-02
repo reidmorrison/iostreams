@@ -2961,7 +2961,8 @@ IOStreams.path("example.psv").read
 ~~~
 
 In CSV, a value that is empty is read as `nil`, and a quoted empty value, `""`, as an empty String, unless a
-[schema](schemas#types) reads it, which reads empty text as `nil`, a missing value, as Frictionless does.
+[schema](schemas#types) reads it, which reads both as empty text, which is `nil`, a missing value, as Frictionless
+does, unless its [missing values](schemas#missing-values) say otherwise.
 
 ## JSON files
 
@@ -4282,9 +4283,9 @@ As Frictionless requires, a list holds either text or such objects, not both, an
 otherwise setting the schema raises `ArgumentError`, naming the text or label that it repeats.
 
 Without `""`, empty text is a value: a `string` or `any` field reads it as `""`, and every other type raises
-`IOStreams::Errors::InvalidValue` for it. An empty value of CSV without quotes, such as the second value of `a,,b`, is
-still `nil` whatever the missing values, since the CSV parser reads it as no value, while a quoted one, `""`, is empty
-text. A required field raises for a missing value, as it does for `nil`.
+`IOStreams::Errors::InvalidValue` for it. An empty value of CSV is empty text with a schema, with or without quotes,
+such as the second value of `a,,b`, as frictionless-py reads it, so the missing values decide it too. A required field
+raises for a missing value, as it does for `nil`.
 
 A value that is not text, such as a number of JSON, a Parquet file or a query, is never a missing value, apart from a
 cell of a spreadsheet, whose text is compared with them, as Frictionless compares the text of a value before it reads its
@@ -5170,17 +5171,14 @@ missing. Writing writes `nil` as the first missing value of the field, such as `
 back as `nil`, or as an empty value when that is empty text, and as `null` in JSON. See
 [Missing values](schemas#missing-values).
 
-An empty CSV value without quotes, such as the middle value of `a,,b`, holds no text, so it is always `nil`, whatever
-the missing values. Of empty values, the missing values decide only what one within quotes, `""`, is: without `""`
-among them, a `string` or `any` field reads it as `""`, and the other types raise for it.
+An empty CSV value is empty text, with or without quotes, such as the middle value of `a,,b` or `a,"",b`, so the
+missing values decide what it is: without `""` among them, a `string` or `any` field reads it as `""`, and the other
+types raise for it.
 
 **Compared with Frictionless**
 
 * The spec does not say how to write a missing value. IOStreams writes the first of the missing values, as
   frictionless-py does, apart from JSON, which writes `null`.
-* frictionless-py reads an empty CSV value the same with or without quotes. Without `""` among the missing values, it
-  reads both as `""` for a `string` or `any`, and raises for the other types. IOStreams reads an empty value without
-  quotes as `nil`.
 * frictionless-py compares the text of every value with the missing values, so the JSON number `-99` is missing for
   `["-99"]`. IOStreams compares only text, since the spec says that missing values are text, so the number is `-99`,
   apart from a cell of a spreadsheet, whose text it compares, so a cell that holds the number `-99` is missing.
@@ -6136,7 +6134,6 @@ properties that IOStreams adds to the spec, such as `aliases` and `allowBlank`, 
 | Type | Text or value | The spec | frictionless-py 5.21 | IOStreams |
 |------|---------------|----------|----------------------|-----------|
 | every type | a missing value, written | not defined | the first of `missingValues`, such as `NA` | the first of `missingValues`, or `null` in JSON |
-| every type | an empty CSV value without quotes, such as in `a,,b`, with `missingValues: ["NA"]` | not defined | `""` for a `string` or `any`, otherwise raises | `nil` |
 | every type | the JSON number `-99`, with `missingValues: ["-99"]` | missing values are text | missing, `nil` | not missing, `-99` |
 | every type | `missingValues` that repeat a text, such as `["NA", "NA"]` | each one once | accepted | raises `ArgumentError` |
 | every type | `missingValues` of both text and objects | not allowed | rejects the schema | raises `ArgumentError` |

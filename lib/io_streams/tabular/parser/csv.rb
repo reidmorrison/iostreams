@@ -40,6 +40,17 @@ module IOStreams
                                                  "whole value and a quote within it is doubled: #{text.inspect}")
         end
 
+        # Parameters:
+        #   schema: [IOStreams::Schema|nil]
+        #     With a schema, an empty value without quotes, such as the middle value of `a,,b`, is empty text, `""`, as
+        #     a value within quotes, `""`, is, so that the missing values of its field decide whether it is missing, see
+        #     `IOStreams::Schema::Field#cast`, as for the other formats, rather than always `nil`. Without one, it is `nil`,
+        #     as it always was, while `""` is empty text.
+        def initialize(schema: nil)
+          super
+          @empty_text = !schema.nil?
+        end
+
         # Returns [Array] the parsed CSV line
         def parse(row)
           return row if row.is_a?(::Array)
@@ -56,7 +67,8 @@ module IOStreams
 
         private
 
-        # Returns [Array] the values of the line, the same as `CSV.parse_line`.
+        # Returns [Array] the values of the line, the same as `CSV.parse_line`, apart from an empty value without quotes,
+        # which is empty text with a schema, see #initialize, as `CSV.parse_line` reads it with `nil_value: ""`.
         #
         # `CSV.parse_line` creates a parser for each line, which costs several times more than parsing the line,
         # so the line is parsed here, except for a line that `CSV.parse_line` still parses:
@@ -64,21 +76,29 @@ module IOStreams
         # * A line with invalid quoting, so that CSV raises its own error for it.
         def parse_line(line)
           return if IOStreams::Utils.blank?(line)
-          return CSV.parse_line(line) if line.include?(CR) || line.include?(LF)
+          return csv_parse_line(line) if line.include?(CR) || line.include?(LF)
           return split_line(line) unless line.include?(QUOTE)
 
-          scan_line(line) || CSV.parse_line(line)
+          scan_line(line) || csv_parse_line(line)
         end
 
-        # Returns [Array] the values of a line without quotes, where an empty value is nil.
+        # Returns [Array] the values of the line that `CSV.parse_line` reads, an empty value without quotes as empty text
+        # with a schema, see #initialize.
+        def csv_parse_line(line)
+          @empty_text ? CSV.parse_line(line, nil_value: EMPTY) : CSV.parse_line(line)
+        end
+
+        # Returns [Array] the values of a line without quotes, where an empty value is nil, or empty text with a schema,
+        # see #initialize.
         def split_line(line)
           values = line.split(COMMA, -1)
-          return values unless values.include?(EMPTY)
+          return values if @empty_text || !values.include?(EMPTY)
 
           values.map! { |value| value.empty? ? nil : value }
         end
 
-        # Returns [Array] the values of a line with quotes, where an empty value is nil unless it is quoted.
+        # Returns [Array] the values of a line with quotes, where an empty value is nil unless it is quoted, or empty text
+        # with a schema, see #initialize.
         # Returns nil when the quoting is invalid.
         #
         # Reads one value at a time, starting at the byte at `position`. Uses `while` loops rather than blocks,
@@ -109,7 +129,7 @@ module IOStreams
               # A quote must enclose the whole value.
               return if value.include?(QUOTE)
 
-              value    = nil if value.empty?
+              value    = nil if !@empty_text && value.empty?
               position = comma
             end
             values << value
