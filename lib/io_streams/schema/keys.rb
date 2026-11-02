@@ -19,13 +19,27 @@ module IOStreams
       #   fields: [Array<IOStreams::Schema::Field>]
       #     The fields of the schema.
       #
-      # Raises ArgumentError for a type that it does not know, and when two fields have the same key, such as
-      # "First Name" and "first-name", which are both "first_name" with keyType "cleansed", since a record could not
-      # hold both.
+      # Raises ArgumentError for a type that it does not know, and when two fields of different names have the same key,
+      # such as "First Name" and "first-name", which are both "first_name" with keyType "cleansed", since a record could
+      # not hold both. Two fields of the same name, which Frictionless accepts, raise only once records are keyed by
+      # them, see #check_unique.
       def initialize(type, fields)
-        @type = check_type(type)
-        @keys = build(fields)
+        @type   = check_type(type)
+        @shared = nil
+        @keys   = build(fields)
         freeze
+      end
+
+      # Raises ArgumentError when two fields have the same name, since a record could not hold both, see #initialize, for
+      # a reader or writer of records, or of a format whose rows are records, such as JSON, see
+      # `IOStreams::Schema#check_record_keys`.
+      def check_unique
+        return unless @shared
+
+        raise(ArgumentError, "The schema has two fields named #{@shared.name.to_s.inspect}, which Frictionless accepts, " \
+                             "but a record holds each field by a key of its own: read and write their rows, whose " \
+                             "values are in the order of the fields, such as with each(:array) of a CSV file, or give " \
+                             "each field a name of its own")
       end
 
       # Returns [String|Symbol] the key in the records read of the field or column with the supplied name, formed as
@@ -62,14 +76,15 @@ module IOStreams
         fields.each do |field|
           key   = key_for(field.name)
           other = named[key]
-          if other
+          if other && other.name.to_s != field.name.to_s
             raise(ArgumentError, "The fields #{other.name.inspect} and #{field.name.inspect} both have the key " \
                                  "#{key.inspect}, which keyType #{@type.inspect} forms from their names, but a record " \
                                  "read holds each field by a key of its own")
           end
 
-          named[key]  = field
-          keys[field] = key
+          @shared    ||= field if other
+          named[key] ||= field
+          keys[field]  = key
         end
         keys
       end

@@ -650,6 +650,40 @@ class FrictionlessTypesTest < Minitest::Test
       end
     end
 
+    describe "fields of the same name" do
+      let(:schema) { {fields: [{name: "a", type: "integer"}, {name: "a"}, {name: "b"}]} }
+
+      it "are accepted, as Frictionless requires, and read and write rows, matched to the columns in order" do
+        path = IOStreams.path(dir, "same.csv").schema(schema)
+        path.writer(:array) { |io| io << [1, "x", "y"] }
+
+        assert_equal "a,a,b\n1,x,y\n", path.read
+        rows = []
+        path.each(:array) { |row| rows << row }
+
+        assert_equal [%w[a a b], [1, "x", "y"]], rows
+      end
+
+      it "raise ArgumentError for records keyed by them, before the file is opened" do
+        path = IOStreams.path(dir, "same.csv").schema(schema)
+
+        assert_raises(ArgumentError) { path.each(:hash) { |record| record } }
+        assert_raises(ArgumentError) { path.writer(:hash) { |io| io << {} } }
+        refute_predicate path, :exist?
+      end
+
+      it "raise ArgumentError for a format whose rows are records, such as JSON, and for a contract" do
+        assert_raises(ArgumentError) { IOStreams.path(dir, "same.json").schema(schema).writer(:array) { |io| io << [1, "x", "y"] } }
+        refute_predicate IOStreams.path(dir, "same.json"), :exist?
+        assert_raises(ArgumentError) { IOStreams::Contract.new(schema) }
+      end
+
+      it "raise ArgumentError for a key that names one of them" do
+        error = assert_raises(ArgumentError) { IOStreams::Schema.new(schema.merge(primaryKey: "a")) }
+        assert_equal 'The schema primaryKey names "a", which is the name of 2 fields', error.message
+      end
+    end
+
     it "keeps raising for geojson, which is not supported" do
       error = assert_raises(ArgumentError) { field(type: "geojson") }
       assert_equal 'Field "value": the type "geojson" is not supported', error.message

@@ -589,6 +589,8 @@ module IOStreams
         positions = {}.compare_by_identity
         labels.each_with_index do |label, index|
           field = @schema.field_for(label, noun)
+          # A field whose name another field has too is the next of them that no column before it took.
+          field = @schema.namesake(field, positions) || field if field && positions.key?(field)
           # The label before it is the name of the field, so this one is not the field.
           field = nil if by_name && field && positions.key?(field) && own_label?(labels[positions[field]], field)
           if field.nil?

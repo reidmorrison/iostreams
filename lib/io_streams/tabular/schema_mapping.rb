@@ -53,10 +53,12 @@ module IOStreams
       #   See `IOStreams::Tabular::Mapping#initialize` for the others.
       #
       # Raises ArgumentError when the rows of a format with a header row, such as CSV, have none, and the schema cannot
-      # describe them, see `IOStreams::Schema#check_fields_in_order`.
+      # describe them, see `IOStreams::Schema#check_fields_in_order`, and when the rows of the format are records, such as
+      # JSON, which two fields of the same key cannot be, see `IOStreams::Schema#check_record_keys`.
       def initialize(schema, header:, parser:, format:, blank_rows: true, headerless: nil, typed: false, every_field: false,
                      contract: nil, part_of_file: false, value_form: nil)
         super(header: header, parser: parser, format: format, blank_rows: blank_rows)
+        schema.check_record_keys if parser.class.keyed?
         @schema          = schema
         # The form of the values that the format reads and writes, see `IOStreams::Tabular::Parser::Base.value_form`,
         # which the fields read them from, and render them in, see `IOStreams::Schema::Field#parse` and #render, unless

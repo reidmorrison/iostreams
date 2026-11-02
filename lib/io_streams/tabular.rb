@@ -486,10 +486,12 @@ module IOStreams
       @mapping.declared_schema(row)
     end
 
-    # Raises ArgumentError when nothing names the keys of the records of the file, see #unnamed_columns?, so that a reader
-    # or writer of records raises before the file is opened, see `IOStreams::Record::Reader` and
-    # `IOStreams::Record::Writer`.
+    # Raises ArgumentError when nothing names the keys of the records of the file, see #unnamed_columns?, or two fields of
+    # the schema have the same key, such as the same name, which Frictionless accepts, but a record cannot hold both,
+    # see `IOStreams::Schema#check_record_keys`, so that a reader or writer of records raises before the file is opened,
+    # see `IOStreams::Record::Reader` and `IOStreams::Record::Writer`.
     def check_records
+      schema&.check_record_keys
       return unless unnamed_columns?
 
       raise(ArgumentError, "The #{format.inspect} rows have no header row, and no keys, so the keys of their records " \

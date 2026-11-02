@@ -4910,12 +4910,65 @@ keeps all of its digits, and writes every other value as itself, such as a numbe
 formats keep the values themselves. To write a value in another form, such as a date as `13/10/2026`, give its field
 a type and a `format` in the schema.
 
+## Frictionless compatibility
+
+A schema is a [Frictionless Table Schema v2](https://datapackage.org/standard/table-schema/), with a few properties that
+IOStreams adds, so a schema written by another Frictionless tool reads the same records, and a schema that IOStreams
+reads can be checked by other tools, which ignore the properties of IOStreams.
+
+Supported: the types `string`, with the formats `email`, `uri`, `uuid` and `binary`, `integer`, `number`, `boolean`,
+`date`, `datetime`, `time`, `duration`, `year`, `yearmonth`, `list`, `object`, `array`, `geopoint` and `any`; the
+properties of fields `format`, `trueValues`, `falseValues`, `groupChar`, `decimalChar`, `bareNumber`, `delimiter`,
+`itemType`, `categories`, `categoriesOrdered`, `missingValues`, `title`, `description`, `example` and `rdfType`; the
+constraints `required`, `unique`, `enum`, `minimum`, `maximum`, `exclusiveMinimum`, `exclusiveMaximum`, `minLength`,
+`maxLength` and `pattern`; and the properties of the schema `fields`, `fieldsMatch`, `missingValues`, `primaryKey`,
+`uniqueKeys`, `$schema`, `title` and `description`. Two fields of the same name are accepted, as Frictionless requires
+of a schema of v1: the rows of a format whose columns are in order, such as CSV, read and write them by their
+positions, while records, a format whose rows are records, such as JSON, and a contract, raise `ArgumentError`, since a
+record cannot hold two values of one key.
+
+Not supported yet, so they raise `ArgumentError`, rather than appear to check what they do not: the type `geojson`, the
+property `foreignKeys`, the constraint `jsonSchema`, and the `format` `any` of a date, datetime or time.
+
+IOStreams adds these properties, which other tools ignore:
+
+| Property | Of | See |
+|----------|----|-----|
+| `aliases` | a field | [Matching columns to fields](#matching-columns-to-fields) |
+| `decimals`, `floatNumber` | a `number` | [Field properties](#field-properties) |
+| `timeZone` | a `datetime` or `time` | [Time zones](#time-zones) |
+| `allowBlank` | a required field | [Required fields](#required-fields) |
+| `width`, `start`, `truncate` | a field of a fixed width file | [Fixed width files](formats#fixed-width-files) |
+| `skip` | a field that only holds the place of its column | [Field properties](#field-properties) |
+| `header` | the schema, as a Frictionless Table Dialect says it | [Schema properties](#schema-properties) |
+| `keyType` | the schema | [Keys of the records read](#keys-of-the-records-read) |
+| `extraColumns` | the schema | [Keeping the other columns](#keeping-the-other-columns) |
+| `uniqueLimit` | the schema | [Unique values](#unique-values) |
+| `width` | the schema of a fixed width file | [Fixed width files](formats#fixed-width-files) |
+
+IOStreams reads some text that Frictionless does not define, so that files from other tools read:
+
+* An `integer` reads a whole number with a decimal point, such as `12.0`, as a spreadsheet stores every number.
+* A `number` reads `Infinity` and `-Infinity`, as Ruby and JavaScript write them, as well as `NaN`, `INF` and `-INF`,
+  which it writes.
+* A `datetime` reads a space in place of the `T`, such as `2026-10-13 09:30:00`, and a `datetime` or `time` an offset
+  without a colon, or of hours alone, such as `+0530` or `+05`, as well as `+05:30` and `Z`.
+* A `format` of a date, datetime or time takes Ruby's own directives, such as `%s`, `%N` and `%L`, as well as those of
+  Python's strptime, which Frictionless defines.
+* A field takes the values of a source of Ruby objects, such as the `:hash` format, a Parquet file or a query: a
+  `boolean` the number `1` or `0`, a `list` an `Array`, or the text of a JSON array, and a `geopoint` an `Array` or a
+  `Hash` whatever its `format`.
+* `primaryKey` and `uniqueKeys` take the names of fields as Symbols, as well as Strings.
+
 ## Schemas in IOStreams 2.2 and 3.0
 
 IOStreams 2.2 has the same schema, with the same properties, so an application can move to a schema while it still
 runs 2.2. A schema in 2.2 reads and writes as it does here, apart from the changes that 3.0 makes to every file, such
 as reading text as UTF-8, see [A schema in v2.2 and v3.0](upgrading#a-schema-in-v22-and-v30). 3.0 also adds the `time`
-and `duration` types, which 2.2 raises `ArgumentError` for, as types that it does not support.
+and `duration` types, and these parts of Frictionless, which 2.2 raises `ArgumentError` for, as parts that it does not
+support: the types `list`, `year`, `yearmonth` and `geopoint`, the formats of a `string`, `groupChar`, `decimalChar` and
+`bareNumber`, `missingValues`, the constraints other than `required`, `categories`, `primaryKey`, `uniqueKeys`, and
+`timeZone` and `uniqueLimit`, which IOStreams adds. Two fields of the same name raise `ArgumentError` in 2.2.
 
 ---
 

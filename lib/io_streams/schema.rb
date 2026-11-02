@@ -246,6 +246,7 @@ module IOStreams
       @fields_match = check_fields_match(descriptor["fieldsMatch"])
       @width        = check_width(descriptor["width"])
       @keys         = Keys.new(descriptor["keyType"], @fields)
+      @namesakes    = build_namesakes
       @keep_extra   = check_extra_columns(descriptor["extraColumns"])
       @named        = build_named
       @loose        = build_loose { |name| self.class.match_key(name) }
@@ -592,6 +593,23 @@ module IOStreams
       Uniqueness.new(@unique_keys, @unique_limit)
     end
 
+    # Raises ArgumentError when two fields have the same key in the records read and written, such as two fields of the
+    # same name, which Frictionless accepts, but a record could not hold both, for a reader or writer of records, see
+    # `IOStreams::Tabular#check_records`, of a format whose rows are records, such as JSON, see
+    # `IOStreams::Tabular::SchemaMapping`, or a contract, whose records are keyed by their fields, see
+    # `IOStreams::Contract`. The rows of a format whose columns are in order, such as CSV, read and write them, by their
+    # positions, see #namesake.
+    def check_record_keys
+      @keys.check_unique
+    end
+
+    # Returns [IOStreams::Schema::Field|nil] the first field of the same name as the supplied field that is not among
+    # those taken, a Hash of fields by identity, so that the columns of a header row of the same name are the fields of
+    # that name in order, see `IOStreams::Schema::Columns`, or nil when there is none.
+    def namesake(field, taken)
+      @namesakes[field]&.find { |other| !taken.key?(other) }
+    end
+
     # Returns [true|false] whether reading keeps the columns that the schema does not list, see `extraColumns` above.
     def keep_extra?
       @keep_extra
@@ -732,15 +750,21 @@ module IOStreams
     def build_fields(fields, primary_key)
       raise(ArgumentError, "A schema must have an Array of fields: #{fields.inspect}") unless fields.is_a?(Array)
 
-      fields = fields.collect do |field|
+      fields.collect do |field|
         key = field.is_a?(Hash) && primary_key.include?((field["name"] || field[:name]).to_s)
         Field.new(field, missing_values: @missing, primary_key: key)
       end
-      names = fields.collect { |field| field.name.to_s }
-      duplicates = names.select { |name| names.count(name) > 1 }.uniq
-      raise(ArgumentError, "Field names must be unique: #{duplicates.join(', ')}") unless duplicates.empty?
+    end
 
-      fields
+    # Returns [Hash<IOStreams::Schema::Field, Array<IOStreams::Schema::Field>>] the fields of each field whose name
+    # another field has too, in order, which Frictionless accepts, see #namesake, compared by identity.
+    def build_namesakes
+      by_name = @fields.group_by { |field| field.name.to_s }
+      by_name.each_value.with_object({}.compare_by_identity) do |fields, namesakes|
+        next if fields.size < 2
+
+        fields.each { |field| namesakes[field] = fields.freeze }
+      end.freeze
     end
 
     # Returns [Hash<String, IOStreams::Schema::Field>] the field of each name, alias and key, see #key, as text.
@@ -748,7 +772,8 @@ module IOStreams
     # Raises ArgumentError for an alias or key that is the name or alias of another field, since a column of that name
     # could be either field.
     def build_named
-      named = @fields.to_h { |field| [field.name.to_s, field] }
+      # The first field of each name, of the fields of the same name, see #namesake.
+      named = @fields.reverse.to_h { |field| [field.name.to_s, field] }
       @fields.each do |field|
         field.aliases.each { |name| add_named(named, name, field, "the alias #{name.inspect}") }
         next unless key_type
@@ -761,7 +786,7 @@ module IOStreams
 
     def add_named(named, name, field, what)
       other = named[name]
-      if other && !other.equal?(field)
+      if other && !other.equal?(field) && !namesake?(other, field)
         raise(ArgumentError, "Field #{field.name.inspect}: #{what} is already the name or an alias of the field " \
                              "#{other.name.inspect}")
       end
@@ -864,9 +889,12 @@ module IOStreams
     # column, see `skip` in `IOStreams::Schema::Field`, whose values are never read.
     def key_fields(property, names)
       names.map do |name|
-        field = fields.find { |each_field| each_field.name.to_s == name }
-        raise(ArgumentError, "The schema #{property} names #{name.inspect}, which is not a field of the schema") unless field
-        next field unless field.skip?
+        named = fields.select { |field| field.name.to_s == name }
+        raise(ArgumentError, "The schema #{property} names #{name.inspect}, which is not a field of the schema") if named.empty?
+        if named.size > 1
+          raise(ArgumentError, "The schema #{property} names #{name.inspect}, which is the name of #{named.size} fields")
+        end
+        next named.first unless named.first.skip?
 
         raise(ArgumentError, "The schema #{property} names #{name.inspect}, a field with skip: true, whose values are " \
                              "never read")
@@ -886,6 +914,11 @@ module IOStreams
       return MissingValues::DEFAULT unless descriptor.key?("missingValues")
 
       MissingValues.new(descriptor["missingValues"])
+    end
+
+    # Returns [true|false] whether the fields have the same name, see #namesake.
+    def namesake?(field, other)
+      @namesakes[field]&.include?(other) || false
     end
 
     def check_header(header)

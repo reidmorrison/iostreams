@@ -58,9 +58,15 @@ class SchemaTest < Minitest::Test
         assert_match(/must have a name/, error.message)
       end
 
-      it "raises for fields with the same name" do
-        error = assert_raises(ArgumentError) { IOStreams::Schema.new(fields: [{name: "id"}, {name: :id}]) }
-        assert_equal "Field names must be unique: id", error.message
+      it "accepts fields of the same name, as Frictionless requires, raising only for records keyed by them" do
+        schema = IOStreams::Schema.new(fields: [{name: "id"}, {name: "id"}])
+
+        assert_equal %w[id id], schema.fields.map(&:name)
+        error = assert_raises(ArgumentError) { schema.check_record_keys }
+        assert_equal 'The schema has two fields named "id", which Frictionless accepts, but a record holds each field by a ' \
+                     "key of its own: read and write their rows, whose values are in the order of the fields, such as with " \
+                     "each(:array) of a CSV file, or give each field a name of its own", error.message
+        assert_nil IOStreams::Schema.new(fields: [{name: "id"}, {name: "name"}]).check_record_keys
       end
 
       it "raises for an unknown property of a field" do

@@ -414,6 +414,7 @@ module IOStreams
       # Sets the properties and fields of the contract, checking them as a schema, see #schema.
       def descriptor=(descriptor)
         schema = IOStreams::Schema.new(descriptor)
+        schema.check_record_keys
         layout = schema.layout_properties
         unless layout.empty?
           raise(ArgumentError, "A contract never lays out a file, so it cannot have the #{layout.join(', ')}: set them in " \
