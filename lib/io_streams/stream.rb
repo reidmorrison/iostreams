@@ -1565,7 +1565,8 @@ module IOStreams
     def tabular(**)
       return tabular_settings.tabular(file_name: file_name, text_format: text_format, **) unless stream_rows?
 
-      tabular_settings.tabular(file_name: file_name, text_format: nil, rows_format: builder.rows_format, **)
+      tabular_settings.tabular(file_name: file_name, text_format: nil, rows_format: builder.rows_format,
+                               value_form: builder.rows_value_form, **)
     end
 
     # Returns [Symbol|nil] the format of the rows, records and lines of this stream, see #format.

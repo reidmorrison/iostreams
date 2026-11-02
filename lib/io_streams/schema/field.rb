@@ -51,12 +51,12 @@ module IOStreams
     #                 format of JSON as an array. An Array is what JSON holds of it, see .json_data.
     #     "list":     an Array of items of its `itemType`, read from text of the items separated by its `delimiter`, such
     #                 as `a,b,c`, each read in the default form of its type, as Frictionless requires, or from an Array,
-    #                 or the text of a JSON array, such as `["a","b"]`, which a spreadsheet holds, and written as that
-    #                 delimited text, or by a format of JSON as an array.
-    #     "year":     an Integer, read from text of 4 digits, such as `2026`, or from a whole number, and written as 4
-    #                 digits.
+    #                 and written as that delimited text, also to a spreadsheet, or by a format of JSON as an array.
+    #                 Writing an item whose text holds the delimiter raises, since it would not read back.
+    #     "year":     an Integer from 0 to 9999, read from text of 4 digits, such as `2026`, or from a whole number, and
+    #                 written as 4 digits.
     #     "yearmonth": a Date on the first of its month, read from text such as `2026-10`, or from a Date on the first of
-    #                 its month, and written as that text.
+    #                 its month, of a year up to 9999, and written as that text.
     #     "geopoint": a point on the earth, `[lon, lat]`, two BigDecimals, read from and written in the form of its
     #                 `format`, see `IOStreams::Schema::Geopoint`.
     #     "any":      the value as it is read, without converting it, apart from empty text, which is nil.
@@ -189,7 +189,12 @@ module IOStreams
 
       # The properties of a field that say how a file writes the text of its values, which the target of a copy does not
       # take from its source, since it writes its own, see `IOStreams::Schema#without_text`.
-      TEXT_PROPERTIES = %w[format trueValues falseValues groupChar decimalChar bareNumber missingValues].freeze
+      TEXT_PROPERTIES = %w[format trueValues falseValues groupChar decimalChar bareNumber missingValues delimiter].freeze
+
+      # The types whose values a cell that holds one value, such as that of a spreadsheet, holds as their text, see
+      # #render's `:scalar` form: those that are not one value, and a yearmonth, whose text, such as `2026-10`, is not
+      # that of a date, so that the CSV text of a spreadsheet reads back too.
+      SCALAR_TEXT_TYPES = %w[list geopoint array object yearmonth].freeze
 
       # The properties of a field that only describe it to people.
       DESCRIPTIVE_PROPERTIES = %w[title description example rdfType].freeze
@@ -202,9 +207,6 @@ module IOStreams
 
       # The text of a year and a month, see `yearmonth` above.
       YEARMONTH = /\A(\d{4})-(\d{2})\z/
-
-      # The text of a JSON array of the items of a list, see `list` above.
-      JSON_ARRAY = /\A\s*\[.*\]\s*\z/m
 
       DEFAULT_TRUE_VALUES  = %w[true True TRUE 1].freeze
       DEFAULT_FALSE_VALUES = %w[false False FALSE 0].freeze
@@ -322,10 +324,9 @@ module IOStreams
         check_type
         @skip = check_skip(descriptor)
         check_properties(descriptor)
-        @geopoint     = Geopoint.new(descriptor.fetch("format", "default"), @name) if @type == "geopoint"
+        @geopoint     = Geopoint.new(descriptor.fetch("format", "default").to_s, @name) if @type == "geopoint"
         @format       = check_format(descriptor["format"]) unless @type == "geopoint"
-        @delimiter    = check_delimiter(descriptor["delimiter"]) if @type == "list"
-        @item         = item_field(descriptor["itemType"]) if @type == "list"
+        build_list(descriptor) if @type == "list"
         @utc          = @type == "datetime" && !@format.nil? && !@format.zone?
         @width        = check_width(descriptor["width"])
         @start        = check_positive("start", descriptor["start"])
@@ -573,10 +574,23 @@ module IOStreams
         NUMERIC_TYPES.include?(type)
       end
 
-      # Returns [true|false] whether the values of this field are numbers that keep every digit, a BigDecimal: a number
-      # field without `floatNumber`.
+      # Returns [true|false] whether the values of this field are, or hold, numbers that keep every digit, a BigDecimal:
+      # a number field without `floatNumber`, a geopoint, and a list of numbers, so that a format that holds numbers,
+      # such as JSON, reads them with every digit.
       def decimal?
-        type == "number" && !@float
+        case type
+        when "number" then !@float
+        when "geopoint" then true
+        when "list" then @item.decimal?
+        else false
+        end
+      end
+
+      # Returns [IOStreams::Schema::Field|nil] the field of each item of a list, of its `itemType`, in the default form of
+      # that type, or nil for any other type, so that a format that holds lists itself, such as Parquet, writes each
+      # item as that field's type.
+      def item_field
+        @item
       end
 
       # Returns [true|false] whether to write only the first `width` characters of a longer string in a fixed width
@@ -763,7 +777,9 @@ module IOStreams
       #   :json   the value as JSON represents it: an integer or boolean as itself, a number as its text, the same as
       #           :text, which JSON writes as it is, see #number_json, and any other value as its text.
       #   :typed  the value itself, such as `BigDecimal("12.5")`, for a format whose rows are Ruby objects, such as
-      #           `:hash`.
+      #           `:hash`, and a geopoint as its point, `[lon, lat]`, whatever its format.
+      #   :scalar the value itself, as for `:typed`, apart from a list, a geopoint, an array, an object and a yearmonth, as
+      #           their text, as for `:text`, for a format each of whose cells holds one value, such as a spreadsheet.
       #
       # A Hash or an Array of an object or array field is written to JSON, or as its JSON text, as the JSON format
       # converts the values within it, see #render_json_structure, rather than first converted as JSON holds it, see
@@ -779,8 +795,9 @@ module IOStreams
 
         value = cast(value)
         return (@missing.text if form == :text) if value.nil?
-        return @geopoint ? @geopoint.write(value, :typed) : value if form == :typed
+        return value if form == :typed
         return json(value) if form == :json
+        return value if form == :scalar && !SCALAR_TEXT_TYPES.include?(type)
 
         text(value)
       end
@@ -792,6 +809,17 @@ module IOStreams
 
       # Returns [IOStreams::Schema::MissingValues] the missing values of the field, for #== and #eql?.
       attr_reader :missing
+
+      # Returns [String] the text of a value of this field that it has already read, see #text, so that a list writes
+      # each of its items without reading it again.
+      def value_text(value)
+        text(value)
+      end
+
+      # Returns the value of this field that it has already read as JSON holds it, see #json, as for #value_text.
+      def value_json(value)
+        json(value)
+      end
 
       private
 
@@ -888,38 +916,29 @@ module IOStreams
       end
 
       # Returns [Array] the items of a list, each read by the field of its `itemType` in its default form, see
-      # #item_field, from an Array, the text of a JSON array, or text of the items separated by the delimiter, which is
-      # split as it is, so that a string item keeps its spaces. An empty item is a missing value, nil.
+      # #item_field, from an Array, or text of the items separated by the delimiter, which is split as it is, so that a
+      # string item keeps its spaces. An empty item is a missing value, nil.
       def cast_list(value)
         items =
           if value.is_a?(::Array)
             value
           elsif value.is_a?(String)
-            json_items(value) || value.split(@delimiter, -1)
+            value.split(@split, -1)
           end
         return invalid(value) if items.nil?
 
         items.map { |item| @item.cast(item) }
       rescue IOStreams::Errors::InvalidValue
-        invalid(value)
+        invalid(value, "list of #{@item.type} items")
       end
 
-      # Returns [Array|nil] the items of the text of a JSON array, or nil when the text is not one, see #cast_list.
-      def json_items(text)
-        return unless JSON_ARRAY.match?(text)
-
-        items = JSON.parse(text)
-        items if items.is_a?(::Array) && items.none? { |item| item.is_a?(::Hash) || item.is_a?(::Array) }
-      rescue JSON::ParserError
-        nil
-      end
-
-      # Returns [Integer] the year of an Integer, a whole number, or text of 4 digits, see `year` above.
+      # Returns [Integer] the year, from 0 to 9999, of an Integer, a whole number, or text of 4 digits, see `year` above.
       def cast_year(value)
         return Integer(value, 10) if value.is_a?(String) && YEAR.match?(value)
         return invalid(value) if value.is_a?(String)
 
-        cast_integer(value)
+        year = cast_integer(value)
+        year.between?(0, 9999) ? year : invalid(value)
       end
 
       # Returns [Date] the first of the month of text such as `2026-10`, or of a Date on the first of its month, or a
@@ -933,7 +952,7 @@ module IOStreams
           return Date.new(parts[1].to_i, month, 1)
         end
         date = cast_date(value)
-        date.day == 1 ? date : invalid(value)
+        date.day == 1 && date.year <= 9999 ? date : invalid(value)
       end
 
       # Returns [String] the text of a value of this type, once it is converted, see #cast, such as "12.50" for the
@@ -955,11 +974,28 @@ module IOStreams
       # Returns [String] the text of a value of a list, year, yearmonth or geopoint, see #text.
       def other_text(value)
         case type
-        when "list" then value.map { |item| item.nil? ? "" : @item.render(item, :text) }.join(@delimiter)
-        when "year" then value.between?(0, 9999) ? format("%04d", value) : value.to_s
+        when "list" then list_text(value)
+        when "year" then format("%04d", value)
         when "yearmonth" then value.strftime("%Y-%m")
         else @geopoint.write(value, :text)
         end
+      end
+
+      # Returns [String] the text of the items of a list, separated by its delimiter, each in the default form of its type.
+      #
+      # Raises `IOStreams::Errors::InvalidValue` for an item whose text holds the delimiter, since it would be read back
+      # as more than one item.
+      def list_text(items)
+        items.map do |item|
+          next "" if item.nil?
+
+          text = @item.value_text(item)
+          next text unless text.include?(@delimiter)
+
+          message = "Field #{name.inspect}: the item #{text.inspect} holds the delimiter #{@delimiter.inspect}, so it " \
+                    "would not be read back"
+          raise(IOStreams::Errors::InvalidValue.new(message, field: name, value: items))
+        end.join(@delimiter)
       end
 
       # Returns the value of a list, yearmonth or geopoint in a form that JSON keeps exactly, see #dump: the items of a
@@ -1051,6 +1087,14 @@ module IOStreams
         type == "geojson"
       end
 
+      # Sets the delimiter of a list, see `delimiter` above, the Regexp that splits its text by it, rather than the text
+      # itself, which String#split reads as awk does when it is a space, and the field of its items, see `itemType`.
+      def build_list(descriptor)
+        @delimiter = check_delimiter(descriptor["delimiter"])
+        @split     = Regexp.new(Regexp.escape(@delimiter))
+        @item      = build_item_field(descriptor["itemType"])
+      end
+
       # Returns [String] the text between the items of a list, see `delimiter` above.
       def check_delimiter(delimiter)
         return "," if delimiter.nil?
@@ -1061,7 +1105,7 @@ module IOStreams
 
       # Returns [IOStreams::Schema::Field] the field that reads and writes each item of a list, of its `itemType`, in the
       # default form of that type, as Frictionless requires, named as the list, for the messages of its errors.
-      def item_field(item_type)
+      def build_item_field(item_type)
         item_type = item_type.nil? ? "string" : item_type.to_s
         unless ITEM_TYPES.include?(item_type)
           raise(ArgumentError, "Field #{name.inspect}: itemType must be one of #{ITEM_TYPES.join(', ')}: #{item_type.inspect}")
@@ -1499,7 +1543,7 @@ module IOStreams
         when "number" then number_json(value)
         when "integer", "boolean", "string", "year" then value
         when "any", "object", "array" then any_json(value)
-        when "list" then value.map { |item| item.nil? ? nil : @item.render(item, :json) }
+        when "list" then value.map { |item| item.nil? ? nil : @item.value_json(item) }
         when "geopoint" then @geopoint.write(value, :json)
         else text(value)
         end
@@ -1546,10 +1590,10 @@ module IOStreams
         (value.is_a?(Integer) || value.is_a?(Float) || bigdecimal?(value)) && (value == 1 || value.zero?)
       end
 
-      def invalid(value)
+      def invalid(value, what = type)
         text = value.inspect
         text = "#{text[0, 60]}..." if text.length > 63
-        raise(IOStreams::Errors::InvalidValue.new("Field #{name.inspect}: #{text} is not a valid #{type}", field: name,
+        raise(IOStreams::Errors::InvalidValue.new("Field #{name.inspect}: #{text} is not a valid #{what}", field: name,
                                                                                                            value: value))
       end
     end

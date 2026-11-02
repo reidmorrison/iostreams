@@ -313,6 +313,14 @@ module IOStreams
       stream_format(stream).rows_format if stream
     end
 
+    # Returns [Symbol|nil] the form in which the rows that the stream closest to the application reads and writes itself
+    # hold the values of a schema, see `IOStreams::StreamFormat#rows_value_form`, or nil when the streams only read and
+    # write bytes.
+    def rows_value_form
+      stream = application_stream
+      stream_format(stream).rows_value_form if stream
+    end
+
     # Returns [IOStreams::Builder] a copy that opens the stream closest to the application with the supplied arguments
     # and `rows: true`, so that it reads and writes rows rather than text, see #rows_format, and without an encode stream,
     # since rows are not text, see `IOStreams::Stream#rows_stream`.

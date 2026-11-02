@@ -304,8 +304,9 @@ the rows and records, which are cells rather than lines.
 Writing writes a workbook with one worksheet, with the `xlsxtream` gem. The rows and records are written as the types
 of their values, by the fields of a schema or contract when there is one, so that a number is a number cell, a `Date` a
 date, a `Time` a date and time, and text, such as `"01234"`, is text. A `BigDecimal` is written as the `Float` that Excel
-holds, shown without the `decimals` of its field, see [Limitations](#spreadsheet-limitations), and a `Hash` or an
-`Array` as its JSON:
+holds, shown without the `decimals` of its field, see [Limitations](#spreadsheet-limitations). A field whose value is
+not one value, a `list`, `geopoint`, `array` or `object`, and a `yearmonth`, is written as its text, as CSV writes it,
+such as `a,b` or `2026-10`, and a `Hash` or an `Array` of a field of type `any`, or without a schema, as its JSON:
 
 ~~~ruby
 # Order is a contract, see Contracts.
@@ -343,8 +344,8 @@ Notes:
 * Reading a spreadsheet needs a local file, so one stored elsewhere, or within another stream, is copied into a temp
   file first. Its lines, and its bytes, are converted into CSV in a second temp file, since the `creek` gem returns them
   to a block, while its rows and records are read straight from the workbook. Writing streams the workbook, without a temp file, see [When temp files are used](config#when-temp-files-are-used).
-* On JRuby, `creek` reads a value that holds a line break or a `]` only up to it, such as the JSON text of a `list`,
-  unless the workbook was written with `use_shared_strings: true`, as Excel does.
+* On JRuby, `creek` reads a value that holds a line break or a `]` only up to it, such as the JSON text of a `geopoint`
+  of the `array` format, unless the workbook was written with `use_shared_strings: true`, as Excel does.
 
 ### Limitations {#spreadsheet-limitations}
 
@@ -439,7 +440,8 @@ each type is written as:
 | `time` | `time_micros`, not adjusted to UTC, holding the time of its clock, which is read back as a `Time` on 2000-01-01 in UTC |
 | `duration` | `string`, holding its ISO 8601 text, such as `P1M2DT3H`, which a schema with the field reads back as an `ActiveSupport::Duration` |
 | `object`, `array` | `string`, holding its JSON text, which a schema with the field reads back as a `Hash` or an `Array` |
-| `list`, `yearmonth`, `geopoint` | `string`, holding its text, such as `a,b`, `2026-10` or `90.5, 45.5`, which a schema with the field reads back |
+| `list` | a Parquet list of the type of its `itemType`, apart from a `number`, whose items are their text, since a list has no `decimals` |
+| `yearmonth`, `geopoint` | `string`, holding its text, such as `2026-10` or `90.5, 45.5`, which a schema with the field reads back |
 | `year` | `int64` |
 
 A `number` field needs `decimals` or `floatNumber: true`, since a Parquet decimal has a fixed number of digits after

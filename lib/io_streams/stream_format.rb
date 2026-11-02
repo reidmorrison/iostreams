@@ -69,6 +69,14 @@ module IOStreams
       nil
     end
 
+    # Returns [Symbol] the form in which the rows that this format reads and writes itself, see #rows_format, hold the
+    # values of the fields of a schema, see `IOStreams::Schema::Field#render`: `:typed`, the values themselves, unless a
+    # format whose cells each hold one value, such as a spreadsheet, says `:scalar`, so that a list or a geopoint is
+    # its text.
+    def rows_value_form
+      :typed
+    end
+
     # Returns [Array<Symbol>] the options whose values must not be displayed, such as a passphrase, as declared
     # by the reader and the writer with `sensitive_option_names`.
     def sensitive_option_names

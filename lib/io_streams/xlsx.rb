@@ -43,5 +43,12 @@ module IOStreams
     def self.rows_format
       :array
     end
+
+    # Returns [Symbol] `:scalar`, since each cell of a workbook holds one value, so that the rows written hold a list, a
+    # geopoint, an array or an object as its text, rather than as an Array or a Hash, see
+    # `IOStreams::StreamFormat#rows_value_form`.
+    def self.rows_value_form
+      :scalar
+    end
   end
 end

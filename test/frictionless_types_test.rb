@@ -38,20 +38,22 @@ class FrictionlessTypesTest < Minitest::Test
         assert_equal [1, nil, 2], list.cast("1,,2")
         assert_equal ["a", " b"], field(type: "list").cast("a, b")
         assert_equal %w[a b], field(type: "list", delimiter: "; ").cast("a; b")
+        assert_equal ["a", nil, "b"], field(type: "list", delimiter: " ").cast(" a  b")
+        assert_equal %w[a b], field(type: "list", delimiter: ".").cast("a.b")
         assert_equal [Date.new(2026, 1, 2)], field(type: "list", itemType: "date").cast("2026-01-02")
         assert_equal [true, false], field(type: "list", itemType: "boolean").cast("true,false")
         assert_equal [BigDecimal("1.5")], field(type: "list", itemType: "number").cast("1.5")
       end
 
-      it "reads an Array, or the text of a JSON array, such as a spreadsheet holds" do
+      it "reads an Array, while the text of a JSON array is delimited text, like any other" do
         assert_equal [1, 2], list.cast([1, "2"])
-        assert_equal [1, 2], list.cast("[1, 2]")
-        assert_equal ["a,b"], field(type: "list").cast('["a,b"]')
+        assert_equal ['["a', 'b"]'], field(type: "list").cast('["a,b"]')
+        assert_raises(IOStreams::Errors::InvalidValue) { list.cast("[1,2]") }
       end
 
-      it "raises for an item that is not of its itemType, naming the list" do
+      it "raises for an item that is not of its itemType, naming the list and the type of its items" do
         error = assert_raises(IOStreams::Errors::InvalidValue) { list.cast("1,x") }
-        assert_equal 'Field "value": "1,x" is not a valid list', error.message
+        assert_equal 'Field "value": "1,x" is not a valid list of integer items', error.message
         assert_raises(IOStreams::Errors::InvalidValue) { list.cast("[[1]]") }
         assert_raises(IOStreams::Errors::InvalidValue) { list.cast(5) }
       end
@@ -63,6 +65,17 @@ class FrictionlessTypesTest < Minitest::Test
         assert_equal [1, 2], list.render("1,2", :json)
         assert_equal ["2026-01-02"], field(type: "list", itemType: "date").render("2026-01-02", :json)
         assert_equal [1, 2], list.render("1,2", :typed)
+        assert_equal "1,2", list.render([1, 2], :scalar)
+      end
+
+      it "raises for writing an item whose text holds the delimiter, which would not read back" do
+        error = assert_raises(IOStreams::Errors::InvalidValue) { field(type: "list").render(["a,b", "c"], :text) }
+        assert_equal 'Field "value": the item "a,b" holds the delimiter ",", so it would not be read back', error.message
+        assert_equal ["a,b", "c"], field(type: "list").render(["a,b", "c"], :json)
+      end
+
+      it "takes itemType as a Symbol too" do
+        assert_equal [1], field(type: "list", itemType: :integer).cast("1")
       end
 
       it "counts its items for minLength and maxLength" do
@@ -89,6 +102,11 @@ class FrictionlessTypesTest < Minitest::Test
         ["26", "20261", "2026.0", "-2026", "x"].each do |text|
           assert_raises(IOStreams::Errors::InvalidValue, text) { year.cast(text) }
         end
+        [-1, 10_000, 12_345.0].each do |number|
+          assert_raises(IOStreams::Errors::InvalidValue, number.inspect) { year.cast(number) }
+        end
+        assert_equal 0, year.cast(0)
+        assert_equal 9999, year.cast(9999)
       end
 
       it "writes 4 digits, and an Integer in JSON" do
@@ -115,6 +133,7 @@ class FrictionlessTypesTest < Minitest::Test
           assert_raises(IOStreams::Errors::InvalidValue, text) { month.cast(text) }
         end
         assert_raises(IOStreams::Errors::InvalidValue) { month.cast(Date.new(2026, 10, 2)) }
+        assert_raises(IOStreams::Errors::InvalidValue) { month.cast(Date.new(10_000, 1, 1)) }
       end
 
       it "writes the year and month, and keeps its Date in the :hash format" do
@@ -144,6 +163,7 @@ class FrictionlessTypesTest < Minitest::Test
         object = field(type: "geopoint", format: "object")
 
         assert_equal [BigDecimal("90.5"), BigDecimal("45.5")], array.cast("[90.5, 45.5]")
+        assert_equal [BigDecimal("90.12345678901234567"), BigDecimal("45.5")], array.cast("[90.12345678901234567, 45.5]")
         assert_equal [BigDecimal("90.5"), BigDecimal("45.5")], array.cast([90.5, 45.5])
         assert_equal [BigDecimal("90.5"), BigDecimal("45.5")], object.cast('{"lon": 90.5, "lat": 45.5}')
         assert_equal [BigDecimal("2"), BigDecimal("1")], object.cast({lat: 1, lon: 2})
@@ -164,12 +184,29 @@ class FrictionlessTypesTest < Minitest::Test
 
         assert_equal "90.5, 45.5", point.render("90.50,45.50", :text)
         assert_equal "90.5, 45.5", point.render([90.5, 45.5], :json)
-        assert_equal "90.5, 45.5", point.render([90.5, 45.5], :typed)
         assert_equal "[90.5,45.5]", array.render([90.5, 45.5], :text)
         assert_equal "[90.5,45.5]", JSON.generate(array.render([90.5, 45.5], :json))
-        assert_equal [BigDecimal("90.5"), BigDecimal("45.5")], array.render([90.5, 45.5], :typed)
         assert_equal %({"lon":90.5,"lat":45.5}), object.render([90.5, 45.5], :text)
-        assert_equal({"lon" => BigDecimal("90.5"), "lat" => BigDecimal("45.5")}, object.render([90.5, 45.5], :typed))
+        assert_equal %({"lon":90.5,"lat":45.5}), object.render([90.5, 45.5], :scalar)
+      end
+
+      it "is the point itself, [lon, lat], in a format whose values are Ruby objects, whatever its format" do
+        point = [BigDecimal("90.5"), BigDecimal("45.5")]
+
+        %w[default array object].each do |format|
+          assert_equal point, field(type: "geopoint", format: format).render([90.5, 45.5], :typed), format
+        end
+        assert_equal point, field(type: "geopoint", format: :array).cast([90.5, 45.5])
+      end
+
+      it "is written by a contract to a file whose field has any format" do
+        contract = IOStreams::Contract.new(fields: [{name: "place", type: "geopoint"}])
+        %w[default array object].each do |format|
+          path = IOStreams.path(dir, "places.json").schema(fields: [{name: "place", type: "geopoint", format: format}])
+          path.as(contract).writer(:hash) { |io| io << {"place" => "1.5, 2"} }
+
+          assert_equal [{"place" => [BigDecimal("1.5"), BigDecimal("2")]}], read(path.as(contract)), format
+        end
       end
 
       it "raises for a format other than default, array or object" do
@@ -219,6 +256,15 @@ class FrictionlessTypesTest < Minitest::Test
         assert_equal [record], read(path)
       end
 
+      it "reads the numbers of a geopoint and of a list of numbers of JSON with every digit" do
+        schema = {fields: [{name: "place", type: "geopoint", format: "array"}, {name: "rates", type: "list", itemType: "number"}]}
+        File.write(File.join(dir, "rates.json"), %({"place":[90.12345678901234567,45.5],"rates":[0.1000000000000000055511151231257827]}\n))
+
+        assert_equal [{"place" => [BigDecimal("90.12345678901234567"), BigDecimal("45.5")],
+                       "rates" => [BigDecimal("0.1000000000000000055511151231257827")]}],
+                     read(IOStreams.path(dir, "rates.json").schema(schema))
+      end
+
       it "writes a fixed width file as the text of each, which reads back" do
         widths = [5, 5, 4, 7, 12, 10]
         fixed  = {fields: schema[:fields].zip(widths).map { |properties, width| properties.merge(width: width) }}
@@ -228,16 +274,20 @@ class FrictionlessTypesTest < Minitest::Test
         assert_equal [record], read(path)
       end
 
-      it "writes a spreadsheet, whose cells hold the text or JSON text of a list and a geopoint, which read back" do
-        # creek on JRuby reads an inline string only up to a `]`, such as that of the JSON text of a list.
+      it "writes a spreadsheet, whose cells hold the text of a list and a geopoint, as CSV does, which read back" do
+        # creek on JRuby reads an inline string only up to a `]`, such as that of the JSON text of a geopoint array.
         path = IOStreams.path(dir, "places.xlsx").schema(schema)
         path = path.option(:xlsx, use_shared_strings: true) if defined?(JRuby)
         path.writer(:hash) { |io| io << record }
 
         assert_equal [record], read(path)
+        lines = []
+        IOStreams.path(dir, "places.xlsx").each(:line) { |line| lines << line }
+
+        assert_equal %("a,b",1;2,2026,2026-10,"90.5, 45.5","[1.5,-2]"), lines.last
       end
 
-      it "writes Parquet, as the text of a list, a yearmonth and a geopoint, and an int64 of a year, which read back" do
+      it "writes Parquet, a list as a Parquet list, the text of a yearmonth and a geopoint, and an int64 of a year" do
         skip "The parquet gem is a Rust extension, which JRuby cannot load" if defined?(JRuby)
 
         path = write("places.parquet", schema, [record])
@@ -245,17 +295,50 @@ class FrictionlessTypesTest < Minitest::Test
         assert_equal [record], read(path)
         types = IOStreams.path(dir, "places.parquet").infer_schema.fields.to_h { |field| [field.name, field.type] }
 
-        assert_equal({"tags" => "string", "scores" => "string", "year" => "integer", "month" => "string",
+        assert_equal({"tags" => "array", "scores" => "array", "year" => "integer", "month" => "string",
                       "point" => "string", "place" => "string"}, types)
+        lists = read(IOStreams.path(dir, "places.parquet")).map { |row| row.slice("tags", "scores") }
+
+        assert_equal [{"tags" => %w[a b], "scores" => [1, 2]}], lists
+      end
+
+      it "writes a list of each itemType as a Parquet list, which reads back" do
+        skip "The parquet gem is a Rust extension, which JRuby cannot load" if defined?(JRuby)
+
+        lists = {
+          fields: %w[string integer boolean number datetime date time].map do |type|
+            {name: type, type: "list", itemType: type}
+          end
+        }
+        record = {
+          "string"   => ["a", nil, "b,c"],
+          "integer"  => [1, 2**62],
+          "boolean"  => [true, false],
+          "number"   => [BigDecimal("1.25"), BigDecimal("12345678901234567890.123")],
+          "datetime" => [Time.utc(2026, 1, 2, 3, 4, 5)],
+          "date"     => [Date.new(2024, 2, 29)],
+          "time"     => [Time.utc(2000, 1, 1, 9, 30)]
+        }
+        empty  = {"string" => [], "integer" => nil, "boolean" => nil, "number" => nil, "datetime" => nil, "date" => nil, "time" => nil}
+        path   = write("lists.parquet", lists, [record, {"string" => [], "integer" => nil}])
+
+        assert_equal [record, empty], read(path)
       end
 
       it "keeps them in a slice of typed values stored as JSON" do
-        slices = []
-        unless defined?(JRuby)
-          IOStreams.path(write("places.parquet", schema, [record]).to_s).each(:slice, size: 10) { |slice| slices << slice }
-        end
-        next if defined?(JRuby)
+        slice  = IOStreams::Slice.new([record], format: :hash, schema: IOStreams::Schema.new(schema))
+        stored = IOStreams.slice(JSON.parse(JSON.generate(slice.to_h)))
+        rows   = []
+        IOStreams.stream(stored).schema(schema).each(:hash) { |row| rows << row }
 
+        assert_equal [record], rows
+      end
+
+      it "keeps them in a slice of a Parquet file stored as JSON" do
+        skip "The parquet gem is a Rust extension, which JRuby cannot load" if defined?(JRuby)
+
+        slices = []
+        IOStreams.path(write("places.parquet", schema, [record]).to_s).each(:slice, size: 10) { |slice| slices << slice }
         stored = IOStreams.slice(JSON.parse(JSON.generate(slices.first.to_h)))
         rows   = []
         IOStreams.stream(stored).schema(schema).each(:hash) { |row| rows << row }

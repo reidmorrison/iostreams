@@ -65,8 +65,10 @@ module IOStreams
     # `IOStreams::Slice::Stream`, whether the rows have no header row, which a slice says, see
     # `IOStreams::Slice#header?`, whether their values are those of the fields, see `IOStreams::Slice#typed?`, whether
     # they are only a part of a file, such as the rows of a slice, see `IOStreams::Slice::Stream`, and the format of the
-    # text that its streams decide, such as the CSV of a spreadsheet, see `IOStreams::Tabular::Settings#tabular`.
-    SOURCE_OPTION_NAMES = %i[blank_rows headerless typed part_of_file text_format].freeze
+    # text that its streams decide, such as the CSV of a spreadsheet, see `IOStreams::Tabular::Settings#tabular`, and the
+    # form in which its rows hold the values of a schema, such as the cells of a spreadsheet, see
+    # `IOStreams::StreamFormat#rows_value_form`.
+    SOURCE_OPTION_NAMES = %i[blank_rows headerless typed part_of_file text_format value_form].freeze
 
     # Parse a delimited data source.
     #
@@ -146,10 +148,16 @@ module IOStreams
     #     reads or writes rows.
     #     Default: nil, the lines are those of the format of the rows.
     #
+    #   value_form: [Symbol|nil]
+    #     The form in which the rows written hold the values of a schema, see `IOStreams::Schema::Field#render`, when the
+    #     stream that writes them decides it, such as `:scalar` for the cells of a spreadsheet, see
+    #     `IOStreams::StreamFormat#rows_value_form`. Not an option of a call that reads or writes rows.
+    #     Default: nil, the form of the format, see `IOStreams::Tabular::Parser::Base.value_form`.
+    #
     # Raises ArgumentError for a `headerless` that is not true, false or nil, or a `typed` or `part_of_file` that is not
     # true or false.
     def initialize(format: nil, file_name: nil, schema: nil, contract: nil, default_format: :csv, row_format_options: nil,
-                   blank_rows: true, headerless: nil, typed: false, part_of_file: false, text_format: nil)
+                   blank_rows: true, headerless: nil, typed: false, part_of_file: false, text_format: nil, value_form: nil)
       @format = file_name && format.nil? ? self.class.format_from_file_name(file_name) : format
       @format ||= default_format
       raise(Errors::UnknownFormat, "The format cannot be inferred from the file name: #{file_name}") unless @format
@@ -167,6 +175,7 @@ module IOStreams
       @typed              = typed
       @row_format_options = row_format_options || {}
       @text_format        = text_format
+      @value_form         = value_form
       @parser             = build_parser
       @mapping            = build_mapping(blank_rows, headerless, typed, part_of_file)
     end
@@ -786,7 +795,8 @@ module IOStreams
       if @schema
         SchemaMapping.new(@schema, header: header, parser: parser, format: format, blank_rows: blank_rows,
                                    headerless: headerless, typed: typed, every_field: !@contract.nil?,
-                                   contract: (@contract if @file_schema), part_of_file: part_of_file)
+                                   contract: (@contract if @file_schema), part_of_file: part_of_file,
+                                   value_form: @value_form)
       else
         HeaderMapping.new(header: header, parser: parser, format: format, blank_rows: blank_rows, headerless: headerless)
       end

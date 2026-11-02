@@ -22,7 +22,9 @@ module IOStreams
     #               `ActiveSupport::Duration`, since the `parquet` gem has no interval type.
     #   "object"    string, holding the JSON text of the Hash, which a schema with the field reads back as the Hash.
     #   "array"     string, holding the JSON text of the Array, read back the same way.
-    #   "list"      string, holding the text of its items separated by its delimiter, as a format of text writes it.
+    #   "list"      a list of the Parquet type of its `itemType`, as above, apart from a number, whose items are their text,
+    #               since a list has no `decimals` for a Parquet decimal, so that a list read back is the same Array,
+    #               and each item is in its own Parquet type, as other tools, such as DuckDB, read it.
     #   "year"      int64.
     #   "yearmonth" string, holding its text, such as `2026-10`, since Parquet has no type of a month.
     #   "geopoint"  string, holding the text of its format, such as `90.5, 45.5`, or the JSON text of an array or an
@@ -42,9 +44,16 @@ module IOStreams
       #   field: [IOStreams::Schema::Field]
       #     The field that the column holds.
       #
+      #   item: [true|false]
+      #     Whether the field is that of the items of a list, see `IOStreams::Schema::Field#item_field`, whose number is
+      #     its text, since it has no `decimals`.
+      #     Default: false
+      #
       # Raises ArgumentError when the field has no Parquet type, see above.
-      def initialize(field)
+      def initialize(field, item: false)
         @field = field
+        @item  = item
+        @items = Column.new(field.item_field, item: true) if field.type == "list"
         @type  = parquet_type
         freeze
       end
@@ -56,10 +65,7 @@ module IOStreams
 
       # Returns [Hash] the field of the schema of the `parquet` gem that describes this column.
       def descriptor
-        descriptor = {name: @field.name.to_s, type: @type, nullable: !@field.value_required?}
-        descriptor.merge!(precision: PRECISION, scale: @field.decimals) if @type == :decimal
-        descriptor[:timezone] = "UTC" if @type == :timestamp_micros
-        descriptor
+        {name: @field.name.to_s, **type_descriptor, nullable: !@field.value_required?}
       end
 
       # Returns the value, of the type of the field, see `IOStreams::Schema::Field#render`, in the form that the
@@ -80,6 +86,7 @@ module IOStreams
         return value if value.nil?
 
         case @type
+        when :list then value.map { |item| @items.value(item) }
         when :int64 then int64(value)
         when :decimal then decimal(value)
         when :date32 then Time.utc(value.year, value.month, value.day)
@@ -91,11 +98,24 @@ module IOStreams
         end
       end
 
+      protected
+
+      # Returns [Hash] the Parquet type of the column, as the `parquet` gem describes it, see #descriptor, which an item
+      # of a list has too, which can be null.
+      def type_descriptor
+        descriptor = {type: @type}
+        descriptor.merge!(precision: PRECISION, scale: @field.decimals) if @type == :decimal
+        descriptor[:timezone] = "UTC" if @type == :timestamp_micros
+        descriptor[:item] = @items.type_descriptor.merge(nullable: true) if @type == :list
+        descriptor
+      end
+
       private
 
       def parquet_type
         case @field.type
-        when "string", "duration", "object", "array", "list", "yearmonth", "geopoint" then :string
+        when "list" then :list
+        when "string", "duration", "object", "array", "yearmonth", "geopoint" then :string
         when "integer", "year" then :int64
         when "number" then number_type
         when "boolean" then :boolean
@@ -110,6 +130,7 @@ module IOStreams
 
       def number_type
         return :double if @field.float?
+        return :string if @item
 
         decimals = @field.decimals
         unless decimals

@@ -45,16 +45,21 @@ module IOStreams
       #     within the file are not checked, see `IOStreams::Schema::Columns#initialize`.
       #     Default: false
       #
+      #   value_form: [Symbol|nil]
+      #     The form in which the rows written hold the values of the fields, see `IOStreams::Schema::Field#render`.
+      #     Default: nil, the form of the format, see `IOStreams::Tabular::Parser::Base.value_form`.
+      #
       #   See `IOStreams::Tabular::Mapping#initialize` for the others.
       #
       # Raises ArgumentError when the rows of a format with a header row, such as CSV, have none, and the schema cannot
       # describe them, see `IOStreams::Schema#check_fields_in_order`.
       def initialize(schema, header:, parser:, format:, blank_rows: true, headerless: nil, typed: false, every_field: false,
-                     contract: nil, part_of_file: false)
+                     contract: nil, part_of_file: false, value_form: nil)
         super(header: header, parser: parser, format: format, blank_rows: blank_rows)
         @schema          = schema
         # The form of the values that the format reads and writes, see `IOStreams::Tabular::Parser::Base.value_form`,
-        # which the fields read them from, and render them in, see `IOStreams::Schema::Field#parse` and #render.
+        # which the fields read them from, and render them in, see `IOStreams::Schema::Field#parse` and #render, unless
+        # the stream decides the form of the rows written, see `value_form`.
         @form            = parser.class.value_form
         @columns         =
           if contract
@@ -72,6 +77,9 @@ module IOStreams
         # Whether each row is a record whose keys are its columns, such as JSON, rather than the values in the order of
         # the columns, see `IOStreams::Tabular::Parser::Base.keyed?`.
         @keyed           = parser.class.keyed?
+        # The form that the rows written hold the values in, that of the format, unless the stream that writes them
+        # decides it, such as `:scalar` for the cells of a spreadsheet, see `IOStreams::StreamFormat#rows_value_form`.
+        @render_form     = value_form || @form
         # The columns of the rows of a file without a header row are the fields, in order: of a format with one whose
         # rows have none, see `IOStreams::Schema#check_fields_in_order`, or of a format without one, such as fixed width,
         # or JSON, whose rows are the values of the fields of its records.
@@ -280,7 +288,7 @@ module IOStreams
       # Returns [String|Array|Hash] the line that the parser renders for the value of each field of a row or record that
       # is not blank, see #render, even when it supplies none of them.
       def render_fields(row)
-        @parser.render(@columns.render(row, @form, @keyed))
+        @parser.render(@columns.render(row, @render_form, @keyed))
       end
 
       # Returns nil, the line of a blank row or record, which is written as a blank line.

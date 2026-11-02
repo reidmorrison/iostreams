@@ -162,9 +162,9 @@ IOStreams.path("orders.csv").schema(IOStreams::Schema.new(JSON.parse(File.read("
 | `duration` | an `ActiveSupport::Duration`, from ISO 8601, such as `PT8H30M` or `P1M2DT3H`, keeping its months and days apart from its seconds. **Needs the `activesupport` gem**, see below | ISO 8601, such as `P1M2DT3H`, also in JSON |
 | `object` | a `Hash`, from the text of a JSON object, such as `{"a":1}`, or a `Hash` as JSON holds it, see below | that JSON text, or in JSON an object |
 | `array` | an `Array`, from the text of a JSON array, such as `[1,2]`, or an `Array` as JSON holds it, see below | that JSON text, or in JSON an array |
-| `list` | an `Array` of items of its `itemType`, from text of the items separated by its `delimiter`, such as `a,b,c`, each in the default form of its type, or from an `Array`, or the text of a JSON array, such as `["a","b"]` | the items separated by its `delimiter`, or in JSON an array |
-| `year` | an `Integer`, from text of 4 digits, such as `2026`, or a whole number | 4 digits, or in JSON a number |
-| `yearmonth` | a `Date` on the first of its month, from text such as `2026-10`, or a `Date` on the first of its month | `2026-10` |
+| `list` | an `Array` of items of its `itemType`, from text of the items separated by its `delimiter`, such as `a,b,c`, each in the default form of its type, or from an `Array` | the items separated by its `delimiter`, or in JSON an array |
+| `year` | an `Integer` from 0 to 9999, from text of 4 digits, such as `2026`, or a whole number | 4 digits, or in JSON a number |
+| `yearmonth` | a `Date` on the first of its month, from text such as `2026-10`, or a `Date` on the first of its month, up to the year 9999 | `2026-10` |
 | `geopoint` | a point on the earth, `[lon, lat]`, two `BigDecimal`s, from the form of its `format`: `default`, the text `90.50, 45.50`; `array`, a JSON array, such as `[90.50, 45.50]`, or its text; or `object`, a JSON object, such as `{"lon": 90.50, "lat": 45.50}`, or its text | the form of its `format` |
 | `any` | the value as it is read | the value, with a `BigDecimal`, `Date` or `Time` as its text, and in a format of text a `Hash` or an `Array` as JSON, see [Values without a field](#values-without-a-field) |
 
@@ -218,8 +218,13 @@ text, so a number, such as `30600`, raises, since it does not say what it counts
 A `list`, as Frictionless defines it, holds the items of one type, its `itemType`, which is `string`, `integer`,
 `boolean`, `number`, `datetime`, `date` or `time`, `string` by default, separated by its `delimiter`, `,` by default.
 Each item is read in the default form of its type, such as `2026-10-13` for a `date`, as Frictionless requires, and an
-empty item is `nil`. A `string` item keeps its spaces, so give a list of `a, b` the `delimiter` `", "`. Its `minLength`
-and `maxLength` count its items.
+empty item is `nil`. A `string` item keeps its spaces, so give a list of `a, b` the `delimiter` `", "`. The text is split
+at each `delimiter` as it is, even a space, after the whitespace around the whole text is removed. Text is always read
+as delimited text, so the text of a JSON array, such as `["a","b"]`, is not an array, while an `Array`, such as one of
+JSON or the `:hash` format, is read item by item. Writing an item whose text holds the `delimiter`, such as `a,b` of a
+list whose `delimiter` is `,`, raises `IOStreams::Errors::InvalidValue`, since it would be read back as two items, so
+choose a `delimiter` that its items never hold. Its `minLength` and `maxLength` count its items. A `year` is from 0 to
+9999, as its 4 digits hold it.
 
 ~~~ruby
 path = IOStreams.path("orders.csv").schema(
@@ -240,7 +245,9 @@ end
 ~~~
 
 A `geopoint` is read as `[lon, lat]` from the form of its `format`, and from an `Array` or a `Hash` of `lon` and `lat`
-whatever its format, such as of the `:hash` format or Parquet, and is written in the form of its format. Its longitude
+whatever its format, such as of the `:hash` format or Parquet, and is written in the form of its format, apart from a
+format whose values are Ruby objects, such as the `:hash` format, which holds the point itself, `[lon, lat]`. The numbers
+of a geopoint, and of a list of numbers, of a JSON file keep every digit, as those of a `number` field do. Its longitude
 must be from -180 to 180, and its latitude from -90 to 90. `geojson` is not supported yet, so it raises
 `ArgumentError`.
 
@@ -250,9 +257,14 @@ Each format writes them as it can hold them:
 |--------|--------|--------|-------------|------------|
 | CSV, PSV and fixed width | the items separated by its `delimiter` | 4 digits | `2026-10` | the text of its format, such as `90.5, 45.5` or `[90.5,45.5]` |
 | JSON | an array of its items | a number | `"2026-10"` | the text of the default format, or a JSON array or object |
-| Parquet | a `string` column of the items separated by its `delimiter` | an `int64` | a `string` | a `string` of the text of its format |
-| A spreadsheet | the text of a JSON array, such as `["a","b"]`, which the field reads back | a number | a date, the first of the month | the text of its format, or of a JSON array or object |
-| `:hash` and `:array` | an `Array` | an `Integer` | a `Date` | the text of the default format, or an `Array` or a `Hash` |
+| Parquet | a Parquet list of the type of its `itemType`, apart from a `number`, whose items are their text, since a list has no `decimals` | an `int64` | a `string` | a `string` of the text of its format |
+| A spreadsheet | the items separated by its `delimiter`, as CSV writes it | a number | `2026-10` | the text of its format |
+| `:hash` and `:array` | an `Array` | an `Integer` | a `Date` | the point, `[lon, lat]` |
+
+A target that takes the types of the rows that a copy reads, see
+[Converting rows and records](copy_files#converting-rows-and-records), writes a `list` with the default `delimiter`,
+`,`, as it writes a date in ISO 8601 rather than in the `format` of the source, since these describe the text of the
+source.
 
 ### Missing values
 

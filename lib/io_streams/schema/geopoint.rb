@@ -12,8 +12,9 @@ module IOStreams
     #
     # A point is read as `[lon, lat]`, two BigDecimals, from the form of its format, and from an Array or Hash of a format
     # whose values are Ruby objects, such as the `:hash` format, Parquet or a spreadsheet, whatever its format, and is
-    # written in the form of its format. Each number of a point can be a number, or the text of one, such as "90.50",
-    # and its longitude must be from -180 to 180, and its latitude from -90 to 90.
+    # written in the form of its format to a format of text or JSON, while a format whose values are Ruby objects holds
+    # the point itself, `[lon, lat]`, whatever its format. Each number of a point can be a number, or the text of one,
+    # such as "90.50", and its longitude must be from -180 to 180, and its latitude from -90 to 90.
     class Geopoint
       # The formats of a geopoint.
       FORMATS = %w[default array object].freeze
@@ -58,16 +59,16 @@ module IOStreams
       end
 
       # Returns [String|Array|Hash] the point, `[lon, lat]`, in the form of its format, in the supplied form of a file,
-      # see `IOStreams::Schema::Field#render`: text for `:text`, the values of JSON for `:json`, and Ruby objects for
-      # `:typed`, apart from the default format, whose form is always its text.
+      # see `IOStreams::Schema::Field#render`: text for `:text`, and the values of JSON for `:json`, apart from the
+      # default format, whose form is always its text. The `:typed` form is the point itself, which the field returns.
       def write(point, form)
         return "#{number_text(point[0])}, #{number_text(point[1])}" if @format == "default"
 
         values =
-          case form
-          when :typed then point
-          when :json then point.map { |number| JsonNumber.fragment(number_text(number)) }
-          else point.map { |number| JsonNumber.new(number_text(number)) }
+          if form == :json
+            point.map { |number| JsonNumber.fragment(number_text(number)) }
+          else
+            point.map { |number| JsonNumber.new(number_text(number)) }
           end
         values = {"lon" => values[0], "lat" => values[1]} if @format == "object"
         return values unless form == :text
@@ -85,7 +86,8 @@ module IOStreams
           return match&.captures
         end
 
-        json = JSON.parse(text)
+        # With every digit of each number, rather than those of a Float.
+        json = JSON.parse(text, decimal_class: ::BigDecimal)
         @format == "array" ? json : from_hash(json)
       rescue JSON::ParserError
         nil

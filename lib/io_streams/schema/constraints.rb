@@ -25,14 +25,15 @@ module IOStreams
     #     it is read, so the text "1" of CSV is not the number 1.
     #
     #   minimum, maximum: [Object]
-    #     The least and the greatest value of the field, of an integer, number, date, time, datetime or duration field.
+    #     The least and the greatest value of the field, of an integer, number, date, time, datetime, duration, year or
+    #     yearmonth field.
     #     A time compares as the instant that it is on 2000-01-01, so a maximum of "17:00:00" accepts 18:00:00+02:00.
     #
     #   exclusiveMinimum, exclusiveMaximum: [Object]
     #     A value that each value of the field must be greater than, or less than, of the same types as `minimum`.
     #
     #   minLength, maxLength: [Integer]
-    #     The fewest and the most characters of a string, or items of an array or an object.
+    #     The fewest and the most characters of a string, or items of a list, an array or an object.
     #
     #   pattern: [String]
     #     A Ruby regular expression that the whole text of a string must match, as if it were wrapped in
@@ -56,10 +57,10 @@ module IOStreams
       UNSUPPORTED = %w[jsonSchema].freeze
 
       # The types whose values `minimum`, `maximum`, `exclusiveMinimum` and `exclusiveMaximum` compare.
-      ORDERED_TYPES = %w[integer number date time datetime duration].freeze
+      ORDERED_TYPES = %w[integer number date time datetime duration year yearmonth].freeze
 
       # The types whose values have a length, `minLength` and `maxLength`.
-      LENGTH_TYPES = %w[string array object].freeze
+      LENGTH_TYPES = %w[string list array object].freeze
 
       # The types whose values `enum` and `categories` hold as the keys of a Hash, since `eql?` and `hash` of their
       # values agree with `==`, so that each value is found at once, while any other type compares with `==`, such as
