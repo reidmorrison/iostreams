@@ -1154,7 +1154,7 @@ class SchemaTest < Minitest::Test
           end
         end
 
-        it "reads the number 1 as true and 0 as false, such as the 1.0 and 0.0 of a spreadsheet" do
+        it "reads the number 1 as true and 0 as false, such as the 1 or 0, or 1.0 or 0.0, of JSON" do
           assert boolean.cast(1)
           assert boolean.cast(1.0)
           refute boolean.cast(0)
@@ -1524,7 +1524,7 @@ class SchemaTest < Minitest::Test
           assert_same prefs, object.cast(prefs)
         end
 
-        it "converts a Hash to what JSON holds, as Rails does, so that it is the value that the text of its JSON reads" do
+        it "converts a Hash to what JSON holds, so that it is the value that the text of its JSON reads" do
           prefs = {
             theme: :dark,
             1      => "one",
@@ -1543,6 +1543,26 @@ class SchemaTest < Minitest::Test
           assert_equal data, object.render(prefs, :typed)
           assert_equal data, object.render(prefs, :json)
           assert_equal({theme: :dark}, prefs.slice(:theme), "the Hash supplied is not changed")
+        end
+
+        it "keeps a value of another class as it is, which can differ from the value that its JSON text reads" do
+          prefs = {"ratio" => Rational(1, 2)}
+
+          assert_equal({"ratio" => Rational(1, 2)}, object.cast(prefs))
+          assert_equal({"ratio" => "1/2"}, object.cast(object.render(prefs, :text)))
+        end
+
+        it "raises for Hashes and Arrays nested more than 100 deep, as JSON reads them, such as a Hash that holds itself" do
+          deep = 99.times.reduce({"a" => 1}) { |inner, _| {"a" => inner} }
+
+          assert_equal deep, object.cast(deep)
+          error = assert_raises(IOStreams::Errors::InvalidValue) { object.cast({"a" => deep}) }
+          assert_includes error.message, 'Field "value": '
+          assert_raises(IOStreams::Errors::InvalidValue) { object.cast({b: deep}) }
+          itself = {"a" => 1}
+          itself["b"] = itself
+          assert_raises(IOStreams::Errors::InvalidValue) { object.cast(itself) }
+          assert_raises(IOStreams::Errors::InvalidValue) { field(type: "array").cast([[deep]]) }
         end
 
         it "reads empty text as nil, and raises for text of only whitespace" do
@@ -1595,7 +1615,7 @@ class SchemaTest < Minitest::Test
           assert_equal ["1.5", "2026-10-13T09:30:00Z", "x"], array.render(list, :json)
         end
 
-        it "converts an Array to what JSON holds, as Rails does, so that it is the value that the text of its JSON reads" do
+        it "converts an Array to what JSON holds, so that it is the value that the text of its JSON reads" do
           list = [:a, BigDecimal("1.5"), Date.new(2026, 10, 13), {b: [:c]}, 1, 2.5, nil, true]
           data = ["a", "1.5", "2026-10-13", {"b" => ["c"]}, 1, 2.5, nil, true]
 

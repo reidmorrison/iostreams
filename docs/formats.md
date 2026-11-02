@@ -320,10 +320,14 @@ as a missing value, which CSV writes as an empty value, such as `,21,`, rather t
 `null`, and text of only whitespace raises for a type other than `string` or `any`.
 
 A `Hash` or an `Array` of an `object` or `array` field, such as one of the `:hash` format, is converted to what JSON
-holds of it, as Rails' `as_json` does, so that it is the same as the value that its JSON text reads: its keys are
-Strings, such as `"theme"` for `:theme`, a `Symbol` within it is its text, and a `BigDecimal`, `Date` or `Time` within
-it is the text that IOStreams writes for it to JSON, such as `"12.5"`, see
-[Values of a field without a type](#values-of-a-field-without-a-type).
+holds of it, so that it is the same as the value that its JSON text reads: its keys are Strings, such as `"theme"` for
+`:theme`, a `Symbol` within it is its text, and a `BigDecimal`, `Date`, `Time` or `DateTime` within it is the text that
+IOStreams writes for it to JSON, such as `"12.5"`, see
+[Values of a field without a type](#values-of-a-field-without-a-type). Any other value is kept as it is, so that a
+value of another class, such as a `Rational`, can differ from the value that its JSON text reads. Hashes and Arrays
+nested more than 100 deep, as JSON reads them, raise `IOStreams::Errors::InvalidValue`. Frictionless keeps a dict as
+it is, and reads a `boolean` only from text, and `true` or `false`, so this conversion, and reading the number `1` or
+`0` as a `boolean`, are what IOStreams adds.
 
 A value that is not one of the type of its field, such as `N/A` for an `integer`, raises
 `IOStreams::Errors::InvalidValue`, naming the field and the value, both when reading and when writing. So does a `date`
