@@ -16,7 +16,7 @@ class TabularSchemaTest < Minitest::Test
       end
 
       it "declares each method of the role of a mapping, which raises NotImplementedError until a mapping implements it" do
-        role    = %i[header? requires_header? rows_header? record_rows? headerless_columns parse_header read_header row_parse
+        role    = %i[header? requires_header? rows_header? record_rows? headerless_columns repeated_key parse_header read_header row_parse
                      record_parse render render_header read_row read_record_line restrict_columns cleanse_header! start_copy
                      copy_row start_rows render_row render_header_row start_records render_record]
         mapping = IOStreams::Tabular::Mapping.new(header: IOStreams::Tabular::Header.new, parser: IOStreams::Tabular::Parser::Csv.new, format: :csv)

@@ -166,6 +166,11 @@ so it is accepted. A nil one, and `skip_unknown`, have no effect.
   and dashes are converted to underscores, so the header `" First Name "` becomes `"first_name"`.
   Default: true
 
+Without a schema, two columns of a header row that are the same key of a record, such as `a,a,b`, or `A` and `a`,
+which are cleansed to the same key, give each record the value of only the last of them. This is deprecated, and
+reports a deprecation warning, since IOStreams 3.0 raises `IOStreams::Errors::InvalidHeader` for them, rather than
+lose the others: rename the columns, or read the rows with `each(:array)`, which holds every column.
+
 * `allowed_columns: [Array<String>]`
   List of columns to allow. Any other columns are ignored when `skip_unknown` is true,
   otherwise an `IOStreams::Errors::InvalidHeader` exception is raised.

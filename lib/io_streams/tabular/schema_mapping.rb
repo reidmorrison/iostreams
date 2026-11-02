@@ -97,6 +97,12 @@ module IOStreams
         @columns.names if @columns.matched? && !@requires_header
       end
 
+      # Returns [nil] the key of each value of a record is its own field, since two columns of the same field raise
+      # `IOStreams::Errors::InvalidHeader`, see `IOStreams::Tabular#repeated_key`.
+      def repeated_key
+        nil
+      end
+
       # Returns [Array] the header row parsed from the line, once its columns are matched to the fields, see
       # `IOStreams::Schema::Columns#match`.
       # Returns nil when the line is blank, or the file has no header row, see #requires_header?, such as with a schema

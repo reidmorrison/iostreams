@@ -52,6 +52,57 @@ class RecordReaderTest < Minitest::Test
       end
     end
 
+    describe "a header row whose columns are the same key" do
+      # Returns [Array<Hash>] the records read from the CSV text with IOStreams::Stream#each(:hash).
+      def records(csv)
+        records = []
+        IOStreams.stream(StringIO.new(csv)).format(:csv).each(:hash) { |record| records << record }
+        records
+      end
+
+      it "reports a deprecation warning once, and still keeps the value of the last column, as before" do
+        warning = /records read from a header row whose columns are the same key, "a", are deprecated.*v3\.0 raises IOStreams::Errors::InvalidHeader/
+
+        assert_equal [{"a" => "2", "b" => "3"}, {"a" => "5", "b" => "6"}], assert_deprecated(warning) { records("a,a,b\n1,2,3\n4,5,6\n") }
+        assert_equal [{"a" => "2", "b" => "3"}], assert_deprecated(warning) { records("A,a,b\n1,2,3\n") }
+        assert_deprecated(warning) do
+          out = StringIO.new
+          IOStreams.stream(out).format(:json).copy_from(IOStreams.stream(StringIO.new("a,a,b\n1,2,3\n")).format(:csv), mode: :hash)
+
+          assert_equal %({"a":"2","b":"3"}\n), out.string
+        end
+      end
+
+      it "reports none for columns that are each their own key, blank columns, a file without records, or rows" do
+        assert_equal [{"a" => "1", "b" => "3"}], records("a,,b\n1,2,3\n")
+        assert_equal [{"a" => "1", "a_2" => "2"}], records("a,a 2\n1,2\n")
+        # A file without records, which v3.0 reads without raising, as it raises when it makes the first record.
+        assert_empty records("a,a\n")
+        rows = []
+        IOStreams.stream(StringIO.new("a,a,b\n1,2,3\n")).format(:csv).each(:array) { |row| rows << row }
+
+        assert_equal [%w[a a b], %w[1 2 3]], rows
+      end
+
+      it "reports none to another gem that reads with the tabular itself, which its users cannot change" do
+        tabular = IOStreams::Tabular.new(format: :csv)
+        tabular.parse_header("a,a,b")
+
+        assert_equal({"a" => "2", "b" => "3"}, tabular.record_parse("1,2,3"))
+        assert_equal "a", tabular.repeated_key
+        records = []
+        IOStreams::Record::Reader.stream(IOStreams::Line::Reader.new(StringIO.new("a,a,b\n1,2,3\n"))) { |io| io.each { |record| records << record } }
+
+        assert_equal [{"a" => "2", "b" => "3"}], records
+      end
+
+      it "is nil with a schema, which raises for two columns of the same field" do
+        tabular = IOStreams::Tabular.new(format: :csv, schema: IOStreams::Schema.new(fields: [{name: "a"}]))
+
+        assert_nil tabular.repeated_key
+      end
+    end
+
     describe "allowed_columns" do
       # IOStreams.enforce_column_restrictions= is deprecated, and still applies to the column options that it tests.
       allow_deprecation(/IOStreams\.enforce_column_restrictions= is deprecated/)

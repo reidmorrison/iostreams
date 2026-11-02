@@ -130,6 +130,23 @@ module IOStreams
         end
       end
 
+      # Returns [String|nil] the first key that two of the columns are, such as "a" for the header row `a,a,b`, or for the
+      # columns `A` and `a` once cleansed, see #cleanse!, of which a Hash made by #to_hash holds the value of only the
+      # last column, or nil when each column is its own key. A blank or rejected column, which #to_hash leaves out, is
+      # not a key.
+      def repeated_key
+        return if columns.nil?
+
+        keys = {}
+        columns.each do |column|
+          next if IOStreams::Utils.blank?(column) || column.start_with?(IGNORE_PREFIX)
+          return column if keys.key?(column)
+
+          keys[column] = true
+        end
+        nil
+      end
+
       # Returns [true|false] whether `allowed_columns` or `required_columns` restrict the columns.
       def restricted?
         !allowed_columns.nil? || !required_columns.nil?
