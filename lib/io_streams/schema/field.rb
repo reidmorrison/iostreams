@@ -41,7 +41,7 @@ module IOStreams
     #                 seconds. It needs the activesupport gem, which the field loads when it is created.
     #     "object":   a Hash, read from the text of a JSON object, such as `{"a":1}`, and written as that text, or by a
     #                 format of JSON as an object. A Hash is what JSON holds of it, see .json_data, so that its keys are
-    #                 Strings.
+    #                 Strings, which IOStreams adds, since Frictionless keeps a dict as it is.
     #     "array":    an Array, read from the text of a JSON array, such as `[1,2]`, and written as that text, or by a
     #                 format of JSON as an array. An Array is what JSON holds of it, see .json_data.
     #     "any":      the value as it is read, without converting it, apart from empty text, which is nil.
@@ -180,6 +180,11 @@ module IOStreams
         "object"   => %w[object],
         "array"    => %w[array]
       }.freeze
+
+      # The most Hashes and Arrays within each other that the value of an object or array field can have, as the json
+      # gem's `max_nesting` reads and writes them, so that a deeper one, such as a Hash that holds itself, raises
+      # `IOStreams::Errors::InvalidValue`, rather than overflow the stack, see .json_data.
+      MAX_NESTING = 100
 
       # The types whose values are numbers. A constant, so that using it does not create an Array each time, as an
       # Array literal does.
@@ -372,16 +377,20 @@ module IOStreams
         value
       end
 
-      # Returns the value as JSON holds it, as Rails' `as_json` gives it, so that an object or array field reads the same
-      # value from a format whose rows are Ruby objects, such as `:hash`, a Parquet file or a query, as from JSON, or the
-      # text of JSON: a Hash with String keys, such as "a" for the key `:a`, a Symbol as its text, a BigDecimal, Date,
-      # Time or DateTime as the text that IOStreams writes for it to JSON, see .any_json, such as "12.5" or
-      # "2026-10-13", and any other value as it is. The values within a Hash or an Array are converted too, in a copy,
-      # and the value itself is returned when none of them needs it.
-      def self.json_data(value)
+      # Returns the value as JSON holds it, so that an object or array field reads the same value from a format whose
+      # rows are Ruby objects, such as `:hash`, a Parquet file or a query, as from JSON, or the text of JSON: a Hash with
+      # String keys, such as "a" for the key `:a`, a Symbol as its text, a BigDecimal, Date, Time or DateTime as the text
+      # that IOStreams writes for it to JSON, see .any_json, such as "12.5" or "2026-10-13", and any other value as it
+      # is, so that a value of another class, such as a Rational, can differ from the value that its JSON text reads.
+      # The values within a Hash or an Array are converted too, in a copy, and the value itself is returned when none of
+      # them needs it.
+      #
+      # Raises `JSON::NestingError`, which #cast_json rescues, for Hashes and Arrays nested more than MAX_NESTING deep,
+      # such as one that holds itself.
+      def self.json_data(value, depth = 0)
         case value
-        when ::Hash then data_hash(value)
-        when ::Array then data_array(value)
+        when ::Hash then data_hash(value, depth + 1)
+        when ::Array then data_array(value, depth + 1)
         when String, Integer, Float, true, false, nil then value
         when Symbol then value.name
         else textual?(value) ? any_text(value) : value
@@ -390,12 +399,15 @@ module IOStreams
 
       # Returns [Hash] a copy of the hash with String keys and each of its values converted, see .json_data, or the hash
       # itself when none of them needs it.
-      def self.data_hash(hash)
-        return hash.to_h { |key, item| [key.to_s, json_data(item)] } unless hash.each_key.all?(String)
+      def self.data_hash(hash, depth)
+        nesting(depth)
+        return hash.to_h { |key, item| [key.to_s, json_data(item, depth)] } unless hash.each_key.all?(String)
 
         copy = nil
         hash.each_pair do |key, item|
-          data = json_data(item)
+          next if json_held?(item)
+
+          data = json_data(item, depth)
           (copy ||= hash.dup)[key] = data unless data.equal?(item)
         end
         copy || hash
@@ -403,13 +415,29 @@ module IOStreams
 
       # Returns [Array] a copy of the array with each of its values converted, see .json_data, or the array itself when
       # none of them needs it.
-      def self.data_array(array)
+      def self.data_array(array, depth)
+        nesting(depth)
         copy = nil
         array.each_with_index do |item, index|
-          data = json_data(item)
+          next if json_held?(item)
+
+          data = json_data(item, depth)
           (copy ||= array.dup)[index] = data unless data.equal?(item)
         end
         copy || array
+      end
+
+      # Returns [true|false] whether JSON holds the value as it is, so that .json_data is not called for each one.
+      def self.json_held?(value)
+        case value
+        when String, Integer, Float, true, false, nil then true
+        else false
+        end
+      end
+
+      # Raises `JSON::NestingError` when a Hash or an Array is nested deeper than MAX_NESTING.
+      def self.nesting(depth)
+        raise(JSON::NestingError, "nesting of #{depth} is too deep") if depth > MAX_NESTING
       end
 
       # Returns [true|false] whether JSON holds the value as its text, see .any_json.
@@ -439,7 +467,7 @@ module IOStreams
         else 9
         end
       end
-      private_class_method :time_text, :data_hash, :data_array
+      private_class_method :time_text, :data_hash, :data_array, :json_held?, :nesting
 
       # Returns [true|false] whether a value of the supplied type, which a source declares for a column, such as a Parquet
       # file or a database query, can be one of this field, see CONVERTED_TYPES, so that a column whose values never can,
@@ -842,10 +870,12 @@ module IOStreams
       # array, as JSON holds it, see .json_data, or the text of one in JSON, whose numbers are read as JSON reads them
       # without a schema.
       def cast_json(value, klass)
-        json = value.is_a?(String) ? parse_json(value) : value
-        json = self.class.json_data(json) if json.is_a?(klass)
+        # The JSON that text reads is already what JSON holds.
+        json = value.is_a?(String) ? parse_json(value) : self.class.json_data(value)
         # The value as it was read is named, such as the text of a JSON array for an object field.
         json.is_a?(klass) ? json : invalid(value)
+      rescue JSON::NestingError
+        invalid(value)
       end
 
       def parse_json(text)
@@ -868,7 +898,8 @@ module IOStreams
 
       # A number is true when it is 1 and false when it is 0, such as the 1.0 or 0.0 of a spreadsheet, the 1 or 0 of
       # JSON, or the numbers of a column of a Parquet file or a query, whatever the text of `trueValues` and
-      # `falseValues`, which a number is not. Any other number raises.
+      # `falseValues`, which a number is not. Any other number raises. IOStreams adds this, since Frictionless reads a
+      # boolean only from text, and true or false.
       def cast_boolean(value)
         return value if [true, false].include?(value)
         return value == 1 if bit?(value)

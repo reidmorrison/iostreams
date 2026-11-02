@@ -4063,10 +4063,13 @@ is written as `09:30:00`, whatever time zone the server is in. A `time` read fro
 write the offset too. Use an offset rather than the name of a zone, `%Z`, since a time moved from another day keeps its
 offset but not the name of its zone.
 
-An `object` or `array` field holds what JSON holds of a `Hash` or an `Array`, as Rails' `as_json` gives it, so that a
-source of Ruby objects, such as the `:hash` format, a Parquet file or a query, gives the same record as JSON: `Symbol`
-keys become Strings, and a `Symbol`, `BigDecimal`, `Date` or `Time` within it becomes the text that IOStreams writes for
-it to JSON, such as `{theme: :dark, limit: BigDecimal("12.5")}` read as `{"theme" => "dark", "limit" => "12.5"}`.
+An `object` or `array` field holds what JSON holds of a `Hash` or an `Array`, so that a source of Ruby objects, such
+as the `:hash` format, a Parquet file or a query, gives the same record as JSON: its keys become Strings, and a
+`Symbol`, `BigDecimal`, `Date`, `Time` or `DateTime` within it becomes the text that IOStreams writes for it to JSON,
+such as `{theme: :dark, limit: BigDecimal("12.5")}` read as `{"theme" => "dark", "limit" => "12.5"}`, while any other
+value is kept as it is, such as a `Rational`, which can differ from the value that its JSON text reads. Frictionless
+keeps a dict as it is, so IOStreams adds this. Hashes and Arrays nested more than 100 deep, as JSON reads them, such as
+a Hash that holds itself, raise `IOStreams::Errors::InvalidValue`.
 
 JSON writes integers, numbers and booleans as JSON numbers and booleans, with all of the digits of a `number`, and the
 digits after the decimal point that its `decimals` give, such as `12.50`, the same as CSV, an `object` or an `array`

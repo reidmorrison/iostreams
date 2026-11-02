@@ -1582,7 +1582,27 @@ class SchemaTest < Minitest::Test
           assert_same prefs, object.cast(prefs)
         end
 
-        it "converts a Hash to what JSON holds of it, as Rails does, so that a :hash source reads what JSON does" do
+        it "keeps a value of another class as it is, which can differ from the value that its JSON text reads" do
+          prefs = {"ratio" => Rational(1, 2)}
+
+          assert_equal({"ratio" => Rational(1, 2)}, object.cast(prefs))
+          assert_equal({"ratio" => "1/2"}, object.cast(object.render(prefs, :text)))
+        end
+
+        it "raises for Hashes and Arrays nested more than 100 deep, as JSON reads them, such as a Hash that holds itself" do
+          deep = 99.times.reduce({"a" => 1}) { |inner, _| {"a" => inner} }
+
+          assert_equal deep, object.cast(deep)
+          error = assert_raises(IOStreams::Errors::InvalidValue) { object.cast({"a" => deep}) }
+          assert_includes error.message, 'Field "value": '
+          assert_raises(IOStreams::Errors::InvalidValue) { object.cast({b: deep}) }
+          itself = {"a" => 1}
+          itself["b"] = itself
+          assert_raises(IOStreams::Errors::InvalidValue) { object.cast(itself) }
+          assert_raises(IOStreams::Errors::InvalidValue) { field(type: "array").cast([[deep]]) }
+        end
+
+        it "converts a Hash to what JSON holds of it, so that a :hash source reads what JSON does" do
           prefs = {
             :limit => BigDecimal("12.5"), "on" => Date.new(2026, 10, 13), "at" => Time.utc(2026, 10, 13, 9, 30),
             "kind" => :gold, "tags" => [:a, {b: BigDecimal("1")}], 7 => "seven"
