@@ -55,10 +55,12 @@ class AsTest < Minitest::Test
         assert_equal order.keys, read(text(csv).as(Order)).first.keys
       end
 
-      it "reads JSON numbers of a number field exactly, rather than through a Float" do
-        record = read(text(%({"id":1,"amount":0.1000000000000000055511151231257827}\n), "orders.json").as(Order)).first
+      it "reads JSON numbers of a number field exactly, rather than through a Float, then rounds them to its decimals" do
+        json     = %({"id":1,"amount":0.1000000000000000055511151231257827}\n)
+        contract = IOStreams::Contract.new(fields: [{name: "id", type: "integer"}, {name: "amount", type: "number"}])
 
-        assert_equal BigDecimal("0.1000000000000000055511151231257827"), record["amount"]
+        assert_equal BigDecimal("0.1000000000000000055511151231257827"), read(text(json, "orders.json").as(contract)).first["amount"]
+        assert_equal BigDecimal("0.1"), read(text(json, "orders.json").as(Order)).first["amount"]
       end
 
       it "gives every record every field of the contract, nil for a column that the source does not have" do

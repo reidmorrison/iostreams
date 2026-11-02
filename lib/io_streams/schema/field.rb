@@ -82,7 +82,8 @@ module IOStreams
     #     Default: false
     #
     #   decimals: [Integer]
-    #     For a number, the number of digits written after the decimal point, rounding the value to them.
+    #     For a number, the number of digits after the decimal point, rounding the value to them, both when reading and
+    #     when writing, so that a record read holds the number that is written, see #round.
     #     Default: as many as the value has.
     #
     #   width: [Integer|"remainder"]
@@ -594,14 +595,14 @@ module IOStreams
       end
 
       # Returns [Numeric] the number, of the type of this field, see #cast, rounded to its decimals as its text is
-      # written, see #render: a BigDecimal half up, which is an Integer with no decimals, and a Float as Ruby's `format`
-      # rounds it, to the nearest of its binary value, so that a format that holds the number itself, such as Parquet,
-      # holds the number that CSV writes. A number that is not finite, or of a field without decimals, is returned as it
-      # is.
+      # written, see #render: a BigDecimal half up, whatever the rounding mode of `BigDecimal.mode`, and a Float as
+      # Ruby's `format` rounds it, to the nearest of its binary value, so that a record read, and a format that holds the
+      # number itself, such as Parquet, hold the number that CSV writes. A number that is not finite, or of a field
+      # without decimals, is returned as it is.
       def round(number)
         return number if @decimals.nil? || !number.finite?
 
-        number.is_a?(Float) ? Float(float_text(number)) : number.round(@decimals)
+        number.is_a?(Float) ? Float(float_text(number)) : number.round(@decimals, :half_up)
       end
 
       # Returns the value read from a format whose values are in the supplied form, see #render, converted to the type of
@@ -651,7 +652,7 @@ module IOStreams
       def cast_value(value)
         case type
         when "integer" then cast_integer(value)
-        when "number" then cast_number(value)
+        when "number" then round(cast_number(value))
         when "boolean" then cast_boolean(value)
         when "date" then cast_date(value)
         when "time" then cast_time(value)
@@ -1098,9 +1099,8 @@ module IOStreams
         return (@decimals ? float_text(value) : value.to_s) if value.is_a?(Float)
         return value.to_s("F") unless @decimals
 
-        # Rounding to no decimals returns an Integer.
         rounded = round(value)
-        return rounded.to_s if rounded.is_a?(Integer)
+        return rounded.to_i.to_s if @decimals.zero?
 
         whole, fraction = rounded.to_s("F").split(".")
         "#{whole}.#{fraction.ljust(@decimals, '0')[0, @decimals]}"

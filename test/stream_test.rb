@@ -1427,6 +1427,14 @@ class StreamTest < Minitest::Test
                      read("pay\nInfinity\n-infinity\n", schema: {fields: [{name: "pay", type: "number"}]})
       end
 
+      it "reads a number with decimals rounded to them, as it writes it, so that a record holds what is written" do
+        schema = {fields: [{name: "pay", type: "number", decimals: 2}]}
+
+        assert_equal [{"pay" => BigDecimal("12.35")}], read("pay\n12.345\n", schema: schema)
+        assert_equal [{"pay" => BigDecimal("12.35")}], read(%({"pay":12.345}\n), file_name: "pay.json", schema: schema)
+        assert_equal "pay\n12.35\n", write([{"pay" => BigDecimal("12.345")}], schema: schema)
+      end
+
       describe "object and array fields" do
         let(:accounts) do
           {

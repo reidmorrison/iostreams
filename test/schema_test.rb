@@ -923,6 +923,41 @@ class SchemaTest < Minitest::Test
           assert_equal "13", field(type: "number", decimals: 0).render("12.5", :text)
         end
 
+        it "rounds the number read to its decimals, as it rounds the number written, so that a record holds what is written" do
+          decimals = field(type: "number", decimals: 2)
+          float    = field(type: "number", floatNumber: true, decimals: 2)
+
+          assert_equal BigDecimal("12.35"), decimals.cast("12.345")
+          assert_equal BigDecimal("-0.13"), decimals.cast("-0.125")
+          assert_equal BigDecimal("2.68"), decimals.cast(BigDecimal("2.675"))
+          assert_equal BigDecimal("1.01"), decimals.cast(1.005)
+          assert_equal BigDecimal("0.33"), decimals.cast(1/3r)
+          assert_equal BigDecimal("12.5"), decimals.cast(12.5)
+          # A Float is rounded to the nearest of its binary value, as it is written, which for 12.345 is below it.
+          assert_in_delta 12.34, float.cast("12.345")
+          assert_equal "12.34", float.render("12.345", :text)
+          assert_equal Float(float.render(2.675, :text)), float.cast(2.675)
+          assert_equal decimals.render("12.345", :text), decimals.render(decimals.cast("12.345"), :text)
+        end
+
+        it "rounds to no decimals as a BigDecimal, half up, whatever the rounding mode of BigDecimal" do
+          whole = field(type: "number", decimals: 0)
+
+          assert_equal BigDecimal("3"), whole.cast("2.5")
+          assert_kind_of BigDecimal, whole.cast("2.5")
+          BigDecimal.save_rounding_mode do
+            BigDecimal.mode(BigDecimal::ROUND_MODE, :banker)
+
+            assert_equal BigDecimal("3"), whole.cast("2.5")
+            assert_equal "3", whole.render("2.5", :text)
+          end
+        end
+
+        it "keeps a number that is not finite as it is, whatever its decimals" do
+          assert_predicate field(type: "number", decimals: 2).cast("NaN"), :nan?
+          assert_equal(-1, field(type: "number", decimals: 2).cast("-INF").infinite?)
+        end
+
         it "renders a Float with the number of decimals" do
           assert_equal "12.50", field(type: "number", floatNumber: true, decimals: 2).render(12.5, :text)
         end
