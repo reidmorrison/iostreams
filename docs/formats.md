@@ -342,8 +342,8 @@ field a time of day, of Excel's time format `h:mm:ss`, holding its own clock, or
 and text, such as `"01234"`, is text. A date and time before 1899-12-31, which no cell of a date and time holds, is
 written as the text of its clock, such as `1899-12-30T12:00:00`, which a `datetime` field reads back. A `BigDecimal` is written as the `Float` that Excel
 holds, shown without the `decimals` of its field, see [Limitations](#spreadsheet-limitations). A field whose value is
-not one value, a `list`, `geopoint`, `array` or `object`, and a `yearmonth`, is written as its text, as CSV writes it,
-such as `a,b` or `2026-10`, and a `Hash` or an `Array` of a field of type `any`, or without a schema, as its JSON:
+not one value, a `list`, `geopoint`, `array` or `object`, a `yearmonth` and a `duration`, is written as its text, as
+CSV writes it, such as `a,b`, `2026-10` or `P1D`, and a `Hash` or an `Array` of a field of type `any`, or without a schema, as its JSON:
 
 ~~~ruby
 # Order is a contract, see Contracts.

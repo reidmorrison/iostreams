@@ -46,7 +46,8 @@ module IOStreams
     end
 
     # Returns [Symbol] `:scalar`, since each cell of a workbook holds one value, so that the rows written hold a list, a
-    # geopoint, an array or an object as its text, rather than as an Array or a Hash, and a cell of a date and time, or
+    # geopoint, an array or an object as its text, rather than as an Array or a Hash, and a duration as its text, rather
+    # than its number of seconds, which does not say what it counts, and a cell of a date and time, or
     # of a time of day, holds a clock without a zone, which a field with a `timeZone` writes and reads in its zone, see
     # `IOStreams::StreamFormat#rows_value_form`.
     def self.rows_value_form

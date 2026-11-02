@@ -223,9 +223,10 @@ module IOStreams
       TEXT_PROPERTIES = %w[format trueValues falseValues groupChar decimalChar bareNumber missingValues delimiter].freeze
 
       # The types whose values a cell that holds one value, such as that of a spreadsheet, holds as their text, see
-      # #render's `:scalar` form: those that are not one value, and a yearmonth, whose text, such as `2026-10`, is not
-      # that of a date, so that the CSV text of a spreadsheet reads back too.
-      SCALAR_TEXT_TYPES = %w[list geopoint array object yearmonth].freeze
+      # #render's `:scalar` form: those that are not one value, a yearmonth, whose text, such as `2026-10`, is not that
+      # of a date, and a duration, whose text, such as `P1D`, says what it counts, which its number of seconds does not,
+      # so that the CSV text of a spreadsheet reads back too.
+      SCALAR_TEXT_TYPES = %w[list geopoint array object yearmonth duration].freeze
 
       # The types whose `format` says how a file writes the text of their values, which a contract and the target of a
       # copy leave out, see #to_contract_h and #without_text_h, while that of a string, such as "email" or "binary",
@@ -983,8 +984,9 @@ module IOStreams
       #           :text, which JSON writes as it is, see #number_json, and any other value as its text.
       #   :typed  the value itself, such as `BigDecimal("12.5")`, for a format whose rows are Ruby objects, such as
       #           `:hash`, and a geopoint as its point, `[lon, lat]`, whatever its format.
-      #   :scalar the value itself, as for `:typed`, apart from a list, a geopoint, an array, an object and a yearmonth, as
-      #           their text, as for `:text`, for a format each of whose cells holds one value, such as a spreadsheet,
+      #   :scalar the value itself, as for `:typed`, apart from a list, a geopoint, an array, an object, a yearmonth and a
+      #           duration, as their text, as for `:text`, for a format each of whose cells holds one value, such as a
+      #           spreadsheet,
       #           and a time of a datetime or time field with a `timeZone`, as the clock of its zone, and of a time
       #           field without one, as its own clock, see #clock_of, since such a cell holds a clock without a zone.
       #

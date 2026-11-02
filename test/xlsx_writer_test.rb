@@ -524,6 +524,26 @@ class XlsxWriterTest < Minitest::Test
       end
     end
 
+    describe "a duration" do
+      it "writes the ISO 8601 text of a duration field, which reads back, rather than its number of seconds" do
+        require "active_support"
+        require "active_support/core_ext/integer/time"
+
+        path = IOStreams.path(file_name).schema(fields: [{name: "wait", type: "duration"}])
+        path.writer(:hash) do |io|
+          io << {"wait" => 1.day}
+          io << {"wait" => 90.minutes}
+        end
+        records = []
+        path.each(:hash) { |record| records << record }
+        lines = []
+        IOStreams.path(file_name).each(:line) { |line| lines << line }
+
+        assert_equal([1.day, 90.minutes], records.map { |record| record["wait"] })
+        assert_equal %w[wait P1D PT90M], lines
+      end
+    end
+
     describe "the format of the rows" do
       it "writes each value into its own cell, whatever format the file name names before the extension" do
         path = IOStreams.path(File.join(dir, "report.psv.xlsx"))

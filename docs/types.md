@@ -787,7 +787,7 @@ end
 * **Read as** an `ActiveSupport::Duration`, from ISO 8601, such as `PT8H30M` for 8 hours and 30 minutes, or
   `P1M2DT3H` for a month, 2 days and 3 hours. It keeps the months and days apart from the seconds, since a month has
   no fixed number of seconds. A number, such as `30600`, raises, since it does not say what it counts.
-* **Written as** ISO 8601, such as `P1M2DT3H`.
+* **Written as** ISO 8601, such as `P1M2DT3H`, also to a cell of a spreadsheet, as text.
 * **Needs the activesupport gem**, which Rails includes. Without it, setting a schema with a `duration` field raises
   `LoadError`.
 
