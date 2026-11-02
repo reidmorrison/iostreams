@@ -736,6 +736,15 @@ class SchemaTest < Minitest::Test
           assert_nil string.render("", :json)
         end
 
+        it "writes a number that is not finite as Frictionless writes it, NaN, INF or -INF" do
+          assert_equal "INF", string.cast(Float::INFINITY)
+          assert_equal "-INF", string.cast(BigDecimal("-Infinity"))
+          assert_equal "NaN", string.cast(Float::NAN)
+          assert_equal "-INF", field.render(-Float::INFINITY, :text)
+          assert_equal "INF", field.render(BigDecimal("Infinity"), :json)
+          assert_equal "INF", IOStreams::Schema::Field.any_text(Float::INFINITY)
+        end
+
         it "converts other values to text" do
           assert_equal "42", string.cast(42)
           assert_equal "1.5", string.cast(BigDecimal("1.5"))
@@ -837,6 +846,30 @@ class SchemaTest < Minitest::Test
           assert_predicate number.cast("NaN"), :nan?
           assert_equal 1, number.cast("INF").infinite?
           assert_equal(-1, number.cast("-inf").infinite?)
+        end
+
+        it "reads Infinity and -Infinity, as Ruby and JavaScript write them, whatever their case" do
+          float = field(type: "number", floatNumber: true)
+
+          %w[Infinity INFINITY infinity].each do |text|
+            assert_equal 1, number.cast(text).infinite?, text
+            assert_equal Float::INFINITY, float.cast(text), text
+          end
+          assert_equal(-1, number.cast("-Infinity").infinite?)
+          assert_equal(-Float::INFINITY, float.cast(" -infinity "))
+          ["+INF", "Inf1", "Infinit", "--Infinity"].each do |text|
+            assert_raises(IOStreams::Errors::InvalidValue, text) { number.cast(text) }
+          end
+        end
+
+        it "writes a number that is not finite as Frictionless writes it, NaN, INF or -INF, rather than Infinity" do
+          assert_equal "INF", number.render("Infinity", :text)
+          assert_equal "-INF", field(type: "number", floatNumber: true).render("-Infinity", :text)
+          assert_equal "-INF", number.dump(BigDecimal("-Infinity"))
+        end
+
+        it "keeps reading the text of a whole number with a decimal point as an integer, as a leniency" do
+          assert_equal 12, field(type: "integer").cast("12.0")
         end
 
         it "returns a Float with floatNumber" do

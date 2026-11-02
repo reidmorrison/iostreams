@@ -23,6 +23,8 @@ module IOStreams
     #     "string":   a String. Any other value is written as its text, except a Hash or an Array, which raise.
     #     "integer":  an Integer, such as `-12` or `0042`.
     #     "number":   a BigDecimal, such as `12.50`, `-1.5E3`, `NaN`, `INF` or `-INF`, or a Float with `floatNumber`.
+    #                 `Infinity` and `-Infinity`, as Ruby and JavaScript write them, are read too, whatever their case,
+    #                 while one that is not finite is written as Frictionless writes it, `NaN`, `INF` or `-INF`.
     #     "boolean":  true or false, see `trueValues` and `falseValues`.
     #     "date":     a Date, written as `2026-10-13` unless `format` is set. A Time or DateTime at midnight, by its own
     #                 clock, as a spreadsheet's date format reads it, is its date, while any other time raises, rather
@@ -145,8 +147,15 @@ module IOStreams
       DEFAULT_TRUE_VALUES  = %w[true True TRUE 1].freeze
       DEFAULT_FALSE_VALUES = %w[false False FALSE 0].freeze
 
-      # The text of the numbers that are not finite, whose case does not matter.
-      SPECIAL_NUMBERS = {"nan" => Float::NAN, "inf" => Float::INFINITY, "-inf" => -Float::INFINITY}.freeze
+      # The text of the numbers that are not finite, whose case does not matter: Frictionless' `NaN`, `INF` and `-INF`,
+      # and `Infinity` and `-Infinity`, as Ruby and JavaScript write them.
+      SPECIAL_NUMBERS = {
+        "nan"       => Float::NAN,
+        "inf"       => Float::INFINITY,
+        "-inf"      => -Float::INFINITY,
+        "infinity"  => Float::INFINITY,
+        "-infinity" => -Float::INFINITY
+      }.freeze
 
       # The types of the values of a column that a source declares, such as a Parquet file or a database query, that a
       # field of each type converts, see #converts?: a value of its own type passes through, and one of another type
@@ -313,7 +322,8 @@ module IOStreams
       end
 
       # Returns [String] the text of a value whose type is not known, as a field of type "any" writes it: a BigDecimal
-      # as a plain decimal, such as "12.5" rather than "0.125e2", a Time or DateTime in ISO 8601, such as
+      # as a plain decimal, such as "12.5" rather than "0.125e2", a Float or BigDecimal that is not finite as
+      # Frictionless writes it, "NaN", "INF" or "-INF", see .special_text, a Time or DateTime in ISO 8601, such as
       # "2026-10-13T09:30:00Z", with as many digits of its fraction of a second as it needs, a Date in ISO 8601, such as
       # "2026-10-13", a Hash or an Array as JSON, such as `{"a":1}` or `[1,2]`, which the JSON format writes for it,
       # see `IOStreams::Tabular::Parser::Json.generate`, and any other value with `to_s`.
@@ -326,12 +336,13 @@ module IOStreams
       def self.any_text(value)
         return value if value.is_a?(String)
         # The most common values first, so that they skip the checks below.
-        return value.to_s if value.is_a?(Integer) || value.is_a?(Float)
+        return value.to_s if value.is_a?(Integer)
+        return value.finite? ? value.to_s : special_text(value) if value.is_a?(Float)
         # `is_a?` rather than `case`, which an `ActiveSupport::TimeWithZone` does not match.
         return time_text(value) if value.is_a?(Time)
         return time_text(time_of(value)) if value.is_a?(DateTime)
         return value.iso8601 if value.is_a?(Date)
-        return value.to_s("F") if value.is_a?(::BigDecimal)
+        return value.finite? ? value.to_s("F") : special_text(value) if value.is_a?(::BigDecimal)
         # The JSON that the JSON format writes, rather than `to_s`, whose text only Ruby reads, and which Ruby 3.4 changed.
         return IOStreams::Tabular::Parser::Json.generate(value) if value.is_a?(::Hash) || value.is_a?(::Array)
 
@@ -356,6 +367,14 @@ module IOStreams
       # Returns [true|false] whether JSON holds the value as its text, see .any_json.
       def self.textual?(value)
         value.is_a?(Time) || value.is_a?(Date) || value.is_a?(::BigDecimal)
+      end
+
+      # Returns [String] the text of a number that is not finite, as Frictionless writes it: "NaN", "INF" or "-INF",
+      # rather than Ruby's "Infinity".
+      def self.special_text(number)
+        return "NaN" if number.nan?
+
+        number.positive? ? "INF" : "-INF"
       end
 
       # Returns [String] the time in ISO 8601, with as many digits of its fraction of a second as it needs.
@@ -932,8 +951,7 @@ module IOStreams
       end
 
       def number_text(value)
-        return "NaN" if value.nan?
-        return value.positive? ? "INF" : "-INF" if value.infinite?
+        return self.class.special_text(value) unless value.finite?
         return (@decimals ? float_text(value) : value.to_s) if value.is_a?(Float)
         return value.to_s("F") unless @decimals
 

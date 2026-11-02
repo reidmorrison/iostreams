@@ -1409,6 +1409,18 @@ class StreamTest < Minitest::Test
         IOStreams::Row::HeaderRow.new(columns)
       end
 
+      it "writes a number that is not finite as NaN, INF or -INF, as Frictionless does, and JSON as valid text" do
+        values = {"a" => Float::INFINITY, "b" => BigDecimal("-Infinity"), "c" => Float::NAN}
+        schema = {fields: [{name: "a"}, {name: "b"}, {name: "c", type: "string"}]}
+
+        assert_equal "a,b,c\nINF,-INF,NaN\n", write([values], schema: schema)
+        assert_equal "a,b,c\nINF,-INF,NaN\n", write([values], schema: nil)
+        assert_equal %({"a":"INF","b":"-INF","c":"NaN"}\n),
+                     write([values.merge("a" => BigDecimal("Infinity"))], file_name: "people.json", schema: schema)
+        assert_equal [{"pay" => BigDecimal("Infinity")}, {"pay" => BigDecimal("-Infinity")}],
+                     read("pay\nInfinity\n-infinity\n", schema: {fields: [{name: "pay", type: "number"}]})
+      end
+
       describe "object and array fields" do
         let(:accounts) do
           {
