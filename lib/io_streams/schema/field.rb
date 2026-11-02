@@ -616,11 +616,10 @@ module IOStreams
       # Returns [IOStreams::Schema::Pattern|nil] the strptime pattern of a date, datetime or time, or nil for the
       # default form.
       def check_format(format)
-        pattern = format.is_a?(String) ? format.delete_prefix(Pattern::PREFIX) : format
+        pattern = format.is_a?(String) ? format.delete_prefix("fmt:") : format
         return if pattern.nil? || pattern == "default"
 
-        pattern = nil unless pattern.is_a?(String)
-        unless %w[date datetime time].include?(type) && pattern&.include?("%")
+        unless %w[date datetime time].include?(type) && pattern.is_a?(String) && pattern.include?("%")
           raise(ArgumentError, "Field #{name.inspect}: the format #{format.inspect} is not supported for a #{type} field")
         end
 
@@ -870,7 +869,7 @@ module IOStreams
         parts = @format.parts(text)
         return invalid(text) if parts.nil? || !clock_time?(parts.fetch(:hour, 0), parts.fetch(:min, 0), parts.fetch(:sec, 0))
 
-        self.class.time_of_day(parse_time(Time, text))
+        self.class.time_of_day(parse_time(Time, text, parts))
       end
 
       # Returns [true|false] whether the hour, minute and second are those of a clock, from 00:00:00 to 23:59:59.
@@ -879,12 +878,12 @@ module IOStreams
       end
 
       # Returns [Date|Time] the text read with the strptime pattern of the format, which must match all of the text,
-      # and whose date must exist, see #cast_datetime.
+      # and whose date must exist, see #cast_datetime, from its parts, see `IOStreams::Schema::Pattern#parts`, which
+      # are read unless the caller has already read them.
       #
       # A time is at the offset from UTC that its zone gives, or in UTC without one, see #cast_datetime. A zone whose
       # offset is not known, such as "XYZ", raises, rather than be read in the time zone of the process.
-      def parse_time(klass, text)
-        parts = @format.parts(text)
+      def parse_time(klass, text, parts = @format.parts(text))
         return invalid(text) if parts.nil?
         if parts[:mon] && parts[:mday] && !Date.valid_date?(parts.fetch(:year, Time.now.year), parts[:mon], parts[:mday])
           return invalid(text)
