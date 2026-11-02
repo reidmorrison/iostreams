@@ -323,6 +323,14 @@ class SliceTest < Minitest::Test
         assert_equal [6, 8], [error.record_number, error.line_number]
       end
 
+      it "raises for a time whose date does not exist when it is turned back, rather than read the next month" do
+        hash  = {"rows" => [{"at" => "2026-02-30T09:30:00Z"}], "format" => "hash",
+                 "schema" => {"fields" => [{"name" => "at", "type" => "datetime"}]}}
+        error = assert_raises(IOStreams::Errors::InvalidValue) { IOStreams.slice(hash) }
+
+        assert_equal "2026-02-30T09:30:00Z", error.value
+      end
+
       it "makes slices that differ by it not equal" do
         refute_equal typed, IOStreams::Slice.new(typed.rows, format: :hash)
       end

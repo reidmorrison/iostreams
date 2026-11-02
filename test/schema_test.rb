@@ -2078,6 +2078,38 @@ class SchemaTest < Minitest::Test
         end
       end
 
+      describe "#load" do
+        it "raises for a date that does not exist, or a time that is not on a clock, as #cast does" do
+          datetime = field(type: "datetime", format: "%d/%m/%Y %H:%M")
+          clock    = field(type: "time", format: "%H.%M")
+          date     = field(type: "date", format: "%d/%m/%Y")
+          {
+            datetime => ["2026-02-30T09:30:00Z", "2026-10-13T24:00:00Z", "2026-10-13T23:59:60Z"],
+            clock    => ["24:00:00", "23:59:60Z", "23:60:00+05:00"],
+            date     => ["2026-02-30"]
+          }.each do |field, texts|
+            texts.each do |text|
+              assert_raises(IOStreams::Errors::InvalidValue, text) { field.load(text) }
+            end
+          end
+
+          assert_equal Time.utc(2026, 2, 28, 9, 30), datetime.load("2026-02-28T09:30:00Z")
+          assert_equal Time.new(2000, 1, 1, 23, 59, 59, "+05:00"), clock.load("23:59:59+05:00")
+          assert_equal Date.new(2026, 2, 28), date.load("2026-02-28")
+        end
+
+        it "checks the constraints of a date, datetime or time, as for any other type" do
+          {
+            field(type: "date", constraints: {maximum: "2026-01-01"})               => "2026-06-01",
+            field(type: "datetime", constraints: {maximum: "2026-01-01T00:00:00Z"}) => "2026-06-01T00:00:00Z",
+            field(type: "time", constraints: {maximum: "12:00:00"})                 => "13:00:00Z"
+          }.each do |field, text|
+            error = assert_raises(IOStreams::Errors::InvalidValue, text) { field.load(text) }
+            assert_match(/more than its maximum/, error.message)
+          end
+        end
+      end
+
       describe "time" do
         let(:clock) { field(type: "time") }
 

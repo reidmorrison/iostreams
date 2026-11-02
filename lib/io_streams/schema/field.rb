@@ -854,7 +854,8 @@ module IOStreams
       # Returns the value of this field from the form that #dump gives it, in ISO 8601 whatever the `format` of the field,
       # and a number as its plain digits whatever its `groupChar`, `decimalChar` and `bareNumber`, such as "1234.5",
       # or from any other form that a store returned it in, see #restore. Its text is not compared with the missing
-      # values, see #cast_typed, since it is the text that #dump gives a value, such as "-99" for the number -99.
+      # values, see #cast_typed, since it is the text that #dump gives a value, such as "-99" for the number -99, while
+      # it is checked as #cast checks it: a date that exists, a time on a clock, and the constraints of the field.
       #
       # Raises `IOStreams::Errors::InvalidValue` as #restore does.
       def load(value)
@@ -862,9 +863,7 @@ module IOStreams
 
         case type
         when "number" then cast_typed(NUMBER.match?(value) ? number(value) : special_number(value))
-        when "date" then DATE.match?(value) ? cast_date_text(value) : cast_typed(value)
-        when "datetime" then (match = DATETIME.match(value)) ? iso_datetime(match) : cast_typed(value)
-        when "time" then (clock = TIME.match(value)) ? iso_clock(clock) : cast_typed(value)
+        when "date", "datetime", "time" then load_iso(value)
         else cast_typed(value)
         end
       rescue ArgumentError
@@ -1692,11 +1691,7 @@ module IOStreams
         return invalid(value) unless value.is_a?(String)
         return parse_time(Time, value) if @format
 
-        match = DATETIME.match(value)
-        date  = match && match[1]
-        return invalid(value) unless date && Date.valid_date?(date[0, 4].to_i, date[5, 2].to_i, date[8, 2].to_i)
-
-        iso_datetime(match)
+        iso_datetime_text(value) || invalid(value)
       rescue TimeZone::SkippedClock => e
         invalid(value, "#{type}, since #{e.message}")
       rescue ArgumentError
@@ -1714,10 +1709,7 @@ module IOStreams
         return invalid(value) unless value.is_a?(String)
         return parse_time_of_day(value) if @format
 
-        clock = TIME.match(value)
-        return invalid(value) unless clock && clock_time?(clock[1].to_i, clock[2].to_i, clock[3].to_i)
-
-        iso_clock(clock)
+        iso_clock_text(value) || invalid(value)
       rescue TimeZone::SkippedClock => e
         invalid(value, "#{type}, since #{e.message}")
       rescue ArgumentError
@@ -1862,15 +1854,44 @@ module IOStreams
       end
 
       # Returns [Date|Time|nil] the value of the ISO 8601 text of a date, datetime or time, whatever the format of the
-      # field, see #constraint_value, or nil when it is not such text.
+      # field, see #constraint_value and #load_iso, or nil when it is not such text, or not a date that exists or a time
+      # on a clock, which #cast checks too.
       def iso_value(text)
         case type
         when "date" then cast_date_text(text) if DATE.match?(text)
-        when "datetime" then (match = DATETIME.match(text)) && iso_datetime(match)
-        when "time" then (clock = TIME.match(text)) && iso_clock(clock)
+        when "datetime" then iso_datetime_text(text)
+        when "time" then iso_clock_text(text)
         end
       rescue ArgumentError
         nil
+      end
+
+      # Returns the value of a date, datetime or time from the ISO 8601 text that #dump gives it, whatever the format of
+      # the field, see #iso_value, or from its format otherwise, see #cast_typed, once its constraints are checked, as
+      # #cast_typed checks them, see #load.
+      #
+      # Raises `IOStreams::Errors::InvalidValue` for a date that does not exist, a time that is not on a clock, and a
+      # value that does not meet the constraints, as #cast does.
+      def load_iso(text)
+        value = iso_value(text)
+        return cast_typed(text) if value.nil?
+
+        @checks ? @constraints.check(value, text) : value
+      end
+
+      # Returns [Time|nil] the time of the ISO 8601 text of a datetime, see DATETIME, or nil for other text, or for a date
+      # that does not exist, such as 2026-02-30, which `Time` moves into the next month.
+      def iso_datetime_text(text)
+        match = DATETIME.match(text)
+        date  = match && match[1]
+        iso_datetime(match) if date && Date.valid_date?(date[0, 4].to_i, date[5, 2].to_i, date[8, 2].to_i)
+      end
+
+      # Returns [Time|nil] the time of day of the ISO 8601 text of a time, see TIME, or nil for other text, or for a time
+      # that is not on a clock, see #clock_time?, such as 24:00:00, which `Time` moves into the next day.
+      def iso_clock_text(text)
+        clock = TIME.match(text)
+        iso_clock(clock) if clock && clock_time?(clock[1].to_i, clock[2].to_i, clock[3].to_i)
       end
 
       # Returns [Time] the time of the text that DATETIME matched, in UTC without an offset, read with `Time.iso8601`,
