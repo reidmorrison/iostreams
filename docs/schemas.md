@@ -234,9 +234,21 @@ end
 ~~~
 
 Without `""`, empty text is a value: a `string` or `any` field reads it as `""`, and every other type raises
-`IOStreams::Errors::InvalidValue` for it. A required field raises for a missing value, as it does for `nil`. A value that
-is not text, such as a number of JSON, a Parquet file or a query, is never a missing value. Writing writes `nil` as an
-empty value, or `null` in JSON, whatever the missing values.
+`IOStreams::Errors::InvalidValue` for it. An empty value of CSV without quotes, such as the second value of `a,,b`, is
+still `nil` whatever the missing values, since the CSV parser reads it as no value, while a quoted one, `""`, is empty
+text. A required field raises for a missing value, as it does for `nil`.
+
+A value that is not text, such as a number of JSON, a Parquet file or a query, is never a missing value, apart from a
+cell of a spreadsheet, whose text is compared with them, as Frictionless compares the text of a value before it reads its
+type, so a cell that holds the number `-99` is `nil` with `missingValues: ["-99"]`, whatever the type of its field. The
+text of a cell is the text that the CSV of the spreadsheet holds, see [Excel spreadsheets](formats#excel-spreadsheets).
+
+Writing writes `nil`, and a missing value, as the first missing value of the field, such as `NA`, as frictionless-py
+does, so that it reads back as `nil`, or as an empty value when that is empty text, or there are none, and as `null` in
+JSON. A fixed width file writes such a value of a number as it is, space filled, rather than as zeros.
+
+A [contract](contracts) read over the records of a schema of the file takes the values that the schema read from the
+text, so the missing values of the contract do not apply to them: only those of the schema, which reads the text.
 
 ### Text of numbers
 
@@ -505,11 +517,12 @@ out, and any other `fieldsMatch` raises `ArgumentError` for `"keep"`, since it d
 
 A field whose `constraints` are `required`, as Frictionless defines it, must have a value: a header row, or JSON
 record, without the field raises `IOStreams::Errors::InvalidHeader`, whatever `fieldsMatch` is, and a value that is
-`nil`, or empty text, raises `IOStreams::Errors::InvalidValue`, both when reading and when writing, including a blank
-record or row written, such as `{}`, which is otherwise written as a blank line. A blank row read, whose every value is
-`nil` or blank text, is `nil` instead, as a blank line is, see [Blank rows](streams#blank-rows). Text that is only spaces
-is a value, as in Frictionless, so a `string` field keeps it, in a row that has other values, while any other type
-raises `IOStreams::Errors::InvalidValue` for it, see [Types](#types).
+`nil`, or a missing value, such as empty text, raises `IOStreams::Errors::InvalidValue`, both when reading and when
+writing, including a blank record or row written, such as `{}`, which is otherwise written as a blank line. A blank row
+read, whose every value is `nil` or blank text, is `nil` instead, as a blank line is, see
+[Blank rows](streams#blank-rows). Text that is only spaces is a value, as in Frictionless, so a `string` field keeps it,
+in a row that has other values, while any other type raises `IOStreams::Errors::InvalidValue` for it, see
+[Types](#types).
 
 ~~~ruby
 # An upload, whose columns may be in any order, with names that people typed, and columns that the code ignores.
@@ -530,9 +543,9 @@ end
 
 A file can need a column whose values can be blank, such as a middle name that must be in every upload, but that
 many people do not have. Give its field `allowBlank: true` with `required`: a header row, or JSON record, without
-the field still raises, while a value that is `nil`, or empty text, is read and written as `nil`, a missing value. A
-JSON record read
-through a [contract](contracts) alone is the exception: its missing key is a blank value, which the field allows:
+the field still raises, while a value that is `nil`, or a missing value, such as empty text, is read and written as
+`nil`, a missing value. A JSON record read through a [contract](contracts) alone is the exception: its missing key is a
+blank value, which the field allows:
 
 ~~~ruby
 schema = {
@@ -637,9 +650,9 @@ and `#copy_to`, whose options only apply to the target.
   `EUR 95`, see [Text of numbers](#text-of-numbers). Default: `true`
 * `aliases` The other names of the column of the field, see [Matching columns to fields](#matching-columns-to-fields).
   IOStreams adds this property.
-* `allowBlank` For a field whose `constraints` are `required`, `true` to accept a value that is `nil`, or empty text,
-  while the file must still have its column, see [Required fields](#required-fields). Text of only whitespace is not
-  blank, so it is still read as the type of the field. IOStreams adds this property.
+* `allowBlank` For a field whose `constraints` are `required`, `true` to accept a value that is `nil`, or a missing
+  value, while the file must still have its column, see [Required fields](#required-fields). Text of only whitespace is
+  not blank, so it is still read as the type of the field. IOStreams adds this property.
 * `decimals` For a `number`, the number of digits after the decimal point, rounding a `BigDecimal` half up, and a
   `Float`, with `floatNumber: true`, as Ruby's `format` writes it, as the layouts of fixed width files did before v3.0,
   which rounds a `Float` whose text ends in 5 to the even digit, whatever its binary value, such as `0.12` for

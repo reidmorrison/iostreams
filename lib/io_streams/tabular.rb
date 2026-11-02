@@ -415,6 +415,15 @@ module IOStreams
       @mapping.string_positions
     end
 
+    # Returns [Hash<Integer, #call>|nil] the positions of the values of the rows read whose field has a missing value of
+    # text other than empty text, such as "-99", with what answers whether text is one of them, so that a source whose
+    # values are not text, such as a spreadsheet, compares the text of its cells with them, see
+    # `IOStreams::Xlsx::Reader::Rows`, or nil until the header row is read, which places them, see
+    # `IOStreams::Tabular::Mapping#missing_positions`.
+    def missing_positions
+      @mapping.missing_positions
+    end
+
     # Returns [Array<Integer>] the positions of the values of the rows rendered whose field is a `string`, which a
     # format that writes the values themselves, such as a spreadsheet, keeps as text, see
     # `IOStreams::Xlsx::RowsWriter`, or none without a schema, whose values have no type.

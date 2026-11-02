@@ -12,7 +12,9 @@ module IOStreams
     # that the contract is matched to, so that a missing column raises before the first row, see
     # `IOStreams::Schema#check_columns`. Each record and row read is then read by the schema of the file, and its values
     # converted to the fields of the contract, each at most once, since a value already of the type of its field passes
-    # through, see `IOStreams::Schema::Field#cast`, and has every field of the contract, in its order.
+    # through, see `IOStreams::Schema::Field#cast`, and has every field of the contract, in its order. The missing
+    # values of the contract do not apply to them, since the schema of the file read its text, by its own missing
+    # values, see `IOStreams::Schema::Field#cast_typed`.
     #
     # Each record and row written is converted to the fields of the contract first, and written by the schema of the
     # file, each value in the column of the field of the file that the field of the contract matched.
@@ -66,6 +68,12 @@ module IOStreams
       # file is a `string`, see `IOStreams::Schema::Columns#string_positions`.
       def string_positions(in_order: false)
         @source.string_positions(in_order: in_order)
+      end
+
+      # Returns [Hash<Integer, #call>|nil] the positions of the values of the rows of the file whose field of the schema of
+      # the file has a missing value of text other than empty text, see `IOStreams::Schema::Columns#missing_positions`.
+      def missing_positions(in_order: false)
+        @source.missing_positions(in_order: in_order)
       end
 
       # Returns [Array<Integer>] the positions of the values of the rows of the file rendered whose field of the schema of

@@ -94,17 +94,17 @@ module IOStreams
   #
   # Its other methods are used by the readers and writers of IOStreams, which can change them.
   class Schema
-    autoload :Columns,     "io_streams/schema/columns"
-    autoload :Constraints, "io_streams/schema/constraints"
+    autoload :Columns,         "io_streams/schema/columns"
+    autoload :Constraints,     "io_streams/schema/constraints"
     autoload :ContractColumns, "io_streams/schema/contract_columns"
-    autoload :Field,       "io_streams/schema/field"
-    autoload :Inference,   "io_streams/schema/inference"
-    autoload :JsonNumber,  "io_streams/schema/json_number"
-    autoload :Keys,        "io_streams/schema/keys"
-    autoload :MissingValues, "io_streams/schema/missing_values"
-    autoload :NumberText,  "io_streams/schema/number_text"
-    autoload :Pattern,     "io_streams/schema/pattern"
-    autoload :Source,      "io_streams/schema/source"
+    autoload :Field,           "io_streams/schema/field"
+    autoload :Inference,       "io_streams/schema/inference"
+    autoload :JsonNumber,      "io_streams/schema/json_number"
+    autoload :Keys,            "io_streams/schema/keys"
+    autoload :MissingValues,   "io_streams/schema/missing_values"
+    autoload :NumberText,      "io_streams/schema/number_text"
+    autoload :Pattern,         "io_streams/schema/pattern"
+    autoload :Source,          "io_streams/schema/source"
 
     # The properties of a schema that IOStreams supports.
     PROPERTIES = %w[fields fieldsMatch header width keyType extraColumns missingValues].freeze
@@ -227,7 +227,8 @@ module IOStreams
       @cleansed     = build_loose { |name| self.class.match_key(self.class.cleansed(name)) }
       @decimals     = @fields.any?(&:decimal?)
       @strings      = @fields.any? { |field| field.type == "string" }
-      @properties   = Utils.frozen_copy(descriptor.except("fields").transform_keys(&:to_sym))
+      @missing_text = @fields.any?(&:missing_text?)
+      @properties   = properties_of(descriptor)
       @hash         = [self.class, @properties, @fields].hash
       freeze
     end
@@ -276,6 +277,13 @@ module IOStreams
       @strings
     end
 
+    # Returns [true|false] whether a field has a missing value of text other than empty text, such as "-99", so that a
+    # format whose values are not text, such as a spreadsheet, compares the text of each value of the field with them,
+    # see `IOStreams::Tabular#missing_positions`.
+    def missing_text?
+      @missing_text
+    end
+
     # Returns [true|false] whether the file has a header row, see `header` above.
     def header?
       @header
@@ -301,10 +309,11 @@ module IOStreams
     # Returns [IOStreams::Schema::Columns] a new matcher of the columns of one file to these fields, which a reader or
     # writer holds while it reads or writes the file. With `every_field`, each record and row read has every field, nil
     # for a field that the file does not have, as a contract reads them, see `IOStreams::Contract`, with `keys_vary`
-    # a key that a record leaves out is a missing value, and `form` is the form of the values read, see
-    # `IOStreams::Schema::Columns#initialize`.
-    def columns(typed: false, every_field: false, keys_vary: false, form: :typed)
-      Columns.new(self, typed: typed, every_field: every_field, keys_vary: keys_vary, form: form)
+    # a key that a record leaves out is a missing value, `form` is the form of the values read, see
+    # `IOStreams::Schema::Columns#initialize`, and with `read` the values read are those that the schema of the file
+    # already read, see `IOStreams::Schema::ContractColumns`.
+    def columns(typed: false, every_field: false, keys_vary: false, form: :typed, read: false)
+      Columns.new(self, typed: typed, every_field: every_field, keys_vary: keys_vary, form: form, read: read)
     end
 
     # Returns [Array<String>] the properties of this schema that lay out a file, see LAYOUT_PROPERTIES, each as it
@@ -733,6 +742,14 @@ module IOStreams
         end
       end
       loose
+    end
+
+    # Returns [Hash] a frozen copy of the properties of the schema other than its fields, with Symbol keys, also within
+    # the objects of its `missingValues`, see #to_h.
+    def properties_of(descriptor)
+      properties = descriptor.except("fields").transform_keys(&:to_sym)
+      properties[:missingValues] = @missing.descriptor if properties.key?(:missingValues)
+      Utils.frozen_copy(properties)
     end
 
     # Returns [IOStreams::Schema::MissingValues] the missing values of the fields, see `missingValues` above, which a field

@@ -93,13 +93,14 @@ module IOStreams
     #     Default: []
     #
     #   allowBlank: [true|false]
-    #     For a field whose `constraints` are `required`, whether its values can be blank: nil, or empty text, while text
-    #     of only whitespace is still read as the type of the field. The header row, or each JSON record, must still have
-    #     the field, as `required_columns:` checked before v3.0, apart from a JSON record read through a contract alone,
-    #     whose missing key is a blank value, but a value is not required, both when reading and when writing. A property
-    #     of the field rather than a constraint, since Frictionless defines `required` as a boolean, and a tool reports an
-    #     error for a constraint that it does not support, while it accepts other properties of a field. Raises
-    #     ArgumentError for a field that is not required, whose values can be blank anyway.
+    #     For a field whose `constraints` are `required`, whether its values can be blank: nil, or a missing value, such as
+    #     empty text, see `missingValues` above, while text of only whitespace is still read as the type of the field.
+    #     The header row, or each JSON record, must still have the field, as `required_columns:` checked before v3.0,
+    #     apart from a JSON record read through a contract alone, whose missing key is a blank value, but a value is not
+    #     required, both when reading and when writing. A property of the field rather than a constraint, since
+    #     Frictionless defines `required` as a boolean, and a tool reports an error for a constraint that it does not
+    #     support, while it accepts other properties of a field. Raises ArgumentError for a field that is not required,
+    #     whose values can be blank anyway.
     #     Default: false
     #
     #   decimals: [Integer]
@@ -539,8 +540,21 @@ module IOStreams
       def required? = @constraints.required?
 
       # Returns [true|false] whether each value of the field must be present: when it is required, unless it allows
-      # blank values, see `constraints` and `allowBlank` above, so that a value of nil, or empty text, raises.
+      # blank values, see `constraints` and `allowBlank` above, so that a value of nil, or a missing value, raises.
       def value_required? = @constraints.value_required?
+
+      # Returns [true|false] whether the text is one of the missing values of the field, see `missingValues` above, such
+      # as the text of a cell of a spreadsheet, see `IOStreams::Xlsx::Reader::Rows`, or of a number that a fixed width
+      # file writes, see `IOStreams::Tabular::Parser::Fixed`.
+      def missing_value?(text)
+        @missing.include?(text)
+      end
+
+      # Returns [true|false] whether text other than empty text is a missing value of the field, such as "-99", which the
+      # text of a value that is not text can be, such as a cell of a spreadsheet that holds the number -99.
+      def missing_text?
+        @missing.any_text?
+      end
 
       # Returns the value converted to the type of this field, such as the Integer `12` for the text `"0012"`, once the
       # leading and trailing whitespace of text is removed, or nil when the value is nil, or is text that is exactly one
@@ -549,23 +563,26 @@ module IOStreams
       #
       # Raises `IOStreams::Errors::InvalidValue` when the value is not one of this type, including text of only
       # whitespace, which is not a missing value, but is not a value of any type other than a string or any, or when a
-      # required field has no value: nil, or empty text.
+      # required field has no value: nil, or a missing value.
       def cast(value)
         return @constraints.no_value if value.nil?
         return @constraints.no_value(value) if @missing.include?(value)
 
-        case type
-        when "any" then return value
-        when "string" then return cast_string(value)
-        end
+        convert(value)
+      end
 
-        if value.is_a?(String)
-          text  = value
-          value = value.strip
-          return invalid(text) if value.empty?
-        end
+      # Returns the value converted to the type of this field, as #cast converts it, apart from its missing values, which
+      # describe the text of a file, for a value that is not the text of the file: one that a schema of the file already
+      # read, which a contract reads, see `IOStreams::Schema::ContractColumns`, or the text that #dump gives a value
+      # that is not text, which #load reads. So `"-99"` of a `string` field read with the missing values `["-99"]` stays
+      # a missing value, while the number -99 that the schema of the file read, or that a slice stored as "-99", stays
+      # -99. Text of a typed source, such as a query, is text, which #restore still compares with the missing values.
+      #
+      # Raises `IOStreams::Errors::InvalidValue` as #cast does.
+      def cast_typed(value)
+        return @constraints.no_value if value.nil?
 
-        cast_value(value)
+        convert(value)
       end
 
       # Returns the value of this field that a schema rendered as the value itself, see #render's `:typed` form, such as
@@ -607,17 +624,18 @@ module IOStreams
       end
 
       # Returns the value of this field from the form that #dump gives it, in ISO 8601 whatever the `format` of the field,
-      # or from any other form that a store returned it in, see #restore.
+      # or from any other form that a store returned it in, see #restore. Its text is not compared with the missing
+      # values, see #cast_typed, since it is the text that #dump gives a value, such as "-99" for the number -99.
       #
       # Raises `IOStreams::Errors::InvalidValue` as #restore does.
       def load(value)
         return restore(value) unless value.is_a?(String)
 
         case type
-        when "date" then DATE.match?(value) ? cast_date_text(value) : cast(value)
-        when "datetime" then (match = DATETIME.match(value)) ? iso_datetime(match) : cast(value)
-        when "time" then (clock = TIME.match(value)) ? iso_clock(clock) : cast(value)
-        else restore(value)
+        when "date" then DATE.match?(value) ? cast_date_text(value) : cast_typed(value)
+        when "datetime" then (match = DATETIME.match(value)) ? iso_datetime(match) : cast_typed(value)
+        when "time" then (clock = TIME.match(value)) ? iso_clock(clock) : cast_typed(value)
+        else cast_typed(value)
         end
       rescue ArgumentError
         invalid(value)
@@ -661,12 +679,17 @@ module IOStreams
       # converts the values within it, see #render_json_structure, rather than first converted as JSON holds it, see
       # .json_data, which the JSON format does again as it writes it. `:typed` converts it, as #cast does.
       #
+      # A value of nil, or a missing value, is nil in the `:typed` and `:json` forms, and in the `:text` form the first
+      # missing value of the field, such as "NA" for `missingValues: ["NA"]`, as frictionless-py writes it, or nil when
+      # it is empty text, so that the format writes its own empty value.
+      #
       # Raises `IOStreams::Errors::InvalidValue` when the value is not one of this type.
       def render(value, form)
         return render_json_structure(value, form) if form != :typed && json_structure?(value)
 
         value = cast(value)
-        return value if value.nil? || form == :typed
+        return (@missing.text if form == :text) if value.nil?
+        return value if form == :typed
         return json(value) if form == :json
 
         text(value)
@@ -681,6 +704,24 @@ module IOStreams
       attr_reader :missing
 
       private
+
+      # Returns the value, which is neither nil nor a missing value, converted to the type of this field, see #cast, once
+      # the leading and trailing whitespace of text is removed, except for a string or any field, which returns text as
+      # it is.
+      def convert(value)
+        case type
+        when "any" then return value
+        when "string" then return cast_string(value)
+        end
+
+        if value.is_a?(String)
+          text  = value
+          value = value.strip
+          return invalid(text) if value.empty?
+        end
+
+        cast_value(value)
+      end
 
       # Returns the value, which is neither nil nor blank text, converted to the type of this field, other than a string
       # or any field, see #cast.
@@ -730,11 +771,13 @@ module IOStreams
         @format.strftime(@utc ? time.getutc : time)
       end
 
-      # Returns [Hash] a frozen copy of the properties, with Symbol keys, also within `constraints`, see #to_h.
+      # Returns [Hash] a frozen copy of the properties, with Symbol keys, also within `constraints` and the objects of
+      # `missingValues`, see #to_h.
       def properties_of(descriptor)
         properties  = descriptor.transform_keys(&:to_sym)
         constraints = properties[:constraints]
-        properties[:constraints] = constraints.transform_keys(&:to_sym) if constraints.is_a?(::Hash)
+        properties[:constraints]   = constraints.transform_keys(&:to_sym) if constraints.is_a?(::Hash)
+        properties[:missingValues] = @missing.descriptor if properties.key?(:missingValues)
         Utils.frozen_copy(properties)
       end
 

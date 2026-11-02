@@ -294,7 +294,8 @@ as `09:30:00`. The lines of the spreadsheet are the text of each cell, the same 
 a field of its type reads it, and a number as the workbook holds it, such as `1001` or `12.5`, whatever its format
 shows. A number of a date
 or time format that is not a date that Excel holds, such as a negative number, which Excel shows as `####`, is its
-number, in the lines and in the rows.
+number, in the lines and in the rows. A field whose `missingValues` hold text other than empty text, such as `"-99"`,
+compares that text of each cell with them, whatever the type of the cell, see [Missing values](schemas#missing-values).
 
 The rows that `each(:slice)` reads are the values of the cells, in the `:array` format, and `slice.to_h` holds each
 `Date` and `Time` as its ISO 8601 text, which a schema or contract reads back. A `delimiter:` raises `ArgumentError` for
@@ -616,8 +617,9 @@ its field, so that a field of only spaces is `nil`, a missing value, in every ty
 Symbol returns a Symbol key.
 
 When writing, a number is right justified and zero filled, and a missing number is written as zero, as the
-specifications of most fixed width files require. A number that is not finite, such as `NaN` or `-INF`, is space
-filled instead, so that it can be read back. Any other value is left justified and space filled, with each line
+specifications of most fixed width files require, unless its field has a missing value of its own, such as `NA` or
+`-99`, see [Missing values](schemas#missing-values), which is written as it is. That value, and a number that is not
+finite, such as `NaN` or `-INF`, is space filled instead, so that it can be read back. Any other value is left justified and space filled, with each line
 break replaced with a space, so that a value cannot add records. The characters that no field covers, such as a
 filler, are spaces. The keys of the records written may be strings or symbols.
 

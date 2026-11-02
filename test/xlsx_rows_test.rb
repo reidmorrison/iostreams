@@ -187,6 +187,35 @@ class XlsxRowsTest < Minitest::Test
       end
     end
 
+    describe "missing values" do
+      it "compare the text of each cell, whatever Excel holds, as Frictionless compares text before it reads a type" do
+        # Excel holds the number -99 as the text "-99", which a field reads as a Float.
+        workbook(%w[name score code on], ["Jack", -99, -99, Date.new(2026, 1, 2)], ["NA", 7, 12, Date.new(2026, 1, 3)])
+        schema = {
+          missingValues: ["NA"],
+          fields:        [
+            {name: "name"},
+            {name: "score", type: "integer", missingValues: ["-99"]},
+            {name: "code", type: "string", missingValues: ["-99"]},
+            {name: "on", type: "date", missingValues: ["2026-01-02"]}
+          ]
+        }
+
+        assert_equal [{"name" => "Jack", "score" => nil, "code" => nil, "on" => nil},
+                      {"name" => nil, "score" => 7, "code" => "12", "on" => Date.new(2026, 1, 3)}],
+                     read(IOStreams.path(file_name).schema(schema))
+        assert_equal [{"name" => "Jack", "score" => nil}, {"name" => nil, "score" => 7}],
+                     read(IOStreams.path(file_name).as(fieldsMatch: "subset", missingValues: ["NA"], fields: [{name: "name"}, schema[:fields][1]]))
+      end
+
+      it "compare the text of each cell of a file without a header row, by the positions of its fields" do
+        workbook([-99, "x"], [3, "y"])
+        schema = {header: false, fields: [{name: "score", type: "integer", missingValues: ["-99"]}, {name: "note"}]}
+
+        assert_equal [{"score" => nil, "note" => "x"}, {"score" => 3, "note" => "y"}], read(IOStreams.path(file_name).schema(schema))
+      end
+    end
+
     describe "cells of each kind" do
       it "reads an error cell and an empty cell as nil, and a formula as its cached value" do
         IOStreams.path(file_name).writer(:array) { |io| io << %w[a b] }

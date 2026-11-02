@@ -1441,7 +1441,41 @@ class StreamTest < Minitest::Test
         assert_equal [{"name" => nil, "age" => nil}, {"name" => "", "age" => 7}], read(%(name,age\nNA,-99\n"",7\n), schema: schema.merge(missingValues: ["NA"]))
         assert_equal [{"name" => nil, "age" => nil}], read(%({"name":"NA","age":"-99"}\n), file_name: "a.json", schema: schema)
         assert_raises(IOStreams::Errors::InvalidValue) { read(%(name,age\nJack,NA\n), schema: schema) }
-        assert_equal "name,age\n,\n", write([{"name" => nil, "age" => nil}], schema: schema)
+        assert_equal "name,age\n,-99\n", write([{"name" => nil, "age" => nil}], schema: schema)
+        assert_equal %({"name":null,"age":null}\n), write([{"name" => nil, "age" => nil}], file_name: "a.json", schema: schema)
+      end
+
+      it "writes a missing value as the first missing value of its field, which reads back as nil" do
+        schema = {
+          missingValues: ["NA"],
+          fields:        [{name: "name", width: 6}, {name: "age", type: "integer", width: 4}, {name: "pay", type: "number", width: 6}]
+        }
+        records = [{"name" => nil, "age" => nil, "pay" => nil}, {"name" => "Jack", "age" => 7, "pay" => BigDecimal("1.5")}]
+
+        psv = write(records, file_name: "a.psv", schema: schema)
+
+        assert_equal "name|age|pay\nNA|NA|NA\nJack|7|1.5\n", psv
+        assert_equal records, read(psv, file_name: "a.psv", schema: schema)
+
+        fixed = write(records, file_name: "a.fixed", schema: schema)
+
+        assert_equal "NA      NA    NA\nJack  00070001.5\n", fixed
+        assert_equal records, read(fixed, file_name: "a.fixed", schema: schema)
+
+        digits = schema.merge(missingValues: ["-99"])
+        fixed  = write(records, file_name: "a.fixed", schema: digits)
+
+        assert_equal "-99    -99   -99\nJack  00070001.5\n", fixed
+        assert_equal records, read(fixed, file_name: "a.fixed", schema: digits)
+      end
+
+      it "reads empty text as a value with missingValues [], apart from an empty value of CSV, which is nil" do
+        schema = {missingValues: [], fields: [{name: "name"}, {name: "city"}, {name: "age", type: "integer"}]}
+
+        assert_equal [{"name" => "", "city" => nil, "age" => 7}], read(%(name,city,age\n"",,7\n), schema: schema)
+        assert_equal [{"name" => "", "city" => "", "age" => 7}], read(%(name|city|age\n||7\n), file_name: "a.psv", schema: schema)
+        assert_equal [{"name" => "", "city" => nil, "age" => 7}],
+                     read(%({"name":"","city":null,"age":7}\n), file_name: "a.json", schema: schema)
       end
 
       it "reads and writes the text of numbers with groupChar, decimalChar and bareNumber, and JSON as plain numbers" do

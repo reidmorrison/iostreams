@@ -3127,7 +3127,8 @@ as `09:30:00`. The lines of the spreadsheet are the text of each cell, the same 
 a field of its type reads it, and a number as the workbook holds it, such as `1001` or `12.5`, whatever its format
 shows. A number of a date
 or time format that is not a date that Excel holds, such as a negative number, which Excel shows as `####`, is its
-number, in the lines and in the rows.
+number, in the lines and in the rows. A field whose `missingValues` hold text other than empty text, such as `"-99"`,
+compares that text of each cell with them, whatever the type of the cell, see [Missing values](schemas#missing-values).
 
 The rows that `each(:slice)` reads are the values of the cells, in the `:array` format, and `slice.to_h` holds each
 `Date` and `Time` as its ISO 8601 text, which a schema or contract reads back. A `delimiter:` raises `ArgumentError` for
@@ -3449,8 +3450,9 @@ its field, so that a field of only spaces is `nil`, a missing value, in every ty
 Symbol returns a Symbol key.
 
 When writing, a number is right justified and zero filled, and a missing number is written as zero, as the
-specifications of most fixed width files require. A number that is not finite, such as `NaN` or `-INF`, is space
-filled instead, so that it can be read back. Any other value is left justified and space filled, with each line
+specifications of most fixed width files require, unless its field has a missing value of its own, such as `NA` or
+`-99`, see [Missing values](schemas#missing-values), which is written as it is. That value, and a number that is not
+finite, such as `NaN` or `-INF`, is space filled instead, so that it can be read back. Any other value is left justified and space filled, with each line
 break replaced with a space, so that a value cannot add records. The characters that no field covers, such as a
 filler, are spaces. The keys of the records written may be strings or symbols.
 
@@ -3596,7 +3598,9 @@ Every one of them yields the same record:
   field passes through, such as a `BigDecimal` of a Parquet file or a query, apart from a number with more digits after
   its decimal point than the `decimals` of its field, which is rounded to them, such as `12.35` for the `12.3456` of a
   Parquet `decimal(38, 4)` with `decimals: 2`, as a contract's setter rounds it. A value that cannot be of the type of
-  its field, such as `N/A` for `amount`, raises `IOStreams::Errors::InvalidValue`.
+  its field, such as `N/A` for `amount`, raises `IOStreams::Errors::InvalidValue`. With a schema of the file set with
+  `#schema`, that schema reads the text, by its own `missingValues`, so those of the contract do not apply to the
+  values that it read, see [Missing values](schemas#missing-values).
 * A column whose type the source declares, such as a Parquet file, a query or the schema of a file, and which can never
   be the type of its field, such as a `boolean` for `amount`, raises `IOStreams::Errors::IncompatibleType` before the
   first row, see [Types that never fit](#types-that-never-fit).
@@ -3730,9 +3734,8 @@ end
   `format:`, `true_values:` or `allow_blank:`. `required: true` is `constraints: {required: true}`, and `name:` names
   the field in its schema, such as `name: "Ordered At"`, when it differs from its name in Ruby.
 * `fields_match`, `key_type`, `extra_columns` and `missing_values` set `fieldsMatch`, `keyType`, `extraColumns` and
-  `missingValues`, see
-  [Schema properties](schemas#schema-properties). Without `fields_match`, the columns of a source must be the fields,
-  in order.
+  `missingValues`, see [Schema properties](schemas#schema-properties). Without `fields_match`, the columns of a source
+  must be the fields, in order.
 * A subclass of a contract starts with its fields.
 * `Order.fields` returns its fields, and `Order.to_h` the contract as a Frictionless Table Schema, see below.
 * A contract is a class of its own, so name it so that it does not clash with a class of the application, such as an
@@ -4124,9 +4127,21 @@ end
 ~~~
 
 Without `""`, empty text is a value: a `string` or `any` field reads it as `""`, and every other type raises
-`IOStreams::Errors::InvalidValue` for it. A required field raises for a missing value, as it does for `nil`. A value that
-is not text, such as a number of JSON, a Parquet file or a query, is never a missing value. Writing writes `nil` as an
-empty value, or `null` in JSON, whatever the missing values.
+`IOStreams::Errors::InvalidValue` for it. An empty value of CSV without quotes, such as the second value of `a,,b`, is
+still `nil` whatever the missing values, since the CSV parser reads it as no value, while a quoted one, `""`, is empty
+text. A required field raises for a missing value, as it does for `nil`.
+
+A value that is not text, such as a number of JSON, a Parquet file or a query, is never a missing value, apart from a
+cell of a spreadsheet, whose text is compared with them, as Frictionless compares the text of a value before it reads its
+type, so a cell that holds the number `-99` is `nil` with `missingValues: ["-99"]`, whatever the type of its field. The
+text of a cell is the text that the CSV of the spreadsheet holds, see [Excel spreadsheets](formats#excel-spreadsheets).
+
+Writing writes `nil`, and a missing value, as the first missing value of the field, such as `NA`, as frictionless-py
+does, so that it reads back as `nil`, or as an empty value when that is empty text, or there are none, and as `null` in
+JSON. A fixed width file writes such a value of a number as it is, space filled, rather than as zeros.
+
+A [contract](contracts) read over the records of a schema of the file takes the values that the schema read from the
+text, so the missing values of the contract do not apply to them: only those of the schema, which reads the text.
 
 ### Text of numbers
 
@@ -4395,11 +4410,12 @@ out, and any other `fieldsMatch` raises `ArgumentError` for `"keep"`, since it d
 
 A field whose `constraints` are `required`, as Frictionless defines it, must have a value: a header row, or JSON
 record, without the field raises `IOStreams::Errors::InvalidHeader`, whatever `fieldsMatch` is, and a value that is
-`nil`, or empty text, raises `IOStreams::Errors::InvalidValue`, both when reading and when writing, including a blank
-record or row written, such as `{}`, which is otherwise written as a blank line. A blank row read, whose every value is
-`nil` or blank text, is `nil` instead, as a blank line is, see [Blank rows](streams#blank-rows). Text that is only spaces
-is a value, as in Frictionless, so a `string` field keeps it, in a row that has other values, while any other type
-raises `IOStreams::Errors::InvalidValue` for it, see [Types](#types).
+`nil`, or a missing value, such as empty text, raises `IOStreams::Errors::InvalidValue`, both when reading and when
+writing, including a blank record or row written, such as `{}`, which is otherwise written as a blank line. A blank row
+read, whose every value is `nil` or blank text, is `nil` instead, as a blank line is, see
+[Blank rows](streams#blank-rows). Text that is only spaces is a value, as in Frictionless, so a `string` field keeps it,
+in a row that has other values, while any other type raises `IOStreams::Errors::InvalidValue` for it, see
+[Types](#types).
 
 ~~~ruby
 # An upload, whose columns may be in any order, with names that people typed, and columns that the code ignores.
@@ -4420,9 +4436,9 @@ end
 
 A file can need a column whose values can be blank, such as a middle name that must be in every upload, but that
 many people do not have. Give its field `allowBlank: true` with `required`: a header row, or JSON record, without
-the field still raises, while a value that is `nil`, or empty text, is read and written as `nil`, a missing value. A
-JSON record read
-through a [contract](contracts) alone is the exception: its missing key is a blank value, which the field allows:
+the field still raises, while a value that is `nil`, or a missing value, such as empty text, is read and written as
+`nil`, a missing value. A JSON record read through a [contract](contracts) alone is the exception: its missing key is a
+blank value, which the field allows:
 
 ~~~ruby
 schema = {
@@ -4527,9 +4543,9 @@ and `#copy_to`, whose options only apply to the target.
   `EUR 95`, see [Text of numbers](#text-of-numbers). Default: `true`
 * `aliases` The other names of the column of the field, see [Matching columns to fields](#matching-columns-to-fields).
   IOStreams adds this property.
-* `allowBlank` For a field whose `constraints` are `required`, `true` to accept a value that is `nil`, or empty text,
-  while the file must still have its column, see [Required fields](#required-fields). Text of only whitespace is not
-  blank, so it is still read as the type of the field. IOStreams adds this property.
+* `allowBlank` For a field whose `constraints` are `required`, `true` to accept a value that is `nil`, or a missing
+  value, while the file must still have its column, see [Required fields](#required-fields). Text of only whitespace is
+  not blank, so it is still read as the type of the field. IOStreams adds this property.
 * `decimals` For a `number`, the number of digits after the decimal point, rounding a `BigDecimal` half up, and a
   `Float`, with `floatNumber: true`, as Ruby's `format` writes it, as the layouts of fixed width files did before v3.0,
   which rounds a `Float` whose text ends in 5 to the even digit, whatever its binary value, such as `0.12` for

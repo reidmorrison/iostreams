@@ -54,7 +54,7 @@ module IOStreams
         @columns         =
           if contract
             IOStreams::Schema::ContractColumns.new(schema.columns(typed: typed, every_field: true, form: @form),
-                                                   contract.columns(every_field: true, form: @form))
+                                                   contract.columns(every_field: true, form: @form, read: true))
           else
             # A contract reads a key that a record leaves out as a missing value, while a schema of the file keeps the
             # rule of `fieldsMatch` for each record, as in v2.2.
@@ -189,6 +189,12 @@ module IOStreams
       # `IOStreams::Schema::Columns#string_positions`, as for #decimal_positions.
       def string_positions
         @columns.string_positions(in_order: !@requires_header)
+      end
+
+      # Returns [Hash<Integer, #call>|nil] the positions of the values of the rows read whose field has a missing value of
+      # text other than empty text, see `IOStreams::Schema::Columns#missing_positions`, as for #decimal_positions.
+      def missing_positions
+        @columns.missing_positions(in_order: !@requires_header)
       end
 
       # Returns [Array<Integer>] the positions of the values of the rows rendered whose field is a `string`, see

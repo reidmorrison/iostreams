@@ -76,7 +76,9 @@ Every one of them yields the same record:
   field passes through, such as a `BigDecimal` of a Parquet file or a query, apart from a number with more digits after
   its decimal point than the `decimals` of its field, which is rounded to them, such as `12.35` for the `12.3456` of a
   Parquet `decimal(38, 4)` with `decimals: 2`, as a contract's setter rounds it. A value that cannot be of the type of
-  its field, such as `N/A` for `amount`, raises `IOStreams::Errors::InvalidValue`.
+  its field, such as `N/A` for `amount`, raises `IOStreams::Errors::InvalidValue`. With a schema of the file set with
+  `#schema`, that schema reads the text, by its own `missingValues`, so those of the contract do not apply to the
+  values that it read, see [Missing values](schemas#missing-values).
 * A column whose type the source declares, such as a Parquet file, a query or the schema of a file, and which can never
   be the type of its field, such as a `boolean` for `amount`, raises `IOStreams::Errors::IncompatibleType` before the
   first row, see [Types that never fit](#types-that-never-fit).
@@ -210,9 +212,8 @@ end
   `format:`, `true_values:` or `allow_blank:`. `required: true` is `constraints: {required: true}`, and `name:` names
   the field in its schema, such as `name: "Ordered At"`, when it differs from its name in Ruby.
 * `fields_match`, `key_type`, `extra_columns` and `missing_values` set `fieldsMatch`, `keyType`, `extraColumns` and
-  `missingValues`, see
-  [Schema properties](schemas#schema-properties). Without `fields_match`, the columns of a source must be the fields,
-  in order.
+  `missingValues`, see [Schema properties](schemas#schema-properties). Without `fields_match`, the columns of a source
+  must be the fields, in order.
 * A subclass of a contract starts with its fields.
 * `Order.fields` returns its fields, and `Order.to_h` the contract as a Frictionless Table Schema, see below.
 * A contract is a class of its own, so name it so that it does not clash with a class of the application, such as an

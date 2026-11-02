@@ -175,6 +175,13 @@ module IOStreams
         []
       end
 
+      # Returns [Hash<Integer, #call>|nil] the positions of the values of the rows read whose field has a missing value of
+      # text other than empty text, see `IOStreams::Tabular#missing_positions`: none without a schema, whose missing
+      # value is only empty text.
+      def missing_positions
+        {}
+      end
+
       # Returns [Array<Integer>] the positions of the values of the rows rendered whose field is a `string`, see
       # `IOStreams::Tabular#text_positions`: none without a schema, whose values have no type.
       def text_positions

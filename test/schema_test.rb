@@ -1136,15 +1136,39 @@ class SchemaTest < Minitest::Test
           assert_equal "NA", error.value
         end
 
-        it "writes nil as empty, whatever the missing values" do
-          assert_nil schema_field({missingValues: ["NA"]}, type: "integer").render(nil, :text)
-          assert_nil schema_field({missingValues: ["NA"]}, type: "string").render("NA", :text)
+        it "writes nil as the first missing value of the field in text, as frictionless-py does, and nil otherwise" do
+          integer = schema_field({missingValues: ["NA", "-"]}, type: "integer")
+
+          assert_equal "NA", integer.render(nil, :text)
+          assert_equal "NA", schema_field({missingValues: ["NA"]}, type: "string").render("NA", :text)
+          assert_equal "-99", schema_field({missingValues: ["NA"]}, type: "integer", missingValues: ["-99"]).render(nil, :text)
+          assert_nil integer.render(nil, :json)
+          assert_nil integer.render(nil, :typed)
+          assert_nil schema_field({missingValues: ["", "NA"]}, type: "integer").render(nil, :text)
+          assert_nil schema_field({missingValues: []}, type: "integer").render(nil, :text)
+          assert_nil field(type: "integer").render(nil, :text)
         end
 
-        it "keeps them as they were given, and compares fields by them" do
-          schema = IOStreams::Schema.new(missingValues: [{value: "-99", label: "Refused"}], fields: [{name: "a", missingValues: ["x"]}])
+        it "converts a value that a schema already read, or a store returned, without comparing it with them" do
+          number = schema_field({missingValues: ["", "-99", "0"]}, type: "number")
 
-          assert_equal({missingValues: [{value: "-99", label: "Refused"}], fields: [{name: "a", missingValues: ["x"]}]}, schema.to_h)
+          assert_nil number.cast("-99")
+          assert_equal BigDecimal("-99"), number.cast_typed(BigDecimal("-99"))
+          assert_equal BigDecimal("-99"), number.load(number.dump(BigDecimal("-99")))
+          assert_equal BigDecimal("0"), number.load(number.dump(BigDecimal("0")))
+          # Text that a typed source holds, such as a query, is text, which is compared.
+          assert_nil number.restore("0")
+          assert_equal "NA", schema_field({missingValues: ["NA"]}, type: "string").cast_typed("NA")
+          assert_nil number.cast_typed(nil)
+        end
+
+        it "keeps them as they were given, each object with Symbol keys, and compares fields by them" do
+          schema = IOStreams::Schema.new(missingValues: [{value: "-99", label: "Refused"}, {"value" => "-98"}],
+                                         fields:        [{name: "a", missingValues: ["x", {"value" => "y", "label" => "Y"}]}])
+
+          assert_equal({missingValues: [{value: "-99", label: "Refused"}, {value: "-98"}],
+                        fields:        [{name: "a", missingValues: ["x", {value: "y", label: "Y"}]}]}, schema.to_h)
+          assert_equal schema, IOStreams::Schema.new(JSON.parse(JSON.generate(schema.to_h)))
           refute_equal schema_field({missingValues: ["NA"]}), schema_field({missingValues: ["-"]})
           assert_equal schema_field({missingValues: ["NA"]}), schema_field({missingValues: ["NA"]})
           assert_equal schema_field, field

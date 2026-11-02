@@ -7,7 +7,7 @@ module IOStreams
     #
     # Constraints:
     #   required: [true|false]
-    #     Whether the field must have a value: a value that is nil, or empty text, raises
+    #     Whether the field must have a value: a value that is nil, or a missing value, such as empty text, raises
     #     `IOStreams::Errors::InvalidValue`, see #no_value, unless the field allows blank values, see `allowBlank` in
     #     `IOStreams::Schema::Field`. A header row or record without the field raises `IOStreams::Errors::InvalidHeader`,
     #     see `IOStreams::Schema#check_columns`, whether or not it allows blank values, apart from a JSON record read
@@ -48,7 +48,7 @@ module IOStreams
       end
 
       # Returns [true|false] whether each value of the field must be present: when it is required, see `required`
-      # above, unless it allows blank values, so that a value of nil, or empty text, raises, see #no_value.
+      # above, unless it allows blank values, so that a value of nil, or a missing value, raises, see #no_value.
       def value_required?
         @required && !@allow_blank
       end

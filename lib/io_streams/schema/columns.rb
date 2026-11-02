@@ -56,10 +56,17 @@ module IOStreams
       #     `IOStreams::Schema::Field#parse`, such as `:json` for JSON, whose objects and arrays are already what JSON
       #     holds.
       #     Default: :typed, values of any class
-      def initialize(schema, typed: false, every_field: false, keys_vary: false, form: :typed)
+      #
+      #   read: [true|false]
+      #     Whether the values of the rows and records read are those that the schema of the file already read, which a
+      #     contract converts to the types of its fields without comparing them with its missing values, which describe
+      #     the text of a file, see `IOStreams::Schema::ContractColumns`.
+      #     Default: false
+      def initialize(schema, typed: false, every_field: false, keys_vary: false, form: :typed, read: false)
         @schema       = schema
         @typed        = typed
         @form         = form
+        @read         = read
         @every_field  = every_field
         @keys_vary    = keys_vary
         # The column that each field matched, by the field, see #match, so that a contract that reads the records of
@@ -247,6 +254,16 @@ module IOStreams
         read_positions(in_order) { |field| field.type == "string" }
       end
 
+      # Returns [Hash<Integer, #call>|nil] the position of each value of a row read whose field has a missing value of
+      # text other than empty text, as #decimal_positions finds them, with what answers whether text is one of them,
+      # see `IOStreams::Schema::Field#missing_value?`, so that a format whose values are not text, such as a spreadsheet,
+      # compares the text of its values with them, see `IOStreams::Schema#missing_text?`.
+      def missing_positions(in_order: false)
+        read_fields(in_order)&.each_with_object({}) do |(field, index), positions|
+          positions[index] = field.method(:missing_value?) if field.missing_text?
+        end
+      end
+
       # Returns [Array<Integer>] the position of each value of a row rendered whose field is a `string`, see #render: every
       # field, in order, a field that only holds the place of a column included.
       def text_positions
@@ -367,18 +384,28 @@ module IOStreams
       # Returns the value of the supplied field read from a row or record, converted to the type of the field from the
       # form of the values read, see `IOStreams::Schema::Field#parse`, or, when the values read are those of the fields,
       # see #initialize, restored to it from the form that a store returned it in, see
-      # `IOStreams::Schema::Field#restore`.
+      # `IOStreams::Schema::Field#restore`, or, when the schema of the file already read them, converted without its
+      # missing values, see `IOStreams::Schema::Field#cast_typed`.
       def read_value(field, value)
-        @typed ? field.restore(value) : field.parse(value, @form)
+        return field.parse(value, @form) unless @typed || @read
+
+        @typed ? field.restore(value) : field.cast_typed(value)
       end
 
       # Returns [Array<Integer>|nil] the position of each value of a row read whose field the block selects, see
       # #decimal_positions.
       def read_positions(in_order)
-        return @schema.fields.each_index.select { |index| yield(@schema.fields[index]) } if in_order
+        read_fields(in_order)&.filter_map { |field, index| index if yield(field) }
+      end
+
+      # Returns [Array<Array(IOStreams::Schema::Field, Integer)>|nil] each field of a row read with the position of its
+      # value, every field in order, or those whose columns the header row read has, or nil until it is read, see
+      # #decimal_positions.
+      def read_fields(in_order)
+        return @schema.fields.each_with_index.to_a if in_order
         return unless matched?
 
-        matched.filter_map { |field, index, _key| index if index && yield(field) }
+        matched.filter_map { |field, index, _key| [field, index] if index }
       end
 
       # Returns [IOStreams::Errors::InvalidValue|nil] the error of the value of the field, or nil when it is valid.

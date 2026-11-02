@@ -266,6 +266,18 @@ class AsTest < Minitest::Test
           assert_equal "#{line}\n", write([order], file_name: "orders.fixed", schema: layout)
         end
 
+        it "leaves the missing values of the text to the schema, so the contract does not apply its own to the values read" do
+          schema   = {fields: [{name: "id", type: "integer"}, {name: "code", type: "string"}, {name: "note", type: "string"}]}
+          contract = IOStreams::Contract.new(
+            missingValues: ["N/A"],
+            fields:        [{name: "id", type: "integer"}, {name: "code", type: "string"}, {name: "note", type: "string"}]
+          )
+
+          assert_equal [{"id" => 1, "code" => "N/A", "note" => nil}],
+                       read(text("id,code,note\n1,N/A,\n").schema(schema).as(contract))
+          assert_equal [{"id" => 1, "code" => nil, "note" => nil}], read(text("id,code,note\n1,N/A,\n").as(contract))
+        end
+
         it "raises before the first row for a required field of the contract that the schema does not have" do
           schema = {fields: [{name: "Amount", type: "number", width: 10}]}
 
