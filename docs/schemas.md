@@ -570,8 +570,57 @@ end
 accepts other properties of a field. A field that is not `required` raises `ArgumentError` for it, since its values
 can be blank anyway.
 
-IOStreams does not support the other constraints of Frictionless yet, such as `maxLength`, so they raise
-`ArgumentError`, rather than appear to check values that they do not.
+## Constraints
+
+The other `constraints` of Frictionless check each value once its field reads it as its type, both when reading and when
+writing, as `required` does. A value that does not follow one raises `IOStreams::Errors::InvalidValue`, naming the field,
+the value as it was read, and the constraint:
+
+| Constraint | Types | Each value |
+|------------|-------|------------|
+| `enum` | every type | is one of its values |
+| `minimum`, `maximum` | `integer`, `number`, `date`, `time`, `datetime`, `duration` | is at least, or at most, its value |
+| `exclusiveMinimum`, `exclusiveMaximum` | the same | is more, or less, than its value |
+| `minLength`, `maxLength` | `string`, and the items of an `array` or `object` | has at least, or at most, that many characters or items |
+| `pattern` | `string` | matches the whole text with its regular expression |
+
+~~~ruby
+path = IOStreams.path("people.csv").schema(
+  fields: [
+    {name: "status", type: "string", constraints: {enum: ["active", "closed"]}},
+    {name: "age",    type: "integer", constraints: {minimum: 0, maximum: 120}},
+    {name: "joined", type: "date", constraints: {minimum: "2000-01-01"}},
+    {name: "zip",    type: "string", constraints: {pattern: "\\d{5}(-\\d{4})?", maxLength: 10}}
+  ]
+)
+path.each(:hash) do |person|
+  p person
+end
+# "status,age,joined,zip\nactive,130,2026-10-13,12345\n" =>
+# IOStreams::Errors::InvalidValue: Field "age": "130" is more than its maximum, 120, in record 1 on line 2
+~~~
+
+The value of each constraint is read by its field, as its values are, so `minimum: "2000-01-01"` of a `date` is a `Date`,
+and `minimum: 0` of a `number` is a `BigDecimal`. A `date`, `datetime` or `time` with a `format` also reads ISO 8601,
+such as `"2000-01-01"`, in which Frictionless writes it. A constraint of another type, such as `minLength` of an
+`integer`, or a value that is not one of the field, raises `ArgumentError` when the schema is set. A value that cannot
+be compared, such as `NaN` of a `number` with a `minimum`, does not follow it. `nil`, or a missing value, is not checked,
+other than by `required`.
+
+`pattern` is a Ruby regular expression that the whole text must match, as if it were written `\A(?:pattern)\z`, so
+`"\\d{5}"` matches `12345` but not `123456` or `x12345`. Frictionless writes it in the syntax of XML Schema, which
+also matches the whole text, and whose patterns are mostly those of Ruby, apart from its classes `\i` and `\c`, the
+characters that start and continue an XML name, and its subtraction of classes, such as `[a-z-[aeiou]]`, which Ruby does
+not have, while Ruby has some that XML Schema does not, such as `\A` and lookahead, so keep to their common syntax in a
+schema that other tools read.
+
+A `string` or `integer` field can also have `categories`, the values that it can have, each a value or an object of a
+value and a label, which only describes it to people, such as `[{value: 1, label: "Low"}, {value: 2, label: "High"}]`.
+A value read must be one of them, as for `enum`, whose values must be among them, otherwise `ArgumentError` raises.
+`categoriesOrdered: true` says that the order of the categories is their natural order, and does not change how values
+are read.
+
+`jsonSchema` is not supported yet, so it raises `ArgumentError`, rather than appear to check values that it does not.
 
 ## Schema properties
 
@@ -636,7 +685,10 @@ and `#copy_to`, whose options only apply to the target.
 
 * `name` The key of the field in each record, and its column in the header row written. Required.
 * `type` See [Types](#types). Default: `any`
-* `constraints` `{required: true}` for a field that must have a value, see [Required fields](#required-fields).
+* `constraints` `{required: true}` for a field that must have a value, see [Required fields](#required-fields), and the
+  rules that its values must follow, such as `{minimum: 0}`, see [Constraints](#constraints).
+* `categories` For a `string` or an `integer`, the values that it can have, and `categoriesOrdered`, whether their
+  order is their natural order, see [Constraints](#constraints).
 * `missingValues` The text that is a missing value of the field, which replaces those of the schema, see
   [Missing values](#missing-values).
 * `format` For a `date`, a `datetime` or a `time`, the strptime pattern of its text, such as `"%d/%m/%Y"`, `"%Y%m%d"`
@@ -673,8 +725,8 @@ and `#copy_to`, whose options only apply to the target.
 
 `title`, `description`, `example` and `rdfType` describe a field to people and have no effect, as do the properties
 of other tools, whose names include a `:`, such as `"mytool:owner"`. Any other property raises `ArgumentError`, as do
-the parts of Frictionless that IOStreams does not support yet, such as `primaryKey`, the constraints
-other than `required`, and the `year` type, so that a schema never appears to check a value that it does not.
+the parts of Frictionless that IOStreams does not support yet, such as `primaryKey`, the constraint `jsonSchema`, and
+the `year` type, so that a schema never appears to check a value that it does not.
 
 ## Values without a field
 

@@ -146,9 +146,9 @@ module IOStreams
         "boolean"  => %w[trueValues falseValues],
         "date"     => %w[format],
         "datetime" => %w[format],
-        "integer"  => %w[groupChar bareNumber],
+        "integer"  => %w[groupChar bareNumber categories categoriesOrdered],
         "number"   => %w[decimals floatNumber groupChar decimalChar bareNumber],
-        "string"   => %w[truncate],
+        "string"   => %w[truncate categories categoriesOrdered],
         "time"     => %w[format]
       }.freeze
 
@@ -170,7 +170,7 @@ module IOStreams
       DESCRIPTIVE_PROPERTIES = %w[title description example rdfType].freeze
 
       # The properties of a Frictionless field that IOStreams does not support yet.
-      UNSUPPORTED_PROPERTIES = %w[categories categoriesOrdered delimiter itemType].freeze
+      UNSUPPORTED_PROPERTIES = %w[delimiter itemType].freeze
 
       DEFAULT_TRUE_VALUES  = %w[true True TRUE 1].freeze
       DEFAULT_FALSE_VALUES = %w[false False FALSE 0].freeze
@@ -291,11 +291,14 @@ module IOStreams
         @false_values = check_values("falseValues", descriptor["falseValues"], DEFAULT_FALSE_VALUES)
         @aliases      = check_values("aliases", descriptor["aliases"], [].freeze, empty: true)
         @missing      = own_missing_values(descriptor) || missing_values
-        @constraints  = Constraints.new(descriptor["constraints"], @name,
-                                        allow_blank: check_flag("allowBlank", descriptor["allowBlank"]))
+        require_duration if @type == "duration"
+        @categories_ordered = check_flag("categoriesOrdered", descriptor["categoriesOrdered"])
+        @constraints  = Constraints.new(descriptor["constraints"], self,
+                                        allow_blank: check_flag("allowBlank", descriptor["allowBlank"]),
+                                        categories:  read_categories(descriptor["categories"]))
+        @checks       = @constraints.checks?
         @properties   = properties_of(descriptor)
         @hash         = [self.class, @properties, @missing].hash
-        require_duration if @type == "duration"
         freeze
       end
 
@@ -564,11 +567,14 @@ module IOStreams
       # Raises `IOStreams::Errors::InvalidValue` when the value is not one of this type, including text of only
       # whitespace, which is not a missing value, but is not a value of any type other than a string or any, or when a
       # required field has no value: nil, or a missing value.
+      #
+      # Raises `IOStreams::Errors::InvalidValue` when the value does not follow the constraints of the field, see
+      # `IOStreams::Schema::Constraints`.
       def cast(value)
         return @constraints.no_value if value.nil?
         return @constraints.no_value(value) if @missing.include?(value)
 
-        convert(value)
+        @checks ? @constraints.check(convert(value), value) : convert(value)
       end
 
       # Returns the value converted to the type of this field, as #cast converts it, apart from its missing values, which
@@ -582,7 +588,21 @@ module IOStreams
       def cast_typed(value)
         return @constraints.no_value if value.nil?
 
+        @checks ? @constraints.check(convert(value), value) : convert(value)
+      end
+
+      # Returns the value of a constraint of this field, such as its `minimum`, or of its `categories`, converted to its
+      # type, see #cast, without its missing values or constraints, for `IOStreams::Schema::Constraints`. A date,
+      # datetime or time with a `format` also reads ISO 8601 text, such as "2026-01-01", in which Frictionless writes
+      # the values of constraints, when its format does not read it.
+      #
+      # Raises `IOStreams::Errors::InvalidValue` when the value is not one of this type.
+      def constraint_value(value)
         convert(value)
+      rescue IOStreams::Errors::InvalidValue
+        raise unless @format && value.is_a?(String)
+
+        iso_value(value) || raise
       end
 
       # Returns the value of this field that a schema rendered as the value itself, see #render's `:typed` form, such as
@@ -721,6 +741,40 @@ module IOStreams
         end
 
         cast_value(value)
+      end
+
+      # Returns [Array|nil] the values of the `categories` of a string or integer field, each a value, or an object of a
+      # value and a label, which only describes it to people, converted to the type of the field, see
+      # #constraint_value, for `IOStreams::Schema::Constraints`, which checks that each value read is one of them.
+      #
+      # Raises ArgumentError when they are not an Array of values of the field, or of such objects.
+      def read_categories(categories)
+        return if categories.nil?
+        unless categories.is_a?(Array) && !categories.empty?
+          raise(ArgumentError, "Field #{name.inspect}: categories must be an Array of values, or of objects of a value " \
+                               "and a label: #{categories.inspect}")
+        end
+
+        categories.map { |category| category_value(category) }.freeze
+      end
+
+      # Returns the value of a category, see #read_categories.
+      def category_value(category)
+        if category.is_a?(::Hash)
+          category = category.transform_keys(&:to_s)
+          other    = (category.keys - %w[value label]).first
+          unless category.key?("value") && other.nil? && (category["label"].nil? || category["label"].is_a?(String))
+            raise(ArgumentError, "Field #{name.inspect}: a category must be a value, or an object of a value and a text " \
+                                 "label: #{category.inspect}")
+          end
+          category = category["value"]
+        end
+        value = constraint_value(category)
+        return value unless value.nil?
+
+        raise(ArgumentError, "Field #{name.inspect}: a category must be a value of the field: #{category.inspect}")
+      rescue IOStreams::Errors::InvalidValue => e
+        raise(ArgumentError, "Field #{name.inspect}: a category must be a value of the field: #{e.message}")
       end
 
       # Returns the value, which is neither nil nor blank text, converted to the type of this field, other than a string
@@ -1176,6 +1230,18 @@ module IOStreams
         digits = self.class.fraction_digits(time)
         clock  = digits.zero? ? time.strftime("%H:%M:%S") : time.strftime("%H:%M:%S.%#{digits}N")
         "#{clock}#{time.utc? ? 'Z' : time.strftime('%:z')}"
+      end
+
+      # Returns [Date|Time|nil] the value of the ISO 8601 text of a date, datetime or time, whatever the format of the
+      # field, see #constraint_value, or nil when it is not such text.
+      def iso_value(text)
+        case type
+        when "date" then cast_date_text(text) if DATE.match?(text)
+        when "datetime" then (match = DATETIME.match(text)) && iso_datetime(match)
+        when "time" then (clock = TIME.match(text)) && iso_clock(clock)
+        end
+      rescue ArgumentError
+        nil
       end
 
       # Returns [Time] the time of the text that DATETIME matched, in UTC without an offset, read with `Time.iso8601`,

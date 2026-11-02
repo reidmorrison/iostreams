@@ -69,8 +69,8 @@ class SchemaTest < Minitest::Test
       end
 
       it "raises for a property of Frictionless that is not supported, rather than ignore its check" do
-        error = assert_raises(ArgumentError) { field(categories: ["a"]) }
-        assert_equal 'Field "value": the property "categories" is not supported', error.message
+        error = assert_raises(ArgumentError) { field(delimiter: ";") }
+        assert_equal 'Field "value": the property "delimiter" is not supported', error.message
       end
 
       it "accepts the required constraint" do
@@ -82,8 +82,8 @@ class SchemaTest < Minitest::Test
       end
 
       it "raises for the constraints of Frictionless that are not supported, and unknown ones" do
-        error = assert_raises(ArgumentError) { field(constraints: {required: true, maxLength: 5}) }
-        assert_equal 'Field "value": the constraint "maxLength" is not supported', error.message
+        error = assert_raises(ArgumentError) { field(constraints: {required: true, jsonSchema: {}}) }
+        assert_equal 'Field "value": the constraint "jsonSchema" is not supported', error.message
 
         error = assert_raises(ArgumentError) { field(constraints: {mandatory: true}) }
         assert_equal 'Field "value": unknown constraint "mandatory"', error.message
@@ -1071,6 +1071,173 @@ class SchemaTest < Minitest::Test
             assert_includes error.message, "JSON cannot hold a number that is not finite"
           end
           assert_equal({"x" => BigDecimal("-Infinity")}, field.render({"x" => BigDecimal("-Infinity")}, :json))
+        end
+      end
+
+      describe "constraints" do
+        it "checks enum of every type, reading its values as the field reads its values" do
+          status = field(type: "string", constraints: {enum: %w[open closed]})
+          on     = field(type: "date", format: "%d/%m/%Y", constraints: {enum: ["01/02/2026", "2026-03-04"]})
+
+          assert_equal "open", status.cast("open")
+          error = assert_raises(IOStreams::Errors::InvalidValue) { status.cast("pending") }
+          assert_equal 'Field "value": "pending" is not one of its enum values', error.message
+          assert_equal "pending", error.value
+          assert_equal 2, field(type: "integer", constraints: {enum: [1, "2"]}).cast(" 2 ")
+          assert_equal Date.new(2026, 3, 4), on.cast("04/03/2026")
+          assert_raises(IOStreams::Errors::InvalidValue) { on.cast("05/03/2026") }
+          assert_equal BigDecimal("1.5"), field(type: "number", constraints: {enum: ["1.50"]}).cast(1.5)
+          assert_nil status.cast(nil)
+        end
+
+        it "checks minimum, maximum, exclusiveMinimum and exclusiveMaximum of the types that are ordered" do
+          age  = field(type: "integer", constraints: {minimum: 0, maximum: "120"})
+          rate = field(type: "number", constraints: {exclusiveMinimum: 0, exclusiveMaximum: 1})
+          on   = field(type: "date", constraints: {minimum: "2026-01-01"})
+
+          assert_equal 0, age.cast("0")
+          assert_equal 120, age.cast(120)
+          error = assert_raises(IOStreams::Errors::InvalidValue) { age.cast("-1") }
+          assert_equal 'Field "value": "-1" is less than its minimum, 0', error.message
+          error = assert_raises(IOStreams::Errors::InvalidValue) { age.cast(121) }
+          assert_equal 'Field "value": 121 is more than its maximum, "120"', error.message
+          assert_equal BigDecimal("0.5"), rate.cast("0.5")
+          error = assert_raises(IOStreams::Errors::InvalidValue) { rate.cast("0") }
+          assert_equal 'Field "value": "0" is not more than its exclusiveMinimum, 0', error.message
+          assert_raises(IOStreams::Errors::InvalidValue) { rate.cast("1") }
+          assert_raises(IOStreams::Errors::InvalidValue) { rate.cast("NaN") }
+          assert_equal Date.new(2026, 1, 1), on.cast("2026-01-01")
+          assert_raises(IOStreams::Errors::InvalidValue) { on.cast(Date.new(2025, 12, 31)) }
+        end
+
+        it "compares times, datetimes and durations" do
+          at    = field(type: "datetime", constraints: {maximum: "2026-10-31T23:59:59Z"})
+          clock = field(type: "time", constraints: {minimum: "09:00:00", maximum: "17:00:00"})
+          long  = field(type: "duration", constraints: {minimum: "PT1H"})
+
+          assert_raises(IOStreams::Errors::InvalidValue) { at.cast("2026-11-01T00:00:00Z") }
+          assert_equal Time.utc(2000, 1, 1, 9), clock.cast("09:00:00")
+          assert_raises(IOStreams::Errors::InvalidValue) { clock.cast("08:59:59") }
+          assert_equal "PT2H", long.cast("PT2H").iso8601
+          assert_raises(IOStreams::Errors::InvalidValue) { long.cast("PT30M") }
+        end
+
+        it "checks minLength and maxLength of the characters of a string, and the items of an array or object" do
+          code = field(type: "string", constraints: {minLength: 2, maxLength: 3})
+          tags = field(type: "array", constraints: {maxLength: 2})
+
+          assert_equal "ab", code.cast("ab")
+          error = assert_raises(IOStreams::Errors::InvalidValue) { code.cast("a") }
+          assert_equal 'Field "value": "a" has a length of 1, less than its minLength, 2', error.message
+          error = assert_raises(IOStreams::Errors::InvalidValue) { code.cast("abcd") }
+          assert_equal 'Field "value": "abcd" has a length of 4, more than its maxLength, 3', error.message
+          assert_equal "é日本", code.cast("é日本")
+          assert_equal [1, 2], tags.cast("[1,2]")
+          assert_raises(IOStreams::Errors::InvalidValue) { tags.cast([1, 2, 3]) }
+          assert_raises(IOStreams::Errors::InvalidValue) { field(type: "object", constraints: {minLength: 1}).cast({}) }
+        end
+
+        it "matches the whole text of a string with pattern, a Ruby regular expression" do
+          zip = field(type: "string", constraints: {pattern: "\\d{5}|\\d{5}-\\d{4}"})
+
+          assert_equal "12345", zip.cast("12345")
+          assert_equal "12345-6789", zip.cast("12345-6789")
+          %W[1234 123456 x12345 12345-67 12345\n].each do |text|
+            assert_raises(IOStreams::Errors::InvalidValue, text.inspect) { zip.cast(text) }
+          end
+          error = assert_raises(IOStreams::Errors::InvalidValue) { zip.cast("1234") }
+          assert_equal 'Field "value": "1234" does not match its pattern, /\d{5}|\d{5}-\d{4}/', error.message
+        end
+
+        it "checks each value written too" do
+          age = field(type: "integer", constraints: {minimum: 0})
+
+          assert_equal "5", age.render(5, :text)
+          assert_raises(IOStreams::Errors::InvalidValue) { age.render(-5, :text) }
+          assert_raises(IOStreams::Errors::InvalidValue) { age.render(-5, :typed) }
+        end
+
+        it "raises for a constraint that does not apply to the type of the field" do
+          [
+            {type: "string", constraints: {minimum: "a"}}, {type: "boolean", constraints: {maximum: true}},
+            {type: "integer", constraints: {minLength: 1}}, {type: "integer", constraints: {pattern: "\\d+"}},
+            {type: "any", constraints: {maxLength: 1}}
+          ].each do |properties|
+            assert_raises(ArgumentError, properties.inspect) { field(**properties) }
+          end
+          error = assert_raises(ArgumentError) { field(type: "integer", constraints: {pattern: "1"}) }
+          assert_equal 'Field "value": the constraint "pattern" only applies to a field of type string, not integer', error.message
+        end
+
+        it "raises for a value of a constraint that is not valid, or not a value of the field" do
+          [
+            {type: "integer", constraints: {minimum: "x"}}, {type: "integer", constraints: {minimum: 1.5}},
+            {type: "date", constraints: {maximum: "31/12/2026"}}, {type: "string", constraints: {minLength: -1}},
+            {type: "string", constraints: {maxLength: "3"}}, {type: "string", constraints: {pattern: "("}},
+            {type: "string", constraints: {pattern: 5}}, {type: "string", constraints: {enum: []}},
+            {type: "string", constraints: {enum: "a"}}, {type: "integer", constraints: {enum: [1, "x"]}},
+            {type: "integer", constraints: {minimum: nil}}, {type: "integer", constraints: {minimum: ""}}
+          ].each do |properties|
+            assert_raises(ArgumentError, properties.inspect) { field(**properties) }
+          end
+          error = assert_raises(ArgumentError) { field(type: "integer", constraints: {minimum: "x"}) }
+          assert_equal 'Field "value": constraints minimum must be a value of the field: Field "value": "x" is not a valid integer',
+                       error.message
+        end
+
+        it "keeps raising for jsonSchema, which is not supported" do
+          error = assert_raises(ArgumentError) { field(type: "object", constraints: {jsonSchema: {type: "object"}}) }
+          assert_equal 'Field "value": the constraint "jsonSchema" is not supported', error.message
+        end
+
+        it "names the record that a value not following a constraint is in, when reading" do
+          schema = IOStreams::Schema.new(fields: [{name: "age", type: "integer", constraints: {minimum: 0}}])
+          rows   = []
+          error  = assert_raises(IOStreams::Errors::InvalidValue) do
+            IOStreams.stream(StringIO.new("age\n5\n-1\n")).file_name("a.csv").schema(schema).each(:hash) { |row| rows << row }
+          end
+
+          assert_equal 'Field "age": "-1" is less than its minimum, 0', error.reason
+          assert_equal 2, error.record_number
+          assert_equal [{"age" => 5}], rows
+        end
+      end
+
+      describe "categories" do
+        it "reads a value of a string or integer field only when it is one of its categories" do
+          size = field(type: "string", categories: %w[S M L])
+          code = field(type: "integer", categories: [{value: 1, label: "One"}, {"value" => "2", "label" => "Two"}])
+
+          assert_equal "M", size.cast("M")
+          error = assert_raises(IOStreams::Errors::InvalidValue) { size.cast("XL") }
+          assert_equal 'Field "value": "XL" is not one of its categories', error.message
+          assert_equal 2, code.cast("2")
+          assert_raises(IOStreams::Errors::InvalidValue) { code.cast("3") }
+          assert_nil size.cast("")
+        end
+
+        it "accepts categoriesOrdered, which does not change how values are read" do
+          size = field(type: "string", categories: %w[S M L], categoriesOrdered: true)
+
+          assert_equal "L", size.cast("L")
+          assert_equal({name: "value", type: "string", categories: %w[S M L], categoriesOrdered: true}, size.to_h)
+        end
+
+        it "raises for an enum value that is not one of its categories" do
+          error = assert_raises(ArgumentError) { field(type: "string", categories: %w[S M], constraints: {enum: %w[M L]}) }
+          assert_equal 'Field "value": the enum value "L" is not one of its categories', error.message
+          assert_equal "S", field(type: "string", categories: %w[S M], constraints: {enum: %w[S]}).cast("S")
+        end
+
+        it "raises for categories that are not valid, or of another type of field" do
+          [
+            {type: "string", categories: "S"}, {type: "string", categories: []}, {type: "integer", categories: ["x"]},
+            {type: "string", categories: [{label: "x"}]}, {type: "string", categories: [{value: "x", label: 1}]},
+            {type: "string", categories: [{value: "x", code: 1}]}, {type: "number", categories: [1]},
+            {type: "string", categories: %w[a], categoriesOrdered: "yes"}, {type: "date", categoriesOrdered: true}
+          ].each do |properties|
+            assert_raises(ArgumentError, properties.inspect) { field(**properties) }
+          end
         end
       end
 

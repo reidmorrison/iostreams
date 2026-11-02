@@ -148,12 +148,29 @@ class ContractTest < Minitest::Test
         assert_raises(ArgumentError) { Class.new(IOStreams::Contract) { missing_values "NA" } }
       end
 
-      it "keeps the other constraints of a required field, named as Ruby names them, which a field rejects unless supported" do
-        error = assert_raises(ArgumentError) do
-          Class.new(IOStreams::Contract) { field :id, :integer, required: true, constraints: {max_length: 5} }
+      it "checks the other constraints of a field, and its categories, and writes them as Ruby names them" do
+        contract = Class.new(IOStreams::Contract) do
+          field :code, :string, constraints: {min_length: 2, pattern: "[A-Z]+"}, categories: %w[AB CD], categories_ordered: true
+          field :age, :integer, required: true, constraints: {minimum: 0, exclusive_maximum: 150}
         end
 
-        assert_includes error.message, '"maxLength" is not supported'
+        assert_equal({minLength: 2, pattern: "[A-Z]+"}, contract.fields.first.to_h[:constraints])
+        assert_equal "AB", contract.new(code: "AB", age: 3).code
+        assert_raises(IOStreams::Errors::InvalidValue) { contract.new(code: "EF", age: 3) }
+        assert_raises(IOStreams::Errors::InvalidValue) { contract.new(code: "AB", age: 150) }
+        dsl = contract.to_dsl("Codes")
+
+        assert_includes dsl, %(constraints: {min_length: 2, pattern: "[A-Z]+"})
+        assert_includes dsl, %(required: true, constraints: {minimum: 0, exclusive_maximum: 150})
+        assert_equal contract.to_h, Class.new(IOStreams::Contract) { class_eval(dsl.lines[1..-2].join, __FILE__, __LINE__) }.to_h
+      end
+
+      it "keeps the other constraints of a required field, named as Ruby names them, which a field rejects unless supported" do
+        error = assert_raises(ArgumentError) do
+          Class.new(IOStreams::Contract) { field :id, :integer, required: true, constraints: {json_schema: {}} }
+        end
+
+        assert_includes error.message, '"jsonSchema" is not supported'
       end
 
       it "names the subclass that has no fields" do

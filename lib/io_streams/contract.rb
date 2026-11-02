@@ -340,7 +340,9 @@ module IOStreams
         options    = []
         options << "required: true" if properties.dig(:constraints, :required)
         constraints = properties.delete(:constraints)&.except(:required)
-        properties[:constraints] = constraints unless constraints.nil? || constraints.empty?
+        unless constraints.nil? || constraints.empty?
+          properties[:constraints] = constraints.transform_keys { |constraint| ruby_name(constraint).to_sym }
+        end
         properties.each { |property, value| options << "#{ruby_name(property)}: #{value.inspect}" }
         options << "name: #{field.name.inspect}" unless field.name.to_s == accessor.to_s && field.name.is_a?(String)
         options.join(", ")
