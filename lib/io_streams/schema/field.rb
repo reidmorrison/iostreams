@@ -34,6 +34,8 @@ module IOStreams
     #                 format of JSON as an array.
     #     "any":      the value as it is read, without converting it.
     #     Default: "any"
+    #     Empty text is a missing value, nil, in every type, and text of only whitespace raises in every type but a
+    #     string or any, which keep it, see #cast.
     #
     #   format: [String]
     #     For a date or datetime, the strptime pattern of its text, such as "%d/%m/%Y" or "%Y%m%d%H%M%S", in the syntax
@@ -342,22 +344,27 @@ module IOStreams
       def value_required? = @constraints.value_required?
 
       # Returns the value converted to the type of this field, such as the Integer `12` for the text `"0012"`, or nil
-      # when the value is nil, or is text that is empty once its leading and trailing whitespace is removed, except
-      # for a string or any field, which returns the text as it is.
+      # when the value is missing: nil, or empty text, which Frictionless' default `missingValues`, `[""]`, makes a
+      # missing value in every type, including a string. Text of only whitespace is not missing: a string or any field
+      # keeps it as the text, and any other type raises for it, as it does for text that is not one of its values. The
+      # leading and trailing whitespace of any other text is removed before it is read, except by a string or any field,
+      # which keeps the text as it is.
       #
       # Raises `IOStreams::Errors::InvalidValue` when the value is not one of this type, or when a required field has
       # no value: nil, or empty text.
       def cast(value)
-        return @constraints.no_value if value.nil?
+        return @constraints.no_value if value.nil? || value == ""
 
         case type
-        when "any" then return value == "" ? @constraints.no_text(value) : value
-        when "string" then return value == "" ? @constraints.no_text(value) : cast_string(value)
+        when "any" then return value
+        when "string" then return cast_string(value)
         end
 
         if value.is_a?(String)
-          value = value.strip
-          return @constraints.no_value if value.empty?
+          text = value.strip
+          return invalid(value) if text.empty?
+
+          value = text
         end
 
         case type

@@ -90,6 +90,46 @@ class UpgradeSchemaTest < Minitest::Test
         end
       end
 
+      describe "missing values" do
+        let(:schema) { {fields: [{name: "name", type: "string"}, {name: "age", type: "integer"}, {name: "note"}]} }
+
+        it "reads empty text as nil in every type, as Frictionless' default missingValues does" do
+          assert_equal [{"name" => nil, "age" => 21, "note" => nil}], read(%(name,age,note\n"",21,""\n), schema: schema)
+          assert_equal [{"name" => nil, "age" => 21, "note" => nil}],
+                       read(%({"name":"","age":21,"note":""}\n), file_name: "people.json", schema: schema)
+        end
+
+        it "keeps text of only whitespace in a string or any field" do
+          assert_equal [{"name" => "  ", "age" => 21, "note" => " "}], read(%(name,age,note\n"  ",21," "\n), schema: schema)
+        end
+
+        it "raises for text of only whitespace in any other type" do
+          assert_raises(IOStreams::Errors::InvalidValue) { read(%(name,age,note\nJack,"  ",x\n), schema: schema) }
+          assert_raises(IOStreams::Errors::InvalidValue) { read(%({"name":"Jack","age":" ","note":"x"}\n), file_name: "people.json", schema: schema) }
+        end
+
+        it "still removes the whitespace around a value" do
+          assert_equal [{"name" => " Jack ", "age" => 21, "note" => nil}], read(%(name,age,note\n Jack , 21 ,\n), schema: schema)
+        end
+
+        it "still reads a row whose every value is blank, including text of only whitespace, as a blank row" do
+          assert_equal [nil, {"name" => "Jack", "age" => 21, "note" => nil}], read(%(name,age,note\n"  ", ,\nJack,21,\n), schema: schema)
+        end
+
+        it "raises for empty text in a required field, as for nil" do
+          required = {fields: [{name: "name", type: "string", constraints: {required: true}}, {name: "age", type: "integer"}]}
+
+          assert_raises(IOStreams::Errors::InvalidValue) { read(%(name,age\n"",21\n), schema: required) }
+          assert_equal [{"name" => " ", "age" => 21}], read(%(name,age\n" ",21\n), schema: required)
+        end
+
+        it "writes empty text as a missing value, nil, which JSON writes as null" do
+          assert_equal %({"name":null,"age":21,"note":null}\n),
+                       write([{"name" => "", "age" => 21, "note" => ""}], file_name: "people.json", schema: schema)
+          assert_equal "name,age,note\n,21,\n", write([{"name" => "", "age" => 21, "note" => ""}], schema: schema)
+        end
+      end
+
       describe "the format of a date or datetime" do
         let(:dates) { {fields: [{name: "joined", type: "date", format: "%d/%m/%Y"}]} }
 
@@ -933,7 +973,7 @@ class UpgradeSchemaTest < Minitest::Test
 
           it "writes a record without a value, and a blank record" do
             assert_equal "id,email\n1,\n", write([{"id" => 1}], schema: schema)
-            assert_equal %({"id":1,"email":null}\n{"id":2,"email":""}\n),
+            assert_equal %({"id":1,"email":null}\n{"id":2,"email":null}\n),
                          write([{"id" => 1, "email" => nil}, {"id" => 2, "email" => ""}], file_name: "people.json", schema: schema)
             assert_equal "id,email\n\n", write([{}], schema: schema)
           end

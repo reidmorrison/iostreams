@@ -308,8 +308,15 @@ valid UTF-8, unless an encoding is set, which writes it instead, as it does with
 | `array` | an `Array`, from the text of a JSON array, such as `[1,2]` | that JSON text, or in JSON an array |
 | `any` | the value as it is read | the value, with a `BigDecimal`, `Date` or `Time` as its text, and in a format of text a `Hash` or an `Array` as JSON, see [Values of a field without a type](#values-of-a-field-without-a-type) |
 
-A field without a `type` is `any`, as in Frictionless. Empty text is read as `nil`, except for a `string` or `any`
-field, which keeps it.
+A field without a `type` is `any`, as in Frictionless.
+
+Empty text is a missing value, read as `nil` in every type, including a `string` or `any` field, as the default
+`missingValues` of Frictionless, `[""]`, says, so that a missing value is `nil` whether the file leaves it out, such
+as JSON's `null`, or holds empty text, such as `""` in CSV or JSON. Text of only whitespace is not missing: a `string`
+or `any` field keeps it as the text, and any other type raises `IOStreams::Errors::InvalidValue` for it, as it does
+for `N/A`. The leading and trailing whitespace of any other text is removed before it is read as a type other than
+`string` or `any`, so that ` 42 ` is the `integer` `42`. Writing works the same way, so that empty text is written
+as a missing value, which JSON writes as `null`.
 
 A value that is not one of the type of its field, such as `N/A` for an `integer`, raises
 `IOStreams::Errors::InvalidValue`, naming the field and the value, both when reading and when writing. So does a `date`
@@ -520,8 +527,9 @@ record, without the field raises `IOStreams::Errors::InvalidHeader`, whatever `f
 `nil`, or empty text, raises `IOStreams::Errors::InvalidValue`, both when reading and when writing, including a blank
 record or row written, such as `{}`, which is otherwise written as a blank line. A blank row read, a line that is empty
 or only whitespace, or whose every value is `nil` or blank text, such as a line of CSV of only commas, is `nil`
-instead, as a blank line is. Text that is only spaces is a value for a `string` field of a row that has other values,
-as in Frictionless, but not for a type that reads it as `nil`, such as an `integer`.
+instead, as a blank line is. Text that is only spaces is a value for a `string` or `any` field of a row that has other
+values, as in Frictionless, while any other type, such as an `integer`, raises `IOStreams::Errors::InvalidValue` for it,
+see [Types](#types).
 
 ~~~ruby
 # An upload, whose columns may be in any order, with names that people typed, and columns that the code ignores.
@@ -542,7 +550,7 @@ end
 
 A file can need a column whose values can be blank, such as a middle name that must be in every upload, but that
 many people do not have. Give its field `allowBlank: true` with `required`: a header row, or JSON record, without
-the field still raises, while a value that is `nil`, or empty text, is read and written as it is:
+the field still raises, while a value that is `nil`, or empty text, is read and written as `nil`:
 
 ~~~ruby
 schema = {
@@ -724,7 +732,7 @@ length, ignoring what follows the last field. Otherwise every line ends where th
 length raises `IOStreams::Errors::InvalidLineLength`.
 
 When reading, each value is the text of its field without its leading and trailing spaces, converted to the type of
-its field. When writing, a number is right justified and zero filled, and a missing number is written as zero, as the
+its field, so that a field of only spaces is empty text, a missing value, `nil`, see [Types](#types). When writing, a number is right justified and zero filled, and a missing number is written as zero, as the
 specifications of most fixed width files require. A number that is not finite, such as `NaN` or `-INF`, is space
 filled instead, so that it can be read back. Any other value is left justified and space filled, with each line
 break replaced with a space, so that a value cannot add records. The characters that no field covers, such as a

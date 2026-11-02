@@ -218,6 +218,8 @@ the files of the application before it replaces the layout. What reads different
   and `Float::INFINITY`, where the layout reads them as `0.0`.
 * A line whose fields are all blank, even where a filler holds text, is a blank row, `nil`, which a copy skips, where
   the layout reads a record of blank values, such as `{name: "", zip: nil}`.
+* A `string` field of only spaces is `nil`, a missing value, where the layout reads empty text, `""`, see
+  [Types](formats#types).
 * `each(:array)` yields the names of the fields first, as an `IOStreams::Row::HeaderRow`, and then an Array of the
   values of each line, where the layout yields a Hash for each line, as `each(:hash)` does.
 
@@ -349,6 +351,8 @@ A schema reads the same records as the options it replaces, named as above, as i
 * A value after the last column, which is not blank, raises `IOStreams::Errors::InvalidHeader` unless `fieldsMatch`
   is `"subset"` or `"partial"`, where it was dropped.
 * The text read is UTF-8, see [Schemas in IOStreams 2.2 and 3.0](formats#schemas-in-iostreams-22-and-30).
+* Empty text, such as a quoted `""` in CSV or `""` in JSON, is a missing value, `nil`, where the column options read
+  it as it is, see [Types](formats#types).
 * `IOStreams.enforce_column_restrictions` does not apply, since a schema applies to every input. So a schema applies
   its fields to what the column options were not applied to, while `enforce_column_restrictions` is false, the
   default: the keys of JSON records, the `columns:` of a file without a header row, and a header row read with
