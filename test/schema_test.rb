@@ -68,9 +68,9 @@ class SchemaTest < Minitest::Test
         assert_equal 'Field "value": unknown property "widht"', error.message
       end
 
-      it "raises for a property of Frictionless that is not supported, rather than ignore its check" do
+      it "raises for a property of Frictionless of another type, rather than ignore its check" do
         error = assert_raises(ArgumentError) { field(delimiter: ";") }
-        assert_equal 'Field "value": the property "delimiter" is not supported', error.message
+        assert_equal 'Field "value": "delimiter" only applies to a list field', error.message
       end
 
       it "accepts the required constraint" do
@@ -165,8 +165,8 @@ class SchemaTest < Minitest::Test
       end
 
       it "raises for a type of Frictionless that is not supported" do
-        error = assert_raises(ArgumentError) { field(type: "year") }
-        assert_equal 'Field "value": the type "year" is not supported', error.message
+        error = assert_raises(ArgumentError) { field(type: "geojson") }
+        assert_equal 'Field "value": the type "geojson" is not supported', error.message
       end
 
       it "raises for an unknown type" do
@@ -315,9 +315,9 @@ class SchemaTest < Minitest::Test
           error = assert_raises(ArgumentError) { IOStreams::Schema.read(path.to_s) }
           assert_match(/\AInvalid schema in .*people\.json: /, error.message)
 
-          path.write(JSON.generate(fields: [{name: "id", type: "year"}]))
+          path.write(JSON.generate(fields: [{name: "id", type: "geojson"}]))
           error = assert_raises(ArgumentError) { IOStreams::Schema.read(path.to_s) }
-          assert_match(/people\.json: Field "id": the type "year" is not supported\z/, error.message)
+          assert_match(/people\.json: Field "id": the type "geojson" is not supported\z/, error.message)
         end
       end
     end

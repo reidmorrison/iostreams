@@ -49,11 +49,30 @@ module IOStreams
     #                 Strings, which IOStreams adds, since Frictionless keeps a dict as it is.
     #     "array":    an Array, read from the text of a JSON array, such as `[1,2]`, and written as that text, or by a
     #                 format of JSON as an array. An Array is what JSON holds of it, see .json_data.
+    #     "list":     an Array of items of its `itemType`, read from text of the items separated by its `delimiter`, such
+    #                 as `a,b,c`, each read in the default form of its type, as Frictionless requires, or from an Array,
+    #                 or the text of a JSON array, such as `["a","b"]`, which a spreadsheet holds, and written as that
+    #                 delimited text, or by a format of JSON as an array.
+    #     "year":     an Integer, read from text of 4 digits, such as `2026`, or from a whole number, and written as 4
+    #                 digits.
+    #     "yearmonth": a Date on the first of its month, read from text such as `2026-10`, or from a Date on the first of
+    #                 its month, and written as that text.
+    #     "geopoint": a point on the earth, `[lon, lat]`, two BigDecimals, read from and written in the form of its
+    #                 `format`, see `IOStreams::Schema::Geopoint`.
     #     "any":      the value as it is read, without converting it, apart from empty text, which is nil.
     #     Default: "any"
     #
+    #   delimiter: [String]
+    #     For a list, the text between its items.
+    #     Default: ","
+    #
+    #   itemType: [String]
+    #     For a list, the type of its items: "string", "integer", "boolean", "number", "datetime", "date" or "time".
+    #     Default: "string"
+    #
     #   format: [String]
-    #     For a date, datetime or time, the strptime pattern of its text, such as "%d/%m/%Y", "%Y%m%d%H%M%S" or "%I:%M %p",
+    #     For a geopoint, "default", "array" or "object", see `IOStreams::Schema::Geopoint`. For a date, datetime or time,
+    #     the strptime pattern of its text, such as "%d/%m/%Y", "%Y%m%d%H%M%S" or "%I:%M %p",
     #     in the syntax of Python's strptime, which Frictionless defines: `%Y` reads exactly 4 digits, and `%f` the
     #     microseconds, see `IOStreams::Schema::Pattern`. A pattern that starts with `fmt:` has the prefix removed, so
     #     that "fmt:default" is the default form, as frictionless-py reads it.
@@ -134,19 +153,25 @@ module IOStreams
     # Properties that only describe the field to people, `title`, `description`, `example` and `rdfType`, are
     # accepted and have no effect, as are the properties of other tools, whose names include a `:`.
     #
-    # Any other property raises `ArgumentError`, as does a type that IOStreams does not support yet, such as "year",
-    # and the Frictionless properties that it does not support yet, such as `missingValues`, so that a schema never
+    # Any other property raises `ArgumentError`, as does a type that IOStreams does not support yet, "geojson", and a
+    # property of another type of field, such as `decimals` of an integer, so that a schema never
     # appears to check a value that it does not.
     class Field
       # The types of field that IOStreams supports.
-      TYPES = %w[any array boolean date datetime duration integer number object string time].freeze
+      TYPES = %w[any array boolean date datetime duration integer number object string time list year yearmonth
+                 geopoint].freeze
+
+      # The types of the items of a list, see `itemType` above.
+      ITEM_TYPES = %w[string integer boolean number datetime date time].freeze
 
       # The properties that each type of field accepts, in addition to those that every field accepts.
       TYPE_PROPERTIES = {
         "boolean"  => %w[trueValues falseValues],
         "date"     => %w[format],
         "datetime" => %w[format],
+        "geopoint" => %w[format],
         "integer"  => %w[groupChar bareNumber categories categoriesOrdered],
+        "list"     => %w[delimiter itemType],
         "number"   => %w[decimals floatNumber groupChar decimalChar bareNumber],
         "string"   => %w[truncate categories categoriesOrdered],
         "time"     => %w[format]
@@ -170,7 +195,16 @@ module IOStreams
       DESCRIPTIVE_PROPERTIES = %w[title description example rdfType].freeze
 
       # The properties of a Frictionless field that IOStreams does not support yet.
-      UNSUPPORTED_PROPERTIES = %w[delimiter itemType].freeze
+      UNSUPPORTED_PROPERTIES = [].freeze
+
+      # The text of a year, 4 digits, see `year` above.
+      YEAR = /\A\d{4}\z/
+
+      # The text of a year and a month, see `yearmonth` above.
+      YEARMONTH = /\A(\d{4})-(\d{2})\z/
+
+      # The text of a JSON array of the items of a list, see `list` above.
+      JSON_ARRAY = /\A\s*\[.*\]\s*\z/m
 
       DEFAULT_TRUE_VALUES  = %w[true True TRUE 1].freeze
       DEFAULT_FALSE_VALUES = %w[false False FALSE 0].freeze
@@ -192,16 +226,20 @@ module IOStreams
       # checked, as each one is read, so a field of any type takes them too, apart from a string, which raises for a
       # Hash or an Array, so takes neither an object nor an array.
       CONVERTED_TYPES = {
-        "string"   => %w[string any integer number boolean date datetime time duration],
-        "integer"  => %w[integer number],
-        "number"   => %w[integer number],
-        "boolean"  => %w[boolean integer number],
-        "date"     => %w[date datetime],
-        "datetime" => %w[datetime],
-        "time"     => %w[time datetime],
-        "duration" => %w[duration],
-        "object"   => %w[object],
-        "array"    => %w[array]
+        "string"    => %w[string any integer number boolean date datetime time duration year],
+        "integer"   => %w[integer number],
+        "number"    => %w[integer number],
+        "boolean"   => %w[boolean integer number],
+        "date"      => %w[date datetime],
+        "datetime"  => %w[datetime],
+        "time"      => %w[time datetime],
+        "duration"  => %w[duration],
+        "object"    => %w[object],
+        "array"     => %w[array],
+        "list"      => %w[list array],
+        "year"      => %w[year integer],
+        "yearmonth" => %w[yearmonth date],
+        "geopoint"  => %w[geopoint array object]
       }.freeze
 
       # The most Hashes and Arrays within each other that the value of an object or array field can have, as the json
@@ -284,7 +322,10 @@ module IOStreams
         check_type
         @skip = check_skip(descriptor)
         check_properties(descriptor)
-        @format       = check_format(descriptor["format"])
+        @geopoint     = Geopoint.new(descriptor.fetch("format", "default"), @name) if @type == "geopoint"
+        @format       = check_format(descriptor["format"]) unless @type == "geopoint"
+        @delimiter    = check_delimiter(descriptor["delimiter"]) if @type == "list"
+        @item         = item_field(descriptor["itemType"]) if @type == "list"
         @utc          = @type == "datetime" && !@format.nil? && !@format.zone?
         @width        = check_width(descriptor["width"])
         @start        = check_positive("start", descriptor["start"])
@@ -667,6 +708,7 @@ module IOStreams
         when "time" then value.is_a?(Time) ? clock_dump(value) : value
         when "duration" then value.respond_to?(:iso8601) ? value.iso8601 : value
         when "any" then self.class.textual?(value) ? self.class.any_text(value) : value
+        when "list", "yearmonth", "geopoint" then other_dump(value)
         else value
         end
       end
@@ -737,7 +779,7 @@ module IOStreams
 
         value = cast(value)
         return (@missing.text if form == :text) if value.nil?
-        return value if form == :typed
+        return @geopoint ? @geopoint.write(value, :typed) : value if form == :typed
         return json(value) if form == :json
 
         text(value)
@@ -830,8 +872,68 @@ module IOStreams
         when "duration" then cast_duration(value)
         when "object" then cast_json(value, ::Hash)
         when "array" then cast_json(value, ::Array)
-        else cast_datetime(value)
+        when "datetime" then cast_datetime(value)
+        else cast_other(value)
         end
+      end
+
+      # Returns the value of a list, year, yearmonth or geopoint, which is neither nil nor blank text, see #cast_value.
+      def cast_other(value)
+        case type
+        when "list" then cast_list(value)
+        when "year" then cast_year(value)
+        when "yearmonth" then cast_yearmonth(value)
+        else @geopoint.read(value) || invalid(value)
+        end
+      end
+
+      # Returns [Array] the items of a list, each read by the field of its `itemType` in its default form, see
+      # #item_field, from an Array, the text of a JSON array, or text of the items separated by the delimiter, which is
+      # split as it is, so that a string item keeps its spaces. An empty item is a missing value, nil.
+      def cast_list(value)
+        items =
+          if value.is_a?(::Array)
+            value
+          elsif value.is_a?(String)
+            json_items(value) || value.split(@delimiter, -1)
+          end
+        return invalid(value) if items.nil?
+
+        items.map { |item| @item.cast(item) }
+      rescue IOStreams::Errors::InvalidValue
+        invalid(value)
+      end
+
+      # Returns [Array|nil] the items of the text of a JSON array, or nil when the text is not one, see #cast_list.
+      def json_items(text)
+        return unless JSON_ARRAY.match?(text)
+
+        items = JSON.parse(text)
+        items if items.is_a?(::Array) && items.none? { |item| item.is_a?(::Hash) || item.is_a?(::Array) }
+      rescue JSON::ParserError
+        nil
+      end
+
+      # Returns [Integer] the year of an Integer, a whole number, or text of 4 digits, see `year` above.
+      def cast_year(value)
+        return Integer(value, 10) if value.is_a?(String) && YEAR.match?(value)
+        return invalid(value) if value.is_a?(String)
+
+        cast_integer(value)
+      end
+
+      # Returns [Date] the first of the month of text such as `2026-10`, or of a Date on the first of its month, or a
+      # Time or DateTime at midnight on it, see `yearmonth` above.
+      def cast_yearmonth(value)
+        if value.is_a?(String)
+          parts = YEARMONTH.match(value)
+          month = parts && parts[2].to_i
+          return invalid(value) unless month&.between?(1, 12)
+
+          return Date.new(parts[1].to_i, month, 1)
+        end
+        date = cast_date(value)
+        date.day == 1 ? date : invalid(value)
       end
 
       # Returns [String] the text of a value of this type, once it is converted, see #cast, such as "12.50" for the
@@ -845,7 +947,28 @@ module IOStreams
         when "datetime" then @format ? datetime_text(value) : self.class.any_text(value)
         when "time" then time_text(value)
         when "duration" then value.iso8601
+        when "list", "year", "yearmonth", "geopoint" then other_text(value)
         else self.class.any_text(value)
+        end
+      end
+
+      # Returns [String] the text of a value of a list, year, yearmonth or geopoint, see #text.
+      def other_text(value)
+        case type
+        when "list" then value.map { |item| item.nil? ? "" : @item.render(item, :text) }.join(@delimiter)
+        when "year" then value.between?(0, 9999) ? format("%04d", value) : value.to_s
+        when "yearmonth" then value.strftime("%Y-%m")
+        else @geopoint.write(value, :text)
+        end
+      end
+
+      # Returns the value of a list, yearmonth or geopoint in a form that JSON keeps exactly, see #dump: the items of a
+      # list as its item field dumps them, a yearmonth as its text, and a geopoint as the digits of its numbers.
+      def other_dump(value)
+        case type
+        when "list" then value.is_a?(::Array) ? value.map { |item| @item.dump(item) } : value
+        when "yearmonth" then value.is_a?(Date) ? value.strftime("%Y-%m") : value
+        else value.is_a?(::Array) ? value.map { |number| number_dump(number) } : value
         end
       end
 
@@ -925,7 +1048,26 @@ module IOStreams
 
       # Returns [true|false] whether the type is one that Frictionless defines, but IOStreams does not support yet.
       def known_type?
-        %w[list year yearmonth geopoint geojson].include?(type)
+        type == "geojson"
+      end
+
+      # Returns [String] the text between the items of a list, see `delimiter` above.
+      def check_delimiter(delimiter)
+        return "," if delimiter.nil?
+        return -delimiter if delimiter.is_a?(String) && !delimiter.empty?
+
+        raise(ArgumentError, "Field #{name.inspect}: delimiter must be text that is not empty: #{delimiter.inspect}")
+      end
+
+      # Returns [IOStreams::Schema::Field] the field that reads and writes each item of a list, of its `itemType`, in the
+      # default form of that type, as Frictionless requires, named as the list, for the messages of its errors.
+      def item_field(item_type)
+        item_type = item_type.nil? ? "string" : item_type.to_s
+        unless ITEM_TYPES.include?(item_type)
+          raise(ArgumentError, "Field #{name.inspect}: itemType must be one of #{ITEM_TYPES.join(', ')}: #{item_type.inspect}")
+        end
+
+        self.class.new({name: name, type: item_type})
       end
 
       def check_properties(descriptor)
@@ -1355,8 +1497,10 @@ module IOStreams
       def json(value)
         case type
         when "number" then number_json(value)
-        when "integer", "boolean", "string" then value
+        when "integer", "boolean", "string", "year" then value
         when "any", "object", "array" then any_json(value)
+        when "list" then value.map { |item| item.nil? ? nil : @item.render(item, :json) }
+        when "geopoint" then @geopoint.write(value, :json)
         else text(value)
         end
       end

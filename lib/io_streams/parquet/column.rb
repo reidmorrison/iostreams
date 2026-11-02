@@ -22,6 +22,11 @@ module IOStreams
     #               `ActiveSupport::Duration`, since the `parquet` gem has no interval type.
     #   "object"    string, holding the JSON text of the Hash, which a schema with the field reads back as the Hash.
     #   "array"     string, holding the JSON text of the Array, read back the same way.
+    #   "list"      string, holding the text of its items separated by its delimiter, as a format of text writes it.
+    #   "year"      int64.
+    #   "yearmonth" string, holding its text, such as `2026-10`, since Parquet has no type of a month.
+    #   "geopoint"  string, holding the text of its format, such as `90.5, 45.5`, or the JSON text of an array or an
+    #               object.
     #
     # A field whose `constraints` are `required` cannot be null, unless it allows blank values, see `allowBlank` in
     # `IOStreams::Schema::Field`. A field of type "any" raises ArgumentError, since Parquet needs the type of every
@@ -90,8 +95,8 @@ module IOStreams
 
       def parquet_type
         case @field.type
-        when "string", "duration", "object", "array" then :string
-        when "integer" then :int64
+        when "string", "duration", "object", "array", "list", "yearmonth", "geopoint" then :string
+        when "integer", "year" then :int64
         when "number" then number_type
         when "boolean" then :boolean
         when "date" then :date32

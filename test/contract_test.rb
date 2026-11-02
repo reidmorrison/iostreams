@@ -48,7 +48,7 @@ class ContractTest < Minitest::Test
       end
 
       it "raises for a schema that is not valid" do
-        assert_raises(ArgumentError) { IOStreams::Contract.new(fields: [{name: "id", type: "year"}]) }
+        assert_raises(ArgumentError) { IOStreams::Contract.new(fields: [{name: "id", type: "geojson"}]) }
         assert_raises(ArgumentError) { IOStreams::Contract.new([{name: "id"}]) }
         assert_raises(ArgumentError) { IOStreams::Contract.new({fields: []}, fieldsMatch: "subset") }
       end
@@ -121,7 +121,7 @@ class ContractTest < Minitest::Test
       end
 
       it "raises for a field that is not valid as it is declared" do
-        assert_raises(ArgumentError) { Class.new(IOStreams::Contract) { field :id, :year } }
+        assert_raises(ArgumentError) { Class.new(IOStreams::Contract) { field :id, :geojson } }
         assert_raises(ArgumentError) { Class.new(IOStreams::Contract) { field "id", :integer } }
         assert_raises(ArgumentError) { Class.new(IOStreams::Contract) { field :"my-field", :integer } }
         assert_raises(ArgumentError) { Class.new(IOStreams::Contract) { field :id, :integer, colour: "red" } }

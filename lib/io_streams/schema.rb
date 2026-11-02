@@ -113,6 +113,7 @@ module IOStreams
     autoload :Constraints,     "io_streams/schema/constraints"
     autoload :ContractColumns, "io_streams/schema/contract_columns"
     autoload :Field,           "io_streams/schema/field"
+    autoload :Geopoint,        "io_streams/schema/geopoint"
     autoload :Inference,       "io_streams/schema/inference"
     autoload :JsonNumber,      "io_streams/schema/json_number"
     autoload :Keys,            "io_streams/schema/keys"

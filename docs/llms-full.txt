@@ -3273,6 +3273,8 @@ each type is written as:
 | `time` | `time_micros`, not adjusted to UTC, holding the time of its clock, which is read back as a `Time` on 2000-01-01 in UTC |
 | `duration` | `string`, holding its ISO 8601 text, such as `P1M2DT3H`, which a schema with the field reads back as an `ActiveSupport::Duration` |
 | `object`, `array` | `string`, holding its JSON text, which a schema with the field reads back as a `Hash` or an `Array` |
+| `list`, `yearmonth`, `geopoint` | `string`, holding its text, such as `a,b`, `2026-10` or `90.5, 45.5`, which a schema with the field reads back |
+| `year` | `int64` |
 
 A `number` field needs `decimals` or `floatNumber: true`, since a Parquet decimal has a fixed number of digits after
 its point, and a field of type `any` raises `ArgumentError`, since it has no type. A field whose `constraints` are
@@ -4057,6 +4059,10 @@ IOStreams.path("orders.csv").schema(IOStreams::Schema.new(JSON.parse(File.read("
 | `duration` | an `ActiveSupport::Duration`, from ISO 8601, such as `PT8H30M` or `P1M2DT3H`, keeping its months and days apart from its seconds. **Needs the `activesupport` gem**, see below | ISO 8601, such as `P1M2DT3H`, also in JSON |
 | `object` | a `Hash`, from the text of a JSON object, such as `{"a":1}`, or a `Hash` as JSON holds it, see below | that JSON text, or in JSON an object |
 | `array` | an `Array`, from the text of a JSON array, such as `[1,2]`, or an `Array` as JSON holds it, see below | that JSON text, or in JSON an array |
+| `list` | an `Array` of items of its `itemType`, from text of the items separated by its `delimiter`, such as `a,b,c`, each in the default form of its type, or from an `Array`, or the text of a JSON array, such as `["a","b"]` | the items separated by its `delimiter`, or in JSON an array |
+| `year` | an `Integer`, from text of 4 digits, such as `2026`, or a whole number | 4 digits, or in JSON a number |
+| `yearmonth` | a `Date` on the first of its month, from text such as `2026-10`, or a `Date` on the first of its month | `2026-10` |
+| `geopoint` | a point on the earth, `[lon, lat]`, two `BigDecimal`s, from the form of its `format`: `default`, the text `90.50, 45.50`; `array`, a JSON array, such as `[90.50, 45.50]`, or its text; or `object`, a JSON object, such as `{"lon": 90.50, "lat": 45.50}`, or its text | the form of its `format` |
 | `any` | the value as it is read | the value, with a `BigDecimal`, `Date` or `Time` as its text, and in a format of text a `Hash` or an `Array` as JSON, see [Values without a field](#values-without-a-field) |
 
 A field without a `type` is `any`, as in Frictionless.
@@ -4103,6 +4109,47 @@ schema with a `duration` field raises `LoadError`, naming the gem. IOStreams loa
 parts of ActiveSupport that it needs, but not ActiveSupport's JSON, so it does not change how the application writes
 JSON. A duration is read only from ISO 8601
 text, so a number, such as `30600`, raises, since it does not say what it counts.
+
+### Lists, years, months and points
+
+A `list`, as Frictionless defines it, holds the items of one type, its `itemType`, which is `string`, `integer`,
+`boolean`, `number`, `datetime`, `date` or `time`, `string` by default, separated by its `delimiter`, `,` by default.
+Each item is read in the default form of its type, such as `2026-10-13` for a `date`, as Frictionless requires, and an
+empty item is `nil`. A `string` item keeps its spaces, so give a list of `a, b` the `delimiter` `", "`. Its `minLength`
+and `maxLength` count its items.
+
+~~~ruby
+path = IOStreams.path("orders.csv").schema(
+  fields: [
+    {name: "tags", type: "list"},
+    {name: "sizes", type: "list", itemType: "integer", delimiter: ";"},
+    {name: "year", type: "year"},
+    {name: "month", type: "yearmonth"},
+    {name: "location", type: "geopoint"}
+  ]
+)
+path.each(:hash) do |order|
+  p order
+end
+# "tags,sizes,year,month,location\n\"a,b\",10;12,2026,2026-10,\"90.5, 45.5\"\n" =>
+# {"tags" => ["a", "b"], "sizes" => [10, 12], "year" => 2026, "month" => #<Date: 2026-10-01 ...>,
+#  "location" => [0.905e2, 0.455e2]}
+~~~
+
+A `geopoint` is read as `[lon, lat]` from the form of its `format`, and from an `Array` or a `Hash` of `lon` and `lat`
+whatever its format, such as of the `:hash` format or Parquet, and is written in the form of its format. Its longitude
+must be from -180 to 180, and its latitude from -90 to 90. `geojson` is not supported yet, so it raises
+`ArgumentError`.
+
+Each format writes them as it can hold them:
+
+| Format | `list` | `year` | `yearmonth` | `geopoint` |
+|--------|--------|--------|-------------|------------|
+| CSV, PSV and fixed width | the items separated by its `delimiter` | 4 digits | `2026-10` | the text of its format, such as `90.5, 45.5` or `[90.5,45.5]` |
+| JSON | an array of its items | a number | `"2026-10"` | the text of the default format, or a JSON array or object |
+| Parquet | a `string` column of the items separated by its `delimiter` | an `int64` | a `string` | a `string` of the text of its format |
+| A spreadsheet | the text of a JSON array, such as `["a","b"]`, which the field reads back | a number | a date, the first of the month | the text of its format, or of a JSON array or object |
+| `:hash` and `:array` | an `Array` | an `Integer` | a `Date` | the text of the default format, or an `Array` or a `Hash` |
 
 ### Missing values
 
@@ -4475,9 +4522,9 @@ the value as it was read, and the constraint:
 |------------|-------|------------|
 | `enum` | every type | is one of its values |
 | `unique` | every type | is unique within the file, see [Unique values](#unique-values) |
-| `minimum`, `maximum` | `integer`, `number`, `date`, `time`, `datetime`, `duration` | is at least, or at most, its value |
+| `minimum`, `maximum` | `integer`, `number`, `date`, `time`, `datetime`, `duration`, `year`, `yearmonth` | is at least, or at most, its value |
 | `exclusiveMinimum`, `exclusiveMaximum` | the same | is more, or less, than its value |
-| `minLength`, `maxLength` | `string`, and the items of an `array` or `object` | has at least, or at most, that many characters or items |
+| `minLength`, `maxLength` | `string`, and the items of a `list`, `array` or `object` | has at least, or at most, that many characters or items |
 | `pattern` | `string` | matches the whole text with its regular expression |
 
 ~~~ruby
@@ -4667,7 +4714,10 @@ and `#copy_to`, whose options only apply to the target.
 * `missingValues` The text that is a missing value of the field, which replaces those of the schema, see
   [Missing values](#missing-values).
 * `format` For a `date`, a `datetime` or a `time`, the strptime pattern of its text, such as `"%d/%m/%Y"`, `"%Y%m%d"`
-  or `"%I:%M %p"` for `9:30 PM`, see [Formats of dates and times](#formats-of-dates-and-times). Default: ISO 8601.
+  or `"%I:%M %p"` for `9:30 PM`, see [Formats of dates and times](#formats-of-dates-and-times). Default: ISO 8601. For
+  a `geopoint`, `default`, `array` or `object`, see [Lists, years, months and points](#lists-years-months-and-points).
+* `itemType` and `delimiter` For a `list`, the type of its items and the text between them, see
+  [Lists, years, months and points](#lists-years-months-and-points). Default: `string` and `,`
 * `trueValues` and `falseValues` For a `boolean`, the text that is true and false.
   Default: `["true", "True", "TRUE", "1"]` and `["false", "False", "FALSE", "0"]`
 * `floatNumber` For a `number`, `true` to read a `Float` rather than a `BigDecimal`, as frictionless-py does.
@@ -4701,7 +4751,7 @@ and `#copy_to`, whose options only apply to the target.
 `title`, `description`, `example` and `rdfType` describe a field to people and have no effect, as do the properties
 of other tools, whose names include a `:`, such as `"mytool:owner"`. Any other property raises `ArgumentError`, as do
 the parts of Frictionless that IOStreams does not support yet, such as `foreignKeys`, the constraint `jsonSchema`, and
-the `year` type, so that a schema never appears to check a value that it does not.
+the `geojson` type, so that a schema never appears to check a value that it does not.
 
 ## Values without a field
 
