@@ -233,6 +233,9 @@ end
 # "name,age,income\nNA,NA,-99\n" => {"name" => nil, "age" => nil, "income" => nil}
 ~~~
 
+As Frictionless requires, a list holds either text or such objects, not both, and each text, and each label, only once,
+otherwise setting the schema raises `ArgumentError`, naming the text or label that it repeats.
+
 Without `""`, empty text is a value: a `string` or `any` field reads it as `""`, and every other type raises
 `IOStreams::Errors::InvalidValue` for it. An empty value of CSV without quotes, such as the second value of `a,,b`, is
 still `nil` whatever the missing values, since the CSV parser reads it as no value, while a quoted one, `""`, is empty

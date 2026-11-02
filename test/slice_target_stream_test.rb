@@ -895,7 +895,7 @@ class SliceTargetStreamTest < Minitest::Test
 
       it "keep the values that are the text of a missing value, once a store that holds them as JSON returns them" do
         schema = {
-          "missingValues" => ["", {"value" => "-99", "label" => "Refused"}, "0"],
+          "missingValues" => [{"value" => ""}, {"value" => "-99", "label" => "Refused"}, {"value" => "0"}],
           "fields"        => [{"name" => "name"}, {"name" => "pay", "type" => "number"}]
         }
         records = [{"name" => "Jack", "pay" => BigDecimal("-99")}, {"name" => "Jill", "pay" => BigDecimal("0")}]

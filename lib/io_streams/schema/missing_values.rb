@@ -4,7 +4,8 @@ module IOStreams
   class Schema
     # The text that is a missing value, `missingValues` as Frictionless defines it, see
     # https://datapackage.org/standard/table-schema/: an Array of the text, such as `["", "NA", "-"]`, or of objects of
-    # the text and a label that describes it to people, such as `[{value: "-99", label: "Refused"}]`.
+    # the text and a label that describes it to people, such as `[{value: "-99", label: "Refused"}]`, but not both, each
+    # text, and each label that is given, once.
     #
     # A schema holds the missing values of its fields, and a field that has its own replaces them, rather than adds to
     # them, see `IOStreams::Schema::Field`. Text is a missing value when it is exactly one of them, before any other
@@ -32,7 +33,8 @@ module IOStreams
       #     What has them, such as `The schema` or `Field "amount":`, for the message of an error.
       #
       # Raises ArgumentError for missing values that are not an Array of text or of objects of a text `value` and an
-      # optional text `label`.
+      # optional text `label`, that mix the two, or that repeat a text, or a label, as Frictionless requires each to be
+      # unique.
       def initialize(descriptor, owner = "The schema")
         unless descriptor.is_a?(Array)
           raise(ArgumentError, "#{owner} missingValues must be an Array of text, or of objects with a value: " \
@@ -40,10 +42,11 @@ module IOStreams
         end
 
         @descriptor = Utils.frozen_copy(descriptor.map { |entry| entry_of(entry, owner) })
-        @values     = @descriptor.map { |entry| -(entry.is_a?(Hash) ? entry[:value] : entry) }.uniq.freeze
+        @values     = @descriptor.map { |entry| -(entry.is_a?(Hash) ? entry[:value] : entry) }.freeze
         @set        = @values.to_h { |value| [value, true] }.freeze
         @default    = @values == [""]
         @text       = @values.first unless @values.empty? || @values.first.empty?
+        check_unique(owner)
         freeze
       end
 
@@ -90,6 +93,27 @@ module IOStreams
                              "text label, such as {value: \"-99\", label: \"Refused\"}: #{entry.inspect}")
       end
       private :entry_of
+
+      # Raises ArgumentError for a list that mixes text and objects, or that repeats a text or a label.
+      def check_unique(owner)
+        if @descriptor.any?(String) && @descriptor.any?(Hash)
+          raise(ArgumentError, "#{owner} missingValues must be all text, or all objects with a value, not both: " \
+                               "#{@descriptor.inspect}")
+        end
+
+        repeated = repeated_entry(@values)
+        raise(ArgumentError, "#{owner} missingValues must not repeat a value: #{repeated.inspect}") if repeated
+
+        repeated = repeated_entry(@descriptor.filter_map { |entry| entry[:label] if entry.is_a?(Hash) })
+        raise(ArgumentError, "#{owner} missingValues must not repeat a label: #{repeated.inspect}") if repeated
+      end
+      private :check_unique
+
+      # Returns [String|nil] the first text that the list holds more than once.
+      def repeated_entry(list)
+        list.tally.find { |_text, count| count > 1 }&.first
+      end
+      private :repeated_entry
 
       # The default missing values of Frictionless, `[""]`.
       DEFAULT = new([""])

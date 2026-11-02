@@ -1164,10 +1164,10 @@ class SchemaTest < Minitest::Test
 
         it "keeps them as they were given, each object with Symbol keys, and compares fields by them" do
           schema = IOStreams::Schema.new(missingValues: [{value: "-99", label: "Refused"}, {"value" => "-98"}],
-                                         fields:        [{name: "a", missingValues: ["x", {"value" => "y", "label" => "Y"}]}])
+                                         fields:        [{name: "a", missingValues: [{"value" => "y", "label" => "Y"}]}])
 
           assert_equal({missingValues: [{value: "-99", label: "Refused"}, {value: "-98"}],
-                        fields:        [{name: "a", missingValues: ["x", {value: "y", label: "Y"}]}]}, schema.to_h)
+                        fields:        [{name: "a", missingValues: [{value: "y", label: "Y"}]}]}, schema.to_h)
           assert_equal schema, IOStreams::Schema.new(JSON.parse(JSON.generate(schema.to_h)))
           refute_equal schema_field({missingValues: ["NA"]}), schema_field({missingValues: ["-"]})
           assert_equal schema_field({missingValues: ["NA"]}), schema_field({missingValues: ["NA"]})
@@ -1188,6 +1188,34 @@ class SchemaTest < Minitest::Test
           end
           error = assert_raises(ArgumentError) { field(missingValues: "NA") }
           assert_equal 'Field "value": missingValues must be an Array of text, or of objects with a value: "NA"', error.message
+        end
+
+        it "raises for missing values that mix text and objects, as Frictionless requires one or the other" do
+          # The inspect of the list, which Ruby 3.3 writes as `{:value=>"-99"}`, and Ruby 3.4 as `{value: "-99"}`.
+          error = assert_raises(ArgumentError) { field(missingValues: ["NA", {value: "-99"}]) }
+          assert_equal 'Field "value": missingValues must be all text, or all objects with a value, not both: ' \
+                       "#{['NA', {value: '-99'}].inspect}", error.message
+          error = assert_raises(ArgumentError) { IOStreams::Schema.new(missingValues: [{value: "-99"}, ""], fields: [{name: "a"}]) }
+          assert_equal "The schema missingValues must be all text, or all objects with a value, not both: " \
+                       "#{[{value: '-99'}, ''].inspect}", error.message
+        end
+
+        it "raises for missing values that repeat a text, a value or a label, which Frictionless requires to be unique" do
+          error = assert_raises(ArgumentError) { field(missingValues: ["", "NA", "-", "NA"]) }
+          assert_equal 'Field "value": missingValues must not repeat a value: "NA"', error.message
+          error = assert_raises(ArgumentError) { IOStreams::Schema.new(missingValues: ["", ""], fields: [{name: "a"}]) }
+          assert_equal 'The schema missingValues must not repeat a value: ""', error.message
+          error = assert_raises(ArgumentError) { field(missingValues: [{value: "-99", label: "Refused"}, {"value" => "-99"}]) }
+          assert_equal 'Field "value": missingValues must not repeat a value: "-99"', error.message
+          error = assert_raises(ArgumentError) do
+            field(missingValues: [{value: "-99", label: "Refused"}, {"value" => "-98", "label" => "Refused"}])
+          end
+          assert_equal 'Field "value": missingValues must not repeat a label: "Refused"', error.message
+          assert_raises(ArgumentError) { Class.new(IOStreams::Contract) { missing_values %w[NA NA] } }
+
+          unlabeled = field(type: "integer", missingValues: [{value: "-99"}, {value: "-98"}, {value: "-97", label: "Refused"}])
+
+          assert_nil unlabeled.cast("-98")
         end
       end
 
