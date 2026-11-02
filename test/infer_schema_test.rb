@@ -203,7 +203,7 @@ class InferSchemaTest < Minitest::Test
 
             assert_equal [{name: "list", type: "array"}, {name: "map", type: "object"}, {name: "struct", type: "object"},
                           {name: "small", type: "integer"}, {name: "ratio", type: "number", floatNumber: true},
-                          {name: "at", type: "datetime"}, {name: "bytes", type: "any"}], fields(IOStreams.path(file))
+                          {name: "at", type: "datetime"}, {name: "bytes", type: "string", format: "binary"}], fields(IOStreams.path(file))
           end
         end
       end

@@ -270,6 +270,85 @@ class FrictionlessTypesTest < Minitest::Test
       end
     end
 
+    describe "the format of a string" do
+      it "checks an email address" do
+        email = field(type: "string", format: "email")
+
+        assert_equal "jack@example.org", email.cast("jack@example.org")
+        ["jack", "a b@example.org", "jack@", "@example.org"].each do |text|
+          error = assert_raises(IOStreams::Errors::InvalidValue, text) { email.cast(text) }
+          assert_equal "Field \"value\": #{text.inspect} is not a valid email", error.message
+        end
+        assert_equal "jack@example.org", email.render("jack@example.org", :text)
+      end
+
+      it "checks a URI of RFC 3986 with a scheme" do
+        uri = field(type: "string", format: "uri")
+
+        ["https://example.org/a?b=1#c", "mailto:jack@example.org", "urn:isbn:0451450523", "s3://bucket/key.csv"].each do |text|
+          assert_equal text, uri.cast(text)
+        end
+        ["example.org", "/a/b", "http://a b", "://x"].each do |text|
+          assert_raises(IOStreams::Errors::InvalidValue, text) { uri.cast(text) }
+        end
+        assert_equal "https://example.org", uri.cast(URI("https://example.org"))
+      end
+
+      it "checks a UUID in any case, returning it unchanged" do
+        uuid = field(type: "string", format: "uuid")
+
+        assert_equal "123e4567-e89b-12d3-a456-426614174000", uuid.cast("123e4567-e89b-12d3-a456-426614174000")
+        assert_equal "123E4567-E89B-12D3-A456-426614174000", uuid.cast("123E4567-E89B-12D3-A456-426614174000")
+        ["123e4567e89b12d3a456426614174000", "123e4567-e89b-12d3-a456-42661417400g", "{123e4567-e89b-12d3-a456-426614174000}"].each do |text|
+          assert_raises(IOStreams::Errors::InvalidValue, text) { uuid.cast(text) }
+        end
+      end
+
+      it "reads binary from its base64 text, or a binary String as it is, and writes its base64 text" do
+        binary = field(type: "string", format: "binary")
+        bytes  = "\x00\xFFhi".b
+
+        assert_equal bytes, binary.cast("AP9oaQ==")
+        assert_equal Encoding::BINARY, binary.cast("AP9oaQ==").encoding
+        assert_same bytes, binary.cast(bytes)
+        assert_raises(IOStreams::Errors::InvalidValue) { binary.cast("not base64!") }
+        assert_raises(IOStreams::Errors::InvalidValue) { binary.cast(5) }
+        assert_equal "AP9oaQ==", binary.render(bytes, :text)
+        assert_equal "AP9oaQ==", binary.render(bytes, :json)
+        assert_equal bytes, binary.render("AP9oaQ==", :typed)
+        assert_equal bytes, binary.load(binary.dump(bytes))
+        assert_raises(IOStreams::Errors::InvalidValue) { field(type: "string", format: "binary", constraints: {maxLength: 2}).cast(bytes) }
+      end
+
+      it "raises for any other format, including any, which Frictionless defines only for dates and times" do
+        ["any", "%Y", "url", 5].each do |format|
+          assert_raises(ArgumentError, format.inspect) { field(type: "string", format: format) }
+        end
+        error = assert_raises(ArgumentError) { field(type: "string", format: "any") }
+        assert_equal 'Field "value": the format "any" is not supported for a string field, only "email", "uri", "uuid", "binary"',
+                     error.message
+      end
+
+      it "writes binary to CSV and JSON as base64, to a spreadsheet as base64 text, and to Parquet as bytes, which read back" do
+        schema = {fields: [{name: "id", type: "string", format: "uuid"}, {name: "data", type: "string", format: "binary"}]}
+        record = {"id" => "123e4567-e89b-12d3-a456-426614174000", "data" => "\x00\xFFhi".b}
+
+        csv = write("data.csv", schema, [record])
+
+        assert_equal "id,data\n123e4567-e89b-12d3-a456-426614174000,AP9oaQ==\n", csv.read
+        assert_equal [record], read(csv)
+        assert_equal [record], read(write("data.json", schema, [record]))
+        assert_equal [record], read(write("data.xlsx", schema, [record]))
+        next if defined?(JRuby)
+
+        parquet = write("data.parquet", schema, [record])
+
+        assert_equal [record], read(parquet)
+        assert_equal({name: "data", type: "string", format: "binary"}, IOStreams.path(dir, "data.parquet").infer_schema.fields.last.to_h)
+        assert_equal [{"id" => record["id"], "data" => record["data"]}], read(IOStreams.path(dir, "data.parquet"))
+      end
+    end
+
     it "keeps raising for geojson, which is not supported" do
       error = assert_raises(ArgumentError) { field(type: "geojson") }
       assert_equal 'Field "value": the type "geojson" is not supported', error.message

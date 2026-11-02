@@ -6,7 +6,7 @@ module IOStreams
     # in the form that the `parquet` gem writes it.
     #
     # The type of each field:
-    #   "string"    string
+    #   "string"    string, or binary for a string of bytes, with `format: "binary"`, see `IOStreams::Schema::Field`.
     #   "integer"   int64
     #   "number"    decimal(38, decimals), or double with `floatNumber: true`, whose value is already rounded to its
     #               `decimals`, if any, by its field, as the field rounds the number that CSV writes, see
@@ -111,7 +111,8 @@ module IOStreams
       def parquet_type
         case @field.type
         when "list" then :list
-        when "string", "duration", "object", "array", "yearmonth", "geopoint" then :string
+        when "string" then @field.binary? ? :binary : :string
+        when "duration", "object", "array", "yearmonth", "geopoint" then :string
         when "integer", "year" then :int64
         when "number" then number_type
         when "boolean" then :boolean

@@ -567,7 +567,7 @@ class PostgresqlCursorTest < Minitest::Test
         it "describes the columns by the types of PostgreSQL" do
           expected = [
             {name: "id", type: "integer", constraints: {required: true}},
-            {name: "code", type: "string"},
+            {name: "code", type: "string", format: "uuid"},
             {name: "doc", type: "any"},
             {name: "ints", type: "array"},
             {name: "words", type: "array"},
@@ -579,7 +579,7 @@ class PostgresqlCursorTest < Minitest::Test
             {name: "mac", type: "string"},
             {name: "seen", type: "datetime"},
             {name: "opens", type: "time"},
-            {name: "blob", type: "any"},
+            {name: "blob", type: "string", format: "binary"},
             {name: "feeling", type: "string"},
             {name: "whole", type: "integer"},
             {name: "network", type: "string"},

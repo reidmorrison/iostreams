@@ -174,8 +174,8 @@ class SchemaTest < Minitest::Test
         assert_equal 'Field "value": unknown type "money"', error.message
       end
 
-      it "raises for a format of a string" do
-        assert_raises(ArgumentError) { field(type: "string", format: "email") }
+      it "raises for a format of a string other than those of Frictionless" do
+        assert_raises(ArgumentError) { field(type: "string", format: "url") }
       end
 
       it "accepts the default format" do

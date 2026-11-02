@@ -436,7 +436,7 @@ each type is written as:
 
 | Type | Parquet type |
 |------|--------------|
-| `string` | `string` |
+| `string` | `string`, or `binary` with `format: "binary"`, whose bytes a schema with the field reads back |
 | `integer` | `int64` |
 | `number` | `decimal(38, decimals)`, rounding each value to its `decimals`, or `double` with `floatNumber: true` |
 | `boolean` | `boolean` |

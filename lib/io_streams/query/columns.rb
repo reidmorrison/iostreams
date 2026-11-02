@@ -21,7 +21,7 @@ module IOStreams
       # The type of field of each type that an Active Record type names, apart from a number, see #type_properties.
       FIELD_TYPES = {
         integer: "integer", big_integer: "integer",
-        string: "string", text: "string", uuid: "string", citext: "string", enum: "string", inet: "string",
+        string: "string", text: "string", citext: "string", enum: "string", inet: "string",
         cidr: "string", macaddr: "string",
         boolean: "boolean",
         date: "date",
@@ -227,6 +227,9 @@ module IOStreams
         case type.type
         when :decimal, :money then number_properties(type)
         when :float then {type: "number", floatNumber: true}
+        when :uuid then {type: "string", format: "uuid"}
+        when :binary then {type: "string", format: "binary"}
+        when :hstore then {type: "object"}
         else {type: FIELD_TYPES.fetch(type.type, "any")}
         end
       end

@@ -270,7 +270,10 @@ a model that the query joins, otherwise the type that the database gives the col
 | decimal with a scale, such as `decimal(10, 2)` | `number`, with `decimals` of the scale | decimal |
 | decimal without a scale, such as a PostgreSQL `numeric`, or a sum that PostgreSQL computes | `number` | needs `decimals` |
 | float | `number`, with `floatNumber: true` | double |
-| string, text, uuid, an enum | `string` | string |
+| string, text, an enum | `string` | string |
+| uuid | `string`, with `format: "uuid"` | string |
+| binary, such as a PostgreSQL `bytea` or a MySQL `blob`, whose values are bytes | `string`, with `format: "binary"`, which a format of text and JSON write as base64 | binary |
+| a PostgreSQL `hstore`, as a `Hash` | `object` | the JSON text of the object |
 | a PostgreSQL `inet` or `cidr` address, as the text that PostgreSQL returns, such as `10.0.0.0/8` | `string` | string |
 | boolean | `boolean` | boolean |
 | date | `date` | date32 |
@@ -279,7 +282,7 @@ a model that the query joins, otherwise the type that the database gives the col
 | a PostgreSQL `interval`, as an `ActiveSupport::Duration` | `duration` | the ISO 8601 text of the duration, such as `P1M2DT3H` |
 | a PostgreSQL type that Active Record does not know, such as `timetz`, as the text that PostgreSQL returns, such as `17:00:00+02` | `string` | string |
 | a PostgreSQL array, such as `text[]`, with an array of addresses as their text, and the values of an array of dates, times or decimals as their JSON text, as a JSON source reads them | `array` | the JSON text of the array |
-| json, binary, a serialized attribute, or a type of the application | `any` | needs a type |
+| json, a serialized attribute, or a type of the application | `any` | needs a type |
 
 * An attribute that Active Record decorates, such as one that `encrypts` or `normalizes`, has the type of the
   attribute within, so an encrypted string is a `string`. A serialized attribute, also one that is encrypted, and an
@@ -305,17 +308,13 @@ a model that the query joins, otherwise the type that the database gives the col
 ### Columns that need a type
 
 A Parquet file needs the type of every column, so a column of `any`, or a number without decimals, raises
-`ArgumentError` before the file is written. The other formats write such a column, apart from binary data:
+`ArgumentError` before the file is written. The other formats write such a column:
 
 * A JSON column is `any`, since its values can be objects, arrays, or any other JSON value. CSV writes each value as
   its JSON text, and JSON as itself. For Parquet, give it the type `object` when each of its values is an object, or
   `array` when each is an array, which Parquet holds as their JSON text. Otherwise, leave it out, or select its JSON
   text as a column of another name, such as `details::text AS details_json` on PostgreSQL, which is a `string`. On
   MySQL and SQLite, whose computed columns are `any`, give such a column the type `string` in the schema, see below.
-* A binary column is `any` too, and its bytes are not text: CSV writes them as they are, which is not valid UTF-8, so
-  reading the file raises `IOStreams::Errors::InvalidEncoding`, and JSON raises it as it writes them. Leave it out,
-  or select it as text, such as `encode(image, 'base64') AS image_base64` on PostgreSQL, or
-  `TO_BASE64(image) AS image_base64` on MySQL.
 * A number without decimals, such as a sum on PostgreSQL, needs its `decimals`.
 
 To give a column a type, read the query through a [contract](contracts), which a copy hands to a target with neither

@@ -212,6 +212,12 @@ module IOStreams
         @columns.missing_positions(in_order: !@requires_header)
       end
 
+      # Returns [Array<Integer>] the positions of the values of the rows rendered whose field is a `string` of bytes, see
+      # `IOStreams::Schema::Columns#binary_positions`.
+      def binary_positions
+        @columns.binary_positions
+      end
+
       # Returns [Array<Integer>] the positions of the values of the rows rendered whose field is a `string`, see
       # `IOStreams::Schema::Columns#text_positions`.
       def text_positions

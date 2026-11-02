@@ -289,6 +289,12 @@ module IOStreams
         @schema.fields.each_index.select { |index| @schema.fields[index].type == "string" }
       end
 
+      # Returns [Array<Integer>] the position of each value of a row rendered whose field is a `string` of bytes, with
+      # `format: "binary"`, see `IOStreams::Schema::Field#binary?`, as #text_positions finds them.
+      def binary_positions
+        @schema.fields.each_index.select { |index| @schema.fields[index].binary? }
+      end
+
       # Returns [Array<String|Symbol>] the keys of the fields that the columns of the file matched, see #names, without
       # the fields that the file does not have, which the records read still have when every field is read, see #initialize.
       def found_names

@@ -445,6 +445,13 @@ module IOStreams
       @mapping.missing_positions
     end
 
+    # Returns [Array<Integer>] the positions of the values of the rows rendered whose field is a `string` of bytes, with
+    # `format: "binary"`, which a format that holds only text in its values, such as a spreadsheet, writes as their
+    # base64 text, see `IOStreams::Xlsx::RowsWriter`, or none without a schema, whose values have no type.
+    def binary_positions
+      @mapping.binary_positions
+    end
+
     # Returns [Array<Integer>] the positions of the values of the rows rendered whose field is a `string`, which a
     # format that writes the values themselves, such as a spreadsheet, keeps as text, see
     # `IOStreams::Xlsx::RowsWriter`, or none without a schema, whose values have no type.

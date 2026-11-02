@@ -87,7 +87,8 @@ module IOStreams
       #   boolean, date, datetime (a timestamp, or the INT96 of older writers), time and string (text, an enum or JSON).
       #   array:    a list.
       #   object:   a map or a struct.
-      #   any:      binary, and any other column.
+      #   string with `format: "binary"`: binary, a byte array without a logical type, whose values are bytes.
+      #   any:      any other column.
       # A column that cannot be null, `REQUIRED`, is required, `constraints: {required: true}`, unless its values are text
       # or of type "any", which can be empty, as for the columns of a query, see `IOStreams::Query::Columns`.
       def declared_schema
@@ -132,13 +133,10 @@ module IOStreams
         converted = column["converted_type"]
         scale     = column.dig("logical_type", "scale") || column["scale"]
         decimal   = logical == "Decimal" || (logical.nil? && converted == "DECIMAL")
-        type      =
-          if decimal then "number"
-          elsif column["type"] == "group" then LOGICAL_TYPES[logical] || CONVERTED_TYPES.fetch(converted, "object")
-          else LOGICAL_TYPES[logical] || CONVERTED_TYPES[converted] || PHYSICAL_TYPES.fetch(column["physical_type"], "any")
-          end
+        type      = decimal ? "number" : declared_type(column, logical, converted)
 
         field = {name: column["name"], type: type}
+        field = {name: column["name"], type: "string", format: "binary"} if binary?(column, type)
         if decimal
           field[:decimals] = scale if scale.is_a?(Integer) && !scale.negative?
         elsif type == "number"
@@ -146,6 +144,20 @@ module IOStreams
         end
         field[:constraints] = {required: true} if column["repetition"] == "REQUIRED" && !EMPTY_TYPES.include?(type)
         field
+      end
+
+      # Returns [String] the type of a field of a column that is not a decimal, by its logical type, otherwise its converted
+      # type, otherwise its physical type, see #declared_field.
+      def declared_type(column, logical, converted)
+        return LOGICAL_TYPES[logical] || CONVERTED_TYPES.fetch(converted, "object") if column["type"] == "group"
+
+        LOGICAL_TYPES[logical] || CONVERTED_TYPES[converted] || PHYSICAL_TYPES.fetch(column["physical_type"], "any")
+      end
+
+      # Returns [true|false] whether the column holds bytes, a byte array without a logical or converted type, which a
+      # string with `format: "binary"` reads, see `IOStreams::Schema::Field`.
+      def binary?(column, type)
+        type == "any" && column["type"] != "group" && column["physical_type"] == "BYTE_ARRAY"
       end
 
       # Returns [Array<String>] the names of the columns of the file, in order, which it records at its end, so that

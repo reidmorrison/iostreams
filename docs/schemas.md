@@ -152,7 +152,7 @@ IOStreams.path("orders.csv").schema(IOStreams::Schema.new(JSON.parse(File.read("
 
 | Type | Read as | Written as |
 |------|---------|------------|
-| `string` | a `String`, such as the number of a number cell of a spreadsheet, to the digits that Excel displays, `2134` rather than `2134.0` | the text, or the text of any other value, except a `Hash` or an `Array`, which raise |
+| `string` | a `String`, such as the number of a number cell of a spreadsheet, to the digits that Excel displays, `2134` rather than `2134.0`, checked to be one of its `format`, see [Formats of strings](#formats-of-strings) | the text, or the text of any other value, except a `Hash` or an `Array`, which raise |
 | `integer` | an `Integer`, from text such as `42`, `-12` or `0042`, or a whole number with a decimal point, such as `12.0`, as a spreadsheet stores it | `42` |
 | `number` | a `BigDecimal`, from text such as `12.5`, `-1.5E3`, `NaN`, `INF` or `-INF`, whatever their case, or `Infinity` and `-Infinity`, as Ruby and JavaScript write them, and frictionless-py also reads them, or a number, including a `Rational`, or a `Float` with `floatNumber: true`, rounded to its `decimals` when it has them | `12.5`, or `12.50` with `decimals: 2`, and one that is not finite as `NaN`, `INF` or `-INF`, except to JSON, which cannot hold it, so that it raises `IOStreams::Errors::InvalidValue` |
 | `boolean` | `true` or `false`, from one of its `trueValues` or `falseValues`, or the number `1` or `0`, such as `1.0` of a spreadsheet, or a number of JSON, a Parquet file or a query; any other number raises | the first of its `trueValues` or `falseValues` |
@@ -212,6 +212,25 @@ schema with a `duration` field raises `LoadError`, naming the gem. IOStreams loa
 parts of ActiveSupport that it needs, but not ActiveSupport's JSON, so it does not change how the application writes
 JSON. A duration is read only from ISO 8601
 text, so a number, such as `30600`, raises, since it does not say what it counts.
+
+### Formats of strings
+
+The `format` of a `string`, as Frictionless defines it, says what its text is, which each value read and written is
+checked to be, raising `IOStreams::Errors::InvalidValue`, such as `Field "email": "jack" is not a valid email`:
+
+| `format` | Each value |
+|----------|------------|
+| `email` | is an email address, as Ruby's `URI::MailTo::EMAIL_REGEXP` matches it, such as `jack@example.org`, which is a simple check of its form, not that the address exists |
+| `uri` | is a URI of RFC 3986 with a scheme, such as `https://example.org/a`, `mailto:jack@example.org` or `s3://bucket/a.csv`, as frictionless-py requires, so `example.org` raises |
+| `uuid` | is a UUID of 32 hexadecimal digits, in any case, in groups of 8-4-4-4-12 separated by `-`, such as `123e4567-e89b-12d3-a456-426614174000`, which is read as it is |
+| `binary` | is bytes, read from their base64 text, and written as it, in CSV, JSON and a spreadsheet |
+
+A `binary` field reads a binary `String`, whose encoding is `BINARY`, as the bytes themselves, such as of a Parquet
+binary column, or of a PostgreSQL `bytea` column of a query, and any other text as base64, so write bytes to it as a
+binary `String`, such as `data.b`. The `:hash` and `:array` formats hold the bytes, and Parquet writes them to a
+binary column, which `#infer_schema` declares as a `string` with `format: "binary"`. Its `minLength` and `maxLength`
+count the bytes. A `format` of `any`, which Frictionless defines only for a date, datetime or time, raises
+`ArgumentError`, as does any other.
 
 ### Lists, years, months and points
 
@@ -837,6 +856,7 @@ and `#copy_to`, whose options only apply to the target.
 * `format` For a `date`, a `datetime` or a `time`, the strptime pattern of its text, such as `"%d/%m/%Y"`, `"%Y%m%d"`
   or `"%I:%M %p"` for `9:30 PM`, see [Formats of dates and times](#formats-of-dates-and-times). Default: ISO 8601. For
   a `geopoint`, `default`, `array` or `object`, see [Lists, years, months and points](#lists-years-months-and-points).
+  For a `string`, `email`, `uri`, `uuid` or `binary`, see [Formats of strings](#formats-of-strings).
 * `itemType` and `delimiter` For a `list`, the type of its items and the text between them, see
   [Lists, years, months and points](#lists-years-months-and-points). Default: `string` and `,`
 * `trueValues` and `falseValues` For a `boolean`, the text that is true and false.

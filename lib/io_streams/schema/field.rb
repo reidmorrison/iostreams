@@ -3,6 +3,7 @@
 require "date"
 require "json"
 require "time"
+require "uri"
 
 module IOStreams
   class Schema
@@ -72,6 +73,14 @@ module IOStreams
     #     Default: "string"
     #
     #   format: [String]
+    #     For a string, what its text is, which each value is checked to be:
+    #       "email"   an email address, as `URI::MailTo::EMAIL_REGEXP` matches it, such as `jack@example.org`.
+    #       "uri"     a URI of RFC 3986 with a scheme, such as `https://example.org/a`, as frictionless-py requires.
+    #       "uuid"    a UUID of 32 hexadecimal digits, in any case, in groups of 8-4-4-4-12 separated by `-`, which
+    #                 is returned as it is.
+    #       "binary"  bytes, read from their base64 text, or from a binary String, such as of a Parquet binary column
+    #                 or a query of a `bytea` column, which is the bytes themselves, and written as their base64 text,
+    #                 or as the bytes themselves by a format whose values are Ruby objects, such as Parquet.
     #     For a geopoint, "default", "array" or "object", see `IOStreams::Schema::Geopoint`. For a date, datetime or time,
     #     the strptime pattern of its text, such as "%d/%m/%Y", "%Y%m%d%H%M%S" or "%I:%M %p",
     #     in the syntax of Python's strptime, which Frictionless defines: `%Y` reads exactly 4 digits, and `%f` the
@@ -178,7 +187,7 @@ module IOStreams
         "integer"  => %w[groupChar bareNumber categories categoriesOrdered],
         "list"     => %w[delimiter itemType decimals floatNumber],
         "number"   => %w[decimals floatNumber groupChar decimalChar bareNumber],
-        "string"   => %w[truncate categories categoriesOrdered],
+        "string"   => %w[truncate categories categoriesOrdered format],
         "time"     => %w[format]
       }.freeze
 
@@ -206,6 +215,12 @@ module IOStreams
 
       # The properties of a Frictionless field that IOStreams does not support yet.
       UNSUPPORTED_PROPERTIES = [].freeze
+
+      # The formats of the text of a string, see `format` above.
+      TEXT_FORMATS = %w[email uri uuid binary].freeze
+
+      # The text of a UUID, see `format` above.
+      UUID = /\A\h{8}-\h{4}-\h{4}-\h{4}-\h{12}\z/
 
       # The text of a year, 4 digits, see `year` above.
       YEAR = /\A\d{4}\z/
@@ -331,9 +346,7 @@ module IOStreams
         check_type
         @skip = check_skip(descriptor)
         check_properties(descriptor)
-        @geopoint     = Geopoint.new(descriptor.fetch("format", "default").to_s, @name) if @type == "geopoint"
-        @format       = check_format(descriptor["format"]) unless @type == "geopoint"
-        build_list(descriptor) if @type == "list"
+        build_forms(descriptor)
         @utc          = @type == "datetime" && !@format.nil? && !@format.zone?
         @width        = check_width(descriptor["width"])
         @start        = check_positive("start", descriptor["start"])
@@ -617,6 +630,12 @@ module IOStreams
         @item
       end
 
+      # Returns [true|false] whether the values of this field are bytes, a string with `format: "binary"`, which a format
+      # that holds only text writes as their base64 text.
+      def binary?
+        @text_format == "binary"
+      end
+
       # Returns [true|false] whether to write only the first `width` characters of a longer string in a fixed width
       # file.
       def truncate?
@@ -747,7 +766,7 @@ module IOStreams
         when "time" then value.is_a?(Time) ? clock_dump(value) : value
         when "duration" then value.respond_to?(:iso8601) ? value.iso8601 : value
         when "any" then self.class.textual?(value) ? self.class.any_text(value) : value
-        when "list", "yearmonth", "geopoint" then other_dump(value)
+        when "string", "list", "yearmonth", "geopoint" then other_dump(value)
         else value
         end
       end
@@ -994,14 +1013,16 @@ module IOStreams
         when "datetime" then @format ? datetime_text(value) : self.class.any_text(value)
         when "time" then time_text(value)
         when "duration" then value.iso8601
-        when "list", "year", "yearmonth", "geopoint" then other_text(value)
+        when "string", "list", "year", "yearmonth", "geopoint" then other_text(value)
         else self.class.any_text(value)
         end
       end
 
-      # Returns [String] the text of a value of a list, year, yearmonth or geopoint, see #text.
+      # Returns [String] the text of a value of a string, list, year, yearmonth or geopoint, see #text: bytes as their
+      # base64 text.
       def other_text(value)
         case type
+        when "string" then binary? ? [value].pack("m0") : value
         when "list" then list_text(value)
         when "year" then format("%04d", value)
         when "yearmonth" then value.strftime("%Y-%m")
@@ -1026,10 +1047,12 @@ module IOStreams
         end.join(@delimiter)
       end
 
-      # Returns the value of a list, yearmonth or geopoint in a form that JSON keeps exactly, see #dump: the items of a
-      # list as its item field dumps them, a yearmonth as its text, and a geopoint as the digits of its numbers.
+      # Returns the value of a string, list, yearmonth or geopoint in a form that JSON keeps exactly, see #dump: bytes as
+      # their base64 text, the items of a list as its item field dumps them, a yearmonth as its text, and a geopoint as
+      # the digits of its numbers.
       def other_dump(value)
         case type
+        when "string" then binary? && value.is_a?(String) ? [value].pack("m0") : value
         when "list" then value.is_a?(::Array) ? value.map { |item| @item.dump(item) } : value
         when "yearmonth" then value.is_a?(Date) ? value.strftime("%Y-%m") : value
         else value.is_a?(::Array) ? value.map { |number| number_dump(number) } : value
@@ -1092,6 +1115,19 @@ module IOStreams
         properties[:constraints]   = constraints.transform_keys(&:to_sym) if constraints.is_a?(::Hash)
         properties[:missingValues] = @missing.descriptor if properties.key?(:missingValues)
         Utils.frozen_copy(properties)
+      end
+
+      # Sets what reads and writes the text of the values of the type of this field: the `format` of a date, datetime, time,
+      # string or geopoint, and the `delimiter` and the field of the items of a list, see above.
+      def build_forms(descriptor)
+        case type
+        when "geopoint" then @geopoint = Geopoint.new(descriptor.fetch("format", "default").to_s, name)
+        when "string" then @text_format = check_text_format(descriptor["format"])
+        when "list"
+          build_list(descriptor)
+          @format = check_format(descriptor["format"])
+        else @format = check_format(descriptor["format"])
+        end
       end
 
       # Returns [IOStreams::Schema::MissingValues|nil] the field's own missing values, see `missingValues` above, or nil
@@ -1166,6 +1202,18 @@ module IOStreams
 
           raise(ArgumentError, "Field #{name.inspect}: unknown property #{property.inspect}")
         end
+      end
+
+      # Returns [String|nil] the format of the text of a string, see `format` above, or nil for the default.
+      #
+      # Raises ArgumentError for any other format, including "any", which Frictionless defines only for a date, datetime
+      # or time.
+      def check_text_format(format)
+        return if format.nil? || format == "default"
+        return format if TEXT_FORMATS.include?(format)
+
+        raise(ArgumentError, "Field #{name.inspect}: the format #{format.inspect} is not supported for a string field, " \
+                             "only #{TEXT_FORMATS.map(&:inspect).join(', ')}")
       end
 
       # Returns [IOStreams::Schema::Pattern|nil] the strptime pattern of a date, datetime or time, or nil for the
@@ -1262,10 +1310,52 @@ module IOStreams
       # A Hash or an Array holds several values, rather than one value of text, so it raises. Any other value is its
       # text, such as a `URI` or an id.
       def cast_string(value)
+        return cast_text_format(value) if @text_format
+
         return value if value.is_a?(String)
         return invalid(value) if value.is_a?(::Hash) || value.is_a?(::Array)
 
         self.class.any_text(value)
+      end
+
+      # Returns [String] the text of a string with a `format`, once it is checked to be one of that format, see `format`
+      # above, or the bytes of a binary one.
+      def cast_text_format(value)
+        return cast_binary(value) if @text_format == "binary"
+
+        text = value.is_a?(String) ? value : cast_string_value(value)
+        valid =
+          case @text_format
+          when "email" then URI::MailTo::EMAIL_REGEXP.match?(text)
+          when "uuid" then UUID.match?(text)
+          else uri?(text)
+          end
+        valid ? text : invalid(value, @text_format)
+      end
+
+      # Returns [String] the text of a value that is not text, such as a `URI`, as a string writes it.
+      def cast_string_value(value)
+        return invalid(value) if value.is_a?(::Hash) || value.is_a?(::Array)
+
+        self.class.any_text(value)
+      end
+
+      # Returns [true|false] whether the text is a URI of RFC 3986 with a scheme, such as `https://example.org`.
+      def uri?(text)
+        !URI::RFC3986_PARSER.parse(text).scheme.nil?
+      rescue URI::InvalidURIError
+        false
+      end
+
+      # Returns [String] the bytes of a binary string: a binary String as it is, such as of a Parquet binary column or a
+      # query, or the bytes of the base64 text of any other String, see `format` above.
+      def cast_binary(value)
+        return invalid(value, "binary") unless value.is_a?(String)
+        return value if value.encoding == ::Encoding::BINARY
+
+        value.strip.unpack1("m0")
+      rescue ArgumentError
+        invalid(value, "binary")
       end
 
       def cast_integer(value)
@@ -1577,7 +1667,8 @@ module IOStreams
       def json(value)
         case type
         when "number" then number_json(value)
-        when "integer", "boolean", "string", "year" then value
+        when "string" then binary? ? [value].pack("m0") : value
+        when "integer", "boolean", "year" then value
         when "any", "object", "array" then any_json(value)
         when "list" then value.map { |item| item.nil? ? nil : @item.value_json(item) }
         when "geopoint" then @geopoint.write(value, :json)
@@ -1626,6 +1717,8 @@ module IOStreams
         (value.is_a?(Integer) || value.is_a?(Float) || bigdecimal?(value)) && (value == 1 || value.zero?)
       end
 
+      # Raises `IOStreams::Errors::InvalidValue` for a value that is not a valid one of the type of this field, or of
+      # what the supplied text names, such as the format "email" of a string.
       def invalid(value, what = type)
         text = value.inspect
         text = "#{text[0, 60]}..." if text.length > 63

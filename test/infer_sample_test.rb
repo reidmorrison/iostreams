@@ -169,7 +169,7 @@ class InferSampleTest < Minitest::Test
           end
         end
 
-        it "drafts a column of type any from its values, opening an IO once, and leaving it to be read" do
+        it "keeps the types that it declares, such as bytes of a binary column, opening an IO once, and leaving it to be read" do
           Dir.mktmpdir do |dir|
             file = File.join(dir, "blobs.parquet")
             require "parquet"
@@ -183,7 +183,7 @@ class InferSampleTest < Minitest::Test
             writer.write(File.binread(file))
             writer.close
 
-            expected = {fieldsMatch: "subset", fields: [{name: "id", type: "integer"}, {name: "blob", type: "string"}]}
+            expected = {fieldsMatch: "subset", fields: [{name: "id", type: "integer"}, {name: "blob", type: "string", format: "binary"}]}
 
             assert_equal expected, IOStreams.stream(reader).file_name("blobs.parquet").infer_schema(sample: 10).to_h
             stream = IOStreams.stream(StringIO.new(File.binread(file))).file_name("blobs.parquet")

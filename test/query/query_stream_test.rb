@@ -908,6 +908,18 @@ class QueryStreamTest < Minitest::Test
       assert_empty required(*types, requirable_types: [])
     end
 
+    it "describes a uuid as a string of the uuid format, binary as a string of the binary format, and hstore as an object" do
+      types = [ActiveModel::Type::Binary.new]
+      if defined?(ActiveRecord::ConnectionAdapters::PostgreSQL::OID::Uuid)
+        types += [ActiveRecord::ConnectionAdapters::PostgreSQL::OID::Uuid.new, ActiveRecord::ConnectionAdapters::PostgreSQL::OID::Hstore.new]
+      end
+      columns = IOStreams::Query::Columns.new(names: types.each_index.map { |index| "c#{index}" }, types: types,
+                                              not_null: [false] * types.size, requirable_types: REQUIRABLE_TYPES)
+      fields  = [{name: "c0", type: "string", format: "binary"}, {name: "c1", type: "string", format: "uuid"}, {name: "c2", type: "object"}]
+
+      assert_equal fields.first(types.size), columns.schema[:fields]
+    end
+
     it "does not require a column whose values can be empty, such as text, binary or JSON, whatever the database" do
       assert_empty required(ActiveModel::Type::String.new, ActiveModel::Type::Binary.new, ActiveRecord::Type::Json.new,
                             ActiveModel::Type::Value.new, requirable_types: REQUIRABLE_TYPES + %w[string any])
