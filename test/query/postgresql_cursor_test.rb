@@ -799,9 +799,11 @@ class PostgresqlCursorTest < Minitest::Test
 
           assert_equal [{name: "reminders", type: "array"}, {name: "labels", type: "array"}],
                        IOStreams.stream(relation).infer_schema.to_h[:fields]
-          assert_equal relation.pluck(:reminders, :labels).first, record.values_at("reminders", "labels")
-          assert_equal [ActiveSupport::TimeWithZone], record["reminders"].map(&:class).uniq
-          assert_equal Time.utc(2026, 10, 20, 12, 30), record["reminders"].first
+          assert_equal [ActiveSupport::TimeWithZone], relation.pluck(:reminders).first.map(&:class).uniq
+          # What JSON holds of it, the ISO 8601 text of each time in the time zone of the application, as a JSON source
+          # reads it, see `IOStreams::Schema::Field.json_data`.
+          assert_equal [String], record["reminders"].map(&:class).uniq
+          assert_equal([Time.utc(2026, 10, 20, 12, 30), Time.utc(2026, 10, 21, 8)], record["reminders"].map { |text| Time.iso8601(text) })
           assert_equal ["a ", "b"], record["labels"]
         end
 

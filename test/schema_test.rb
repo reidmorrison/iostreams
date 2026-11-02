@@ -1027,9 +1027,18 @@ class SchemaTest < Minitest::Test
         end
 
         it "raises for other values" do
-          ["yes", "t", 1].each do |value|
+          ["yes", "t", 2, -1, 0.5, Float::NAN, BigDecimal("2"), 1r, :yes].each do |value|
             assert_raises(IOStreams::Errors::InvalidValue, value.inspect) { boolean.cast(value) }
           end
+        end
+
+        it "reads the number 1 as true and 0 as false, such as of JSON, a spreadsheet, a Parquet file or a query" do
+          [1, 1.0, BigDecimal("1"), BigDecimal("1.00")].each { |value| assert_same true, boolean.cast(value), value.inspect }
+          [0, 0.0, -0.0, BigDecimal("0")].each { |value| assert_same false, boolean.cast(value), value.inspect }
+          yes_no = field(type: "boolean", trueValues: %w[Y], falseValues: %w[N])
+
+          assert_same true, yes_no.cast(1)
+          assert_equal "N", yes_no.render(0, :text)
         end
 
         it "reads and writes the values that are set" do
@@ -1567,10 +1576,26 @@ class SchemaTest < Minitest::Test
           assert_equal({"a" => 1, "b" => [1.5, "x", nil]}, object.cast(' {"a":1,"b":[1.5,"x",null]} '))
         end
 
-        it "keeps a Hash as it is" do
-          prefs = {"a" => 1}
+        it "keeps a Hash as it is, when it is what JSON holds" do
+          prefs = {"a" => 1, "b" => [1.5, "x", nil, true, {"c" => false}]}
 
           assert_same prefs, object.cast(prefs)
+        end
+
+        it "converts a Hash to what JSON holds of it, as Rails does, so that a :hash source reads what JSON does" do
+          prefs = {
+            :limit => BigDecimal("12.5"), "on" => Date.new(2026, 10, 13), "at" => Time.utc(2026, 10, 13, 9, 30),
+            "kind" => :gold, "tags" => [:a, {b: BigDecimal("1")}], 7 => "seven"
+          }
+          json = {
+            "limit" => "12.5", "on" => "2026-10-13", "at" => "2026-10-13T09:30:00Z", "kind" => "gold",
+            "tags" => ["a", {"b" => "1.0"}], "7" => "seven"
+          }
+
+          assert_equal json, object.cast(prefs)
+          assert_equal JSON.parse(object.render(prefs, :text)), object.cast(prefs)
+          assert_equal json, object.render(prefs, :typed)
+          assert_equal({limit: BigDecimal("12.5")}, prefs.slice(:limit), "the Hash supplied is not changed")
         end
 
         it "reads empty text as nil, and raises for text of only whitespace" do
@@ -1591,13 +1616,13 @@ class SchemaTest < Minitest::Test
           prefs = {"limit" => BigDecimal("12.5"), "on" => Date.new(2026, 10, 13), "tags" => [1, nil]}
 
           assert_equal %({"limit":"12.5","on":"2026-10-13","tags":[1,null]}), object.render(prefs, :text)
-          # The JSON format writes each value within it, see `IOStreams::Tabular::Parser::Json.json_value`.
-          assert_same prefs, object.render(prefs, :json)
+          # What JSON holds of it, see `IOStreams::Schema::Field.json_data`.
+          assert_equal({"limit" => "12.5", "on" => "2026-10-13", "tags" => [1, nil]}, object.render(prefs, :json))
           json_writers.each do |coder|
             assert_equal %({"limit":"12.5","on":"2026-10-13","tags":[1,null]}),
                          IOStreams::Tabular::Parser::Json.generate(object.render(prefs, :json), coder)
           end
-          assert_same prefs, object.render(prefs, :typed)
+          assert_equal({"limit" => "12.5", "on" => "2026-10-13", "tags" => [1, nil]}, object.render(prefs, :typed))
         end
 
         it "raises for a format, which only a date or a datetime has" do
@@ -1610,6 +1635,13 @@ class SchemaTest < Minitest::Test
 
         it "reads the text of a JSON array" do
           assert_equal [1, "a", nil, {"b" => 2.5}], array.cast('[1,"a",null,{"b":2.5}]')
+        end
+
+        it "converts an Array to what JSON holds of it" do
+          list = [:a, BigDecimal("1.5"), Date.new(2026, 10, 13), {k: 1}]
+
+          assert_equal ["a", "1.5", "2026-10-13", {"k" => 1}], array.cast(list)
+          assert_equal [:a, BigDecimal("1.5"), Date.new(2026, 10, 13), {k: 1}], list
         end
 
         it "keeps an Array as it is, and raises for a Hash, or the text of a JSON object" do
@@ -1625,7 +1657,7 @@ class SchemaTest < Minitest::Test
           list = [BigDecimal("1.5"), Time.utc(2026, 10, 13, 9, 30), "x"]
 
           assert_equal %(["1.5","2026-10-13T09:30:00Z","x"]), array.render(list, :text)
-          assert_same list, array.render(list, :json)
+          assert_equal ["1.5", "2026-10-13T09:30:00Z", "x"], array.render(list, :json)
           json_writers.each do |coder|
             assert_equal %(["1.5","2026-10-13T09:30:00Z","x"]), IOStreams::Tabular::Parser::Json.generate(array.render(list, :json), coder)
           end

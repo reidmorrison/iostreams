@@ -1454,6 +1454,21 @@ class StreamTest < Minitest::Test
           assert_equal [account], read(json, file_name: "accounts.json", schema: accounts)
         end
 
+        it "reads the same record from a :hash source as from JSON, keyed by Strings, with BigDecimals and Dates as text" do
+          source = {"id" => 1, "prefs" => {theme: :dark, limit: BigDecimal("12.5"), on: Date.new(2026, 10, 13)}, "tags" => [:a, 1]}
+          json   = write([source], file_name: "accounts.json", schema: accounts)
+          rows   = []
+          IOStreams.stream(IOStreams::Slice.new([source], format: :hash)).schema(accounts).each(:hash) { |row| rows << row }
+
+          assert_equal %({"id":1,"prefs":{"theme":"dark","limit":"12.5","on":"2026-10-13"},"tags":["a",1]}\n), json
+          expected = [{"id" => 1, "prefs" => {"theme" => "dark", "limit" => "12.5", "on" => "2026-10-13"}, "tags" => ["a", 1]}]
+
+          assert_equal expected, read(json, file_name: "accounts.json", schema: accounts)
+          assert_equal expected, rows
+          assert_equal expected, read(write([source], :hash, file_name: "accounts.csv", schema: accounts),
+                                      file_name: "accounts.csv", schema: accounts)
+        end
+
         it "raises for text that is not the JSON of the type of its field, naming the field" do
           error = assert_raises(IOStreams::Errors::InvalidValue) do
             read(%(id,prefs,tags\n1,"[1]",[]\n), file_name: "accounts.csv", schema: accounts)

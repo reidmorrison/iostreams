@@ -276,7 +276,7 @@ a model that the query joins, otherwise the type that the database gives the col
 | time, as the time of its clock in the time zone of the application, see [Times of day](#times-of-day) | `time` | time of day, not adjusted to UTC |
 | a PostgreSQL `interval`, as an `ActiveSupport::Duration` | `duration` | the ISO 8601 text of the duration, such as `P1M2DT3H` |
 | a PostgreSQL type that Active Record does not know, such as `timetz`, as the text that PostgreSQL returns, such as `17:00:00+02` | `string` | string |
-| a PostgreSQL array, such as `text[]`, with an array of addresses as their text | `array` | the JSON text of the array |
+| a PostgreSQL array, such as `text[]`, with an array of addresses as their text, and the values of an array of dates, times or decimals as their JSON text, as a JSON source reads them | `array` | the JSON text of the array |
 | json, binary, a serialized attribute, or a type of the application | `any` | needs a type |
 
 * An attribute that Active Record decorates, such as one that `encrypts` or `normalizes`, has the type of the
