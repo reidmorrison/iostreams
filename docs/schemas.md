@@ -230,17 +230,30 @@ end
 ~~~
 
 With `bareNumber: false`, the text before and after the number that has no digits is removed, as Frictionless
-requires, such as the `$` of `$12.50`, the `%` of `95%`, or the `abc` of `12abc`. Frictionless leaves what that text
-means to each tool, and IOStreams reads two kinds of it as a sign: a `-` before the number, such as in `-$12.50` or
-`USD -12`, and parentheses around it, such as `(12.50)` or `($12.50)`, as accountants write a negative number, both
-read as `-12.50`, while frictionless-py reads `(12.50)` as `12.50`. Text with digits before or after the number, such as
-`12abc3`, text without a number, such as `N/A`, and a sign twice, such as `(-12)`, raise
-`IOStreams::Errors::InvalidValue`.
+requires, such as the `$` of `$12.50`, the `%` of `95%`, the `abc` of `12abc`, or the `Rs.` of `Rs.500`, since a number
+starts with its decimal point, such as `.50` in `$.50`, only when neither a letter nor a point comes before it. With a
+`decimalChar`, the number is found first, then its decimal point checked, so `ca. 12,50` and `12,50 Mio.` read `12.50`
+with `decimalChar: ","`. Frictionless leaves what that text means to each tool, and IOStreams reads two kinds of it as a
+sign: a `-` before the number, such as in `-$12.50` or `USD -12`, and parentheses around it, such as `(12.50)` or
+`($12.50)`, as accountants write a negative number, both read as `-12.50`, while frictionless-py reads `(12.50)` as
+`12.50`, and raises for `-$12.50`. Text with digits before or after the number, such as `12abc3`, text without a
+number, such as `N/A`, a sign twice, such as `(-12)`, a `-` after the number, such as `12-`, which some systems write
+for a negative number, and a parenthesis without its pair, such as `(12.50`, raise `IOStreams::Errors::InvalidValue`,
+rather than read a number that could have the wrong sign.
+
+An `integer` has no decimal point, so its `groupChar` can be `"."`, such as `1.234.567`, as Frictionless allows, while
+frictionless-py does not read the `groupChar` of an integer. As in frictionless-py, a `number` whose `decimalChar` is not
+`"."` raises for a `.` in its number that is not its `groupChar`, such as `12.50` with `decimalChar: ","`, rather than
+guess which one the file meant.
 
 Writing writes the text of each number with its `groupChar` between each group of 3 digits of its whole part, and its
 `decimalChar`, such as `1.234,50`, and without the text that `bareNumber: false` removes, which it does not know. JSON
 writes plain numbers, such as `1234.50`, since a JSON number has neither, and reads its numbers as they are. A number
 that is not finite is written as `NaN`, `INF` or `-INF`.
+
+The slices of a spreadsheet, see [Background Jobs](background_jobs), hold the CSV text of its cells, with a number as
+the workbook holds it, such as `1234.5`, rather than in the form that these properties describe. So read them with a
+schema without `groupChar`, `decimalChar` and `bareNumber`, since `groupChar: "."` would read `1234.5` as `12345`.
 
 ### Formats of dates and times
 

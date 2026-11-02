@@ -1447,6 +1447,22 @@ class StreamTest < Minitest::Test
         assert_equal %(pay,count\n"1.234,50","1,200"\n), write([{"pay" => BigDecimal("1234.5"), "count" => 1200}], schema: schema)
         assert_equal %({"pay":1234.50,"count":1200}\n),
                      write([{"pay" => BigDecimal("1234.5"), "count" => 1200}], file_name: "pay.json", schema: schema)
+        assert_equal [{"pay" => BigDecimal("1234.5"), "count" => 1200}],
+                     read(%({"pay":1234.50,"count":1200}\n), file_name: "pay.json", schema: schema)
+      end
+
+      it "writes and reads back a fixed width file with groupChar and decimalChar, zero filled" do
+        schema = {
+          fields: [
+            {name: "pay", type: "number", groupChar: ".", decimalChar: ",", decimals: 2, width: 12},
+            {name: "count", type: "integer", groupChar: ",", width: 8}
+          ]
+        }
+        records = [{"pay" => BigDecimal("1234567.5"), "count" => 1200}, {"pay" => BigDecimal("-12.5"), "count" => -7}]
+        text = write(records, file_name: "pay.fixed", schema: schema)
+
+        assert_equal "1.234.567,500001,200\n-00000012,50-0000007\n", text
+        assert_equal records, read(text, file_name: "pay.fixed", schema: schema)
       end
 
       it "reads a number with decimals rounded to them, as it writes it, so that a record holds what is written" do

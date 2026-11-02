@@ -276,8 +276,7 @@ module IOStreams
         @truncate     = check_flag("truncate", descriptor["truncate"])
         @float        = check_flag("floatNumber", descriptor["floatNumber"])
         @decimals     = check_decimals(descriptor["decimals"])
-        @number_text  = NumberText.build(@name, group_char: descriptor["groupChar"], decimal_char: descriptor["decimalChar"],
-                                                bare_number: descriptor["bareNumber"])
+        @number_text  = number_text_of(descriptor)
         @true_values  = check_values("trueValues", descriptor["trueValues"], DEFAULT_TRUE_VALUES)
         @false_values = check_values("falseValues", descriptor["falseValues"], DEFAULT_FALSE_VALUES)
         @aliases      = check_values("aliases", descriptor["aliases"], [].freeze, empty: true)
@@ -810,6 +809,15 @@ module IOStreams
         return decimals if decimals.is_a?(Integer) && !decimals.negative?
 
         raise(ArgumentError, "Field #{name.inspect}: decimals must be an Integer of 0 or more: #{decimals.inspect}")
+      end
+
+      # Returns [IOStreams::Schema::NumberText|nil] the text of the numbers of the field, see `groupChar`, `decimalChar`
+      # and `bareNumber` above. A number's decimal point is "." unless its `decimalChar` says otherwise, while an integer
+      # has none, so that its `groupChar` can be ".".
+      def number_text_of(descriptor)
+        decimal_char = descriptor.fetch("decimalChar", NumberText::POINT) if @type == "number"
+        NumberText.build(@name, group_char: descriptor["groupChar"], decimal_char: decimal_char,
+                                bare_number: descriptor["bareNumber"])
       end
 
       # Returns [Array<String>] the text of a property, such as the true values of a boolean, each a frozen copy. Empty

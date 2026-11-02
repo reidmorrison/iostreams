@@ -1088,6 +1088,14 @@ class SchemaTest < Minitest::Test
           assert_equal "-1 234", integer.render(-1234, :text)
         end
 
+        it "reads and writes the groupChar \".\" of an integer, which has no decimal point" do
+          integer = field(type: "integer", groupChar: ".")
+
+          assert_equal 1_234_567, integer.cast("1.234.567")
+          assert_equal "1.234.567", integer.render(1_234_567, :text)
+          assert_equal 12, field(type: "integer", groupChar: ",").cast("12.0")
+        end
+
         it "reads and writes the decimalChar of a number, and raises for a point that is not it" do
           european = field(type: "number", groupChar: ".", decimalChar: ",")
           comma    = field(type: "number", decimalChar: ",")
@@ -1119,7 +1127,8 @@ class SchemaTest < Minitest::Test
 
           {
             "95%" => "95", "$12.50" => "12.5", "12abc" => "12", "EUR 95" => "95", "€ 1.5" => "1.5", "1e3 kg" => "1000",
-            "-$12.50" => "-12.5", "$-12" => "-12", "USD -12" => "-12", " 12 " => "12", "Rs. 50" => "50", ".5%" => "0.5"
+            "-$12.50" => "-12.5", "$-12" => "-12", "USD -12" => "-12", " 12 " => "12", "Rs. 50" => "50", ".5%" => "0.5",
+            "Rs.500" => "500", "No.5" => "5", "$.50" => "0.5", "-.5" => "-0.5", "95% (est.)" => "95"
           }.each_pair do |text, value|
             assert_equal BigDecimal(value), number.cast(text), text
           end
@@ -1138,10 +1147,21 @@ class SchemaTest < Minitest::Test
         it "raises with bareNumber: false for text without a number, digits around it, or a sign twice" do
           number = field(type: "number", bareNumber: false)
 
-          ["N/A", "abc", "12abc3", "1-2", "--12", "(-12)", "(-$12)", "+-12", "$", "()"].each do |text|
+          ["N/A", "abc", "12abc3", "1-2", "--12", "(-12)", "(-$12)", "+-12", "$", "()", "12-", "12 -", "(12.50", "12.50)",
+           "$(12)", "12) (", "(12.50) (est."].each do |text|
             error = assert_raises(IOStreams::Errors::InvalidValue, text) { number.cast(text) }
             assert_equal "Field \"value\": #{text.inspect} is not a valid number", error.message
           end
+        end
+
+        it "finds the number with bareNumber: false before it checks the decimal point of its decimalChar" do
+          comma    = field(type: "number", bareNumber: false, decimalChar: ",")
+          european = field(type: "number", bareNumber: false, decimalChar: ",", groupChar: ".")
+
+          assert_equal BigDecimal("12.5"), comma.cast("ca. 12,50")
+          assert_equal BigDecimal("12.5"), comma.cast("12,50 Mio.")
+          assert_equal BigDecimal("1234.5"), european.cast("ca. 1.234,50 EUR")
+          assert_raises(IOStreams::Errors::InvalidValue) { comma.cast("12.50 EUR") }
         end
 
         it "reads the numbers that are not finite with bareNumber: false" do
@@ -1162,7 +1182,9 @@ class SchemaTest < Minitest::Test
           [
             {type: "number", groupChar: ",", decimalChar: ","}, {type: "number", groupChar: ""}, {type: "number", groupChar: "1"},
             {type: "number", decimalChar: "-"}, {type: "number", groupChar: 1}, {type: "number", bareNumber: "no"},
-            {type: "integer", decimalChar: ","}, {type: "string", groupChar: ","}, {type: "date", bareNumber: false}
+            {type: "integer", decimalChar: ","}, {type: "string", groupChar: ","}, {type: "date", bareNumber: false},
+            {type: "number", groupChar: "e"}, {type: "number", decimalChar: "E"}, {type: "number", groupChar: "("},
+            {type: "integer", groupChar: ")"}, {type: "number", groupChar: "."}
           ].each do |properties|
             assert_raises(ArgumentError, properties.inspect) { field(**properties) }
           end
