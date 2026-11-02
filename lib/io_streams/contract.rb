@@ -331,7 +331,7 @@ module IOStreams
       # Returns [String] the line of the class that declares a property of the contract, see #to_dsl.
       def dsl_property(property, value)
         method = DSL_PROPERTIES[property]
-        method ? "#{method} #{value.inspect}" : "# #{property}: #{value.inspect}"
+        method ? "#{method} #{ruby_literal(value)}" : "# #{property}: #{ruby_literal(value)}"
       end
 
       # Returns [String] the options of `field` that declare the supplied field, see #to_dsl.
@@ -343,9 +343,29 @@ module IOStreams
         unless constraints.nil? || constraints.empty?
           properties[:constraints] = constraints.transform_keys { |constraint| ruby_name(constraint).to_sym }
         end
-        properties.each { |property, value| options << "#{ruby_name(property)}: #{value.inspect}" }
+        properties.each { |property, value| options << "#{ruby_name(property)}: #{ruby_literal(value)}" }
         options << "name: #{field.name.inspect}" unless field.name.to_s == accessor.to_s && field.name.is_a?(String)
         options.join(", ")
+      end
+
+      # Returns [String] the Ruby of a value of a property, such as `{maximum: 120}`, which writes a Hash as Ruby 3.4
+      # inspects it, `{key: value}`, on every version of Ruby, whose Hash#inspect wrote `{:key=>value}` before 3.4.
+      def ruby_literal(value)
+        case value
+        when ::Hash
+          pairs = value.map { |key, item| "#{ruby_key(key)} #{ruby_literal(item)}" }
+          pairs.empty? ? "{}" : "{#{pairs.join(', ')}}"
+        when ::Array then "[#{value.map { |item| ruby_literal(item) }.join(', ')}]"
+        else value.inspect
+        end
+      end
+
+      # Returns [String] the key of a Hash in Ruby, see #ruby_literal: `key:` for a Symbol, quoted when it is not a name,
+      # such as `"my key":`, otherwise `"key" =>`.
+      def ruby_key(key)
+        return "#{key.inspect} =>" unless key.is_a?(Symbol)
+
+        /\A[a-zA-Z_][a-zA-Z0-9_]*[?!]?\z/.match?(key) ? "#{key}:" : "#{key.to_s.inspect}:"
       end
 
       # Returns [String] the name in Ruby of a property of a field, such as `true_values` for `trueValues`, see .field.

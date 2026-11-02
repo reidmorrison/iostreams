@@ -16,26 +16,31 @@ module IOStreams
     #     Default: false
     #
     #   enum: [Array]
-    #     The values that a value of the field must be one of, of any type.
+    #     The values that a value of the field must be one of, of any type. A field of type `any` compares the value as
+    #     it is read, so the text "1" of CSV is not the number 1.
     #
     #   minimum, maximum: [Object]
-    #     The least and the greatest value of the field, of an integer, number, date, time, datetime, duration, year or
-    #     yearmonth field.
+    #     The least and the greatest value of the field, of an integer, number, date, time, datetime or duration field.
+    #     A time compares as the instant that it is on 2000-01-01, so a maximum of "17:00:00" accepts 18:00:00+02:00.
     #
     #   exclusiveMinimum, exclusiveMaximum: [Object]
     #     A value that each value of the field must be greater than, or less than, of the same types as `minimum`.
     #
     #   minLength, maxLength: [Integer]
-    #     The fewest and the most characters of a string, or items of a list, an array or an object.
+    #     The fewest and the most characters of a string, or items of an array or an object.
     #
     #   pattern: [String]
     #     A Ruby regular expression that the whole text of a string must match, as if it were wrapped in
-    #     `\A(?:...)\z`. Frictionless writes the pattern in the syntax of XML Schema, which matches the whole value
-    #     too, and whose patterns are mostly those of Ruby, apart from its own classes, such as `\i` and `\c`, and its
+    #     `\A(?:...)\z`, whose classes, such as `\w`, `\d` and `\b`, are those of Unicode, as in XML Schema, so that `\w+`
+    #     matches `café`. Frictionless writes the pattern in the syntax of XML Schema, which matches the whole value too,
+    #     and whose patterns are mostly those of Ruby, apart from its own classes, such as `\i` and `\c`, and its
     #     subtraction of classes, such as `[a-z-[aeiou]]`, which Ruby does not have.
     #
     # Each value of a constraint, such as `minimum: "2026-01-01"` of a date, is read by the field, see
-    # `IOStreams::Schema::Field#constraint_value`, as its values are, and raises ArgumentError when it is not one.
+    # `IOStreams::Schema::Field#constraint_value`, as its values are, and raises ArgumentError when it is not one, or when
+    # the bounds leave no value, such as a `minimum` more than the `maximum`, or a bound is NaN. A value checked is the
+    # value that the field read, such as a number rounded to its `decimals`. A missing value is not checked, apart from
+    # by `required`.
     #
     # A field also gives its `categories`, the values of a string or integer field, see `IOStreams::Schema::Field`,
     # which a value must be one of, as for `enum`, whose values must be among them.
@@ -47,10 +52,15 @@ module IOStreams
       UNSUPPORTED = %w[unique jsonSchema].freeze
 
       # The types whose values `minimum`, `maximum`, `exclusiveMinimum` and `exclusiveMaximum` compare.
-      ORDERED_TYPES = %w[integer number date time datetime duration year yearmonth].freeze
+      ORDERED_TYPES = %w[integer number date time datetime duration].freeze
 
       # The types whose values have a length, `minLength` and `maxLength`.
-      LENGTH_TYPES = %w[string list array object].freeze
+      LENGTH_TYPES = %w[string array object].freeze
+
+      # The types whose values `enum` and `categories` hold as the keys of a Hash, since `eql?` and `hash` of their
+      # values agree with `==`, so that each value is found at once, while any other type compares with `==`, such as
+      # the BigDecimal 1 of a number and its Float 1.0.
+      KEYED_TYPES = %w[string integer].freeze
 
       # The types of each constraint other than `required` and `enum`, which apply to every type.
       TYPES = {
@@ -74,6 +84,15 @@ module IOStreams
         "exclusiveMaximum" => [:<, "not less than its exclusiveMaximum"]
       }.freeze
 
+      # The lower and the upper bounds that leave no value between them when the lower one is more than the upper one,
+      # or not less than it, see #check_range.
+      RANGES = [
+        ["minimum", "maximum", :>],
+        ["minimum", "exclusiveMaximum", :>=],
+        ["exclusiveMinimum", "maximum", :>=],
+        ["exclusiveMinimum", "exclusiveMaximum", :>=]
+      ].freeze
+
       # Parameters:
       #   constraints: [Hash|nil]
       #     The constraints, see above, whose keys are Strings or Symbols.
@@ -91,11 +110,15 @@ module IOStreams
       #     `IOStreams::Schema::Field`.
       #     Default: none
       #
+      # The field must be able to read the values of constraints, see `IOStreams::Schema::Field#constraint_value`, so it
+      # builds its constraints last.
+      #
       # Raises ArgumentError for constraints that are not supported, or are not valid, for `allow_blank` when the field is
       # not required, whose values can be blank anyway, and for an `enum` value that is not one of the categories.
       def initialize(constraints, field, allow_blank: false, categories: nil)
         @field       = field
         @name        = field.name
+        @keyed       = KEYED_TYPES.include?(field.type)
         constraints  = check_hash(constraints)
         @required    = check_required(constraints["required"])
         @allow_blank = check_allow_blank(allow_blank)
@@ -104,8 +127,9 @@ module IOStreams
         @min_length  = check_length("minLength", constraints["minLength"])
         @max_length  = check_length("maxLength", constraints["maxLength"])
         @pattern     = read_pattern(constraints["pattern"])
-        @categories  = categories
-        check_categories
+        check_categories(categories)
+        @categories  = values_of(categories)
+        @enum_values = nil
         @checks = !(@enum.nil? && @bounds.empty? && @min_length.nil? && @max_length.nil? && @pattern.nil? && @categories.nil?)
         @field  = nil
         freeze
@@ -144,25 +168,61 @@ module IOStreams
       # Raises `IOStreams::Errors::InvalidValue` for the first constraint that it does not follow, naming the value as
       # it was read.
       def check(value, read = value)
-        violated(read, "is not one of its enum values") if @enum && !@enum.include?(value)
-        violated(read, "is not one of its categories") if @categories && !@categories.include?(value)
-        @bounds.each do |property, (bound, descriptor)|
-          operator, problem = BOUNDS.fetch(property)
-          violated(read, "is #{problem}, #{descriptor.inspect}") unless in_bound?(value, operator, bound)
+        violated(read, "is not one of its enum values") if @enum && !member?(@enum, value)
+        violated(read, "is not one of its categories") if @categories && !member?(@categories, value)
+        @bounds.each do |operator, bound, problem, property, text|
+          next if in_bound?(value, operator, bound)
+
+          violated(read, nan?(value) ? "cannot be compared with its #{property}, #{text}" : "is #{problem}, #{text}")
         end
         check_lengths(value, read) if @min_length || @max_length
-        violated(read, "does not match its pattern, /#{@pattern_text}/") if @pattern && !@pattern.match?(value)
+        check_pattern(value, read) if @pattern
         value
       end
 
       private
 
+      # Returns [true|false] whether the value is one of the values, a Hash of them for a type whose values are its keys,
+      # see KEYED_TYPES, otherwise an Array.
+      def member?(values, value)
+        values.is_a?(::Hash) ? values.key?(value) : values.include?(value)
+      end
+
+      # Returns [Hash|Array|nil] the values of `enum` or `categories`, held as #member? finds them.
+      def values_of(values)
+        return if values.nil?
+
+        (@keyed ? values.to_h { |value| [value, true] } : values).freeze
+      end
+
       # Returns [true|false] whether the value is within the bound, false for one that cannot be compared with it, such
       # as NaN, which is neither more nor less than any number.
       def in_bound?(value, operator, bound)
-        value.public_send(operator, bound) == true
+        result =
+          case operator
+          when :>= then value >= bound
+          when :<= then value <= bound
+          when :> then value > bound
+          else value < bound
+          end
+        result == true
       rescue ArgumentError, NoMethodError
         false
+      end
+
+      # Returns [true|false] whether the value is NaN, which cannot be compared with a bound.
+      def nan?(value)
+        value.respond_to?(:nan?) && value.nan?
+      end
+
+      # Raises `IOStreams::Errors::InvalidValue` when the text does not match the pattern, also when it cannot be
+      # compared with it, such as text that is not valid in its encoding.
+      def check_pattern(value, read)
+        return if @pattern.match?(value)
+
+        violated(read, "does not match its pattern, /#{@pattern_text}/")
+      rescue ArgumentError, EncodingError => e
+        violated(read, "cannot be matched with its pattern, /#{@pattern_text}/: #{e.message}")
       end
 
       def check_lengths(value, read)
@@ -220,7 +280,7 @@ module IOStreams
                              "since the values of any other field can be blank")
       end
 
-      # Returns [Array|nil] the values of `enum`, read by the field.
+      # Returns [Hash|Array|nil] the values of `enum`, read by the field, held as #member? finds them.
       def read_enum(constraints)
         return unless constraints.key?("enum")
 
@@ -229,18 +289,44 @@ module IOStreams
           raise(ArgumentError, "Field #{@name.inspect}: constraints enum must be an Array of values: #{enum.inspect}")
         end
 
-        enum.map { |value| constraint_value("enum", value) }.freeze
+        @enum_values = enum.map { |value| constraint_value("enum", value) }
+        values_of(@enum_values)
       end
 
-      # Returns [Hash] each of `minimum`, `maximum`, `exclusiveMinimum` and `exclusiveMaximum` that the constraints have,
-      # with its value read by the field, and as it was given, for the message of an error.
+      # Returns [Array<Array>] each of `minimum`, `maximum`, `exclusiveMinimum` and `exclusiveMaximum` that the constraints
+      # have: the comparison of a value with it, its value read by the field, how a message says that a value is outside
+      # it, its name, and its text as it was given, for the message of an error.
+      #
+      # Raises ArgumentError for a bound that is NaN, which no value can be compared with, and for bounds that leave no
+      # value, see #check_range.
       def read_bounds(constraints)
-        BOUNDS.each_key.with_object({}) do |property, bounds|
+        values = {}
+        bounds = BOUNDS.filter_map do |property, (operator, problem)|
           next unless constraints.key?(property)
 
-          descriptor = constraints[property]
-          bounds[property] = [constraint_value(property, descriptor), descriptor].freeze
-        end.freeze
+          text  = constraints[property]
+          bound = constraint_value(property, text)
+          if nan?(bound)
+            raise(ArgumentError, "Field #{@name.inspect}: constraints #{property} cannot be NaN, which no value can be " \
+                                 "compared with")
+          end
+          values[property] = bound
+          [operator, bound, problem, property, text.inspect].freeze
+        end
+        check_range(values, constraints)
+        bounds.freeze
+      end
+
+      # Raises ArgumentError for a lower bound that leaves no value below the upper bound, such as a `minimum` of 10 and a
+      # `maximum` of 5, see RANGES.
+      def check_range(values, constraints)
+        RANGES.each do |lower, upper, operator|
+          next unless values.key?(lower) && values.key?(upper)
+          next unless in_bound?(values[lower], operator, values[upper])
+
+          raise(ArgumentError, "Field #{@name.inspect}: constraints #{lower}, #{constraints[lower].inspect}, leaves no " \
+                               "value up to its #{upper}, #{constraints[upper].inspect}")
+        end
       end
 
       # Returns [Object] the value of a constraint, read by the field, see `IOStreams::Schema::Field#constraint_value`.
@@ -272,16 +358,19 @@ module IOStreams
         end
 
         @pattern_text = pattern
-        Regexp.new("\\A(?:#{pattern})\\z")
+        # Compiled alone first, so that a pattern that closes a group that it did not open, such as "a)|(b", raises
+        # rather than change what the anchors around it hold.
+        Regexp.new(pattern)
+        Regexp.new("\\A(?u:#{pattern})\\z")
       rescue RegexpError => e
         raise(ArgumentError, "Field #{@name.inspect}: constraints pattern is not a valid regular expression: #{e.message}")
       end
 
       # Raises ArgumentError for a value of `enum` that is not one of the categories, since no value could be both.
-      def check_categories
-        return if @categories.nil? || @enum.nil?
+      def check_categories(categories)
+        return if categories.nil? || @enum_values.nil?
 
-        other = @enum.find { |value| !@categories.include?(value) }
+        other = @enum_values.find { |value| !categories.include?(value) }
         return if other.nil?
 
         raise(ArgumentError, "Field #{@name.inspect}: the enum value #{other.inspect} is not one of its categories")

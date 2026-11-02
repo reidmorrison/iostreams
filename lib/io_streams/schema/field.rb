@@ -292,7 +292,9 @@ module IOStreams
         @aliases      = check_values("aliases", descriptor["aliases"], [].freeze, empty: true)
         @missing      = own_missing_values(descriptor) || missing_values
         require_duration if @type == "duration"
-        @categories_ordered = check_flag("categoriesOrdered", descriptor["categoriesOrdered"])
+        check_categories_ordered(descriptor)
+        descriptor    = with_constraint_texts(descriptor)
+        # Built last, since the constraints ask the field to read their values, see #constraint_value.
         @constraints  = Constraints.new(descriptor["constraints"], self,
                                         allow_blank: check_flag("allowBlank", descriptor["allowBlank"]),
                                         categories:  read_categories(descriptor["categories"]))
@@ -747,7 +749,8 @@ module IOStreams
       # value and a label, which only describes it to people, converted to the type of the field, see
       # #constraint_value, for `IOStreams::Schema::Constraints`, which checks that each value read is one of them.
       #
-      # Raises ArgumentError when they are not an Array of values of the field, or of such objects.
+      # Raises ArgumentError when they are not an Array of values of the field, or of such objects, or when a value or a
+      # label is there twice.
       def read_categories(categories)
         return if categories.nil?
         unless categories.is_a?(Array) && !categories.empty?
@@ -755,7 +758,19 @@ module IOStreams
                                "and a label: #{categories.inspect}")
         end
 
-        categories.map { |category| category_value(category) }.freeze
+        labels = categories.filter_map { |category| category.transform_keys(&:to_s)["label"] if category.is_a?(::Hash) }
+        values = categories.map { |category| category_value(category) }
+        twice("value", values)
+        twice("label", labels)
+        values.freeze
+      end
+
+      # Raises ArgumentError for a value or a label of the categories that is there twice.
+      def twice(what, list)
+        duplicate = list.find { |item| list.count(item) > 1 }
+        return if duplicate.nil?
+
+        raise(ArgumentError, "Field #{name.inspect}: the categories have the #{what} #{duplicate.inspect} twice")
       end
 
       # Returns the value of a category, see #read_categories.
@@ -763,7 +778,7 @@ module IOStreams
         if category.is_a?(::Hash)
           category = category.transform_keys(&:to_s)
           other    = (category.keys - %w[value label]).first
-          unless category.key?("value") && other.nil? && (category["label"].nil? || category["label"].is_a?(String))
+          unless category.key?("value") && other.nil? && (!category.key?("label") || category["label"].is_a?(String))
             raise(ArgumentError, "Field #{name.inspect}: a category must be a value, or an object of a value and a text " \
                                  "label: #{category.inspect}")
           end
@@ -823,6 +838,37 @@ module IOStreams
       # time is written in UTC with a format without a zone, so that it reads back as the same time.
       def datetime_text(time)
         @format.strftime(@utc ? time.getutc : time)
+      end
+
+      # Returns [Hash] the descriptor with each value of its constraints that JSON does not hold as it is, such as a Date,
+      # as the text that the field dumps of it, see #dump, such as "2026-01-01", so that #to_h, the JSON of the schema,
+      # and the class that `IOStreams::Contract.to_dsl` writes hold text that reads back, and the messages of its errors
+      # name that text.
+      def with_constraint_texts(descriptor)
+        constraints = descriptor["constraints"]
+        return descriptor unless constraints.is_a?(::Hash)
+
+        texts = constraints.transform_values { |value| constraint_text(value) }
+        texts == constraints ? descriptor : descriptor.merge("constraints" => texts)
+      end
+
+      # Returns the value of a constraint as JSON holds it, see #with_constraint_texts, each value of an Array, such as
+      # `enum`, apart.
+      def constraint_text(value)
+        case value
+        when ::Array then value.map { |item| constraint_text(item) }
+        when String, Integer, Float, true, false, nil then value
+        else dump(value)
+        end
+      end
+
+      # Raises ArgumentError for `categoriesOrdered` without `categories`, whose order it describes.
+      def check_categories_ordered(descriptor)
+        check_flag("categoriesOrdered", descriptor["categoriesOrdered"])
+        return unless descriptor.key?("categoriesOrdered") && !descriptor.key?("categories")
+
+        raise(ArgumentError, "Field #{name.inspect}: categoriesOrdered describes the order of its categories, which it " \
+                             "does not have")
       end
 
       # Returns [Hash] a frozen copy of the properties, with Symbol keys, also within `constraints` and the objects of

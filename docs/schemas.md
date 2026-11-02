@@ -602,23 +602,33 @@ end
 
 The value of each constraint is read by its field, as its values are, so `minimum: "2000-01-01"` of a `date` is a `Date`,
 and `minimum: 0` of a `number` is a `BigDecimal`. A `date`, `datetime` or `time` with a `format` also reads ISO 8601,
-such as `"2000-01-01"`, in which Frictionless writes it. A constraint of another type, such as `minLength` of an
-`integer`, or a value that is not one of the field, raises `ArgumentError` when the schema is set. A value that cannot
-be compared, such as `NaN` of a `number` with a `minimum`, does not follow it. `nil`, or a missing value, is not checked,
-other than by `required`.
+such as `"2000-01-01"`, in which Frictionless writes it. A value given as a Ruby object that JSON does not hold, such as
+`Date.new(2000, 1, 1)` or `BigDecimal("1.5")`, is kept as its text, `"2000-01-01"` or `"1.5"`, so that the schema as JSON
+reads back. A constraint of another type, such as `minLength` of an `integer`, a value that is not one of the field,
+bounds that leave no value, such as a `minimum` more than the `maximum`, and a bound that is `NaN` raise
+`ArgumentError` when the schema is set. A value that cannot be compared with a bound, such as `NaN` of a `number` with
+a `minimum`, does not follow it. `nil`, or a missing value, is not checked, other than by `required`.
+
+Each constraint checks the value that the field reads, so a `number` with `decimals` is checked once it is rounded to
+them: with `decimals: 0` and `maximum: 100`, `100.4` reads `100`, which follows it. A `time` compares as the instant that
+it is, so a `maximum` of `"17:00:00"`, which is UTC, accepts `18:00:00+02:00`. A field of type `any` compares the value
+as it is read with its `enum`, so the text `"1"` of CSV is not the number `1` of its `enum`.
 
 `pattern` is a Ruby regular expression that the whole text must match, as if it were written `\A(?:pattern)\z`, so
-`"\\d{5}"` matches `12345` but not `123456` or `x12345`. Frictionless writes it in the syntax of XML Schema, which
-also matches the whole text, and whose patterns are mostly those of Ruby, apart from its classes `\i` and `\c`, the
-characters that start and continue an XML name, and its subtraction of classes, such as `[a-z-[aeiou]]`, which Ruby does
-not have, while Ruby has some that XML Schema does not, such as `\A` and lookahead, so keep to their common syntax in a
-schema that other tools read.
+`"\\d{5}"` matches `12345` but not `123456` or `x12345`. Its classes, such as `\w`, `\d` and `\b`, are those of
+Unicode, as in XML Schema, so that `"\\w+"` matches `café`. Text that cannot be matched with it, such as text that is not
+valid in its encoding, raises `IOStreams::Errors::InvalidValue`. Frictionless writes it in the syntax of XML Schema,
+which also matches the whole text, and whose patterns are mostly those of Ruby, apart from its classes `\i` and `\c`,
+the characters that start and continue an XML name, and its subtraction of classes, such as `[a-z-[aeiou]]`, which Ruby
+does not have, while Ruby has some that XML Schema does not, such as `\A` and lookahead, so keep to their common syntax
+in a schema that other tools read.
 
 A `string` or `integer` field can also have `categories`, the values that it can have, each a value or an object of a
-value and a label, which only describes it to people, such as `[{value: 1, label: "Low"}, {value: 2, label: "High"}]`.
-A value read must be one of them, as for `enum`, whose values must be among them, otherwise `ArgumentError` raises.
-`categoriesOrdered: true` says that the order of the categories is their natural order, and does not change how values
-are read.
+value and a text label, which only describes it to people, such as
+`[{value: 1, label: "Low"}, {value: 2, label: "High"}]`, with no value or label twice. A value read must be one of them,
+as for `enum`, whose values must be among them, otherwise `ArgumentError` raises. `categoriesOrdered: true` says that
+the order of the categories is their natural order, and does not change how values are read; without `categories` it
+raises `ArgumentError`.
 
 `jsonSchema` is not supported yet, so it raises `ArgumentError`, rather than appear to check values that it does not.
 

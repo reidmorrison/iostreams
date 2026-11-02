@@ -1149,6 +1149,27 @@ class SchemaTest < Minitest::Test
           assert_equal 'Field "value": "1234" does not match its pattern, /\d{5}|\d{5}-\d{4}/', error.message
         end
 
+        it "matches the classes of a pattern as Unicode, as XML Schema does" do
+          word = field(type: "string", constraints: {pattern: "\\w+( \\w+)*"})
+
+          assert_equal "café crème", word.cast("café crème")
+          assert_equal "Zürich", word.cast("Zürich")
+          assert_raises(IOStreams::Errors::InvalidValue) { word.cast("a-b") }
+        end
+
+        it "raises for text that cannot be matched with its pattern, such as text that is not valid in its encoding" do
+          name = field(type: "string", constraints: {pattern: "é+"})
+
+          error = assert_raises(IOStreams::Errors::InvalidValue) { name.cast("\xE9t\xE9".b) }
+          assert_match(/cannot be matched with its pattern/, error.message)
+          assert_raises(IOStreams::Errors::InvalidValue) { name.cast("\xFF\xFE") }
+        end
+
+        it "raises for a pattern that closes a group that it does not open, rather than change its anchors" do
+          error = assert_raises(ArgumentError) { field(type: "string", constraints: {pattern: "a)|(b"}) }
+          assert_match(/constraints pattern is not a valid regular expression/, error.message)
+        end
+
         it "checks each value written too" do
           age = field(type: "integer", constraints: {minimum: 0})
 
@@ -1167,6 +1188,56 @@ class SchemaTest < Minitest::Test
           end
           error = assert_raises(ArgumentError) { field(type: "integer", constraints: {pattern: "1"}) }
           assert_equal 'Field "value": the constraint "pattern" only applies to a field of type string, not integer', error.message
+        end
+
+        it "checks a value that the field read, such as a number rounded to its decimals, and no missing value" do
+          rounded = field(type: "number", decimals: 0, constraints: {maximum: 100})
+          missing = IOStreams::Schema.new(
+            missingValues: ["NA"],
+            fields:        [{name: "value", type: "integer", constraints: {minimum: 1, enum: [1, 2]}}]
+          ).fields.first
+
+          assert_equal BigDecimal("100"), rounded.cast("100.4")
+          assert_nil missing.cast("NA")
+          assert_nil missing.cast(nil)
+          assert_raises(IOStreams::Errors::InvalidValue) { missing.cast("0") }
+        end
+
+        it "compares integers and strings with enum as the keys of a Hash, and other types with ==" do
+          assert_equal 2, field(type: "integer", constraints: {enum: [1, 2]}).cast("2")
+          assert_equal BigDecimal(1), field(type: "number", constraints: {enum: [1.0]}).cast("1")
+          assert_equal "b", field(type: "string", categories: %w[a b]).cast("b")
+          assert_raises(IOStreams::Errors::InvalidValue) { field(type: "string", constraints: {enum: %w[a b]}).cast("c") }
+        end
+
+        it "says that a value that cannot be compared with a bound, such as NaN, cannot be" do
+          error = assert_raises(IOStreams::Errors::InvalidValue) { field(type: "number", constraints: {minimum: 0}).cast("NaN") }
+          assert_equal 'Field "value": "NaN" cannot be compared with its minimum, 0', error.message
+        end
+
+        it "keeps a value of a constraint that JSON does not hold as the text that the field writes, which reads back" do
+          date   = field(type: "date", constraints: {minimum: Date.new(2026, 1, 1), enum: [Date.new(2026, 1, 2)]})
+          number = field(type: "number", constraints: {maximum: BigDecimal("1.5")})
+
+          assert_equal({minimum: "2026-01-01", enum: ["2026-01-02"]}, date.to_h[:constraints])
+          assert_equal({maximum: "1.5"}, number.to_h[:constraints])
+          error = assert_raises(IOStreams::Errors::InvalidValue) { number.cast("2") }
+          assert_equal 'Field "value": "2" is more than its maximum, "1.5"', error.message
+          schema = IOStreams::Schema.new(fields: [date.to_h, number.to_h.merge(name: "pay")])
+
+          assert_equal schema, IOStreams::Schema.new(JSON.parse(JSON.generate(schema.to_h)))
+        end
+
+        it "raises for bounds that leave no value, or that are NaN" do
+          [
+            {minimum: 5, maximum: 4}, {minimum: 5, exclusiveMaximum: 5}, {exclusiveMinimum: 5, maximum: 5},
+            {exclusiveMinimum: 5, exclusiveMaximum: 5}, {minimum: "NaN"}, {maximum: "nan"}
+          ].each do |constraints|
+            assert_raises(ArgumentError, constraints.inspect) { field(type: "number", constraints: constraints) }
+          end
+          assert_equal BigDecimal(5), field(type: "number", constraints: {minimum: 5, maximum: 5}).cast("5")
+          error = assert_raises(ArgumentError) { field(type: "integer", constraints: {minimum: 5, maximum: 4}) }
+          assert_equal 'Field "value": constraints minimum, 5, leaves no value up to its maximum, 4', error.message
         end
 
         it "raises for a value of a constraint that is not valid, or not a value of the field" do
@@ -1234,7 +1305,10 @@ class SchemaTest < Minitest::Test
             {type: "string", categories: "S"}, {type: "string", categories: []}, {type: "integer", categories: ["x"]},
             {type: "string", categories: [{label: "x"}]}, {type: "string", categories: [{value: "x", label: 1}]},
             {type: "string", categories: [{value: "x", code: 1}]}, {type: "number", categories: [1]},
-            {type: "string", categories: %w[a], categoriesOrdered: "yes"}, {type: "date", categoriesOrdered: true}
+            {type: "string", categories: %w[a], categoriesOrdered: "yes"}, {type: "date", categoriesOrdered: true},
+            {type: "string", categories: %w[a b a]}, {type: "integer", categories: [1, {value: 1, label: "One"}]},
+            {type: "integer", categories: [{value: 1, label: "One"}, {value: 2, label: "One"}]},
+            {type: "string", categories: [{value: "a", label: nil}]}, {type: "string", categoriesOrdered: true}
           ].each do |properties|
             assert_raises(ArgumentError, properties.inspect) { field(**properties) }
           end
