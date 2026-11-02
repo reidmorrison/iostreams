@@ -129,9 +129,11 @@ jobs:
             -e USER_NAME=iostreams -e USER_PASSWORD=iostreams -e PASSWORD_ACCESS=true \
             -e PUBLIC_KEY="$(cat "$RUNNER_TEMP/sftp_identity.pub")" \
             "$image"
-          # Only the ed25519 key, so that #each_child needs the ed25519 gem to verify it.
+          # Only the ed25519 key, so that #each_child needs the ed25519 gem to verify it. ssh-keyscan prints the
+          # server's version as a "#" comment line unless -q, and may print the key for each address of localhost,
+          # while $GITHUB_ENV takes one line, so keep the first line of a key.
           for i in $(seq 1 60); do
-            host_key="$(ssh-keyscan -p 2222 -t ed25519 localhost 2>/dev/null || true)"
+            host_key="$(ssh-keyscan -q -p 2222 -t ed25519 localhost 2>/dev/null | grep -v '^#' | head -n 1 || true)"
             [ -n "$host_key" ] && break
             sleep 1
           done
