@@ -68,6 +68,7 @@ module IOStreams
     #
     #   itemType: [String]
     #     For a list, the type of its items: "string", "integer", "boolean", "number", "datetime", "date" or "time".
+    #     A list of numbers takes `decimals` and `floatNumber`, which apply to each item as they do to a number field.
     #     Default: "string"
     #
     #   format: [String]
@@ -85,7 +86,7 @@ module IOStreams
     #     For a boolean, the text that is false. The first one is written. Default: ["false", "False", "FALSE", "0"]
     #
     #   floatNumber: [true|false]
-    #     For a number, whether to return a Float instead of a BigDecimal, as frictionless-py does.
+    #     For a number, or a list of numbers, whether to return a Float instead of a BigDecimal, as frictionless-py does.
     #     Default: false
     #
     #   groupChar: [String]
@@ -123,8 +124,9 @@ module IOStreams
     #     Default: false
     #
     #   decimals: [Integer]
-    #     For a number, the number of digits after the decimal point, rounding the value to them, both when reading and
-    #     when writing, so that a record read holds the number that is written, see #round.
+    #     For a number, or each item of a list of numbers, the number of digits after the decimal point, rounding the
+    #     value to them, both when reading and when writing, so that a record read holds the number that is written, see
+    #     #round.
     #     Default: as many as the value has.
     #
     #   width: [Integer|"remainder"]
@@ -164,6 +166,9 @@ module IOStreams
       # The types of the items of a list, see `itemType` above.
       ITEM_TYPES = %w[string integer boolean number datetime date time].freeze
 
+      # The properties of a list of numbers that apply to each of its items, see `itemType` above.
+      NUMBER_ITEM_PROPERTIES = %w[decimals floatNumber].freeze
+
       # The properties that each type of field accepts, in addition to those that every field accepts.
       TYPE_PROPERTIES = {
         "boolean"  => %w[trueValues falseValues],
@@ -171,7 +176,7 @@ module IOStreams
         "datetime" => %w[format],
         "geopoint" => %w[format],
         "integer"  => %w[groupChar bareNumber categories categoriesOrdered],
-        "list"     => %w[delimiter itemType],
+        "list"     => %w[delimiter itemType decimals floatNumber],
         "number"   => %w[decimals floatNumber groupChar decimalChar bareNumber],
         "string"   => %w[truncate categories categoriesOrdered],
         "time"     => %w[format]
@@ -1092,7 +1097,7 @@ module IOStreams
       def build_list(descriptor)
         @delimiter = check_delimiter(descriptor["delimiter"])
         @split     = Regexp.new(Regexp.escape(@delimiter))
-        @item      = build_item_field(descriptor["itemType"])
+        @item      = build_item_field(descriptor["itemType"], descriptor.slice(*NUMBER_ITEM_PROPERTIES))
       end
 
       # Returns [String] the text between the items of a list, see `delimiter` above.
@@ -1104,14 +1109,22 @@ module IOStreams
       end
 
       # Returns [IOStreams::Schema::Field] the field that reads and writes each item of a list, of its `itemType`, in the
-      # default form of that type, as Frictionless requires, named as the list, for the messages of its errors.
-      def build_item_field(item_type)
+      # default form of that type, as Frictionless requires, named as the list, for the messages of its errors, with the
+      # `decimals` and `floatNumber` of the list for a list of numbers, which the item field checks, since they apply to
+      # each number, see `itemType` above.
+      #
+      # Raises ArgumentError for an unknown `itemType`, and for `decimals` or `floatNumber` of a list of another type.
+      def build_item_field(item_type, number_properties)
         item_type = item_type.nil? ? "string" : item_type.to_s
         unless ITEM_TYPES.include?(item_type)
           raise(ArgumentError, "Field #{name.inspect}: itemType must be one of #{ITEM_TYPES.join(', ')}: #{item_type.inspect}")
         end
+        if item_type != "number" && !number_properties.empty?
+          raise(ArgumentError, "Field #{name.inspect}: #{number_properties.keys.first.inspect} only applies to a list " \
+                               "whose itemType is \"number\", not #{item_type.inspect}")
+        end
 
-        self.class.new({name: name, type: item_type})
+        self.class.new({name: name, type: item_type, **number_properties.transform_keys(&:to_sym)})
       end
 
       def check_properties(descriptor)

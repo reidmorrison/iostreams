@@ -90,6 +90,42 @@ class FrictionlessTypesTest < Minitest::Test
           assert_raises(ArgumentError, properties.inspect) { field(type: "list", **properties) }
         end
       end
+
+      it "writes each number of a list with its decimals, and rounds each number read to them, half up" do
+        numbers = field(type: "list", itemType: "number", decimals: 2)
+
+        assert_equal "1.50,2.25,", numbers.render([BigDecimal("1.5"), BigDecimal("2.25"), nil], :text)
+        assert_equal "1.50,2.26", numbers.render([1.5, BigDecimal("2.255")], :text)
+        assert_equal [BigDecimal("1.01"), BigDecimal("2.00"), BigDecimal("3")], numbers.cast("1.005,2.004,3")
+        assert_equal [BigDecimal("1.50")], numbers.render(["1.5"], :typed)
+        assert_equal "[1.50,2.25]", IOStreams::Tabular::Parser::Json.generate(numbers.render([1.5, 2.25], :json))
+      end
+
+      it "reads each number of a list as a Float with floatNumber" do
+        floats = field(type: "list", itemType: "number", floatNumber: true)
+
+        assert_equal [1.5, 2.0], floats.cast("1.5,2")
+        assert_equal [Float], floats.cast("1.5,2").map(&:class).uniq
+        assert_equal [1.25], field(type: "list", itemType: "number", floatNumber: true, decimals: 2).cast("1.254")
+      end
+
+      it "raises for decimals or floatNumber of a list whose items are not numbers, or that are not valid" do
+        error = assert_raises(ArgumentError) { field(type: "list", itemType: "integer", decimals: 2) }
+        assert_equal 'Field "value": "decimals" only applies to a list whose itemType is "number", not "integer"', error.message
+        error = assert_raises(ArgumentError) { field(type: "list", floatNumber: true) }
+        assert_equal 'Field "value": "floatNumber" only applies to a list whose itemType is "number", not "string"', error.message
+        assert_raises(ArgumentError) { field(type: "list", itemType: "number", decimals: -1) }
+        assert_raises(ArgumentError) { field(type: "list", itemType: "number", floatNumber: "yes") }
+      end
+
+      it "keeps the decimals of a list of numbers in a contract, which reads its numbers with them" do
+        schema   = IOStreams::Schema.new(fields: [{name: "scores", type: "list", itemType: "number", decimals: 2}])
+        contract = schema.to_contract
+
+        assert_equal({fields: [{name: "scores", type: "list", itemType: "number", decimals: 2}]}, contract.to_h)
+        assert_includes schema.to_dsl("Scores"), %(field :scores, :list, item_type: "number", decimals: 2)
+        assert_equal [BigDecimal("1.26")], contract.new(scores: "1.255").scores
+      end
     end
 
     describe "year" do
@@ -307,7 +343,7 @@ class FrictionlessTypesTest < Minitest::Test
 
         lists = {
           fields: %w[string integer boolean number datetime date time].map do |type|
-            {name: type, type: "list", itemType: type}
+            {name: type, type: "list", itemType: type, **(type == "number" ? {decimals: 3} : {})}
           end
         }
         record = {
@@ -323,6 +359,34 @@ class FrictionlessTypesTest < Minitest::Test
         path   = write("lists.parquet", lists, [record, {"string" => [], "integer" => nil}])
 
         assert_equal [record, empty], read(path)
+      end
+
+      it "writes a list of numbers to Parquet as a list of decimals of its decimals, or of doubles with floatNumber" do
+        skip "The parquet gem is a Rust extension, which JRuby cannot load" if defined?(JRuby)
+
+        lists = {
+          fields: [
+            {name: "rates", type: "list", itemType: "number", decimals: 2},
+            {name: "ratios", type: "list", itemType: "number", floatNumber: true}
+          ]
+        }
+        path = write("numbers.parquet", lists, [{"rates" => [BigDecimal("1.5"), BigDecimal("2.255"), nil], "ratios" => [0.5, nil]}])
+
+        assert_equal [{"rates" => [BigDecimal("1.50"), BigDecimal("2.26"), nil], "ratios" => [0.5, nil]}], read(path)
+        rows = read(IOStreams.path(dir, "numbers.parquet"))
+
+        assert_equal [[BigDecimal, NilClass], [Float, NilClass]], [rows.first["rates"].map(&:class).uniq, rows.first["ratios"].map(&:class).uniq]
+        assert_equal [BigDecimal("1.50"), BigDecimal("2.26"), nil], rows.first["rates"]
+      end
+
+      it "raises for a list of numbers written to Parquet without decimals or floatNumber, as for a number" do
+        skip "The parquet gem is a Rust extension, which JRuby cannot load" if defined?(JRuby)
+
+        error = assert_raises(ArgumentError) do
+          write("numbers.parquet", {fields: [{name: "rates", type: "list", itemType: "number"}]}, [{"rates" => [1]}])
+        end
+        assert_equal 'Field "rates": a number written to Parquet needs `decimals`, the digits after its decimal point, ' \
+                     "for a decimal, or `floatNumber: true` for a double", error.message
       end
 
       it "keeps them in a slice of typed values stored as JSON" do

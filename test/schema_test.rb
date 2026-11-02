@@ -161,7 +161,7 @@ class SchemaTest < Minitest::Test
 
       it "raises for a property of another type of field" do
         error = assert_raises(ArgumentError) { field(type: "integer", decimals: 2) }
-        assert_equal 'Field "value": "decimals" only applies to a number field', error.message
+        assert_equal 'Field "value": "decimals" only applies to a list or number field', error.message
       end
 
       it "raises for a type of Frictionless that is not supported" do

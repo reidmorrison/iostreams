@@ -440,13 +440,13 @@ each type is written as:
 | `time` | `time_micros`, not adjusted to UTC, holding the time of its clock, which is read back as a `Time` on 2000-01-01 in UTC |
 | `duration` | `string`, holding its ISO 8601 text, such as `P1M2DT3H`, which a schema with the field reads back as an `ActiveSupport::Duration` |
 | `object`, `array` | `string`, holding its JSON text, which a schema with the field reads back as a `Hash` or an `Array` |
-| `list` | a Parquet list of the type of its `itemType`, apart from a `number`, whose items are their text, since a list has no `decimals` |
+| `list` | a Parquet list of the type of its `itemType`, as above, so a list of `number` items is a list of `decimal(38, decimals)`, or of `double` with `floatNumber: true` |
 | `yearmonth`, `geopoint` | `string`, holding its text, such as `2026-10` or `90.5, 45.5`, which a schema with the field reads back |
 | `year` | `int64` |
 
-A `number` field needs `decimals` or `floatNumber: true`, since a Parquet decimal has a fixed number of digits after
-its point, and a field of type `any` raises `ArgumentError`, since it has no type. A field whose `constraints` are
-`required` is written as a column that cannot be null, unless it has `allowBlank: true`.
+A `number` field, and a `list` of `number` items, needs `decimals` or `floatNumber: true`, since a Parquet decimal has a
+fixed number of digits after its point, and a field of type `any` raises `ArgumentError`, since it has no type. A field
+whose `constraints` are `required` is written as a column that cannot be null, unless it has `allowBlank: true`.
 
 ~~~ruby
 schema = {

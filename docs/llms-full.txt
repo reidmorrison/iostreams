@@ -3274,13 +3274,13 @@ each type is written as:
 | `time` | `time_micros`, not adjusted to UTC, holding the time of its clock, which is read back as a `Time` on 2000-01-01 in UTC |
 | `duration` | `string`, holding its ISO 8601 text, such as `P1M2DT3H`, which a schema with the field reads back as an `ActiveSupport::Duration` |
 | `object`, `array` | `string`, holding its JSON text, which a schema with the field reads back as a `Hash` or an `Array` |
-| `list` | a Parquet list of the type of its `itemType`, apart from a `number`, whose items are their text, since a list has no `decimals` |
+| `list` | a Parquet list of the type of its `itemType`, as above, so a list of `number` items is a list of `decimal(38, decimals)`, or of `double` with `floatNumber: true` |
 | `yearmonth`, `geopoint` | `string`, holding its text, such as `2026-10` or `90.5, 45.5`, which a schema with the field reads back |
 | `year` | `int64` |
 
-A `number` field needs `decimals` or `floatNumber: true`, since a Parquet decimal has a fixed number of digits after
-its point, and a field of type `any` raises `ArgumentError`, since it has no type. A field whose `constraints` are
-`required` is written as a column that cannot be null, unless it has `allowBlank: true`.
+A `number` field, and a `list` of `number` items, needs `decimals` or `floatNumber: true`, since a Parquet decimal has a
+fixed number of digits after its point, and a field of type `any` raises `ArgumentError`, since it has no type. A field
+whose `constraints` are `required` is written as a column that cannot be null, unless it has `allowBlank: true`.
 
 ~~~ruby
 schema = {
@@ -4122,8 +4122,11 @@ at each `delimiter` as it is, even a space, after the whitespace around the whol
 as delimited text, so the text of a JSON array, such as `["a","b"]`, is not an array, while an `Array`, such as one of
 JSON or the `:hash` format, is read item by item. Writing an item whose text holds the `delimiter`, such as `a,b` of a
 list whose `delimiter` is `,`, raises `IOStreams::Errors::InvalidValue`, since it would be read back as two items, so
-choose a `delimiter` that its items never hold. Its `minLength` and `maxLength` count its items. A `year` is from 0 to
-9999, as its 4 digits hold it.
+choose a `delimiter` that its items never hold. Its `minLength` and `maxLength` count its items. A list of `number`
+items takes `decimals` and `floatNumber`, as a `number` field does: each item is written with its `decimals`, such as
+`1.50,2.25` with `decimals: 2`, and each item read is rounded to them, half up, or read as a `Float` with
+`floatNumber: true`, while a list of any other `itemType` raises `ArgumentError` for them. A `year` is from 0 to 9999,
+as its 4 digits hold it.
 
 ~~~ruby
 path = IOStreams.path("orders.csv").schema(
@@ -4156,7 +4159,7 @@ Each format writes them as it can hold them:
 |--------|--------|--------|-------------|------------|
 | CSV, PSV and fixed width | the items separated by its `delimiter` | 4 digits | `2026-10` | the text of its format, such as `90.5, 45.5` or `[90.5,45.5]` |
 | JSON | an array of its items | a number | `"2026-10"` | the text of the default format, or a JSON array or object |
-| Parquet | a Parquet list of the type of its `itemType`, apart from a `number`, whose items are their text, since a list has no `decimals` | an `int64` | a `string` | a `string` of the text of its format |
+| Parquet | a Parquet list of the type of its `itemType`, a `number` as a decimal of its `decimals` or a `double` with `floatNumber: true`, one of which it needs | an `int64` | a `string` | a `string` of the text of its format |
 | A spreadsheet | the items separated by its `delimiter`, as CSV writes it | a number | `2026-10` | the text of its format |
 | `:hash` and `:array` | an `Array` | an `Integer` | a `Date` | the point, `[lon, lat]` |
 
@@ -4734,7 +4737,8 @@ and `#copy_to`, whose options only apply to the target.
   [Lists, years, months and points](#lists-years-months-and-points). Default: `string` and `,`
 * `trueValues` and `falseValues` For a `boolean`, the text that is true and false.
   Default: `["true", "True", "TRUE", "1"]` and `["false", "False", "FALSE", "0"]`
-* `floatNumber` For a `number`, `true` to read a `Float` rather than a `BigDecimal`, as frictionless-py does.
+* `floatNumber` For a `number`, or a `list` of `number` items, `true` to read a `Float` rather than a `BigDecimal`, as
+  frictionless-py does.
 * `groupChar` For a `number` or an `integer`, the text that groups the digits of its whole part, such as `","` for
   `1,234,567`, which reading removes wherever it is, as frictionless-py does, and writing places between each group of 3
   digits, see [Text of numbers](#text-of-numbers). Default: none
@@ -4747,7 +4751,8 @@ and `#copy_to`, whose options only apply to the target.
 * `allowBlank` For a field whose `constraints` are `required`, `true` to accept a value that is `nil`, or a missing
   value, while the file must still have its column, see [Required fields](#required-fields). Text of only whitespace is
   not blank, so it is still read as the type of the field. IOStreams adds this property.
-* `decimals` For a `number`, the number of digits after the decimal point, rounding a `BigDecimal` half up, and a
+* `decimals` For a `number`, or each item of a `list` of `number` items, the number of digits after the decimal point,
+  rounding a `BigDecimal` half up, and a
   `Float`, with `floatNumber: true`, as Ruby's `format` writes it, as the layouts of fixed width files did before v3.0,
   which rounds a `Float` whose text ends in 5 to the even digit, whatever its binary value, such as `0.12` for
   `0.125`, `0.02` for `0.025` and `2.68` for `2.675`. It rounds the number read, also one that is not text, such as of JSON or the `:hash` format, as well as the

@@ -22,9 +22,10 @@ module IOStreams
     #               `ActiveSupport::Duration`, since the `parquet` gem has no interval type.
     #   "object"    string, holding the JSON text of the Hash, which a schema with the field reads back as the Hash.
     #   "array"     string, holding the JSON text of the Array, read back the same way.
-    #   "list"      a list of the Parquet type of its `itemType`, as above, apart from a number, whose items are their text,
-    #               since a list has no `decimals` for a Parquet decimal, so that a list read back is the same Array,
-    #               and each item is in its own Parquet type, as other tools, such as DuckDB, read it.
+    #   "list"      a list of the Parquet type of its `itemType`, as above, so that a list read back is the same Array,
+    #               and each item is in its own Parquet type, as other tools, such as DuckDB, read it: a list of numbers
+    #               is a list of decimal(38, decimals), or of double with `floatNumber: true`, and needs one of them, as
+    #               a number does.
     #   "year"      int64.
     #   "yearmonth" string, holding its text, such as `2026-10`, since Parquet has no type of a month.
     #   "geopoint"  string, holding the text of its format, such as `90.5, 45.5`, or the JSON text of an array or an
@@ -42,18 +43,13 @@ module IOStreams
 
       # Parameters:
       #   field: [IOStreams::Schema::Field]
-      #     The field that the column holds.
-      #
-      #   item: [true|false]
-      #     Whether the field is that of the items of a list, see `IOStreams::Schema::Field#item_field`, whose number is
-      #     its text, since it has no `decimals`.
-      #     Default: false
+      #     The field that the column holds, or the field of the items of a list, see
+      #     `IOStreams::Schema::Field#item_field`.
       #
       # Raises ArgumentError when the field has no Parquet type, see above.
-      def initialize(field, item: false)
+      def initialize(field)
         @field = field
-        @item  = item
-        @items = Column.new(field.item_field, item: true) if field.type == "list"
+        @items = Column.new(field.item_field) if field.type == "list"
         @type  = parquet_type
         freeze
       end
@@ -130,7 +126,6 @@ module IOStreams
 
       def number_type
         return :double if @field.float?
-        return :string if @item
 
         decimals = @field.decimals
         unless decimals
