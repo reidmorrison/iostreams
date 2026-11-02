@@ -2408,8 +2408,9 @@ digits after the decimal point that its `decimals` give, such as `12.50`, or non
 `decimals`, such as `42`, the same as CSV, an `object` or an `array` as itself, and every other value as text, such as
 a date, including in an application that uses ActiveSupport, as Rails does, which replaces how Ruby writes JSON.
 Reading JSON keeps all of the digits of a `number` too, rather than reading it through a `Float`, rounded to its
-`decimals` when it has them, while the numbers of the other fields are a `Float`, as they are without a schema. The `:hash` and `:array` formats keep the values themselves, apart from a
-`number` with `decimals`, which is rounded to them, both when reading and when writing.
+`decimals` when it has them, while the numbers of the other fields are a `Float`, as they are without a schema. The
+`:hash` and `:array` formats keep the values themselves, apart from a `number` with `decimals`, which is rounded to
+them, both when reading and when writing.
 
 A `number` field needs the `bigdecimal` gem, which is a bundled gem from Ruby 3.4, so add `gem "bigdecimal"` to the
 Gemfile, or set `floatNumber: true` to read a `Float` instead.
