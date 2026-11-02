@@ -148,6 +148,20 @@ class BlankRowsTest < Minitest::Test
         assert_equal [{"name" => "  ", "age" => 21}], read(stream("name,age\n  ,21\n").schema(schema), :hash)
       end
 
+      it "write empty text as a missing value, which CSV writes as an empty value, and raise for whitespace of other types" do
+        schema = {fields: [{name: "name"}, {name: "age", type: "integer"}, {name: "note", type: "string"}]}
+        write  = lambda do |rows, mode|
+          output = StringIO.new
+          IOStreams.stream(output).file_name("people.csv").schema(schema).writer(mode) { |io| rows.each { |row| io << row } }
+          output.string
+        end
+
+        assert_equal "name,age,note\n,21,\n", write.call([{"name" => "", "age" => 21, "note" => ""}], :hash)
+        assert_equal "name,age,note\nJack,21, \n", write.call([["Jack", 21, " "]], :array)
+        assert_raises(IOStreams::Errors::InvalidValue) { write.call([{"name" => "Jack", "age" => "  ", "note" => "x"}], :hash) }
+        assert_raises(IOStreams::Errors::InvalidValue) { write.call([["Jack", " ", "x"]], :array) }
+      end
+
       it "read empty text as nil, a missing value, in every type, a string included" do
         schema = {fields: [{name: "name", type: "string"}, {name: "note"}, {name: "age", type: "integer"}]}
 

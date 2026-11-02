@@ -558,8 +558,8 @@ Fix: rescue `IOStreams::Errors::InvalidEncoding`, an `Encoding::UndefinedConvers
 Reading an `:integer` or `:float` column of a fixed width file that holds no number, such as `N/A` or `12-`, now
 raises `IOStreams::Errors::InvalidValue`, which names the field and the value. Previously the column was converted
 with `to_i` or `to_f`, to `0`, or to the number that its leading digits make, such as `12` for `12-`, so that a
-corrupt file was read without an error. Writing such a value also raises, as does writing a fraction to an
-`:integer` column, which was truncated. An `:integer` column still reads a whole number with a decimal point, such
+corrupt file was read without an error. Writing such a value also raises, as does text of only spaces, such as
+`"  "`, which the layout wrote as zeros, and a fraction written to an `:integer` column, which was truncated. An `:integer` column still reads a whole number with a decimal point, such
 as `12.0`, as `12`, as `to_i` did, but a fraction, such as `12.5`, raises. A blank column is still read as `nil`,
 and a missing number is still written as zeros.
 
@@ -746,7 +746,8 @@ A schema reads the same records as the options it replaces, named as above, exce
 * A value after the last column, which is not blank, raises `IOStreams::Errors::InvalidHeader` unless `fieldsMatch`
   is `"subset"` or `"partial"`, where it was dropped.
 * Empty text, such as a quoted `""` in CSV or `""` in JSON, is a missing value, `nil`, where the column options read
-  it as it is, see [Types](schemas#types).
+  it as it is, see [Types](schemas#types). Writing works the same way: empty text is written as a missing value, an
+  empty value in CSV and `null` in JSON, where the column options wrote `""`.
 * A JSON record that has none of the fields, such as `{"other":3}` for the fields `name` and `zip`, raises
   `IOStreams::Errors::InvalidHeader` with `fieldsMatch: "partial"`, which needs at least one of them, where `columns:`
   read it as an empty record, `{}`.

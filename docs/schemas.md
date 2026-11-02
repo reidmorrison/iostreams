@@ -539,7 +539,8 @@ and `#copy_to`, whose options only apply to the target.
 * `aliases` The other names of the column of the field, see [Matching columns to fields](#matching-columns-to-fields).
   IOStreams adds this property.
 * `allowBlank` For a field whose `constraints` are `required`, `true` to accept a value that is `nil`, or empty text,
-  while the file must still have its column, see [Required fields](#required-fields). IOStreams adds this property.
+  while the file must still have its column, see [Required fields](#required-fields). Text of only whitespace is not
+  blank, so it is still read as the type of the field. IOStreams adds this property.
 * `decimals` For a `number`, the number of digits to write after the decimal point, rounding a `BigDecimal` half up,
   and a `Float`, with `floatNumber: true`, as Ruby's `format` does, to the nearest of its binary value, as the layouts
   of fixed width files did before v3.0. IOStreams adds this property.

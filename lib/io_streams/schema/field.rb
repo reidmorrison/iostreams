@@ -65,13 +65,13 @@ module IOStreams
     #     Default: []
     #
     #   allowBlank: [true|false]
-    #     For a field whose `constraints` are `required`, whether its values can be blank: nil, or empty text. The
-    #     header row, or each JSON record, must still have the field, as `required_columns:` checked before v3.0, apart
-    #     from a JSON record read through a contract alone, whose missing key is a blank value, but a value is not
-    #     required, both when reading and when writing. A property of the field rather than a constraint,
-    #     since Frictionless defines `required` as a boolean, and a tool reports an error for a constraint that it does
-    #     not support, while it accepts other properties of a field. Raises ArgumentError for a field that is not
-    #     required, whose values can be blank anyway.
+    #     For a field whose `constraints` are `required`, whether its values can be blank: nil, or empty text, while text
+    #     of only whitespace is still read as the type of the field. The header row, or each JSON record, must still have
+    #     the field, as `required_columns:` checked before v3.0, apart from a JSON record read through a contract alone,
+    #     whose missing key is a blank value, but a value is not required, both when reading and when writing. A property
+    #     of the field rather than a constraint, since Frictionless defines `required` as a boolean, and a tool reports an
+    #     error for a constraint that it does not support, while it accepts other properties of a field. Raises
+    #     ArgumentError for a field that is not required, whose values can be blank anyway.
     #     Default: false
     #
     #   decimals: [Integer]
