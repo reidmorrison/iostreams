@@ -216,6 +216,8 @@ the files of the application before it replaces the layout. What reads different
   the layout truncates it, while a whole number with a decimal point, such as `12.0`, is still read as `12`.
 * A `number` field reads `NaN` and `Inf`, which the layout writes for a `Float` that is not finite, as `Float::NAN`
   and `Float::INFINITY`, where the layout reads them as `0.0`.
+* A `number` field with `decimals` rounds the number read to them, such as `12.35` for `12.346` with `decimals: 2`,
+  where the layout reads all of its digits.
 * A line whose fields are all blank, even where a filler holds text, is a blank row, `nil`, which a copy skips, where
   the layout reads a record of blank values, such as `{name: "", zip: nil}`.
 * A `string` field of only spaces is `nil`, a missing value, where the layout reads empty text, `""`, see

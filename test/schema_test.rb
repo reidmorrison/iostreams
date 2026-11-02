@@ -1072,6 +1072,54 @@ class SchemaTest < Minitest::Test
           assert_same 0.125, field(type: "number", floatNumber: true).round(0.125)
         end
 
+        it "rounds the number read to its decimals, so that a record holds the number that is written" do
+          decimal = field(type: "number", decimals: 2)
+
+          assert_equal BigDecimal("12.35"), decimal.cast("12.345")
+          assert_equal BigDecimal("2.68"), decimal.cast(" 2.675 ")
+          assert_equal BigDecimal("-2.68"), decimal.cast("-2.675")
+          assert_equal BigDecimal("1.01"), decimal.cast(BigDecimal("1.005"))
+          assert_equal BigDecimal("0.33"), decimal.cast(1/3r)
+          assert_equal BigDecimal("12.5"), decimal.cast("12.5")
+          assert_equal BigDecimal("12.35"), decimal.render("12.345", :typed)
+          assert_equal BigDecimal(decimal.render("12.345", :text)), decimal.cast("12.345")
+        end
+
+        it "rounds a BigDecimal half up whatever the rounding mode of BigDecimal" do
+          mode = BigDecimal.mode(BigDecimal::ROUND_MODE)
+          BigDecimal.mode(BigDecimal::ROUND_MODE, :down)
+
+          assert_equal BigDecimal("2.68"), field(type: "number", decimals: 2).cast("2.675")
+          assert_equal "2.68", field(type: "number", decimals: 2).render("2.675", :text)
+        ensure
+          BigDecimal.mode(BigDecimal::ROUND_MODE, mode)
+        end
+
+        it "rounds the number read to no decimals as a BigDecimal, which is written without a decimal point" do
+          whole = field(type: "number", decimals: 0)
+
+          assert_equal BigDecimal("3"), whole.cast("2.5")
+          assert_instance_of BigDecimal, whole.cast("2.5")
+          assert_equal BigDecimal("-3"), whole.cast("-2.5")
+          assert_equal "3", whole.render("2.5", :text)
+          assert_equal "0", whole.render("-0.4", :text)
+        end
+
+        it "rounds a Float read to its decimals as its text is written" do
+          float = field(type: "number", floatNumber: true, decimals: 2)
+
+          # The exact Float, which is that of its text.
+          assert_equal Float("12.35"), float.cast("12.346")
+          assert_equal Float("12.34"), float.cast("12.345"), "the Float 12.345 is below 12.345, as format rounds it"
+          assert_equal Float("1"), float.cast(1.005)
+          assert_equal Float(float.render("2.675", :text)), float.cast("2.675")
+          assert_equal Float("12.345"), field(type: "number", floatNumber: true).cast("12.345")
+        end
+
+        it "keeps every digit of a number read without decimals" do
+          assert_equal BigDecimal("12.345678901234567890123"), number.cast("12.345678901234567890123")
+        end
+
         it "rounds a number that is not finite to itself" do
           assert_predicate field(type: "number", floatNumber: true, decimals: 0).round(Float::NAN), :nan?
           assert_equal(-Float::INFINITY, field(type: "number", floatNumber: true, decimals: 0).round(-Float::INFINITY))

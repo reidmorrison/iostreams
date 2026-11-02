@@ -665,9 +665,11 @@ and `#copy_to`, whose options only apply to the target.
 * `allowBlank` For a field whose `constraints` are `required`, `true` to accept a value that is blank, `nil` or empty
   text, while the file must still have its column, see [Required fields](#required-fields). Text of only whitespace is
   not blank, so it is still read as the type of the field, see [Types](#types). IOStreams adds this property.
-* `decimals` For a `number`, the number of digits to write after the decimal point, rounding a `BigDecimal` half up,
-  and a `Float`, with `floatNumber: true`, as Ruby's `format` does, to the nearest of its binary value, as the layouts
-  of fixed width files always have. IOStreams adds this property.
+* `decimals` For a `number`, the number of digits after the decimal point, rounding a `BigDecimal` half up, and a
+  `Float`, with `floatNumber: true`, as Ruby's `format` does, to the nearest of its binary value, as the layouts of
+  fixed width files always have. It rounds the number read too, such as `12.35` for `12.345` with `decimals: 2`, also
+  a number that is not text, such as one of JSON, so that a record read holds the number that is written. IOStreams
+  adds this property.
 * `skip` `true` for a field that only holds the place of its column, such as a column of a file without a header row
   that the code does not read: reading leaves it out of the rows and records, and writing writes an empty value in its
   column, or leaves it out of a JSON record. It takes only the properties that place its column, `name`, `aliases`,

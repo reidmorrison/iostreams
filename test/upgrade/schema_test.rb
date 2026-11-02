@@ -177,6 +177,18 @@ class UpgradeSchemaTest < Minitest::Test
         end
       end
 
+      it "rounds the number read to the decimals of its field, so that a record holds the number that is written" do
+        schema = {fields: [{name: "pay", type: "number", decimals: 2}, {name: "rate", type: "number"}]}
+
+        assert_equal [{"pay" => BigDecimal("12.35"), "rate" => BigDecimal("12.345")}], read("pay,rate\n12.345,12.345\n", schema: schema)
+        assert_equal [{"pay" => BigDecimal("2.68"), "rate" => BigDecimal("2.675")}],
+                     read(%({"pay":2.675,"rate":2.675}\n), file_name: "people.json", schema: schema)
+        written = write([{"pay" => BigDecimal("12.345"), "rate" => BigDecimal("12.345")}], schema: schema)
+
+        assert_equal "pay,rate\n12.35,12.345\n", written
+        assert_equal [{"pay" => BigDecimal("12.35"), "rate" => BigDecimal("12.345")}], read(written, schema: schema)
+      end
+
       it "reads the number 1 of a boolean field as true and 0 as false" do
         schema = {fields: [{name: "id", type: "integer"}, {name: "active", type: "boolean"}]}
         json   = %({"id":1,"active":1}\n{"id":2,"active":0}\n{"id":3,"active":1.0}\n{"id":4,"active":0.0}\n)
