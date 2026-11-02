@@ -225,7 +225,7 @@ module IOStreams
       # Returns [Integer|nil] the position of the first character of the field in a fixed width file, counting from 1.
       attr_reader :start
 
-      # Returns [Integer|nil] for a number, the number of digits written after the decimal point, see `decimals` above.
+      # Returns [Integer|nil] for a number, the number of digits after the decimal point, see `decimals` above.
       attr_reader :decimals
 
       # Returns [Array<String>] the other names of the column of this field, see `aliases` above.
@@ -597,12 +597,14 @@ module IOStreams
       # Returns [Numeric] the number, of the type of this field, see #cast, rounded to its decimals as its text is
       # written, see #render: a BigDecimal half up, whatever the rounding mode of `BigDecimal.mode`, and a Float as
       # Ruby's `format` rounds it, to the nearest of its binary value, so that a record read, and a format that holds the
-      # number itself, such as Parquet, hold the number that CSV writes. A number that is not finite, or of a field
-      # without decimals, is returned as it is.
+      # number itself, such as Parquet, hold the number that CSV writes. A Float exactly halfway rounds to the even digit,
+      # such as 0.12 for 0.125, as `format` rounds it. A number that rounds to zero is zero, rather than -0.0, which CSV
+      # would write as "-0.00". A number that is not finite, or of a field without decimals, is returned as it is.
       def round(number)
         return number if @decimals.nil? || !number.finite?
 
-        number.is_a?(Float) ? Float(float_text(number)) : number.round(@decimals, :half_up)
+        rounded = number.is_a?(Float) ? Float(float_text(number)) : number.round(@decimals, :half_up)
+        rounded.zero? ? rounded.abs : rounded
       end
 
       # Returns the value read from a format whose values are in the supplied form, see #render, converted to the type of
@@ -1099,10 +1101,10 @@ module IOStreams
         return (@decimals ? float_text(value) : value.to_s) if value.is_a?(Float)
         return value.to_s("F") unless @decimals
 
-        rounded = round(value)
-        return rounded.to_i.to_s if @decimals.zero?
+        # The value is already rounded to the decimals, see #cast.
+        return value.to_i.to_s if @decimals.zero?
 
-        whole, fraction = rounded.to_s("F").split(".")
+        whole, fraction = value.to_s("F").split(".")
         "#{whole}.#{fraction.ljust(@decimals, '0')[0, @decimals]}"
       end
 

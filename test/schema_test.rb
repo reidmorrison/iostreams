@@ -953,6 +953,26 @@ class SchemaTest < Minitest::Test
           end
         end
 
+        it "rounds a Float exactly halfway between two decimals to the even one, as format does" do
+          assert_equal Float("2"), field(type: "number", floatNumber: true, decimals: 0).cast("2.5")
+          assert_equal Float("4"), field(type: "number", floatNumber: true, decimals: 0).cast("3.5")
+          assert_equal Float("0.12"), field(type: "number", floatNumber: true, decimals: 2).cast("0.125")
+          assert_equal BigDecimal("0.13"), field(type: "number", decimals: 2).cast("0.125")
+        end
+
+        it "rounds a negative number to zero, rather than -0.0" do
+          float   = field(type: "number", floatNumber: true, decimals: 2)
+          decimal = field(type: "number", decimals: 2)
+
+          # The text of -0.0 is "-0.0", for a Float and for a BigDecimal.
+          [float.cast("-0.001"), decimal.cast("-0.001"), field(type: "number", decimals: 0).cast("-0.4")].each do |zero|
+            assert_equal "0.0", zero.to_s, zero.inspect
+          end
+          assert_equal "0.00", float.render("-0.001", :text)
+          assert_equal "0.00", decimal.render("-0.001", :text)
+          assert_equal "0.00", JSON.generate([float.render(-0.001, :json)])[1..-2]
+        end
+
         it "keeps a number that is not finite as it is, whatever its decimals" do
           assert_predicate field(type: "number", decimals: 2).cast("NaN"), :nan?
           assert_equal(-1, field(type: "number", decimals: 2).cast("-INF").infinite?)

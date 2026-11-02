@@ -1427,6 +1427,14 @@ class StreamTest < Minitest::Test
                      read("pay\nInfinity\n-infinity\n", schema: {fields: [{name: "pay", type: "number"}]})
       end
 
+      it "rounds a negative number to zero, rather than -0.0, both when reading and when writing" do
+        schema = {fields: [{name: "pay", type: "number", decimals: 2}, {name: "rate", type: "number", floatNumber: true, decimals: 2}]}
+        record = read("pay,rate\n-0.001,-0.001\n", schema: schema).first
+
+        assert_equal ["0.0", "0.0"], record.values.map(&:to_s)
+        assert_equal "pay,rate\n0.00,0.00\n", write([{"pay" => BigDecimal("-0.001"), "rate" => -0.001}], schema: schema)
+      end
+
       it "reads a number with decimals rounded to them, as it writes it, so that a record holds what is written" do
         schema = {fields: [{name: "pay", type: "number", decimals: 2}]}
 

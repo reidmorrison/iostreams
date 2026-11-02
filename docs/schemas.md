@@ -553,9 +553,11 @@ and `#copy_to`, whose options only apply to the target.
   blank, so it is still read as the type of the field. IOStreams adds this property.
 * `decimals` For a `number`, the number of digits after the decimal point, rounding a `BigDecimal` half up, and a
   `Float`, with `floatNumber: true`, as Ruby's `format` does, to the nearest of its binary value, as the layouts of
-  fixed width files did before v3.0. It rounds the number read, also one that is not text, such as of JSON or the
-  `:hash` format, as well as the number written, so that a record read holds the number that is written, such as
-  `12.35` for `12.345` with `decimals: 2`. IOStreams adds this property.
+  fixed width files did before v3.0, so that a `Float` exactly halfway rounds to the even digit, such as `0.12` for
+  `0.125`. It rounds the number read, also one that is not text, such as of JSON or the `:hash` format, as well as the
+  number written, also to the `:hash` and `:array` formats, so that a record read holds the number that is written,
+  such as `12.35` for the `BigDecimal` `12.345` with `decimals: 2`. A number that rounds to zero is zero, rather than
+  `-0.0`, which would be written as `-0.00`. IOStreams adds this property.
 * `skip` `true` for a field that only holds the place of its column, such as a column of a file without a header row
   that the code does not read: reading leaves it out of the rows and records, and writing writes an empty value in its
   column, or leaves it out of a JSON record, and a Parquet file has no column for it. It takes only the properties
