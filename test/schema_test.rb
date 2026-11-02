@@ -1174,8 +1174,37 @@ class SchemaTest < Minitest::Test
           assert_equal Date.new(2026, 10, 31), field(type: "date", format: "%Y %d/%m").cast("2026 31/10")
         end
 
-        it "reads 2 digits for %y, as before" do
-          assert_equal Date.new(2026, 10, 31), field(type: "date", format: "%d/%m/%y").cast("31/10/26")
+        it "reads exactly 2 digits for %y, as Python's strptime does" do
+          pattern = field(type: "date", format: "%d/%m/%y")
+
+          assert_equal Date.new(2026, 10, 31), pattern.cast("31/10/26")
+          assert_equal Date.new(2005, 2, 1), pattern.cast("1/2/05")
+          ["1/2/5", "1/2/005", "1/2/2005"].each do |text|
+            assert_raises(IOStreams::Errors::InvalidValue, text) { pattern.cast(text) }
+          end
+          assert_equal Date.new(2026, 10, 31), field(type: "date", format: "%y%m%d").cast("261031")
+        end
+
+        it "reads exactly 4 digits for %G, the year of an ISO 8601 week" do
+          pattern = field(type: "date", format: "%G-W%V-%u")
+
+          assert_equal Date.new(2026, 10, 31), pattern.cast("2026-W44-6")
+          assert_raises(IOStreams::Errors::InvalidValue) { pattern.cast("26-W44-6") }
+        end
+
+        it "checks the digits of the year of a directive that reads several, and of one with a modifier" do
+          assert_equal Date.new(2026, 10, 31), field(type: "date", format: "%F").cast("2026-10-31")
+          assert_raises(IOStreams::Errors::InvalidValue) { field(type: "date", format: "%F").cast("26-10-31") }
+          assert_equal Date.new(2026, 10, 31), field(type: "date", format: "%D").cast("10/31/26")
+          assert_raises(IOStreams::Errors::InvalidValue) { field(type: "date", format: "%D").cast("10/31/6") }
+          assert_equal Date.new(2026, 10, 31), field(type: "date", format: "%x").cast("10/31/26")
+          assert_raises(IOStreams::Errors::InvalidValue) { field(type: "date", format: "%x").cast("10/31/2026") }
+          assert_equal Date.new(2026, 10, 31), field(type: "date", format: "%v").cast("31-Oct-2026")
+          assert_raises(IOStreams::Errors::InvalidValue) { field(type: "date", format: "%v").cast("31-Oct-26") }
+          assert_equal Date.new(2026, 10, 31), field(type: "date", format: "%EY-%m-%d").cast("2026-10-31")
+          assert_raises(IOStreams::Errors::InvalidValue) { field(type: "date", format: "%EY-%m-%d").cast("26-10-31") }
+          assert_raises(IOStreams::Errors::InvalidValue) { field(type: "date", format: "%d/%m/%Ey").cast("31/10/6") }
+          assert_equal "2026-10-31", field(type: "date", format: "%F").render(Date.new(2026, 10, 31), :text)
         end
 
         it "removes the prefix fmt: that Data Package v0 wrote before a pattern" do
@@ -1184,7 +1213,15 @@ class SchemaTest < Minitest::Test
           assert_equal Date.new(2026, 10, 31), pattern.cast("31/10/2026")
           assert_equal "31/10/2026", pattern.render(Date.new(2026, 10, 31), :text)
           assert_raises(ArgumentError) { field(type: "date", format: "fmt:") }
-          assert_raises(ArgumentError) { field(type: "date", format: "fmt:default") }
+        end
+
+        it "reads fmt:default as the default form, as frictionless-py does" do
+          pattern = field(type: "date", format: "fmt:default")
+
+          assert_equal Date.new(2026, 10, 31), pattern.cast("2026-10-31")
+          assert_raises(IOStreams::Errors::InvalidValue) { pattern.cast("31/10/2026") }
+          assert_equal "2026-10-31", pattern.render(Date.new(2026, 10, 31), :text)
+          assert_equal Time.utc(2026, 10, 31, 9, 30), field(type: "datetime", format: "fmt:default").cast("2026-10-31T09:30:00Z")
         end
 
         it "takes a %% as a percent sign, rather than a directive" do
@@ -1193,6 +1230,13 @@ class SchemaTest < Minitest::Test
           assert_equal Date.new(2026, 1, 1), pattern.cast("%Y 2026")
           assert_raises(IOStreams::Errors::InvalidValue) { pattern.cast("%Y 26") }
           assert_equal "%Y 2026", pattern.render(Date.new(2026, 10, 31), :text)
+        end
+
+        it "takes %%f as a percent sign followed by f, rather than microseconds" do
+          pattern = field(type: "date", format: "%%f %Y")
+
+          assert_equal Date.new(2026, 1, 1), pattern.cast("%f 2026")
+          assert_equal "%f 2026", pattern.render(Date.new(2026, 10, 31), :text)
         end
 
         it "renders ISO 8601" do
@@ -1323,11 +1367,47 @@ class SchemaTest < Minitest::Test
           assert_equal Time.utc(2026, 10, 13, 9, 30), field(type: "datetime", format: "%s").cast("1791883800")
         end
 
+        it "reads whole seconds for %s, ignoring the fraction after it" do
+          assert_equal Time.utc(2026, 10, 13, 9, 30), field(type: "datetime", format: "%s.%f").cast("1791883800.5")
+        end
+
+        it "reads %c with exactly 4 digits for its year, and writes it as Ruby does" do
+          pattern = field(type: "datetime", format: "%c")
+
+          assert_equal Time.utc(2026, 10, 31, 9, 30), pattern.cast("Sat Oct 31 09:30:00 2026")
+          assert_raises(IOStreams::Errors::InvalidValue) { pattern.cast("Sat Oct 31 09:30:00 26") }
+          assert_equal "Sat Oct 31 09:30:00 2026", pattern.render(Time.utc(2026, 10, 31, 9, 30), :text)
+        end
+
         it "reads exactly 4 digits for %Y, followed by other digits" do
           pattern = field(type: "datetime", format: "%Y%m%d%H%M%S")
 
           assert_equal Time.utc(2026, 10, 31, 9, 30), pattern.cast("20261031093000")
           assert_raises(IOStreams::Errors::InvalidValue) { pattern.cast("261031093000") }
+        end
+
+        it "reads the microseconds of %f right after the seconds" do
+          pattern = field(type: "datetime", format: "%Y%m%d%H%M%S%f")
+
+          assert_equal Time.utc(2026, 10, 31, 9, 30, 0.123r), pattern.cast("20261031093000123")
+          assert_equal "20261031093000123000", pattern.render(Time.utc(2026, 10, 31, 9, 30, 0.123r), :text)
+        end
+
+        it "reads the microseconds of %f right after the 2 digits of %y" do
+          pattern = field(type: "datetime", format: "%m/%d/%y%f")
+
+          assert_equal Time.utc(2026, 10, 31, 0, 0, 0.123r), pattern.cast("10/31/26123")
+          assert_equal "10/31/26123000", pattern.render(Time.utc(2026, 10, 31, 0, 0, 0.123r), :text)
+        end
+
+        it "reads %+ with exactly 4 digits for its year, and writes it as the strftime of a Date does" do
+          pattern = field(type: "datetime", format: "%+")
+
+          assert_equal Time.utc(2026, 10, 31, 9, 30), pattern.cast("Sat Oct 31 09:30:00 UTC 2026")
+          assert_equal Time.utc(2026, 10, 31, 13, 30), pattern.cast("Sat Oct 31 09:30:00 -04:00 2026")
+          assert_raises(IOStreams::Errors::InvalidValue) { pattern.cast("Sat Oct 31 09:30:00 UTC 26") }
+          assert_equal "Sat Oct 31 09:30:00 +00:00 2026", pattern.render(Time.utc(2026, 10, 31, 9, 30), :text)
+          assert_equal "Sat Oct 31 09:30:00 -04:00 2026", pattern.render(Time.new(2026, 10, 31, 9, 30, 0, "-04:00"), :text)
         end
       end
 

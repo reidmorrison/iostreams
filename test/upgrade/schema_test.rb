@@ -99,10 +99,18 @@ class UpgradeSchemaTest < Minitest::Test
           assert_raises(IOStreams::Errors::InvalidValue) { read("joined\n31/10/20261\n", schema: dates) }
         end
 
-        it "reads 2 digits for %y" do
+        it "reads exactly 4 digits for the year of %F" do
+          schema = {fields: [{name: "joined", type: "date", format: "%F"}]}
+
+          assert_equal [{"joined" => Date.new(2026, 10, 31)}], read("joined\n2026-10-31\n", schema: schema)
+          assert_raises(IOStreams::Errors::InvalidValue) { read("joined\n26-10-31\n", schema: schema) }
+        end
+
+        it "reads exactly 2 digits for %y" do
           schema = {fields: [{name: "joined", type: "date", format: "%d/%m/%y"}]}
 
           assert_equal [{"joined" => Date.new(2026, 10, 31)}], read("joined\n31/10/26\n", schema: schema)
+          assert_raises(IOStreams::Errors::InvalidValue) { read("joined\n1/2/5\n", schema: schema) }
         end
 
         it "removes the prefix fmt: that Data Package v0 wrote before a pattern" do
@@ -110,6 +118,13 @@ class UpgradeSchemaTest < Minitest::Test
 
           assert_equal [{"joined" => Date.new(2026, 10, 31)}], read("joined\n31/10/2026\n", schema: schema)
           assert_equal "joined\n31/10/2026\n", write([{"joined" => Date.new(2026, 10, 31)}], schema: schema)
+        end
+
+        it "reads fmt:default as the default form" do
+          schema = {fields: [{name: "joined", type: "date", format: "fmt:default"}]}
+
+          assert_equal [{"joined" => Date.new(2026, 10, 31)}], read("joined\n2026-10-31\n", schema: schema)
+          assert_equal "joined\n2026-10-31\n", write([{"joined" => Date.new(2026, 10, 31)}], schema: schema)
         end
 
         it "reads 1 to 6 digits of microseconds for %f, and writes 6" do

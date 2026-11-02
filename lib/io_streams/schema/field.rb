@@ -39,7 +39,8 @@ module IOStreams
     #     For a date or datetime, the strptime pattern of its text, such as "%d/%m/%Y" or "%Y%m%d%H%M%S", in the syntax
     #     of Python's strptime, whose `%Y` reads exactly 4 digits and `%f` microseconds, see
     #     `IOStreams::Schema::Pattern`. A pattern that starts with `fmt:`, as Data Package v0 wrote it, such as
-    #     "fmt:%d/%m/%Y", has that prefix removed, as Frictionless says an implementation must.
+    #     "fmt:%d/%m/%Y", has that prefix removed, as Frictionless says an implementation must, so that "fmt:default" is
+    #     the default form.
     #     Default: "default", the ISO 8601 form above.
     #
     #   trueValues: [Array<String>]
@@ -450,11 +451,12 @@ module IOStreams
       end
 
       # Returns [IOStreams::Schema::Pattern|nil] the strptime pattern of a date or datetime, without the prefix `fmt:`
-      # that Data Package v0 wrote before it, or nil for the default form.
+      # that Data Package v0 wrote before it, or nil for the default form, also after that prefix, as frictionless-py
+      # reads `fmt:default`.
       def check_format(format)
-        return if format.nil? || format == "default"
-
         pattern = format.is_a?(String) ? format.delete_prefix("fmt:") : format
+        return if pattern.nil? || pattern == "default"
+
         unless %w[date datetime].include?(type) && pattern.is_a?(String) && pattern.include?("%")
           raise(ArgumentError, "Field #{name.inspect}: the format #{format.inspect} is not supported for a #{type} field")
         end

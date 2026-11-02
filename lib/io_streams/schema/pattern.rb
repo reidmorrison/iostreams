@@ -8,25 +8,51 @@ module IOStreams
     # Python and C's strptime, see https://datapackage.org/standard/table-schema/, and which IOStreams reads and writes
     # with Ruby's strptime and strftime, whose directives are mostly the same:
     #   %Y  the year in exactly 4 digits, as Python reads it, such as "2026", where Ruby reads as many digits as there
-    #       are, so that "26" would be the year 26.
+    #       are, so that "26" would be the year 26. So does `%G`, the year of an ISO 8601 week.
+    #   %y  the year of the century in exactly 2 digits, as Python reads it, such as "05", where Ruby also reads "5".
     #   %f  the microseconds, which Ruby does not have: 1 to 6 digits of the fraction of a second when reading, such as
     #       "5" for half a second, and 6 digits when writing, such as "500000".
     #
-    # Every other directive is Ruby's, which reads and writes the directives of Python the same way. Ruby's own
-    # directives, such as `%N`, `%L` and `%s`, still work, but other Frictionless tools do not read them.
+    # Every other directive is Ruby's, which reads and writes the directives of Python the same way. A directive that
+    # reads several, such as `%F`, `%c` or Ruby's `%+`, reads its year as they do, see COMPOSITES. Ruby's own
+    # directives, such as `%N`, `%L`, `%s` and `%+`, still work, but other Frictionless tools do not read them, and `%s`
+    # reads whole seconds, so that the fraction after it, such as in `%s.%f`, is ignored.
     class Pattern
-      # A directive of a pattern: `%%`, or `%` with its flags, width and letter, such as `%d`, `%-m` or `%:z`, whose
-      # letter is captured. A width does not start with `0`, which is a flag, so that the flags and the width never match
-      # the same characters, which would take time that grows with the square of their length.
-      DIRECTIVE = /%(?:%|[-_0^#:]*(?:[1-9]\d*)?([a-zA-Z+]))/
+      # A directive of a pattern: `%%`, or `%` with its flags, width, modifier `E` or `O`, and letter, such as `%d`,
+      # `%-m`, `%:z` or `%EY`, whose letter is captured. A width does not start with `0`, which is a flag, so that the
+      # flags and the width never match the same characters, which would take time that grows with the square of their
+      # length.
+      DIRECTIVE = /%(?:%|[-_0^#:]*(?:[1-9]\d*)?[EO]?([a-zA-Z+]))/
 
-      # The directive of Python's microseconds, which Ruby does not have, and Ruby's directives that read and write it.
+      # The directives that Ruby's strptime reads as a pattern of several, and those patterns, which a pattern is
+      # expanded with before it is read, so that the digits of the year in each one are checked, see DIGITS. Writing
+      # keeps the directive, which Ruby's strftime writes as that pattern, apart from `%+`, see WRITE_DIRECTIVES.
+      COMPOSITES = {
+        "%+" => "%a %b %e %H:%M:%S %Z %Y",
+        "%c" => "%a %b %e %H:%M:%S %Y",
+        "%D" => "%m/%d/%y",
+        "%F" => "%Y-%m-%d",
+        "%v" => "%e-%b-%Y",
+        "%x" => "%m/%d/%y"
+      }.freeze
+
+      # A directive with the modifier `E` or `O`, of the alternative form of a locale, which Ruby's strptime reads as the
+      # directive without it, such as `%EY` as `%Y`, see #expand.
+      MODIFIED = /\A%(?:E([cCxXyY])|O([deHImMSuUVwWy]))\z/
+
+      # The directive of Python's microseconds, which Ruby does not have.
       MICROSECONDS = "%f"
-      READ_MICROSECONDS  = "%N"
-      WRITE_MICROSECONDS = "%6N"
+
+      # The directives that Ruby's strptime does not read, and those of Ruby that read them: the microseconds.
+      READ_DIRECTIVES = {MICROSECONDS => "%N"}.freeze
+
+      # The directives that Ruby's strftime of a Time does not write, and those of Ruby that write them: the
+      # microseconds, in 6 digits, and `%+`, the form of date(1), as the strftime of a Date writes it, with the offset
+      # of its zone, such as "Sat Oct 31 09:30:00 +00:00 2026".
+      WRITE_DIRECTIVES = {MICROSECONDS => "%6N", "%+" => "%a %b %e %H:%M:%S %:z %Y"}.freeze
 
       # The directives whose digits Ruby counts differently than Python, and the digits that Python reads for each one.
-      DIGITS = {"%Y" => "\\d{4}", MICROSECONDS => "\\d{1,6}"}.freeze
+      DIGITS = {"%Y" => "\\d{4}", "%G" => "\\d{4}", "%y" => "\\d{2}", MICROSECONDS => "\\d{1,6}"}.freeze
 
       # The letters of the directives that write a zone, see #zone?.
       ZONES = %w[z Z +].freeze
@@ -39,9 +65,10 @@ module IOStreams
       #   pattern: [String]
       #     The pattern, such as "%d/%m/%Y", in the syntax of Python's strptime.
       def initialize(pattern)
-        @write  = -ruby(pattern, WRITE_MICROSECONDS)
-        @read   = -ruby(pattern, READ_MICROSECONDS)
-        @checks = checks(pattern).freeze
+        read    = expand(pattern)
+        @write  = -ruby(pattern, WRITE_DIRECTIVES)
+        @read   = -ruby(read, READ_DIRECTIVES)
+        @checks = checks(read).freeze
         @zone   = pattern.scan(DIRECTIVE).flatten.compact.intersect?(ZONES)
         freeze
       end
@@ -58,8 +85,8 @@ module IOStreams
       end
 
       # Returns [Hash] the parts of the text, as `Date._strptime` returns them, such as `{year: 2026, mon: 10}`.
-      # Returns nil when the pattern does not match all of the text, or a year does not have exactly 4 digits, or
-      # microseconds 1 to 6, as Python reads them.
+      # Returns nil when the pattern does not match all of the text, or a year does not have exactly 4 digits, or 2 for
+      # `%y`, or microseconds 1 to 6, as Python reads them.
       def parts(text)
         parts = Date._strptime(text, @read)
         return if parts.nil? || parts.key?(:leftover)
@@ -79,10 +106,20 @@ module IOStreams
 
       private
 
-      # Returns [String] the pattern of Ruby's strptime or strftime of the pattern of Python, whose microseconds are the
-      # supplied directive of Ruby, see MICROSECONDS.
-      def ruby(pattern, microseconds)
-        pattern.gsub(DIRECTIVE) { |directive| directive == MICROSECONDS ? microseconds : directive }
+      # Returns [String] the pattern with each directive that reads several replaced with them, see COMPOSITES, and the
+      # modifier of each directive that has one removed, see MODIFIED, which Ruby's strptime reads the same way.
+      def expand(pattern)
+        pattern.gsub(DIRECTIVE) do |directive|
+          modified = MODIFIED.match(directive)
+          directive = "%#{modified[1] || modified[2]}" if modified
+          COMPOSITES.fetch(directive, directive)
+        end
+      end
+
+      # Returns [String] the pattern of Ruby's strptime or strftime of the pattern of Python, with each of the supplied
+      # directives replaced with its own, see READ_DIRECTIVES and WRITE_DIRECTIVES.
+      def ruby(pattern, directives)
+        pattern.gsub(DIRECTIVE) { |directive| directives.fetch(directive, directive) }
       end
 
       # Returns [Array(String, Regexp)] for each directive whose digits Ruby counts differently than Python, see DIGITS,
@@ -96,8 +133,8 @@ module IOStreams
           digits = DIGITS[match[0]]
           next unless digits
 
-          after  = NUMERIC.match?(ruby(match.post_match, READ_MICROSECONDS)) ? "" : "(?!\\d)"
-          checks << [-ruby(match.pre_match, READ_MICROSECONDS), Regexp.new("\\G#{digits}#{after}")]
+          after  = NUMERIC.match?(ruby(match.post_match, READ_DIRECTIVES)) ? "" : "(?!\\d)"
+          checks << [-ruby(match.pre_match, READ_DIRECTIVES), Regexp.new("\\G#{digits}#{after}")]
         end
         checks
       end
