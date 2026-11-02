@@ -1323,9 +1323,32 @@ class SchemaTest < Minitest::Test
         end
 
         it "raises for a date without a time, or another form" do
-          ["2026-10-13", "2026-10-13 09:30:00", "2026-10-13T25:00:00Z"].each do |text|
+          ["2026-10-13", "2026-10-13T09:30", "2026-10-13 09:30", "2026-10-13T25:00:00Z", "2026-10-13  09:30:00", "2026-10-13t09:30:00",
+           "2026-10-13T09:30:00 +05:30", "2026-10-13T09:30:00+05", "2026-10-13T09:30:00+5:30", "2026-10-13T09:30:00+05:3",
+           "2026-10-13T09:30:00z", "13/10/2026 09:30:00"].each do |text|
             assert_raises(IOStreams::Errors::InvalidValue, text) { datetime.cast(text) }
           end
+        end
+
+        it "reads a space in place of the T" do
+          assert_equal Time.utc(2026, 10, 31, 9, 30), datetime.cast("2026-10-31 09:30:00")
+          assert_predicate datetime.cast("2026-10-31 09:30:00"), :utc?
+          assert_equal Time.utc(2026, 10, 31, 9, 30, 0.25r), datetime.cast(" 2026-10-31 09:30:00.25Z ")
+          assert_raises(IOStreams::Errors::InvalidValue) { datetime.cast("2026-02-30 09:30:00") }
+        end
+
+        it "reads an offset from UTC without a colon, such as +0530" do
+          time = datetime.cast("2026-10-31T09:30:00+0530")
+
+          assert_equal Time.utc(2026, 10, 31, 4, 0), time
+          assert_equal 19_800, time.utc_offset
+          assert_equal(-18_000, datetime.cast("2026-10-31 09:30:00.5-0500").utc_offset)
+          assert_equal Time.utc(2026, 10, 31, 14, 30, 0.5r), datetime.cast("2026-10-31 09:30:00.5-0500")
+        end
+
+        it "still writes ISO 8601 with a T, and an offset with a colon, or Z" do
+          assert_equal "2026-10-31T09:30:00+05:30", datetime.render("2026-10-31 09:30:00+0530", :text)
+          assert_equal "2026-10-31T09:30:00Z", datetime.render("2026-10-31 09:30:00", :text)
         end
 
         it "raises for a date that does not exist, rather than move it into the next month" do

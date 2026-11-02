@@ -177,6 +177,30 @@ class UpgradeSchemaTest < Minitest::Test
         end
       end
 
+      describe "the text of a datetime without a format" do
+        let(:schema) { {fields: [{name: "at", type: "datetime"}]} }
+
+        it "reads a space in place of the T, and an offset from UTC with or without a colon" do
+          rows = read("at\n2026-10-31 09:30:00\n2026-10-31T09:30:00+0530\n2026-10-31 09:30:00.5-05:00\n2026-10-31T09:30:00Z\n", schema: schema)
+
+          times = rows.map { |row| row["at"] }
+
+          assert_equal [Time.utc(2026, 10, 31, 9, 30), Time.utc(2026, 10, 31, 4, 0), Time.utc(2026, 10, 31, 14, 30, 0.5r), Time.utc(2026, 10, 31, 9, 30)], times
+          assert_equal [0, 19_800, -18_000, 0], times.map(&:utc_offset)
+        end
+
+        it "still raises without seconds, or without a time" do
+          assert_raises(IOStreams::Errors::InvalidValue) { read("at\n2026-10-31 09:30\n", schema: schema) }
+          assert_raises(IOStreams::Errors::InvalidValue) { read("at\n2026-10-31\n", schema: schema) }
+        end
+
+        it "still writes ISO 8601, with a T, and an offset with a colon, or Z" do
+          written = write([{"at" => "2026-10-31 09:30:00+0530"}, {"at" => "2026-10-31 09:30:00"}], schema: schema)
+
+          assert_equal "at\n2026-10-31T09:30:00+05:30\n2026-10-31T09:30:00Z\n", written
+        end
+      end
+
       describe "the format of a date or datetime" do
         let(:dates) { {fields: [{name: "joined", type: "date", format: "%d/%m/%Y"}]} }
 
