@@ -402,9 +402,9 @@ end
   no zone either, so a field with a `timeZone` writes the clock of its zone to a cell, such as `2026-07-01 09:30` for
   `13:30` UTC in New York, and reads the clock of a cell in its zone, as it reads the text `2026-07-01 09:30:00`, so a
   spreadsheet made by hand in New York reads as the times that were entered, while a field without a `timeZone` writes
-  and reads the clock in UTC. The lines of a spreadsheet, its CSV text, have no schema, so they hold the clock of a
-  date and time as UTC, such as `2026-07-01T09:30:00Z`, which a field reads as that time, whatever its `timeZone`, so
-  read the rows of a spreadsheet, rather than its lines, with a field that has one.
+  and reads the clock in UTC. The lines of a spreadsheet, its CSV text, hold the clock of a date and time without an
+  offset, such as `2026-07-01T09:30:00`, so a field reads it in its `timeZone` too, as do a CSV copy of the
+  spreadsheet and its slices, the same times as its rows.
 * A spreadsheet's cell holds the clock alone, so both times of a clock that the zone has twice, such as `01:30` on
   2026-11-01 in New York, which is `05:30` UTC, at `-04:00`, and an hour later `06:30` UTC, at `-05:00`, are written as
   the cell `2026-11-01 01:30`, which reads back as the first, `05:30` UTC, while CSV writes each time with its offset.

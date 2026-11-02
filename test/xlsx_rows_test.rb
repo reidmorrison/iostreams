@@ -76,7 +76,7 @@ class XlsxRowsTest < Minitest::Test
       it "still reads the lines and bytes of the spreadsheet as CSV text" do
         lines = read(IOStreams.path(file_name), :line)
 
-        assert_equal "1001,12.5,2026-10-25T09:30:00Z,2026-10-25,01234,true,,0.30000000000000004", lines.last
+        assert_equal "1001,12.5,2026-10-25T09:30:00,2026-10-25,01234,true,,0.30000000000000004", lines.last
         assert_equal "#{lines.join("\n")}\n", IOStreams.path(file_name).read
       end
 
@@ -105,7 +105,7 @@ class XlsxRowsTest < Minitest::Test
           fields: %w[id amount ordered_at shipped_on zip paid notes ratio].map { |name| {name: name, type: "string"} }
         )
 
-        assert_equal [{"id" => "1001", "amount" => "12.5", "ordered_at" => "2026-10-25T09:30:00Z", "shipped_on" => "2026-10-25",
+        assert_equal [{"id" => "1001", "amount" => "12.5", "ordered_at" => "2026-10-25T09:30:00", "shipped_on" => "2026-10-25",
                        "zip" => "01234", "paid" => "true", "notes" => nil, "ratio" => "0.3"}],
                      read(IOStreams.path(file_name).as(contract))
         assert_equal [{"id" => "1001", "amount" => 12.5}],
@@ -123,12 +123,12 @@ class XlsxRowsTest < Minitest::Test
                       "zip" => "string", "paid" => "boolean", "notes" => "any", "ratio" => "number"}, types)
       end
 
-      it "reads slices of its typed rows, whose dates and times JSON holds as ISO 8601 text" do
+      it "reads slices of its typed rows, whose dates and times JSON holds as ISO 8601 text, a cell's clock without an offset" do
         slices = []
         IOStreams.path(file_name).each(:slice, size: 10) { |slice| slices << slice }
 
         assert_equal :array, slices.first.format
-        assert_equal [1001.0, 12.5, "2026-10-25T09:30:00Z", "2026-10-25", "01234", true, nil, 0.30000000000000004],
+        assert_equal [1001.0, 12.5, "2026-10-25T09:30:00", "2026-10-25", "01234", true, nil, 0.30000000000000004],
                      slices.first.to_h["rows"].first
       end
 
@@ -333,7 +333,7 @@ class XlsxRowsTest < Minitest::Test
 
         before { format_cells(columns) }
 
-        it "is the date, the time in UTC, or the time of day that the rows read, in every time zone" do
+        it "is the date, the clock of the date and time, or the time of day that the rows read, in every time zone" do
           rows = read(IOStreams.path(file_name), :array).last
 
           assert_equal [Date.new(2026, 9, 6), Date.new(2026, 9, 6), Date.new(2026, 9, 6), Time.utc(2026, 3, 8, 2, 30),
@@ -341,17 +341,17 @@ class XlsxRowsTest < Minitest::Test
                        rows
           %w[UTC America/Santiago America/New_York].each do |zone|
             in_time_zone(zone) do
-              assert_equal "2026-09-06,2026-09-06,2026-09-06,2026-03-08T02:30:00Z,2026-03-08T02:30:00.500Z,09:30:00,09:30:00,1001,5",
+              assert_equal "2026-09-06,2026-09-06,2026-09-06,2026-03-08T02:30:00,2026-03-08T02:30:00.500,09:30:00,09:30:00,1001,5",
                            read(IOStreams.path(file_name), :line).last, zone
             end
           end
         end
 
-        it "is the text of the date, the time in UTC, or the time of the clock of a time of day in a string field" do
+        it "is the text of the date, the clock of the date and time, or the time of the clock of a time of day in a string field" do
           strings = IOStreams.path(file_name).schema(fields: columns.map { |name, *| {name: name, type: "string"} })
           record  = {
-            "short" => "2026-09-06", "iso" => "2026-09-06", "dmy" => "2026-09-06", "at" => "2026-03-08T02:30:00Z",
-            "at_ms" => "2026-03-08T02:30:00.500Z", "clock" => "09:30:00", "shift" => "09:30:00", "count" => "1001",
+            "short" => "2026-09-06", "iso" => "2026-09-06", "dmy" => "2026-09-06", "at" => "2026-03-08T02:30:00",
+            "at_ms" => "2026-03-08T02:30:00.500", "clock" => "09:30:00", "shift" => "09:30:00", "count" => "1001",
             "items" => "5"
           }
 
@@ -398,7 +398,7 @@ class XlsxRowsTest < Minitest::Test
         strings = IOStreams.path(file_name).schema(fields: %w[on_day clock late].map { |name| {name: name, type: "string"} })
 
         assert_equal [Time.utc(2000, 1, 1, 9, 30)] * 2, read(IOStreams.path(file_name), :array).last.first(2)
-        assert_equal [{"on_day" => "2000-01-01T09:30:00Z", "clock" => "09:30:00", "late" => "2026-03-08T02:30:00Z"}],
+        assert_equal [{"on_day" => "2000-01-01T09:30:00", "clock" => "09:30:00", "late" => "2026-03-08T02:30:00"}],
                      read(strings)
       end
 

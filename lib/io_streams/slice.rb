@@ -726,7 +726,18 @@ module IOStreams
       return dumped_rows if schema
       return @rows.dup unless IOStreams::Tabular.renders_values?(format)
 
-      @rows.map { |row| map_values(row, Hash.new(true)) { |_field, value| IOStreams::Schema::Field.any_json(value) } }
+      @rows.map { |row| map_values(row, Hash.new(true)) { |_field, value| stored_value(value) } }
+    end
+
+    # Returns the value of a row of a slice without a schema in a form that JSON keeps, see
+    # `IOStreams::Schema::Field.any_json`, apart from a time of a slice of the cells of a source of typed values, such as
+    # a spreadsheet, see #cell_text?, which holds a clock without a zone, as the text of its clock without an offset, see
+    # `IOStreams::Schema::Field.clock_text`, so that a field reads it in its `timeZone` once the slice is stored, as it
+    # reads the cell.
+    def stored_value(value)
+      return IOStreams::Schema::Field.clock_text(value) if cell_text? && value.is_a?(Time)
+
+      IOStreams::Schema::Field.any_json(value)
     end
 
     # Returns [Array] the rows of a slice with a schema, each value in a form that JSON keeps, see

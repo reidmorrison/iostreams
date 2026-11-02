@@ -524,7 +524,12 @@ class FrictionlessTypesTest < Minitest::Test
         IOStreams.path(dir, "times.xlsx").each(:line) { |line| lines << line }
 
         # A time field writes a cell of a time of day, whose text is its clock.
-        assert_equal "2026-07-01T09:30:00Z,09:30:00", lines.last
+        # The CSV text of a cell of a date and time is its clock, without an offset, which the field reads in its zone.
+        assert_equal "2026-07-01T09:30:00,09:30:00", lines.last
+        copy = IOStreams.path(dir, "times.csv")
+        copy.copy_from(IOStreams.path(dir, "times.xlsx"))
+
+        assert_equal [record], read(copy.schema(schema))
       end
 
       it "reads the clock of a spreadsheet's cell in its zone, and writes the UTC clock without a zone" do

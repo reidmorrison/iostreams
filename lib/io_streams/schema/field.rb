@@ -639,6 +639,15 @@ module IOStreams
         value.iso8601(fraction_digits(value))
       end
 
+      # Returns [String] the clock of the time in ISO 8601, without its offset from UTC, such as "2026-07-01T09:30:00",
+      # with as many digits of its fraction of a second as it needs, for a format whose times are clocks without a zone,
+      # such as a cell of a spreadsheet, see `IOStreams::Xlsx::Cells.text`, which a `datetime` field reads in its
+      # `timeZone`, or in UTC without one, as it reads the cell.
+      def self.clock_text(time)
+        digits = fraction_digits(time)
+        digits.zero? ? time.strftime("%Y-%m-%dT%H:%M:%S") : time.strftime("%Y-%m-%dT%H:%M:%S.%#{digits}N")
+      end
+
       # Returns [Integer] the digits of the fraction of a second of the time that its text needs: 0, 3, 6 or 9.
       def self.fraction_digits(time)
         nanoseconds = time.nsec

@@ -106,7 +106,8 @@ module IOStreams
       # of a workbook agree on which cells hold a date or a time. Excel holds a date or a time without a time zone, so
       # its text is the same in every process, and a field of its type reads it:
       #   a date                   in ISO 8601, such as "2026-01-02"
-      #   a date and time          its time in UTC, such as "2026-01-02T09:30:00Z", with its milliseconds when it has any
+      #   a date and time          its clock, without an offset, such as "2026-01-02T09:30:00", with its milliseconds when
+      #                            it has any, which a field reads in its `timeZone`, or in UTC without one, as the cell
       #   a time                   the time of its clock, such as "09:30:00", which Excel shows, as a `time` field writes it
       #   an elapsed time          the time of its clock below a day, otherwise the date and time that .value reads, such
       #                            as "1899-12-31T12:00:00Z" for `36:00:00` of the format `[h]:mm:ss`, whose hours Excel shows
@@ -166,7 +167,7 @@ module IOStreams
 
         case style
         when :date then (base_date + days.floor).iso8601
-        when :date_time then Schema::Field.any_text(date_time(days, base_date))
+        when :date_time then Schema::Field.clock_text(date_time(days, base_date))
         when :time then time_of_day_field.render(time_of_day(days), :text)
         end
       rescue ArgumentError, ZeroDivisionError

@@ -293,11 +293,12 @@ such as `0.3` rather than the `Float` `0.30000000000000004`, or every digit of a
 `Float` holds exactly, such as the card number `4111111111111111`, and a `string` field reads the number that the cell
 holds, to those digits, without its number format, such as `0.125` for `12.5%`, in plain digits, such as `0.0000001`
 rather than `1.0e-07`, and without a decimal point for a whole number, such as `2134` for a zip code that Excel holds as
-the `Float` `2134.0`. A `string` field reads a cell of a date as `2026-01-02`, of a date and time as its time in UTC,
-such as `2026-01-02T09:30:00Z`, and of a time of day, a time format of less than a day, as the time of its clock, such
-as `09:30:00`. The lines of the spreadsheet are the text of each cell, the same in every process: a date as `2026-01-02`, a date and time as its time in UTC, such as
-`2026-01-02T09:30:00Z`, a cell of a time format as the time of its clock, which Excel shows, such as `09:30:00`, so that
-a field of its type reads it, and a number as the workbook holds it, such as `1001` or `12.5`, whatever its format
+the `Float` `2134.0`. A `string` field reads a cell of a date as `2026-01-02`, of a date and time as its clock,
+without an offset, such as `2026-01-02T09:30:00`, and of a time of day, a time format of less than a day, as the time
+of its clock, such as `09:30:00`. The lines of the spreadsheet are the text of each cell, the same in every process: a
+date as `2026-01-02`, a date and time as its clock, without an offset, since a cell holds no zone, such as
+`2026-01-02T09:30:00`, a cell of a time format as the time of its clock, which Excel shows, such as `09:30:00`, so that
+a field of its type reads it, in its `timeZone`, or in UTC without one, as it reads the cell, and a number as the workbook holds it, such as `1001` or `12.5`, whatever its format
 shows. A number of a date
 or time format that is not a date that Excel holds, such as a negative number, which Excel shows as `####`, is its
 number, in the lines and in the rows. A field whose `missingValues` hold text other than empty text, such as `"-99"`,
@@ -306,7 +307,8 @@ and reads a row whose every cell is a missing value as a record of missing value
 as a blank row.
 A `datetime` or `time` field with a `timeZone` reads the clock of a cell of a date and time, or of a time of day, in its
 zone, since a cell holds no zone, such as `2026-07-01 09:30` as `13:30` UTC in `America/New_York`, see
-[Time zones](schemas#time-zones), while the lines, which have no schema, hold the clock as UTC, as above.
+[Time zones](schemas#time-zones), and so does such a field reading the lines, which hold the clock without an offset, as
+above, so that a CSV copy of the spreadsheet, and its slices, read the same times as its rows.
 
 A `list` field reads a cell that holds its text, such as `1.5,2`, as its items, and a cell that holds one value, such as
 the number `1.5`, as a list of that one item, `[1.5]`, as the CSV text of the cell reads, see
@@ -314,7 +316,8 @@ the number `1.5`, as a list of that one item, `[1.5]`, as the CSV text of the ce
 a `string` field does, such as `["2134"]`.
 
 The rows that `each(:slice)` reads are the values of the cells, in the `:array` format, and `slice.to_h` holds each
-`Date` and `Time` as its text, such as `2026-07-01`, and each number as JSON holds it, such as `1234.5`, as do the
+`Date` and `Time` as its text, such as `2026-07-01` and `2026-07-01T09:30:00`, the clock of a cell of a date and
+time without an offset, and each number as JSON holds it, such as `1234.5`, as do the
 slices of the CSV text of a spreadsheet, copied to a [store of slices](background_jobs#a-store-of-slices) with
 `copy_from(path, mode: :line)`, as text. That text is the default text of each type, rather than the text that a schema
 describes, so the slices of a spreadsheet say that they hold its cells, `slice.cell_text?`, and `IOStreams.stream(slice)`
@@ -323,7 +326,8 @@ such as `1234.5`, `2026-07-01` or `true`, then the text that the field describes
 and `bareNumber` of a number, the `trueValues` and `falseValues` of a boolean, and the `format` of a date, datetime or
 time, which a text cell can hold, such as `1.234,50` for `decimalChar: ","`, `01/07/2026` for `format: "%d/%m/%Y"`, or
 `Y` for `trueValues: ["Y"]`. Its missing values, the `delimiter` of a list and the `timeZone` of a datetime or time
-still apply. Text that is both, such as a text cell `1.234` with `groupChar: "."` and `decimalChar: ","`, is read as the
+still apply, so that a field with a `timeZone` reads the clock of a cell in its zone, in a slice, in memory or stored,
+as it does reading the spreadsheet. Text that is both, such as a text cell `1.234` with `groupChar: "."` and `decimalChar: ","`, is read as the
 default text in a slice, `1.234`, while the spreadsheet itself reads it by the schema, `1234`. Lines of the CSV text
 written to a store by hand, with `writer(:line)`, do not say that they hold cells, so a schema reads them as the text of
 a file, such as `1234.5` as `12345` with `groupChar: "."`: copy them with `copy_from(path, mode: :line)` instead. A

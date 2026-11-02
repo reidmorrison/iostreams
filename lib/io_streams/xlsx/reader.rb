@@ -286,8 +286,11 @@ module IOStreams
 
         # Returns [String|Object] the text of the number of a Float that the cell holds, see #displayed, in plain digits,
         # without a decimal point for a whole number, such as "2134" for `2134.0`, "0.3" for `0.30000000000000004`, or
-        # "0.0000001" for `1e-7`, or any other value as it is.
+        # "0.0000001" for `1e-7`, the clock of a cell of a date and time without an offset, such as
+        # "2026-01-02T09:30:00", as the CSV text of the cell holds it, see `IOStreams::Xlsx::Cells.text`, or any other
+        # value as it is.
         def displayed_text(value)
+          return Schema::Field.clock_text(value) if value.is_a?(Time)
           return value unless value.is_a?(Float) && value.finite?
           return value.to_i.to_s if value.abs < EXACT_WHOLE && value == value.truncate
 
