@@ -90,6 +90,38 @@ class UpgradeSchemaTest < Minitest::Test
         end
       end
 
+      describe "the format of a date or datetime" do
+        let(:dates) { {fields: [{name: "joined", type: "date", format: "%d/%m/%Y"}]} }
+
+        it "reads exactly 4 digits for %Y, as Python's strptime does" do
+          assert_equal [{"joined" => Date.new(2026, 10, 31)}], read("joined\n31/10/2026\n", schema: dates)
+          assert_raises(IOStreams::Errors::InvalidValue) { read("joined\n31/10/26\n", schema: dates) }
+          assert_raises(IOStreams::Errors::InvalidValue) { read("joined\n31/10/20261\n", schema: dates) }
+        end
+
+        it "reads 2 digits for %y" do
+          schema = {fields: [{name: "joined", type: "date", format: "%d/%m/%y"}]}
+
+          assert_equal [{"joined" => Date.new(2026, 10, 31)}], read("joined\n31/10/26\n", schema: schema)
+        end
+
+        it "removes the prefix fmt: that Data Package v0 wrote before a pattern" do
+          schema = {fields: [{name: "joined", type: "date", format: "fmt:%d/%m/%Y"}]}
+
+          assert_equal [{"joined" => Date.new(2026, 10, 31)}], read("joined\n31/10/2026\n", schema: schema)
+          assert_equal "joined\n31/10/2026\n", write([{"joined" => Date.new(2026, 10, 31)}], schema: schema)
+        end
+
+        it "reads 1 to 6 digits of microseconds for %f, and writes 6" do
+          schema = {fields: [{name: "at", type: "datetime", format: "%Y-%m-%d %H:%M:%S.%f"}]}
+
+          assert_equal [{"at" => Time.utc(2026, 10, 31, 9, 30, 0.5r)}, {"at" => Time.utc(2026, 10, 31, 9, 30, 0.123456r)}],
+                       read("at\n2026-10-31 09:30:00.5\n2026-10-31 09:30:00.123456\n", schema: schema)
+          assert_raises(IOStreams::Errors::InvalidValue) { read("at\n2026-10-31 09:30:00.1234567\n", schema: schema) }
+          assert_equal "at\n2026-10-31 09:30:00.500000\n", write([{"at" => Time.utc(2026, 10, 31, 9, 30, 0.5r)}], schema: schema)
+        end
+      end
+
       it "returns the schema that was set" do
         assert_nil stream.schema
         assert_same stream, stream.schema(people)

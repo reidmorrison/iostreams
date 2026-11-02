@@ -2678,8 +2678,12 @@ and `#copy_to`, whose options only apply to the target.
 * `name` The key of the field in each record, and its column in the header row written. Required.
 * `type` See [Types](#types). Default: `any`
 * `constraints` `{required: true}` for a field that must have a value, see [Required fields](#required-fields).
-* `format` For a `date` or a `datetime`, the strptime pattern of its text, such as `"%d/%m/%Y"` or `"%Y%m%d"`.
-  Default: ISO 8601.
+* `format` For a `date` or a `datetime`, the strptime pattern of its text, such as `"%d/%m/%Y"` or `"%Y%m%d"`, in
+  the syntax of Python's strptime, as Frictionless defines it: `%Y` reads exactly 4 digits, so that `31/10/26` raises
+  `IOStreams::Errors::InvalidValue` with `%d/%m/%Y`, while `%y` reads 2 digits, and `%f` reads 1 to 6 digits of
+  microseconds, such as `5` for half a second, and writes 6, such as `500000`. A pattern that starts with `fmt:`, as
+  Data Package v0 wrote it, such as `"fmt:%d/%m/%Y"`, has that prefix removed. Ruby's own directives, such as `%N`, `%L`
+  and `%s`, also work, but other Frictionless tools do not read them. Default: ISO 8601.
 * `trueValues` and `falseValues` For a `boolean`, the text that is true and false.
   Default: `["true", "True", "TRUE", "1"]` and `["false", "False", "FALSE", "0"]`
 * `floatNumber` For a `number`, `true` to read a `Float` rather than a `BigDecimal`, as frictionless-py does.

@@ -36,7 +36,10 @@ module IOStreams
     #     Default: "any"
     #
     #   format: [String]
-    #     For a date or datetime, the strptime pattern of its text, such as "%d/%m/%Y" or "%Y%m%d%H%M%S".
+    #     For a date or datetime, the strptime pattern of its text, such as "%d/%m/%Y" or "%Y%m%d%H%M%S", in the syntax
+    #     of Python's strptime, whose `%Y` reads exactly 4 digits and `%f` microseconds, see
+    #     `IOStreams::Schema::Pattern`. A pattern that starts with `fmt:`, as Data Package v0 wrote it, such as
+    #     "fmt:%d/%m/%Y", has that prefix removed, as Frictionless says an implementation must.
     #     Default: "default", the ISO 8601 form above.
     #
     #   trueValues: [Array<String>]
@@ -188,7 +191,7 @@ module IOStreams
         @skip = check_skip(descriptor)
         check_properties(descriptor)
         @format       = check_format(descriptor["format"])
-        @utc          = @type == "datetime" && !@format.nil? && !format_zone?
+        @utc          = @type == "datetime" && !@format.nil? && !@format.zone?
         @width        = check_width(descriptor["width"])
         @start        = check_positive("start", descriptor["start"])
         @truncate     = check_flag("truncate", descriptor["truncate"])
@@ -403,7 +406,7 @@ module IOStreams
         case type
         when "number" then number_text(value)
         when "boolean" then value ? @true_values.first : @false_values.first
-        when "date" then @format ? value.strftime(@format) : self.class.any_text(value)
+        when "date" then @format ? @format.strftime(value) : self.class.any_text(value)
         when "datetime" then @format ? datetime_text(value) : self.class.any_text(value)
         else self.class.any_text(value)
         end
@@ -412,7 +415,7 @@ module IOStreams
       # Returns [String] the time in the format of this field. Text without a zone is read as UTC, see #parse_time, so a
       # time is written in UTC with a format without a zone, so that it reads back as the same time.
       def datetime_text(time)
-        (@utc ? time.getutc : time).strftime(@format)
+        @format.strftime(@utc ? time.getutc : time)
       end
 
       def check_type
@@ -446,15 +449,17 @@ module IOStreams
         end
       end
 
-      # Returns [String|nil] the strptime pattern of a date or datetime, or nil for the default form.
+      # Returns [IOStreams::Schema::Pattern|nil] the strptime pattern of a date or datetime, without the prefix `fmt:`
+      # that Data Package v0 wrote before it, or nil for the default form.
       def check_format(format)
         return if format.nil? || format == "default"
 
-        unless %w[date datetime].include?(type) && format.is_a?(String) && format.include?("%")
+        pattern = format.is_a?(String) ? format.delete_prefix("fmt:") : format
+        unless %w[date datetime].include?(type) && pattern.is_a?(String) && pattern.include?("%")
           raise(ArgumentError, "Field #{name.inspect}: the format #{format.inspect} is not supported for a #{type} field")
         end
 
-        format
+        Pattern.new(pattern)
       end
 
       def check_width(width)
@@ -672,32 +677,23 @@ module IOStreams
         invalid(value)
       end
 
-      # Returns [true|false] whether the strftime pattern of the format writes a zone, such as `%z`, `%:z` or `%Z`, so
-      # that a time written with it says its own offset from UTC.
-      #
-      # A width does not start with `0`, which is a flag, so that the flags and the width never match the same
-      # characters, which would take time that grows with the square of their length.
-      def format_zone?
-        @format.scan(/%(?:%|[-_0^#:]*(?:[1-9]\d*)?([a-zA-Z+]))/).flatten.compact.intersect?(%w[z Z +])
-      end
-
       # Returns [Date|Time] the text read with the strptime pattern of the format, which must match all of the text,
-      # and whose date must exist, see #cast_datetime.
+      # see `IOStreams::Schema::Pattern#parts`, and whose date must exist, see #cast_datetime.
       #
       # A time is at the offset from UTC that its zone gives, or in UTC without one, see #cast_datetime. A zone whose
       # offset is not known, such as "XYZ", raises, rather than be read in the time zone of the process.
       def parse_time(klass, text)
-        parts = Date._strptime(text, @format)
-        return invalid(text) if parts.nil? || parts.key?(:leftover)
+        parts = @format.parts(text)
+        return invalid(text) if parts.nil?
         if parts[:mon] && parts[:mday] && !Date.valid_date?(parts.fetch(:year, Time.now.year), parts[:mon], parts[:mday])
           return invalid(text)
         end
-        return Date.strptime(text, @format) if klass == Date
+        return @format.date(text) if klass == Date
         return invalid(text) if parts.key?(:zone) && parts[:offset].nil?
 
         # A DateTime reads text without an offset as UTC, and knows the offset of every zone that Date._strptime knows,
         # such as "CET", which `Time.strptime` reads in the time zone of the process, as it does text without an offset.
-        time = self.class.time_of(DateTime.strptime(text, @format))
+        time = self.class.time_of(@format.datetime(text))
         parts[:offset] ? time : time.utc
       rescue ArgumentError
         invalid(text)
