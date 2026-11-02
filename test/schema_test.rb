@@ -1602,6 +1602,36 @@ class SchemaTest < Minitest::Test
           assert_raises(IOStreams::Errors::InvalidValue) { field(type: "array").cast([[deep]]) }
         end
 
+        it "raises for Hashes and Arrays nested more than 100 deep when it writes them, with or without the json gem's coder" do
+          deep   = 99.times.reduce({"a" => 1}) { |inner, _| {"a" => inner} }
+          itself = {"a" => 1}
+          itself["b"] = itself
+
+          json_writers.each do |coder|
+            IOStreams::Tabular::Parser::Json.stub(:coder, coder) do
+              assert_equal JSON.generate(deep), object.render(deep, :text)
+              [{"a" => deep}, itself].each do |value|
+                %i[text json].each do |form|
+                  error = assert_raises(IOStreams::Errors::InvalidValue) { object.render(value, form) }
+                  assert_includes error.message, 'Field "value": '
+                end
+              end
+            end
+          end
+        end
+
+        it "reads a Hash or an Array read from JSON as it is, which JSON already holds, and converts one of any other form" do
+          prefs = {"limit" => 12.5, "tags" => ["a", {"b" => nil}]}
+          typed = {limit: BigDecimal("12.5")}
+
+          assert_same prefs, object.parse(prefs, :json)
+          assert_equal({"limit" => "12.5"}, object.parse(typed, :typed))
+          assert_equal({"a" => 1}, object.parse('{"a":1}', :json))
+          assert_nil object.parse("", :json)
+          assert_raises(IOStreams::Errors::InvalidValue) { object.parse([1], :json) }
+          assert_raises(IOStreams::Errors::InvalidValue) { field(type: "array").parse({"a" => 1}, :json) }
+        end
+
         it "converts a Hash to what JSON holds of it, so that a :hash source reads what JSON does" do
           prefs = {
             :limit => BigDecimal("12.5"), "on" => Date.new(2026, 10, 13), "at" => Time.utc(2026, 10, 13, 9, 30),
@@ -1636,8 +1666,8 @@ class SchemaTest < Minitest::Test
           prefs = {"limit" => BigDecimal("12.5"), "on" => Date.new(2026, 10, 13), "tags" => [1, nil]}
 
           assert_equal %({"limit":"12.5","on":"2026-10-13","tags":[1,null]}), object.render(prefs, :text)
-          # What JSON holds of it, see `IOStreams::Schema::Field.json_data`.
-          assert_equal({"limit" => "12.5", "on" => "2026-10-13", "tags" => [1, nil]}, object.render(prefs, :json))
+          # Its JSON text, which JSON writes as it is, converted once, as the JSON format converts it.
+          assert_equal JSON::Fragment.new(%({"limit":"12.5","on":"2026-10-13","tags":[1,null]})), object.render(prefs, :json)
           json_writers.each do |coder|
             assert_equal %({"limit":"12.5","on":"2026-10-13","tags":[1,null]}),
                          IOStreams::Tabular::Parser::Json.generate(object.render(prefs, :json), coder)
@@ -1677,7 +1707,7 @@ class SchemaTest < Minitest::Test
           list = [BigDecimal("1.5"), Time.utc(2026, 10, 13, 9, 30), "x"]
 
           assert_equal %(["1.5","2026-10-13T09:30:00Z","x"]), array.render(list, :text)
-          assert_equal ["1.5", "2026-10-13T09:30:00Z", "x"], array.render(list, :json)
+          assert_equal JSON::Fragment.new(%(["1.5","2026-10-13T09:30:00Z","x"])), array.render(list, :json)
           json_writers.each do |coder|
             assert_equal %(["1.5","2026-10-13T09:30:00Z","x"]), IOStreams::Tabular::Parser::Json.generate(array.render(list, :json), coder)
           end

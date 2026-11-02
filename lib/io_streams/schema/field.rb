@@ -186,6 +186,9 @@ module IOStreams
       # `IOStreams::Errors::InvalidValue`, rather than overflow the stack, see .json_data.
       MAX_NESTING = 100
 
+      # The types whose values are a Hash or an Array, which JSON holds, see #json_structure?.
+      JSON_TYPES = %w[object array].freeze
+
       # The types whose values are numbers. A constant, so that using it does not create an Array each time, as an
       # Array literal does.
       NUMERIC_TYPES = %w[integer number].freeze
@@ -392,7 +395,7 @@ module IOStreams
         when ::Hash then data_hash(value, depth + 1)
         when ::Array then data_array(value, depth + 1)
         when String, Integer, Float, true, false, nil then value
-        when Symbol then value.name
+        when Symbol then value.to_s
         else textual?(value) ? any_text(value) : value
         end
       end
@@ -601,6 +604,18 @@ module IOStreams
         number.is_a?(Float) ? Float(float_text(number)) : number.round(@decimals)
       end
 
+      # Returns the value read from a format whose values are in the supplied form, see #render, converted to the type of
+      # this field, as #cast converts it, apart from a Hash or an Array of an object or array field read from JSON,
+      # `:json`, which is already what JSON holds, so that it is only checked to be of the class of the field, rather
+      # than converted again, see .json_data, which takes several times as long as JSON takes to read it.
+      #
+      # Raises `IOStreams::Errors::InvalidValue` as #cast does.
+      def parse(value, form)
+        return cast(value) unless form == :json && json_structure?(value)
+
+        value.is_a?(json_class) ? value : invalid(value)
+      end
+
       # Returns the value converted to the type of this field, see #cast, in the form that the supplied format of
       # file writes it:
       #   :text   the text of the value, such as "12.50", for a format of text, such as CSV.
@@ -609,8 +624,14 @@ module IOStreams
       #   :typed  the value itself, such as `BigDecimal("12.5")`, for a format whose rows are Ruby objects, such as
       #           `:hash`.
       #
+      # A Hash or an Array of an object or array field is written to JSON, or as its JSON text, as the JSON format
+      # converts the values within it, see #render_json_structure, rather than first converted as JSON holds it, see
+      # .json_data, which the JSON format does again as it writes it. `:typed` converts it, as #cast does.
+      #
       # Raises `IOStreams::Errors::InvalidValue` when the value is not one of this type.
       def render(value, form)
+        return render_json_structure(value, form) if form != :typed && json_structure?(value)
+
         value = cast(value)
         return value if value.nil? || form == :typed
         return json(value) if form == :json
@@ -884,6 +905,33 @@ module IOStreams
         invalid(text)
       end
 
+      # Returns [true|false] whether the value is a Hash or an Array of a field of type object or array, which JSON
+      # holds as it is, see #parse and #render.
+      def json_structure?(value)
+        JSON_TYPES.include?(type) && (value.is_a?(::Hash) || value.is_a?(::Array))
+      end
+
+      # Returns [Class] the class of the values of an object or array field: Hash or Array.
+      def json_class
+        type == "object" ? ::Hash : ::Array
+      end
+
+      # Returns [String|JSON::Fragment] the JSON text of the Hash or Array of an object or array field, as the JSON
+      # format writes it, see `IOStreams::Tabular::Parser::Json.generate`, for `:text`, or that text as JSON writes it
+      # as it is, see `IOStreams::Schema::JsonNumber.fragment`, for `:json`, so that the values within it are converted
+      # once, by the json gem, see #render.
+      #
+      # Raises `IOStreams::Errors::InvalidValue` for a value that is not of the class of the field, or that is nested
+      # more than MAX_NESTING deep, as JSON reads it, such as a Hash that holds itself.
+      def render_json_structure(value, form)
+        return invalid(value) unless value.is_a?(json_class)
+
+        text = IOStreams::Tabular::Parser::Json.generate(value)
+        form == :json ? JsonNumber.fragment(text) : text
+      rescue JSON::NestingError
+        invalid(value)
+      end
+
       # Returns [ActiveSupport::Duration] the duration, or the duration of its ISO 8601 text, such as `P1M2DT3H`, whose
       # months and days are kept apart from its seconds, since a month, or a day in a time zone with daylight saving
       # time, has no fixed number of seconds. A number raises, since it does not say what it counts.
@@ -902,9 +950,9 @@ module IOStreams
       # boolean only from text, and true or false.
       def cast_boolean(value)
         return value if [true, false].include?(value)
-        return value == 1 if bit?(value)
         return true if value.is_a?(String) && @true_values.include?(value)
         return false if value.is_a?(String) && @false_values.include?(value)
+        return value == 1 if bit?(value)
 
         invalid(value)
       end

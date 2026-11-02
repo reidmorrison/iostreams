@@ -49,9 +49,17 @@ module IOStreams
       #     `IOStreams::Contract`. A format whose records are all keyed by the same columns, such as Parquet, checks a
       #     missing column as CSV does, and so does a schema of a file without a contract, as in v2.2.
       #     Default: false
-      def initialize(schema, typed: false, every_field: false, keys_vary: false)
+      #
+      #   form: [:text|:json|:typed]
+      #     The form of the values of the rows and records read, that of the format that reads them, see
+      #     `IOStreams::Tabular::Parser::Base.value_form`, which each field reads them from, see
+      #     `IOStreams::Schema::Field#parse`, such as `:json` for JSON, whose objects and arrays are already what JSON
+      #     holds.
+      #     Default: :typed, values of any class
+      def initialize(schema, typed: false, every_field: false, keys_vary: false, form: :typed)
         @schema       = schema
         @typed        = typed
+        @form         = form
         @every_field  = every_field
         @keys_vary    = keys_vary
         # The column that each field matched, by the field, see #match, so that a contract that reads the records of
@@ -353,11 +361,12 @@ module IOStreams
 
       private
 
-      # Returns the value of the supplied field read from a row or record, converted to the type of the field, see
-      # `IOStreams::Schema::Field#cast`, or, when the values read are those of the fields, see #initialize, restored to
-      # it from the form that a store returned it in, see `IOStreams::Schema::Field#restore`.
+      # Returns the value of the supplied field read from a row or record, converted to the type of the field from the
+      # form of the values read, see `IOStreams::Schema::Field#parse`, or, when the values read are those of the fields,
+      # see #initialize, restored to it from the form that a store returned it in, see
+      # `IOStreams::Schema::Field#restore`.
       def read_value(field, value)
-        @typed ? field.restore(value) : field.cast(value)
+        @typed ? field.restore(value) : field.parse(value, @form)
       end
 
       # Returns [IOStreams::Errors::InvalidValue|nil] the error of the value of the field, or nil when it is valid.

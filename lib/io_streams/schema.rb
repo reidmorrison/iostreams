@@ -278,10 +278,11 @@ module IOStreams
 
     # Returns [IOStreams::Schema::Columns] a new matcher of the columns of one file to these fields, which a reader or
     # writer holds while it reads or writes the file. With `every_field`, each record and row read has every field, nil
-    # for a field that the file does not have, as a contract reads them, see `IOStreams::Contract`, and with `keys_vary`
-    # a key that a record leaves out is a missing value, see `IOStreams::Schema::Columns#initialize`.
-    def columns(typed: false, every_field: false, keys_vary: false)
-      Columns.new(self, typed: typed, every_field: every_field, keys_vary: keys_vary)
+    # for a field that the file does not have, as a contract reads them, see `IOStreams::Contract`, with `keys_vary`
+    # a key that a record leaves out is a missing value, and `form` is the form of the values read, see
+    # `IOStreams::Schema::Columns#initialize`.
+    def columns(typed: false, every_field: false, keys_vary: false, form: :typed)
+      Columns.new(self, typed: typed, every_field: every_field, keys_vary: keys_vary, form: form)
     end
 
     # Returns [Array<String>] the properties of this schema that lay out a file, see LAYOUT_PROPERTIES, each as it

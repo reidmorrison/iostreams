@@ -89,7 +89,8 @@ changes, and docs/errors.md when what it raises does.
   array of addresses as an array of that text (`#text_array`), since its type casts an `IPAddr`, whose text drops the
   prefix, and the host of an address with both, while a decorator of an address only changes the values written; a
   PostgreSQL array (`OID::Array`), also within decorators, such as the `TimeZoneConverter` of an array of times, is an
-  `array` field. The fields of the types that a type names are in `FIELD_TYPES`: a `time` is a time field, and a
+  `array` field, which holds what JSON holds of it (`Field.json_data`), so that an array of dates, times or decimals
+  holds their text, such as "2026-10-20T08:30:00-04:00", rather than what `pluck` gives. The fields of the types that a type names are in `FIELD_TYPES`: a `time` is a time field, and a
   PostgreSQL `interval`, which Active Record casts to an `ActiveSupport::Duration`, a duration. A type that Active
   Record does not know, which it casts with `ActiveModel::Type::Value` itself, is of the field that the source of the
   database says (`.unknown_type`, asked by `Query#describe`): "string" on PostgreSQL with pg, which returns the text of such a

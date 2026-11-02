@@ -149,7 +149,7 @@ its field raises `IOStreams::Errors::IncompatibleType`, which is not an `Invalid
 | The source declares | The field's type that takes it |
 |---------------------|--------------------------------|
 | `string`, or `any` | every type, since text is parsed, and each value of type `any` is checked as it is read |
-| `integer` or `number` | `integer`, `number`, `string` or `any`, where an `integer` field raises for a value with a fraction |
+| `integer` or `number` | `integer`, `number`, `boolean`, `string` or `any`, where an `integer` field raises for a value with a fraction, and a `boolean` field reads `1` and `0` and raises for any other number |
 | `datetime` | `datetime`, `date`, `time`, `string` or `any` |
 | `object` or `array` | its own or `any`, since a `string` field takes neither |
 | any other type | its own, `string` or `any` |

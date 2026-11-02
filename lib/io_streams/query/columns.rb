@@ -111,6 +111,9 @@ module IOStreams
       # Returns [Array] the raw values of a row, as the driver of the database returns them, in the order of the
       # columns, each cast by the type of its column, as `pluck` casts them: an enum attribute returns the name of its
       # value, an encrypted attribute its plain text, and a datetime an `ActiveSupport::TimeWithZone` in a Rails app.
+      # The field of each column then reads its value, see #field, so that the row read differs from `pluck` where a
+      # field converts it: empty text is nil, and an array field holds what JSON holds of an array of dates, times or
+      # decimals, their text, see `IOStreams::Schema::Field.json_data`.
       #
       # Raises `IOStreams::Errors::InvalidValue` for a value that Active Record would cast to a wrong one: a time of day
       # outside a day, see #check_clock, or an infinite interval, see #check_duration.

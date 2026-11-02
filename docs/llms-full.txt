@@ -3663,7 +3663,7 @@ its field raises `IOStreams::Errors::IncompatibleType`, which is not an `Invalid
 | The source declares | The field's type that takes it |
 |---------------------|--------------------------------|
 | `string`, or `any` | every type, since text is parsed, and each value of type `any` is checked as it is read |
-| `integer` or `number` | `integer`, `number`, `string` or `any`, where an `integer` field raises for a value with a fraction |
+| `integer` or `number` | `integer`, `number`, `boolean`, `string` or `any`, where an `integer` field raises for a value with a fraction, and a `boolean` field reads `1` and `0` and raises for any other number |
 | `datetime` | `datetime`, `date`, `time`, `string` or `any` |
 | `object` or `array` | its own or `any`, since a `string` field takes neither |
 | any other type | its own, `string` or `any` |
@@ -5184,7 +5184,9 @@ end
 second traversal of the reader that `#reader` yields continues where the first stopped, as for a file.
 
 Each value is cast as `pluck` casts it, except empty text, and an empty binary value, which are `nil`, a missing
-value, see [Types](schemas#types). That is how the attributes of a model hold it, but without building a model,
+value, see [Types](schemas#types), and the values of a PostgreSQL array of dates, times or decimals, which are their
+text, as JSON holds them, such as `"2026-10-20"`, `"2026-10-20T08:30:00-04:00"` or `"12.5"`, see the table below. That
+is how the attributes of a model hold it, but without building a model,
 so that its methods, such as a reader that it overrides, do not run: an enum attribute is the name of its value, such
 as `"shipped"`, an encrypted attribute is its plain text, a JSON column is the value of its JSON, such as a Hash, and a
 datetime is an `ActiveSupport::TimeWithZone` in the time zone of the application. The columns of a joined table are

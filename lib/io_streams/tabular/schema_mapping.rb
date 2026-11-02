@@ -48,21 +48,23 @@ module IOStreams
                      contract: nil)
         super(header: header, parser: parser, format: format, blank_rows: blank_rows)
         @schema          = schema
+        # The form of the values that the format reads and writes, see `IOStreams::Tabular::Parser::Base.value_form`,
+        # which the fields read them from, and render them in, see `IOStreams::Schema::Field#parse` and #render.
+        @form            = parser.class.value_form
         @columns         =
           if contract
-            IOStreams::Schema::ContractColumns.new(schema.columns(typed: typed, every_field: true),
-                                                   contract.columns(every_field: true))
+            IOStreams::Schema::ContractColumns.new(schema.columns(typed: typed, every_field: true, form: @form),
+                                                   contract.columns(every_field: true, form: @form))
           else
             # A contract reads a key that a record leaves out as a missing value, while a schema of the file keeps the
             # rule of `fieldsMatch` for each record, as in v2.2.
-            schema.columns(typed: typed, every_field: every_field, keys_vary: every_field && parser.class.keys_vary?)
+            schema.columns(typed: typed, every_field: every_field, keys_vary: every_field && parser.class.keys_vary?,
+                           form: @form)
           end
         @requires_header = parser.requires_header? && (headerless.nil? ? schema.header? : !headerless)
         # Whether each row is a record whose keys are its columns, such as JSON, rather than the values in the order of
-        # the columns, see `IOStreams::Tabular::Parser::Base.keyed?`, and the form in which the format writes the values
-        # of the fields.
+        # the columns, see `IOStreams::Tabular::Parser::Base.keyed?`.
         @keyed           = parser.class.keyed?
-        @form            = parser.class.value_form
         # The columns of the rows of a file without a header row are the fields, in order: of a format with one whose
         # rows have none, see `IOStreams::Schema#check_fields_in_order`, or of a format without one, such as fixed width,
         # or JSON, whose rows are the values of the fields of its records.
