@@ -287,10 +287,12 @@ such as `0.3` rather than the `Float` `0.30000000000000004`, or every digit of a
 `Float` holds exactly, such as the card number `4111111111111111`, and a `string` field reads the number that the cell
 holds, to those digits, without its number format, such as `0.125` for `12.5%`, in plain digits, such as `0.0000001`
 rather than `1.0e-07`, and without a decimal point for a whole number, such as `2134` for a zip code that Excel holds as
-the `Float` `2134.0`. The lines of the spreadsheet are the text of each cell, the
-same in every process: a date as `2026-01-02`, a date and time as its time in UTC, such as `2026-01-02T09:30:00Z`, a
-cell of a time format as the time of its clock, which Excel shows, such as `09:30:00`, so that a field of its type
-reads it, and a number as the workbook holds it, such as `1001` or `12.5`, whatever its format shows. A number of a date
+the `Float` `2134.0`. A `string` field reads a cell of a date as `2026-01-02`, of a date and time as its time in UTC,
+such as `2026-01-02T09:30:00Z`, and of a time of day, a time format of less than a day, as the time of its clock, such
+as `09:30:00`. The lines of the spreadsheet are the text of each cell, the same in every process: a date as `2026-01-02`, a date and time as its time in UTC, such as
+`2026-01-02T09:30:00Z`, a cell of a time format as the time of its clock, which Excel shows, such as `09:30:00`, so that
+a field of its type reads it, and a number as the workbook holds it, such as `1001` or `12.5`, whatever its format
+shows. A number of a date
 or time format that is not a date that Excel holds, such as a negative number, which Excel shows as `####`, is its
 number, in the lines and in the rows.
 

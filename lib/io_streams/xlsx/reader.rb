@@ -147,10 +147,11 @@ module IOStreams
         #
         #   strings: [#call|nil]
         #     Returns the positions of the values of the rows that are text, such as those of a `string` field, so that
-        #     each number of the column is the text that Excel shows, the digits that it displays, see `decimals`, such as
-        #     `2134` for the zip code that Excel holds as the Float `2134.0`, or nil until they are known, as for
-        #     `decimals`.
-        #     Default: nil, every number is a Float.
+        #     each number of the column is the text of the number that the cell holds, to the digits that Excel displays,
+        #     see `decimals`, such as `2134` for the zip code that Excel holds as the Float `2134.0`, and each cell of a
+        #     time of day the time of its clock, such as `09:30:00`, see `IOStreams::Xlsx::Cells.clock`, or nil until
+        #     they are known, as for `decimals`.
+        #     Default: nil, every number is a Float, and every time of day a Time.
         def initialize(file_name, display_name, decimals: nil, strings: nil)
           @file_name    = file_name
           @display_name = display_name
@@ -166,32 +167,55 @@ module IOStreams
         def each
           return enum_for(:each) unless block_given?
 
-          sheet   = Reader.tag_failure(@display_name) { Reader.new(@file_name).worksheet }
-          formats = Reader.tag_failure(@display_name) { Reader.number_formats(sheet) }
-          Reader.convert_cells(sheet) { |text, type, style, options| Cells.value(text, type, formats[style], options) }
+          sheet     = Reader.tag_failure(@display_name) { Reader.new(@file_name).worksheet }
+          clocks    = type_cells(sheet)
           positions = nil
           texts     = nil
           each_row(sheet) do |row|
             positions ||= @decimals&.call
             texts     ||= @strings&.call
             positions&.each { |index| row[index] = displayed(row[index]) }
-            texts&.each { |index| row[index] = displayed_text(row[index]) }
+            texts&.each { |index| row[index] = clocks[row[index]] || displayed_text(row[index]) }
+            row.each { |value| clocks.delete(value) } unless clocks.empty?
             yield(row)
           end
         end
 
         private
 
+        # Types the cells of the worksheet by Excel's own cell type and number format, see `IOStreams::Xlsx::Cells.value`.
+        #
+        # Returns [Hash] the time of the clock of each cell of a time of day, by the Time that the cell holds, itself,
+        # rather than its value, since a cell of a date and time can hold the same time, see
+        # `IOStreams::Xlsx::Cells.clock`, which a `string` field reads, see #initialize, filled as the worksheet is read,
+        # and only when a field is a `string`.
+        def type_cells(sheet)
+          formats = Reader.tag_failure(@display_name) { Reader.number_formats(sheet) }
+          clocks  = {}.compare_by_identity
+          Reader.convert_cells(sheet) do |text, type, style, options|
+            value = Cells.value(text, type, formats[style], options)
+            clock = @strings && Cells.clock(text, type, formats[style])
+            clocks[value] = clock if clock
+            value
+          end
+          clocks
+        end
+
         # Returns [BigDecimal|Object] the number of a Float that the cell holds, to the digits that Excel displays, its
         # most significant 15, such as `0.3` for `0.30000000000000004`, apart from a whole number below 2**53, which a
         # Float holds exactly, which keeps every digit, such as the card number `4111111111111111`, or any other value
         # as it is.
+        #
+        # The exact value of the Float is rounded half up, to the digits counted from the first significant digit of its
+        # shortest text, rather than that text, so that the digits are the same on every Ruby, since JRuby writes the
+        # text of some Floats with other digits than MRI does. Rounded so, the number has at most one more digit than
+        # Excel displays, which the BigDecimal holds exactly.
         def displayed(value)
           return value unless value.is_a?(Float) && value.finite?
           return BigDecimal(value.to_i) if value == value.truncate && value.abs < EXACT_WHOLE
 
-          number = BigDecimal(value.to_s)
-          number.zero? ? number : BigDecimal(number.round(DISPLAYED_DIGITS - number.exponent))
+          digits = DISPLAYED_DIGITS - BigDecimal(value.to_s).exponent
+          BigDecimal(value.to_r.round(digits, half: :up), DISPLAYED_DIGITS + 1)
         end
 
         # Returns [String|Object] the text of the number of a Float that the cell holds, see #displayed, in plain digits,
@@ -199,6 +223,7 @@ module IOStreams
         # "0.0000001" for `1e-7`, or any other value as it is.
         def displayed_text(value)
           return value unless value.is_a?(Float) && value.finite?
+          return value.to_i.to_s if value.abs < EXACT_WHOLE && value == value.truncate
 
           number = displayed(value)
           number.frac.zero? ? number.to_i.to_s : number.to_s("F")

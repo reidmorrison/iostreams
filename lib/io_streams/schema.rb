@@ -256,7 +256,8 @@ module IOStreams
     end
 
     # Returns [true|false] whether a field is a `string`, so that a format that reads its numbers as Floats, such as a
-    # spreadsheet, reads the text that it shows of them, see `IOStreams::Tabular#string_positions`.
+    # spreadsheet, reads as text the number that each cell holds, to the digits that Excel displays, see
+    # `IOStreams::Tabular#string_positions`.
     def strings?
       @strings
     end

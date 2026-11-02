@@ -115,6 +115,21 @@ module IOStreams
         value(text, type, style, options).to_s
       end
 
+      # Returns [String|nil] the time of the clock of a cell of a time of day, a number of a time format of less than a
+      # day, such as "09:30:00", as .text gives it, which .value reads as a Time on 2000-01-01, see .time_of_day, so that
+      # a `string` field reads the same text from the rows as from the lines, as IOStreams 2.2 reads it. Returns nil for
+      # any other cell, including one of a time format of a day or more, which is a date and time.
+      #
+      # Parameters are those of .value, without its options.
+      def self.clock(text, type, style)
+        return unless style == :time && (type.nil? || type == "n") && text && !text.empty?
+
+        days = days(text)
+        time_of_day_field.render(time_of_day(days), :text) if days && days < 1
+      rescue ArgumentError, ZeroDivisionError
+        nil
+      end
+
       # Returns the number of a cell of a number type, by the class of its number format.
       def self.number(text, style, base_date)
         days = days(text) if style
