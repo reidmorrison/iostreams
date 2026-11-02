@@ -2210,6 +2210,19 @@ class SchemaTest < Minitest::Test
       describe "time" do
         let(:clock) { field(type: "time") }
 
+        it "reads a date and time on 2000-01-01, as Rails writes a time column to JSON, as its time of day" do
+          zoned = field(type: "time", timeZone: "America/New_York")
+
+          assert_equal Time.utc(2000, 1, 1, 9, 30), clock.cast("2000-01-01T09:30:00.000Z")
+          assert_equal Time.new(2000, 1, 1, 9, 30, 0, "+05:00"), clock.cast("2000-01-01T09:30:00+05:00")
+          assert_equal Time.utc(2000, 1, 1, 9, 30), clock.cast("2000-01-01 09:30:00")
+          assert_equal Time.new(2000, 1, 1, 9, 30, 0, "-05:00"), zoned.cast("2000-01-01T09:30:00")
+          assert_equal Time.utc(2000, 1, 1, 9, 30), clock.load("2000-01-01T09:30:00")
+          ["2026-07-01T09:30:00Z", "2000-01-02T09:30:00Z", "2000-01-01T24:00:00Z", "2000-01-01"].each do |text|
+            assert_raises(IOStreams::Errors::InvalidValue, text) { clock.cast(text) }
+          end
+        end
+
         it "reads ISO 8601 as a time of day, a Time on 2000-01-01, in UTC without an offset, whatever the time zone" do
           original  = ENV.fetch("TZ", nil)
           ENV["TZ"] = "America/New_York"

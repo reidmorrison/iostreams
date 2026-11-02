@@ -335,6 +335,9 @@ module IOStreams
       # `-00`, which RFC 3339 and RFC 2822 give a time in UTC whose local offset is not known.
       UTC_ZONE = /\A(?:Z|UTC?|-00(?::?00)?)\z/i
 
+      # The date of a time of day, on which IOStreams and Active Record hold it, see .time_of_day and #time_of_day_text.
+      TIME_OF_DAY_DATE = "2000-01-01"
+
       # Returns [String|Symbol] the name of the field, as it was given.
       attr_reader :name
 
@@ -1771,7 +1774,8 @@ module IOStreams
       end
 
       # Returns [Time] the time of day, on 2000-01-01, see .time_of_day: of a Time or a DateTime, at its offset from UTC, or
-      # of text such as `09:30:00`, `09:30:00.250`, `09:30:00-05:00` or `09:30:00-0500`, or in the format of this field,
+      # of text such as `09:30:00`, `09:30:00.250`, `09:30:00-05:00` or `09:30:00-0500`, or a date and time on
+      # 2000-01-01, such as `2000-01-01T09:30:00Z`, see #time_of_day_text, or in the format of this field,
       # which is read at the offset of its zone, or in UTC without one, as a datetime field reads it, see #cast_datetime.
       #
       # Its hour, minute and second are checked, since `Time` moves 24:00:00, and a leap second, into the next day.
@@ -1957,11 +1961,24 @@ module IOStreams
         iso_datetime(match) if date[8, 2] <= "28" || Date.valid_date?(date[0, 4].to_i, date[5, 2].to_i, date[8, 2].to_i)
       end
 
-      # Returns [Time|nil] the time of day of the ISO 8601 text of a time, see TIME, or nil for other text, or for a time
-      # that is not on a clock, see #clock_time?, such as 24:00:00, which `Time` moves into the next day.
+      # Returns [Time|nil] the time of day of the ISO 8601 text of a time, see TIME, or of a date and time on 2000-01-01,
+      # see #time_of_day_text, or nil for other text, or for a time that is not on a clock, see #clock_time?, such as
+      # 24:00:00, which `Time` moves into the next day.
       def iso_clock_text(text)
         clock = TIME.match(text)
-        iso_clock(clock) if clock && clock_time?(clock[1].to_i, clock[2].to_i, clock[3].to_i)
+        return iso_clock(clock) if clock && clock_time?(clock[1].to_i, clock[2].to_i, clock[3].to_i)
+
+        time_of_day_text(text)
+      end
+
+      # Returns [Time|nil] the time of day of the ISO 8601 text of a date and time on 2000-01-01, the day on which IOStreams
+      # and Active Record hold a time of day, see .time_of_day, such as `2000-01-01T09:30:00.000Z`, as a Rails app writes
+      # the value of a `time` column to JSON, or `2000-01-01T09:30:00`, as a stored slice of a spreadsheet holds the time
+      # of day of a cell, see `IOStreams::Slice#to_h`, at its offset, or in the zone of the field without one, or nil for
+      # any other text, such as a date and time on another day.
+      def time_of_day_text(text)
+        match = DATETIME.match(text)
+        iso_datetime(match) if match && match[1] == TIME_OF_DAY_DATE
       end
 
       # Returns [Time] the time of the text that DATETIME matched, in UTC without an offset, read with `Time.iso8601`,

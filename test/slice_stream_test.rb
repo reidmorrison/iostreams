@@ -178,11 +178,9 @@ class SliceStreamTest < Minitest::Test
               assert_equal expected, each(IOStreams.stream(slice).schema(schema))
               stored = IOStreams.slice(JSON.parse(JSON.generate(slice.to_h)))
 
-              assert_equal %w[2026-07-01T09:30:00 2026-01-15T09:30:00], stored.rows.map(&:first)
-              # The times of day of the stored slice need a `time` field to read the text of a time on 2000-01-01.
-              datetimes = {"fieldsMatch" => "subset", "fields" => schema["fields"].first(1)}
-
-              assert_equal(expected.map { |record| record.slice("at") }, each(IOStreams.stream(stored).schema(datetimes)))
+              assert_equal [%w[2026-07-01T09:30:00 2000-01-01T09:30:00], %w[2026-01-15T09:30:00 2000-01-01T17:00:00]],
+                           stored.rows
+              assert_equal expected, each(IOStreams.stream(stored).schema(schema))
             end
             lines = []
             IOStreams.path(dir, "times.xlsx").each(:line) { |line| lines << line }

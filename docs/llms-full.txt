@@ -5669,6 +5669,9 @@ puts path.read
 * **Read as** a time of day: a `Time` on 2000-01-01, which is how Active Record holds a `time` column, since Ruby has
   no class for a time of day. It reads `09:30:00`, `09:30:00.250`, `09:30:00Z`, `09:30:00-05:00` or `09:30:00-0500`.
   `9:30:00`, `09:30` and `24:00:00` raise.
+* **Also reads** a date and time on 2000-01-01, the day on which IOStreams and Active Record hold a time of day, such
+  as `2000-01-01T09:30:00.000Z`, as a Rails app writes a `time` column to JSON, as its time of day. A date and time on
+  any other day raises.
 * **Text without an offset** is read as UTC, or in the `timeZone` of the field.
 * **Written as** the time of its own clock, without its offset, such as `09:30:00`, or in its `format`. Give it a
   `format` of `"%H:%M:%S%:z"` to write the offset too. A fraction of a second is written as a `datetime` writes it,
@@ -5703,6 +5706,8 @@ A shift that starts at 09:30 in New York is written as `09:30:00`, whatever the 
 * The spec gives the form `hh:mm:ss`. IOStreams and frictionless-py both also read a fraction of a second and an
   offset.
 * frictionless-py reads `24:00:00` as midnight, `00:00:00`. IOStreams raises for it.
+* IOStreams reads a date and time on 2000-01-01, such as `2000-01-01T09:30:00Z`, as its time of day. The spec and
+  frictionless-py raise for it.
 * frictionless-py reads text without an offset as a time without a zone. IOStreams reads it as UTC, or in the
   `timeZone` of the field. Both write it without an offset, such as `09:30:00`.
 * frictionless-py writes the offset of a time that has one, such as `09:30:00-0500`. IOStreams writes the time of its
@@ -6217,6 +6222,7 @@ properties that IOStreams adds to the spec, such as `aliases` and `allowBlank`, 
 | `datetime`, `time` | `timeZone` | not defined | ignored | the zone of text without an offset, and of the clock of a spreadsheet's cell |
 | `datetime` | `2026-10-13T24:00:00` | ISO 8601 | `2026-10-14T00:00:00` | raises |
 | `time` | `24:00:00` | `hh:mm:ss` | `00:00:00` | raises |
+| `time` | `2000-01-01T09:30:00Z`, a date and time on 2000-01-01 | raises | raises | `09:30:00` |
 | `time` | the offset of a time, written | not defined | written, such as `09:30:00-0500` | not written, unless its `format` writes it |
 | `year` | `-0044`, `12026` or `2026Z` | `gYear` reads them | raises | raises |
 | `year` | the year 26, written | not defined | `26` | `0026`, or the number `26` in JSON |
