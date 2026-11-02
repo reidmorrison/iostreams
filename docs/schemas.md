@@ -479,7 +479,9 @@ IOStreams reads as Python does:
 | `%H`, `%S` | the hour, `00` to `23`, and the second, `00` to `59`, so that the time of a `date`, `datetime` or `time` is on a clock: the hour `24`, such as `24:00`, and a leap second, `60`, raise, rather than read the next day, or the second before it, or be ignored by a `date`, as Ruby reads them | 2 digits |
 
 A directive that reads several, such as `%F`, which is `%Y-%m-%d`, or `%c`, reads its year as they do, and so does a
-directive with the modifier `E` or `O`, such as `%EY`. A `format` that starts with `fmt:`, as Data Package v0 wrote it,
+directive with the modifier `E` or `O`, such as `%EY`. A `datetime` whose `format` reads no date, or only part of one, such as `%H:%M` or
+`%m/%d %H:%M`, is on 1900-01-01, the year, month and day that Python gives the parts that it leaves out, rather than
+on the day that it is read. A `format` that starts with `fmt:`, as Data Package v0 wrote it,
 such as `"fmt:%d/%m/%Y"`, has the prefix removed, as Frictionless requires, so `"fmt:default"` is the default form.
 
 Ruby's own directives also work, such as `%N` and `%L` for the fraction of a second, and `%s` for the seconds since

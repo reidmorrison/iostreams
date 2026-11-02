@@ -331,6 +331,14 @@ module IOStreams
       # `-00`, which RFC 3339 and RFC 2822 give a time in UTC whose local offset is not known.
       UTC_ZONE = /\A(?:Z|UTC?|-00(?::?00)?)\z/i
 
+      # The year, month and day of a datetime whose `format` reads no date, or only part of one, such as `%H:%M` or
+      # `%m/%d %H:%M`, as Python's strptime, which the patterns of Frictionless are, gives it: 1900-01-01.
+      DEFAULT_DATE = [1900, 1, 1].freeze
+
+      # The parts of the text that a `format` reads that give its date other than by its year, month and day: the day of
+      # the year, `%j`, a week, `%U`, `%W`, `%G` and `%V`, and the seconds since 1970, `%s` and `%Q`.
+      OTHER_DATE_PARTS = %i[yday cwyear cweek cwday wnum0 wnum1 seconds].freeze
+
       # Returns [String|Symbol] the name of the field, as it was given.
       attr_reader :name
 
@@ -1767,9 +1775,9 @@ module IOStreams
       # offset is not known, such as "XYZ", raises, rather than be read in the time zone of the process.
       def parse_time(klass, text, parts = @format.parts(text))
         return invalid(text) if parts.nil?
-        if parts[:mon] && parts[:mday] && !Date.valid_date?(parts.fetch(:year, Time.now.year), parts[:mon], parts[:mday])
-          return invalid(text)
-        end
+
+        partial = type == "datetime" && partial_date?(parts)
+        return invalid(text) unless date_of_parts?(parts, partial)
         return @format.date(text) if klass == Date
         return invalid(text) if parts.key?(:zone) && parts[:offset].nil?
 
@@ -1779,7 +1787,7 @@ module IOStreams
         # A DateTime at an offset of zero is a time in UTC, see .time_of, so a time keeps an offset of zero that the
         # text says, such as `+0000`, see #zero_offset?, with `Time.at`, since JRuby's `getlocal(0)` of a time in UTC is
         # in UTC.
-        time = self.class.time_of(@format.datetime(text))
+        time = self.class.time_of(partial ? default_date_time(parts) : @format.datetime(text))
         return zero_offset?(parts) ? Time.at(time, in: "+00:00") : time if parts[:offset]
 
         parts[:seconds] ? time.utc : in_zone(time)
@@ -1793,6 +1801,33 @@ module IOStreams
       # `+00:00` or `+0000`, which a time keeps, as it does without a format, see UTC_ZONE.
       def zero_offset?(parts)
         parts[:offset].zero? && !UTC_ZONE.match?(parts[:zone])
+      end
+
+      # Returns [true|false] whether the parts of the text that the `format` of a datetime read, see #parse_time, leave
+      # out its year, month or day, such as `%H:%M` or `%m/%d %H:%M`, so that it is on the date that Python's strptime
+      # gives it, see DEFAULT_DATE, rather than the date of the day that it is read, which Ruby gives it. Parts that give
+      # the date some other way, see OTHER_DATE_PARTS, such as `%j` or `%s`, are not left out.
+      def partial_date?(parts)
+        !(parts.key?(:year) && parts.key?(:mon) && parts.key?(:mday)) && OTHER_DATE_PARTS.none? { |part| parts.key?(part) }
+      end
+
+      # Returns [true|false] whether the month and day that the `format` read, if any, are a date of the year that it
+      # read, otherwise of the year of DEFAULT_DATE, for a datetime whose `format` leaves out part of its date, see
+      # #partial_date?, so that `02/29` raises, as Python's strptime does, or else of the current year, as Ruby reads it.
+      def date_of_parts?(parts, partial)
+        return true unless parts[:mon] && parts[:mday]
+
+        Date.valid_date?(parts.fetch(:year) { partial ? DEFAULT_DATE.first : Time.now.year }, parts[:mon], parts[:mday])
+      end
+
+      # Returns [DateTime] the time of the parts of the text that the `format` of a datetime read, see #parse_time, on
+      # the year, month and day that it read, and otherwise those of DEFAULT_DATE, at the offset that it read, or in
+      # UTC without one.
+      def default_date_time(parts)
+        year, month, day = DEFAULT_DATE
+        seconds          = parts.fetch(:sec, 0) + parts.fetch(:sec_fraction, 0)
+        DateTime.new(parts.fetch(:year, year), parts.fetch(:mon, month), parts.fetch(:mday, day), parts.fetch(:hour, 0),
+                     parts.fetch(:min, 0), seconds, Rational(parts.fetch(:offset, 0), 86_400))
       end
 
       # Returns [Time] the time whose clock is that of the supplied time, which text without an offset from UTC gave, in

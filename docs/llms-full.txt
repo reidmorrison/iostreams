@@ -4421,7 +4421,9 @@ IOStreams reads as Python does:
 | `%H`, `%S` | the hour, `00` to `23`, and the second, `00` to `59`, so that the time of a `date`, `datetime` or `time` is on a clock: the hour `24`, such as `24:00`, and a leap second, `60`, raise, rather than read the next day, or the second before it, or be ignored by a `date`, as Ruby reads them | 2 digits |
 
 A directive that reads several, such as `%F`, which is `%Y-%m-%d`, or `%c`, reads its year as they do, and so does a
-directive with the modifier `E` or `O`, such as `%EY`. A `format` that starts with `fmt:`, as Data Package v0 wrote it,
+directive with the modifier `E` or `O`, such as `%EY`. A `datetime` whose `format` reads no date, or only part of one, such as `%H:%M` or
+`%m/%d %H:%M`, is on 1900-01-01, the year, month and day that Python gives the parts that it leaves out, rather than
+on the day that it is read. A `format` that starts with `fmt:`, as Data Package v0 wrote it,
 such as `"fmt:%d/%m/%Y"`, has the prefix removed, as Frictionless requires, so `"fmt:default"` is the default form.
 
 Ruby's own directives also work, such as `%N` and `%L` for the fraction of a second, and `%s` for the seconds since
@@ -5710,7 +5712,10 @@ end
 
 Ruby's patterns are almost the same as Python's. IOStreams reads these as Python does: `%Y` is exactly 4 digits, so
 `31/10/26` raises for `%d/%m/%Y`, `%y` is exactly 2 digits, and `%f` is the microseconds, which Ruby does not have. A
-`format` that starts with `fmt:`, as an old version of the spec wrote it, has the prefix removed, as the spec requires.
+`datetime` whose `format` reads no date, or only part of one, such as `%H:%M` or `%m/%d %H:%M`, is on 1900-01-01, the
+year, month and day that Python gives the parts that it leaves out, such as `1900-07-01 09:30` for `07/01 09:30`,
+rather than on the day that it is read, as Ruby reads it. A `time` is on 2000-01-01 anyway. A `format` that starts with
+`fmt:`, as an old version of the spec wrote it, has the prefix removed, as the spec requires.
 See [Formats of dates and times](schemas#formats-of-dates-and-times).
 
 **Compared with Frictionless**

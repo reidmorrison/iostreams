@@ -1914,6 +1914,22 @@ class SchemaTest < Minitest::Test
           assert_raises(IOStreams::Errors::InvalidValue) { field(type: "time").cast("09:30:00+0560") }
         end
 
+        it "reads a format without a date, or without its year, on 1900-01-01, as Python's strptime does, not today" do
+          clock = field(type: "datetime", format: "%H:%M")
+          day   = field(type: "datetime", format: "%m/%d %H:%M")
+
+          assert_equal Time.utc(1900, 1, 1, 9, 30), clock.cast("09:30")
+          assert_equal Time.utc(1900, 1, 1, 21, 30), field(type: "datetime", format: "%I:%M %p").cast("09:30 PM")
+          assert_equal Time.new(1900, 1, 1, 9, 30, 0, "+05:00"), field(type: "datetime", format: "%H:%M %z").cast("09:30 +0500")
+          assert_equal Time.utc(1900, 7, 1, 9, 30), day.cast("07/01 09:30")
+          assert_raises(IOStreams::Errors::InvalidValue) { day.cast("02/29 09:30") }
+          assert_equal Time.new(1900, 1, 1, 9, 30, 0, "-05:00"),
+                       field(type: "datetime", format: "%H:%M", timeZone: "America/New_York").cast("09:30")
+          # A date read some other way, and a time of day, are unchanged.
+          assert_equal Time.utc(2026, 7, 1, 9, 30), field(type: "datetime", format: "%Y %j %H:%M").cast("2026 182 09:30")
+          assert_equal Time.utc(2000, 1, 1, 9, 30), field(type: "time", format: "%H:%M").cast("09:30")
+        end
+
         it "raises for an hour of 24, as a time does, rather than read the midnight of the next day" do
           pattern = field(type: "datetime", format: "%Y-%m-%d %H:%M:%S")
           ["2026-10-13T24:00:00", "2026-10-13T24:00:00Z", "2026-12-31 24:00:00+05:00", "2026-10-13T23:60:00Z"].each do |text|

@@ -674,7 +674,10 @@ end
 
 Ruby's patterns are almost the same as Python's. IOStreams reads these as Python does: `%Y` is exactly 4 digits, so
 `31/10/26` raises for `%d/%m/%Y`, `%y` is exactly 2 digits, and `%f` is the microseconds, which Ruby does not have. A
-`format` that starts with `fmt:`, as an old version of the spec wrote it, has the prefix removed, as the spec requires.
+`datetime` whose `format` reads no date, or only part of one, such as `%H:%M` or `%m/%d %H:%M`, is on 1900-01-01, the
+year, month and day that Python gives the parts that it leaves out, such as `1900-07-01 09:30` for `07/01 09:30`,
+rather than on the day that it is read, as Ruby reads it. A `time` is on 2000-01-01 anyway. A `format` that starts with
+`fmt:`, as an old version of the spec wrote it, has the prefix removed, as the spec requires.
 See [Formats of dates and times](schemas#formats-of-dates-and-times).
 
 **Compared with Frictionless**
