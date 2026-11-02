@@ -845,8 +845,9 @@ v3.0 also writes spreadsheets, which v2.2 cannot, see [Excel spreadsheets](forma
 Give the columns that the code reads a schema or a [contract](contracts), whose fields convert each value to their
 types, such as `{name: "id", type: "integer"}` for `1001.0`, or `{name: "zip", type: "string"}` for text. With a type
 for each column, the values are those that v2.2 reads, apart from the text of a date and time cell, see
-[Spreadsheet date and time cells are read as ISO 8601](#spreadsheet-date-and-time-cells-are-read-as-iso-8601), and a
-`number` field, which reads the 15 digits that Excel displays, such as `0.3` where v2.2 reads `0.30000000000000004`.
+[Spreadsheet date and time cells are read as ISO 8601](#spreadsheet-date-and-time-cells-are-read-as-iso-8601): in both,
+a `number` field reads the 15 digits that Excel displays, such as `0.3` where v2.1 read `0.30000000000000004`, and a
+`string` field the text that Excel shows of a number, such as `2134` where v2.1 read `2134.0`.
 Remove a `delimiter:` or `buffer_size:` supplied to the rows and records of a spreadsheet, and an encoding set with
 `#encoding` when they are read or written, which now raise `ArgumentError`, since its rows are cells rather than lines of
 text; the `:line` mode still takes them. v2.2 reports reading the rows and records of a spreadsheet without a type for
@@ -1972,8 +1973,10 @@ working after an upgrade, apart from the changes that v3.0 makes to every file:
   `IOStreams::Errors::InvalidValue` for any other, rather than lose its time of day, see
   [A date field takes a time only at midnight](#a-date-field-takes-a-time-only-at-midnight).
 * A spreadsheet read with a type for each column reads the same values in both, apart from the text of a date and time
-  cell, which v3.0 reads in UTC, and a `number` field, which reads the 15 digits that Excel displays in v3.0, see
-  [Rows of a spreadsheet are the values of its cells](#rows-of-a-spreadsheet-are-the-values-of-its-cells).
+  cell, which v3.0 reads in UTC, see
+  [Rows of a spreadsheet are the values of its cells](#rows-of-a-spreadsheet-are-the-values-of-its-cells). Both read the
+  15 digits that Excel displays of a number into a `number` field, such as `0.3`, and the text that Excel shows of a
+  number into a `string` field, such as `2134` rather than `2134.0`.
 * Parquet files are only in v3.0.
 
 ### Changes in behavior in v2.2

@@ -212,6 +212,7 @@ module IOStreams
       @loose        = build_loose { |name| self.class.match_key(name) }
       @cleansed     = build_loose { |name| self.class.match_key(self.class.cleansed(name)) }
       @decimals     = @fields.any?(&:decimal?)
+      @strings      = @fields.any? { |field| field.type == "string" }
       @properties   = Utils.frozen_copy(descriptor.except("fields").transform_keys(&:to_sym))
       @hash         = [self.class, @properties, @fields].hash
       freeze
@@ -252,6 +253,12 @@ module IOStreams
     # so that a format that reads numbers itself, such as JSON, reads them without rounding them.
     def decimals?
       @decimals
+    end
+
+    # Returns [true|false] whether a field is a `string`, so that a format that reads its numbers as Floats, such as a
+    # spreadsheet, reads the text that it shows of them, see `IOStreams::Tabular#string_positions`.
+    def strings?
+      @strings
     end
 
     # Returns [true|false] whether the file has a header row, see `header` above.

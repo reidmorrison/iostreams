@@ -3116,7 +3116,9 @@ does:
 
 A whole number is a `Float`, such as `1001.0`: an `integer` field of a [schema](schemas) or [contract](contracts)
 converts it, and raises for `1001.5`. A `number` field reads the digits that Excel displays, its 15 most significant,
-such as `0.3` rather than the `Float` `0.30000000000000004`. The lines of the spreadsheet are the text of each cell, the
+such as `0.3` rather than the `Float` `0.30000000000000004`, and a `string` field reads the text that Excel shows of a
+number, those digits without a decimal point for a whole number, such as `2134` for a zip code that Excel holds as the
+`Float` `2134.0`, rather than `2134.0`. The lines of the spreadsheet are the text of each cell, the
 same in every process: a date as `2026-01-02`, a date and time as its time in UTC, such as `2026-01-02T09:30:00Z`, a
 cell of a time format as the time of its clock, which Excel shows, such as `09:30:00`, so that a field of its type
 reads it, and a number as the workbook holds it, such as `1001` or `12.5`, whatever its format shows. A number of a date
@@ -4035,7 +4037,7 @@ IOStreams.path("orders.csv").schema(IOStreams::Schema.new(JSON.parse(File.read("
 
 | Type | Read as | Written as |
 |------|---------|------------|
-| `string` | a `String` | the text, or the text of any other value, except a `Hash` or an `Array`, which raise |
+| `string` | a `String`, such as the text that Excel shows for a number in a spreadsheet, `2134` rather than `2134.0` | the text, or the text of any other value, except a `Hash` or an `Array`, which raise |
 | `integer` | an `Integer`, from text such as `42`, `-12` or `0042`, or a whole number with a decimal point, such as `12.0`, as a spreadsheet stores it | `42` |
 | `number` | a `BigDecimal`, from text such as `12.5`, `-1.5E3`, `NaN`, `INF` or `-INF`, whatever their case, or `Infinity` and `-Infinity`, as Ruby and JavaScript write them, and frictionless-py also reads them, or a number, including a `Rational`, or a `Float` with `floatNumber: true`, rounded to its `decimals` when it has them | `12.5`, or `12.50` with `decimals: 2`, and one that is not finite as `NaN`, `INF` or `-INF`, except to JSON, which cannot hold it, so that it raises `IOStreams::Errors::InvalidValue` |
 | `boolean` | `true` or `false`, from one of its `trueValues` or `falseValues`, or the number `1` or `0`, such as `1.0` of a spreadsheet, or a number of JSON, a Parquet file or a query; any other number raises | the first of its `trueValues` or `falseValues` |
@@ -9182,8 +9184,9 @@ v3.0 also writes spreadsheets, which v2.2 cannot, see [Excel spreadsheets](forma
 Give the columns that the code reads a schema or a [contract](contracts), whose fields convert each value to their
 types, such as `{name: "id", type: "integer"}` for `1001.0`, or `{name: "zip", type: "string"}` for text. With a type
 for each column, the values are those that v2.2 reads, apart from the text of a date and time cell, see
-[Spreadsheet date and time cells are read as ISO 8601](#spreadsheet-date-and-time-cells-are-read-as-iso-8601), and a
-`number` field, which reads the 15 digits that Excel displays, such as `0.3` where v2.2 reads `0.30000000000000004`.
+[Spreadsheet date and time cells are read as ISO 8601](#spreadsheet-date-and-time-cells-are-read-as-iso-8601): in both,
+a `number` field reads the 15 digits that Excel displays, such as `0.3` where v2.1 read `0.30000000000000004`, and a
+`string` field the text that Excel shows of a number, such as `2134` where v2.1 read `2134.0`.
 Remove a `delimiter:` or `buffer_size:` supplied to the rows and records of a spreadsheet, and an encoding set with
 `#encoding` when they are read or written, which now raise `ArgumentError`, since its rows are cells rather than lines of
 text; the `:line` mode still takes them. v2.2 reports reading the rows and records of a spreadsheet without a type for
@@ -10309,8 +10312,10 @@ working after an upgrade, apart from the changes that v3.0 makes to every file:
   `IOStreams::Errors::InvalidValue` for any other, rather than lose its time of day, see
   [A date field takes a time only at midnight](#a-date-field-takes-a-time-only-at-midnight).
 * A spreadsheet read with a type for each column reads the same values in both, apart from the text of a date and time
-  cell, which v3.0 reads in UTC, and a `number` field, which reads the 15 digits that Excel displays in v3.0, see
-  [Rows of a spreadsheet are the values of its cells](#rows-of-a-spreadsheet-are-the-values-of-its-cells).
+  cell, which v3.0 reads in UTC, see
+  [Rows of a spreadsheet are the values of its cells](#rows-of-a-spreadsheet-are-the-values-of-its-cells). Both read the
+  15 digits that Excel displays of a number into a `number` field, such as `0.3`, and the text that Excel shows of a
+  number into a `string` field, such as `2134` rather than `2134.0`.
 * Parquet files are only in v3.0.
 
 ### Changes in behavior in v2.2

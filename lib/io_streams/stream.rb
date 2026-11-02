@@ -1287,7 +1287,8 @@ module IOStreams
       if stream_rows?
         reject_row_options!(tabular, delimiter: delimiter, buffer_size: buffer_size)
         decimals = (-> { tabular.decimal_positions } if tabular.schema&.decimals?)
-        return rows_stream(decimals: decimals).send(:stream_reader, &)
+        strings  = (-> { tabular.string_positions } if tabular.schema&.strings?)
+        return rows_stream(decimals: decimals, strings: strings).send(:stream_reader, &)
       end
 
       unless tabular.lines?

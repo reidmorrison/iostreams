@@ -12,7 +12,7 @@ module IOStreams
 
       # Returns [Array<Symbol>] the arguments of the rows that a stream reads, see .file, which are not options.
       def self.argument_names
-        %i[rows decimals]
+        %i[rows decimals strings]
       end
 
       # Returns [Array<Symbol>] the options of the writer that reading raises for: `sheet_name`, since a caller could
@@ -44,10 +44,10 @@ module IOStreams
       # .failure_kind, and `IOStreams::Errors::StreamFailure`, tagged the same way, for a part of the spreadsheet that is
       # damaged, see .verify, naming the spreadsheet by its `display_name`, see .takes_display_name?, otherwise by the name
       # of the local file.
-      def self.file(file_name, display_name: nil, rows: false, decimals: nil, &block)
+      def self.file(file_name, display_name: nil, rows: false, decimals: nil, strings: nil, &block)
         name = display_name || file_name
         verify(file_name, name)
-        return yield(Rows.new(file_name, name, decimals: decimals)) if rows
+        return yield(Rows.new(file_name, name, decimals: decimals, strings: strings)) if rows
 
         # Stream into a temp file as csv
         Utils.private_temp_file("iostreams_csv", purpose: "the rows of the spreadsheet as CSV") do |temp_file_name|
@@ -141,10 +141,18 @@ module IOStreams
         #     known, once the header row is read, so it is called before each row until it returns them. The stream
         #     supplies it for its schema or contract, which the reader never sees, as JSON keeps the digits of its numbers.
         #     Default: nil, every number is a Float.
-        def initialize(file_name, display_name, decimals: nil)
+        #
+        #   strings: [#call|nil]
+        #     Returns the positions of the values of the rows that are text, such as those of a `string` field, so that
+        #     each number of the column is the text that Excel shows, the digits that it displays, see `decimals`, such as
+        #     `2134` for the zip code that Excel holds as the Float `2134.0`, or nil until they are known, as for
+        #     `decimals`.
+        #     Default: nil, every number is a Float.
+        def initialize(file_name, display_name, decimals: nil, strings: nil)
           @file_name    = file_name
           @display_name = display_name
           @decimals     = decimals
+          @strings      = strings
         end
 
         # Yields [Array] each row, as an Array of the values of its cells, from the first, the header row of a worksheet
@@ -159,9 +167,12 @@ module IOStreams
           formats = Reader.tag_failure(@display_name) { Reader.number_formats(sheet) }
           Reader.convert_cells(sheet) { |text, type, style, options| Cells.value(text, type, formats[style], options) }
           positions = nil
+          texts     = nil
           each_row(sheet) do |row|
             positions ||= @decimals&.call
+            texts     ||= @strings&.call
             positions&.each { |index| row[index] = displayed(row[index]) }
+            texts&.each { |index| row[index] = displayed_text(row[index]) }
             yield(row)
           end
         end
@@ -175,6 +186,17 @@ module IOStreams
 
           number = BigDecimal(value.to_s)
           number.zero? ? number : number.round(DISPLAYED_DIGITS - number.exponent)
+        end
+
+        # Returns [String|Object] the text that Excel shows of a Float, the digits that it displays, see #displayed, without
+        # a decimal point for a whole number, such as "2134" for `2134.0`, or "0.3" for `0.30000000000000004`, or any
+        # other value as it is.
+        def displayed_text(value)
+          return value unless value.is_a?(Float) && value.finite?
+
+          # A number of more digits than Excel displays is rounded to an Integer.
+          number = displayed(value)
+          number.is_a?(Integer) || number.frac.zero? ? number.to_i.to_s : number.to_s("F")
         end
 
         # Yields the values of each row of the worksheet, tagging a failure of creek as `.failure_kind` says, but not one

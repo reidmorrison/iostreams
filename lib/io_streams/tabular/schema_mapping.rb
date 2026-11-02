@@ -185,6 +185,12 @@ module IOStreams
         @columns.decimal_positions(in_order: !@requires_header)
       end
 
+      # Returns [Array<Integer>|nil] the positions of the values of the rows read whose field is a `string`, see
+      # `IOStreams::Schema::Columns#string_positions`, as for #decimal_positions.
+      def string_positions
+        @columns.string_positions(in_order: !@requires_header)
+      end
+
       # Returns [Array<Integer>] the positions of the values of the rows rendered whose field is a `string`, see
       # `IOStreams::Schema::Columns#text_positions`.
       def text_positions

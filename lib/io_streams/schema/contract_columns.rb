@@ -62,6 +62,12 @@ module IOStreams
         @source.decimal_positions(in_order: in_order)
       end
 
+      # Returns [Array<Integer>|nil] the positions of the values of the rows of the file whose field of the schema of the
+      # file is a `string`, see `IOStreams::Schema::Columns#string_positions`.
+      def string_positions(in_order: false)
+        @source.string_positions(in_order: in_order)
+      end
+
       # Returns [Array<Integer>] the positions of the values of the rows of the file rendered whose field of the schema of
       # the file is a `string`, see `IOStreams::Schema::Columns#text_positions`.
       def text_positions

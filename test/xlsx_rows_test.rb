@@ -100,6 +100,18 @@ class XlsxRowsTest < Minitest::Test
         assert_equal BigDecimal("0.3"), read(IOStreams.path(file_name).as(contract)).first["ratio"]
       end
 
+      it "reads a number cell into a string field as the text that Excel shows, rather than the text of its Float" do
+        contract = IOStreams::Contract.new(
+          fields: %w[id amount ordered_at shipped_on zip paid notes ratio].map { |name| {name: name, type: "string"} }
+        )
+
+        assert_equal [{"id" => "1001", "amount" => "12.5", "ordered_at" => "2026-10-25T09:30:00Z", "shipped_on" => "2026-10-25",
+                       "zip" => "01234", "paid" => "true", "notes" => nil, "ratio" => "0.3"}],
+                     read(IOStreams.path(file_name).as(contract))
+        assert_equal [{"id" => "1001", "amount" => 12.5}],
+                     read(IOStreams.path(file_name).schema(fieldsMatch: "partial", fields: [{name: "id", type: "string"}, {name: "amount"}]))
+      end
+
       it "declares the names of its columns, whose cells each have their own type" do
         assert_equal(%w[any], IOStreams.path(file_name).infer_schema.fields.map(&:type).uniq)
       end
@@ -144,6 +156,14 @@ class XlsxRowsTest < Minitest::Test
         schema = {header: false, fields: [{name: "ratio", type: "number"}, {name: "note"}]}
 
         assert_equal [{"ratio" => BigDecimal("0.3"), "note" => "x"}], read(IOStreams.path(file_name).schema(schema))
+      end
+
+      it "are the text of a string field, also of a file without a header row" do
+        workbook([2134.0, 0.1 + 0.2, -1.5, 1e20])
+        schema = {header: false, fields: %w[zip ratio change big].map { |name| {name: name, type: "string"} }}
+
+        assert_equal [{"zip" => "2134", "ratio" => "0.3", "change" => "-1.5", "big" => "100000000000000000000"}],
+                     read(IOStreams.path(file_name).schema(schema))
       end
     end
 

@@ -406,6 +406,14 @@ module IOStreams
       @mapping.decimal_positions
     end
 
+    # Returns [Array<Integer>|nil] the positions of the values of the rows read whose field is a `string`, so that a
+    # source that holds its numbers as Floats, such as a spreadsheet, reads the text that it shows of those columns,
+    # such as `2134` rather than `2134.0`, see `IOStreams::Xlsx::Reader::Rows`, or nil until the header row is read,
+    # which places them, see `IOStreams::Tabular::Mapping#string_positions`.
+    def string_positions
+      @mapping.string_positions
+    end
+
     # Returns [Array<Integer>] the positions of the values of the rows rendered whose field is a `string`, which a
     # format that writes the values themselves, such as a spreadsheet, keeps as text, see
     # `IOStreams::Xlsx::RowsWriter`, or none without a schema, whose values have no type.

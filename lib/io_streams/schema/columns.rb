@@ -238,10 +238,13 @@ module IOStreams
       # #match, otherwise nil, or with `in_order: true`, of the fields in order, as a file without a header row holds
       # them, see #match_in_order, so that they are known before its first row.
       def decimal_positions(in_order: false)
-        return @schema.fields.each_index.select { |index| @schema.fields[index].decimal? } if in_order
-        return unless matched?
+        read_positions(in_order, &:decimal?)
+      end
 
-        matched.filter_map { |field, index, _key| index if index && field.decimal? }
+      # Returns [Array<Integer>|nil] the position of each value of a row read whose field is a `string`, as
+      # #decimal_positions finds them.
+      def string_positions(in_order: false)
+        read_positions(in_order) { |field| field.type == "string" }
       end
 
       # Returns [Array<Integer>] the position of each value of a row rendered whose field is a `string`, see #render: every
@@ -367,6 +370,15 @@ module IOStreams
       # `IOStreams::Schema::Field#restore`.
       def read_value(field, value)
         @typed ? field.restore(value) : field.parse(value, @form)
+      end
+
+      # Returns [Array<Integer>|nil] the position of each value of a row read whose field the block selects, see
+      # #decimal_positions.
+      def read_positions(in_order)
+        return @schema.fields.each_index.select { |index| yield(@schema.fields[index]) } if in_order
+        return unless matched?
+
+        matched.filter_map { |field, index, _key| index if index && yield(field) }
       end
 
       # Returns [IOStreams::Errors::InvalidValue|nil] the error of the value of the field, or nil when it is valid.
