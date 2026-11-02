@@ -457,7 +457,9 @@ Unlike a layout, a schema that sets neither `truncate:` nor `floatNumber:` raise
 for a string that is longer than its field, and reads a `number` field as a `BigDecimal`. The schema that
 `from_layout` returns sets both, so that it reads and writes as the layout did, except as described in
 [A fixed width number that holds no number raises](#a-fixed-width-number-that-holds-no-number-raises). A `string` field
-of only spaces is `nil`, a missing value, where the layout read empty text, `""`, see [Types](schemas#types).
+of only spaces is `nil`, a missing value, where the layout read empty text, `""`, see [Types](schemas#types). A
+`string` field writes a `Float` that is not finite as `NaN`, `INF` or `-INF`, where the layout wrote `NaN`, `Infinity`
+or `-Infinity`.
 
 `IOStreams::Schema.from_layout` raises `IOStreams::Errors::InvalidLayout` for a layout that a schema cannot hold: two
 columns with the same key, including `:a` and `"a"`, a key that is neither a String nor a Symbol, such as `1`, or

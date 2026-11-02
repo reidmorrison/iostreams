@@ -1415,8 +1415,14 @@ class StreamTest < Minitest::Test
 
         assert_equal "a,b,c\nINF,-INF,NaN\n", write([values], schema: schema)
         assert_equal "a,b,c\nINF,-INF,NaN\n", write([values], schema: nil)
-        assert_equal %({"a":"INF","b":"-INF","c":"NaN"}\n),
-                     write([values.merge("a" => BigDecimal("Infinity"))], file_name: "people.json", schema: schema)
+        assert_equal %({"a":{"x":"INF"},"b":[1,"-INF"],"c":"NaN"}\n),
+                     write([values.merge("a" => {"x" => BigDecimal("Infinity")}, "b" => [1, BigDecimal("-Infinity")])],
+                           file_name: "people.json", schema: schema)
+        error = assert_raises(IOStreams::Errors::InvalidValue) { write([values], file_name: "people.json", schema: schema) }
+        assert_includes error.message, 'Field "a": JSON cannot hold a number that is not finite: INF'
+        assert_raises(IOStreams::Errors::InvalidValue) do
+          write([{"pay" => "INF"}], file_name: "people.json", schema: {fields: [{name: "pay", type: "number"}]})
+        end
         assert_equal [{"pay" => BigDecimal("Infinity")}, {"pay" => BigDecimal("-Infinity")}],
                      read("pay\nInfinity\n-infinity\n", schema: {fields: [{name: "pay", type: "number"}]})
       end

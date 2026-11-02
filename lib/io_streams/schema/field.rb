@@ -24,7 +24,8 @@ module IOStreams
     #     "integer":  an Integer, such as `-12` or `0042`.
     #     "number":   a BigDecimal, such as `12.50`, `-1.5E3`, `NaN`, `INF` or `-INF`, or a Float with `floatNumber`.
     #                 `Infinity` and `-Infinity`, as Ruby and JavaScript write them, are read too, whatever their case,
-    #                 while one that is not finite is written as Frictionless writes it, `NaN`, `INF` or `-INF`.
+    #                 as frictionless-py also reads them, while one that is not finite is written as the Frictionless
+    #                 spec spells it, `NaN`, `INF` or `-INF`, except to JSON, which cannot hold it, so that it raises.
     #     "boolean":  true or false, see `trueValues` and `falseValues`.
     #     "date":     a Date, written as `2026-10-13` unless `format` is set. A Time or DateTime at midnight, by its own
     #                 clock, as a spreadsheet's date format reads it, is its date, while any other time raises, rather
@@ -973,21 +974,40 @@ module IOStreams
         case type
         when "number" then number_json(value)
         when "integer", "boolean", "string" then value
-        when "any", "object", "array" then self.class.any_json(value)
+        when "any", "object", "array" then any_json(value)
         else text(value)
         end
+      end
+
+      # Returns the value of a field of type any, object or array as JSON holds it, see .any_json. A Float or BigDecimal
+      # that is not finite raises, see #not_finite_json, as it does for a number field, while one inside a Hash or an
+      # Array is kept as .any_json gives it.
+      def any_json(value)
+        return not_finite_json(value) if (value.is_a?(Float) || bigdecimal?(value)) && !value.finite?
+
+        self.class.any_json(value)
       end
 
       # Returns the number as JSON writes it: its text, see #number_text, which JSON writes as it is, see
       # `IOStreams::Schema::JsonNumber.fragment`, so that a BigDecimal keeps all of its digits, and the digits after the
       # decimal point that the field gives are written, such as `12.50`, the same as in CSV. A Float without `decimals`
-      # is itself, which JSON writes with the same digits, and a number that is not finite, such as NaN, is a Float,
-      # which JSON cannot hold, so that the JSON writer raises for it.
+      # is itself, which JSON writes with the same digits. A number that is not finite, such as NaN, raises, see
+      # #not_finite_json.
       def number_json(value)
-        return value.to_f unless value.finite?
+        return not_finite_json(value) unless value.finite?
         return value if @decimals.nil? && value.is_a?(Float)
 
         JsonNumber.fragment(number_text(value))
+      end
+
+      # Raises `IOStreams::Errors::InvalidValue` for a number that is not finite, such as NaN, which JSON cannot hold,
+      # naming the field, rather than leave it to the JSON writer, where the json gem raises its own exception, and
+      # ActiveSupport writes `null`.
+      def not_finite_json(value)
+        raise(IOStreams::Errors::InvalidValue.new(
+                "Field #{name.inspect}: JSON cannot hold a number that is not finite: #{self.class.special_text(value)}",
+                field: name, value: value
+              ))
       end
 
       def bigdecimal?(value)
