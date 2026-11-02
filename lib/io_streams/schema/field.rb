@@ -32,7 +32,7 @@ module IOStreams
     #                 for it rather than lose its time of day, see #cast.
     #     "datetime": a Time, written as `2026-10-13T09:30:00Z` unless `format` is set. Without a format it reads ISO 8601
     #                 with seconds, with a space in place of the T, such as `2026-10-13 09:30:00`, and an offset from UTC
-    #                 with or without a colon, such as `+05:30` or `+0530`, see #cast_datetime.
+    #                 with or without a colon, or of hours alone, such as `+05:30`, `+0530` or `+05`, see #cast_datetime.
     #     "object":   a Hash, read from the text of a JSON object, such as `{"a":1}`, and written as that text, or by a
     #                 format of JSON as an object.
     #     "array":    an Array, read from the text of a JSON array, such as `[1,2]`, and written as that text, or by a
@@ -163,10 +163,11 @@ module IOStreams
       # `Float()` and `BigDecimal()` raise for before Ruby 3.4.
       BARE_POINT = /\.(?=[eE]|\z)/
       DATE     = /\A\d{4}-\d{2}-\d{2}\z/
-      # The text of a datetime without a format: ISO 8601 with seconds, with a T or a space between its date and its
-      # time, and an offset from UTC, Z, or the hours and minutes with or without a colon between them, such as
-      # `+05:30` or `+0530`, or none, which is UTC. The date, the time and the parts of the offset are captured.
-      DATETIME = /\A(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2}:\d{2}(?:\.\d+)?)(?:Z|([+-]\d{2}):?(\d{2}))?\z/
+      # The text of a datetime without a format: ISO 8601 with seconds, below 60, with a T or a space between its date
+      # and its time, and an offset from UTC, Z, or the hours, with or without minutes, below 60, with or without a
+      # colon between them, such as `+05:30`, `+0530` or `+05`, as PostgreSQL writes it, or none, which is UTC. The
+      # date, the time and the offset are captured.
+      DATETIME = /\A(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2}:[0-5]\d(?:\.\d+)?)(Z|[+-]\d{2}(?::?[0-5]\d)?)?\z/
 
       # Returns [String|Symbol] the name of the field, as it was given.
       attr_reader :name
@@ -699,18 +700,18 @@ module IOStreams
       # Text without an offset from UTC is read as UTC, rather than in the time zone of the process, so that a file
       # reads the same on every server.
       #
-      # Text without a format is read as ISO 8601, see DATETIME, in the form that `Time.iso8601` reads, with a T
-      # between its date and time, and a colon in its offset.
+      # Text without a format must match DATETIME, and is read with `Time.iso8601`, which reads each form of its offset,
+      # so that only a space in place of the T is replaced, and Z added to text without an offset.
       def cast_datetime(value)
         return value if value.is_a?(Time)
         return self.class.time_of(value) if value.is_a?(DateTime)
         return invalid(value) unless value.is_a?(String)
         return parse_time(Time, value) if @format
 
-        date, time, hours, minutes = DATETIME.match(value)&.captures
+        date, time, offset = DATETIME.match(value)&.captures
         return invalid(value) unless date && Date.valid_date?(date[0, 4].to_i, date[5, 2].to_i, date[8, 2].to_i)
 
-        Time.iso8601("#{date}T#{time}#{hours ? "#{hours}:#{minutes}" : 'Z'}")
+        Time.iso8601("#{date}T#{time}#{offset || 'Z'}")
       rescue ArgumentError
         invalid(value)
       end

@@ -1324,8 +1324,9 @@ class SchemaTest < Minitest::Test
 
         it "raises for a date without a time, or another form" do
           ["2026-10-13", "2026-10-13T09:30", "2026-10-13 09:30", "2026-10-13T25:00:00Z", "2026-10-13  09:30:00", "2026-10-13t09:30:00",
-           "2026-10-13T09:30:00 +05:30", "2026-10-13T09:30:00+05", "2026-10-13T09:30:00+5:30", "2026-10-13T09:30:00+05:3",
-           "2026-10-13T09:30:00z", "13/10/2026 09:30:00"].each do |text|
+           "2026-10-13T09:30:00 +05:30", "2026-10-13T09:30:00+5:30", "2026-10-13T09:30:00+05:3", "2026-10-13T09:30:00+0560",
+           "2026-10-13T09:30:00+05:60", "2026-10-13T09:30:00+053", "2026-10-13T09:30:00z", "2026-10-13T09:30:00Z\njunk",
+           "2026-10-13T09:30:00\njunk", "2026-10-13T23:59:60Z", "13/10/2026 09:30:00"].each do |text|
             assert_raises(IOStreams::Errors::InvalidValue, text) { datetime.cast(text) }
           end
         end
@@ -1344,6 +1345,21 @@ class SchemaTest < Minitest::Test
           assert_equal 19_800, time.utc_offset
           assert_equal(-18_000, datetime.cast("2026-10-31 09:30:00.5-0500").utc_offset)
           assert_equal Time.utc(2026, 10, 31, 14, 30, 0.5r), datetime.cast("2026-10-31 09:30:00.5-0500")
+        end
+
+        it "reads an offset of hours alone, such as +05, as PostgreSQL writes it" do
+          time = datetime.cast("2026-10-31 09:30:00+05")
+
+          assert_equal Time.utc(2026, 10, 31, 4, 30), time
+          assert_equal 18_000, time.utc_offset
+          assert_equal(-28_800, datetime.cast("2026-10-31T09:30:00.25-08").utc_offset)
+        end
+
+        it "reads an offset of -0000 as UTC" do
+          time = datetime.cast("2026-10-31T09:30:00-0000")
+
+          assert_equal Time.utc(2026, 10, 31, 9, 30), time
+          assert_equal 0, time.utc_offset
         end
 
         it "still writes ISO 8601 with a T, and an offset with a colon, or Z" do

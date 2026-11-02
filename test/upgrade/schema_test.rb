@@ -189,9 +189,21 @@ class UpgradeSchemaTest < Minitest::Test
           assert_equal [0, 19_800, -18_000, 0], times.map(&:utc_offset)
         end
 
+        it "reads an offset of hours alone, such as +05" do
+          time = read("at\n2026-10-31 09:30:00+05\n", schema: schema).first["at"]
+
+          assert_equal Time.utc(2026, 10, 31, 4, 30), time
+          assert_equal 18_000, time.utc_offset
+        end
+
         it "still raises without seconds, or without a time" do
           assert_raises(IOStreams::Errors::InvalidValue) { read("at\n2026-10-31 09:30\n", schema: schema) }
           assert_raises(IOStreams::Errors::InvalidValue) { read("at\n2026-10-31\n", schema: schema) }
+        end
+
+        it "raises for minutes of an offset, or seconds, of 60 or more" do
+          assert_raises(IOStreams::Errors::InvalidValue) { read("at\n2026-10-31 09:30:00+0560\n", schema: schema) }
+          assert_raises(IOStreams::Errors::InvalidValue) { read("at\n2026-10-31 23:59:60Z\n", schema: schema) }
         end
 
         it "still writes ISO 8601, with a T, and an offset with a colon, or Z" do
