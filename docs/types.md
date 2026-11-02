@@ -806,7 +806,9 @@ end
 
 * **`object`** is read as a `Hash`, from the text of a JSON object, such as `{"theme":"dark"}`.
 * **`array`** is read as an `Array`, from the text of a JSON array, such as `[10,12]`.
-* **Written as** that JSON text. A JSON file holds the object or array itself.
+* **Written as** that JSON text. A JSON file holds the object or array itself. A `Float` within it that is not finite,
+  such as `NaN`, raises `IOStreams::Errors::InvalidValue`, naming the field, since JSON cannot hold it, while a
+  `BigDecimal` that is not finite is written as its text, such as `"NaN"`.
 * **From other sources** a `Hash` or an `Array` is read as JSON holds it: its keys become Strings, and a `Symbol`,
   `BigDecimal`, `Date` or `Time` within it becomes its text, so that a record reads the same from every source.
 

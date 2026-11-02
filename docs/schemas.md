@@ -197,7 +197,8 @@ as the `:hash` format, a Parquet file or a query, gives the same record as JSON:
 such as `{theme: :dark, limit: BigDecimal("12.5")}` read as `{"theme" => "dark", "limit" => "12.5"}`, while any other
 value is kept as it is, such as a `Rational`, which can differ from the value that its JSON text reads. Frictionless
 keeps a dict as it is, so IOStreams adds this. Hashes and Arrays nested more than 100 deep, as JSON reads them, such as
-a Hash that holds itself, raise `IOStreams::Errors::InvalidValue`.
+a Hash that holds itself, raise `IOStreams::Errors::InvalidValue`, and so does writing a `Float` within one that is not
+finite, such as `NaN`, which JSON cannot hold, naming the field.
 
 JSON writes integers, numbers and booleans as JSON numbers and booleans, with all of the digits of a `number`, and the
 digits after the decimal point that its `decimals` give, such as `12.50`, the same as CSV, an `object` or an `array`
@@ -992,7 +993,7 @@ A value of a file without a schema, or of a field without a type, is written as 
 | Value | Written as |
 |-------|------------|
 | `BigDecimal` | a plain decimal, such as `12.5`, rather than `0.125e2` |
-| `Float` or `BigDecimal` that is not finite | `NaN`, `INF` or `-INF`, as the Frictionless spec spells them, rather than Ruby's `Infinity`, while JSON, which cannot hold one, raises `IOStreams::Errors::InvalidValue`, apart from a `BigDecimal` inside a `Hash` or an `Array`, which it writes as that text |
+| `Float` or `BigDecimal` that is not finite | `NaN`, `INF` or `-INF`, as the Frictionless spec spells them, rather than Ruby's `Infinity`, while JSON, which cannot hold one, raises `IOStreams::Errors::InvalidValue`, naming its key, also a `Float` inside a `Hash` or an `Array` written as JSON in any format, apart from a `BigDecimal` inside one, which it writes as that text |
 | `Time` or `DateTime` | ISO 8601, such as `2026-10-13T09:30:00Z`, with its fraction of a second in groups of 3 digits, as many as it needs, such as `.100`, `.250` or `.123456`, and `Z` for a `Time` in UTC, or a `DateTime` at an offset of zero |
 | `Date` | ISO 8601, such as `2026-10-13` |
 | `Hash` or `Array` | JSON, such as `{"a":1}` or `[1,2]`, as the JSON format writes it |

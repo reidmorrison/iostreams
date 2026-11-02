@@ -951,7 +951,8 @@ module IOStreams
       # missing value of the field, such as "NA" for `missingValues: ["NA"]`, as frictionless-py writes it, or nil when
       # it is empty text, so that the format writes its own empty value.
       #
-      # Raises `IOStreams::Errors::InvalidValue` when the value is not one of this type.
+      # Raises `IOStreams::Errors::InvalidValue` when the value is not one of this type, or when a Hash or an Array
+      # written as JSON holds a number that is not finite, such as NaN, which JSON cannot hold, naming this field.
       def render(value, form)
         return render_json_structure(value, form) if form != :typed && json_structure?(value)
 
@@ -963,6 +964,11 @@ module IOStreams
         return value if form == :scalar && !@scalar_text
 
         text(value)
+      rescue IOStreams::Errors::InvalidValue => e
+        raise if e.field
+
+        # The JSON of a Hash or an Array, which does not know the field, see `IOStreams::Tabular::Parser::Json.generate`.
+        raise(IOStreams::Errors::InvalidValue.new("Field #{name.inspect}: #{e.reason}", field: name, value: value))
       end
 
       protected

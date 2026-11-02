@@ -2353,6 +2353,48 @@ class SchemaTest < Minitest::Test
           end
         end
 
+        it "raises InvalidValue naming the field for a number within it that is not finite, which JSON cannot hold" do
+          array = field(type: "array")
+          any   = field(type: "any")
+
+          json_writers.each do |coder|
+            IOStreams::Tabular::Parser::Json.stub(:coder, coder) do
+              [[object, {"a" => Float::NAN}], [array, [1, Float::INFINITY]], [any, [-Float::INFINITY]]].each do |field, value|
+                forms = field == any ? %i[text] : %i[text json scalar]
+                forms.each do |form|
+                  error = assert_raises(IOStreams::Errors::InvalidValue) { field.render(value, form) }
+                  assert_equal "value", error.field
+                  assert_match(/\AField "value": JSON cannot hold a number that is not finite: (NaN|INF|-INF)\z/, error.message)
+                end
+              end
+              # A BigDecimal within it is written as its text, as JSON holds it.
+              assert_equal '{"a":"NaN"}', object.render({"a" => BigDecimal("NaN")}, :text)
+            end
+          end
+        end
+
+        it "raises InvalidValue naming the key for a number that is not finite within a record written to JSON" do
+          json_writers.each do |coder|
+            IOStreams::Tabular::Parser::Json.stub(:coder, coder) do
+              [nil, {"fields" => [{"name" => "id"}, {"name" => "sizes"}]}].each do |schema|
+                stream = IOStreams.stream(StringIO.new).format(:json)
+                stream.schema(schema) if schema
+                error = assert_raises(IOStreams::Errors::InvalidValue) do
+                  stream.writer(:hash) { |io| io << {"id" => 1, "sizes" => [1.5, Float::NAN]} }
+                end
+
+                assert_equal "sizes", error.field
+                assert_equal 'Field "sizes": JSON cannot hold a number that is not finite: NaN', error.reason
+              end
+              error = assert_raises(IOStreams::Errors::InvalidValue) do
+                IOStreams.stream(StringIO.new).format(:csv).writer(:hash) { |io| io << {"sizes" => [Float::NAN]} }
+              end
+
+              assert_equal "JSON cannot hold a number that is not finite: NaN", error.reason
+            end
+          end
+        end
+
         it "reads a Hash or an Array read from JSON as it is, which JSON already holds, and converts one of any other form" do
           prefs = {"limit" => 12.5, "tags" => ["a", {"b" => nil}]}
           typed = {limit: BigDecimal("12.5")}
