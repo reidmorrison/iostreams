@@ -339,9 +339,10 @@ end
 * **Reads** a decimal with an optional sign and exponent, such as `12.50`, `-1.5E3`, `.5` or `12.`, and the numbers
   that are not finite: `NaN`, `INF` and `-INF`, in any case, and `Infinity` and `-Infinity`, as Ruby and JavaScript
   write them.
-* **Written as** the plain digits of its value, such as `12.5` and `1500.0`. A whole number is written with `.0`, such
-  as `3.0`. A number that is not finite is written as `NaN`, `INF` or `-INF`. JSON cannot hold those, so writing one to
-  JSON raises `IOStreams::Errors::InvalidValue`.
+* **Written as** the plain digits of its value, such as `12.5` and `1500`. A whole number is written without a
+  decimal point, such as `3` for `3`, `3.0` or the text `3.000`, unless the field has `decimals`. A number that is not
+  finite is written as `NaN`, `INF` or `-INF`. JSON cannot hold those, so writing one to JSON raises
+  `IOStreams::Errors::InvalidValue`.
 * **`decimals`**, which IOStreams adds, gives the digits after the decimal point. It rounds the number read, and the
   number written, half up, so that a record holds the number that its file holds, such as `12.35` for `12.345` with
   `decimals: 2`.
@@ -388,7 +389,7 @@ end
 puts path.read
 # total,rounded
 # 12.5,12.50
-# 3.0,12.35
+# 3,12.35
 # INF,3.00
 ~~~
 
@@ -404,7 +405,7 @@ puts path.read
 * frictionless-py writes the numbers that are not finite as `NaN`, `Infinity` and `-Infinity`. IOStreams writes them
   as the spec spells them, `NaN`, `INF` and `-INF`.
 * frictionless-py writes the digits of the text that it read, so `12.50`, `1.5E3` and `3` are written as `12.50`,
-  `1.5E+3` and `3`. IOStreams writes the plain digits of the value, `12.5`, `1500.0` and `3.0`, unless `decimals` gives
+  `1.5E+3` and `3`. IOStreams writes the plain digits of the value, `12.5`, `1500` and `3`, unless `decimals` gives
   the digits after the point. Either way, each is the same number.
 * `decimals` is a property that IOStreams adds. `floatNumber` is not in the spec either: IOStreams reads it as
   frictionless-py does.
@@ -1134,7 +1135,7 @@ properties that IOStreams adds to the spec, such as `aliases` and `allowBlank`, 
 | `number` | `1.5e3`, a lower case `e` | an upper case `E` | reads | reads |
 | `number` | `1_000.5` | raises | `1000.5` | raises |
 | `number` | a number that is not finite, written | `NaN`, `INF`, `-INF` | `NaN`, `Infinity`, `-Infinity` | `NaN`, `INF`, `-INF` |
-| `number` | `12.50`, `1.5E3` and `3`, read and written | not defined | `12.50`, `1.5E+3` and `3` | `12.5`, `1500.0` and `3.0` |
+| `number` | `12.50`, `1.5E3` and `3`, read and written | not defined | `12.50`, `1.5E+3` and `3` | `12.5`, `1500` and `3` |
 | `number` | `decimals` | not defined | ignored | rounds the number read and written |
 | `number`, `integer` | `bareNumber: false` and `(12.50)` or `(12)` | up to each tool | `12.50` and `12` | `-12.50` and `-12` |
 | `number`, `integer` | `bareNumber: false` and `-$12.50` or `-$12` | up to each tool | raises | `-12.50` and `-12` |

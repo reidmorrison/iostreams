@@ -117,6 +117,15 @@ class FrictionlessTypesTest < Minitest::Test
         assert_equal "[1.50,2.25]", IOStreams::Tabular::Parser::Json.generate(numbers.render([1.5, 2.25], :json))
       end
 
+      it "writes each whole number of a list of numbers without a decimal point, unless it has decimals" do
+        numbers = field(type: "list", itemType: "number")
+        floats  = field(type: "list", itemType: "number", floatNumber: true)
+
+        assert_equal "42,1.5,3", numbers.render([42, 1.5, BigDecimal("3")], :text)
+        assert_equal "42,1.5", floats.render([42.0, 1.5], :text)
+        assert_equal "42.00,1.50", field(type: "list", itemType: "number", decimals: 2).render([42, 1.5], :text)
+      end
+
       it "reads each number of a list as a Float with floatNumber" do
         floats = field(type: "list", itemType: "number", floatNumber: true)
 

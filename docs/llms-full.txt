@@ -3497,7 +3497,8 @@ When reading, each value is the text of its field without its leading and traili
 its field, so that a field of only spaces is `nil`, a missing value, in every type, a `string` included. The keys of each record are the names of the fields as they are given, so that a field whose name is a
 Symbol returns a Symbol key.
 
-When writing, a number is right justified and zero filled, and a missing number is written as zero, as the
+When writing, a number is right justified and zero filled, such as `000042` for `42` without `decimals`, or `042.00`
+with `decimals: 2`, and a missing number is written as zero, as the
 specifications of most fixed width files require, unless its field has a missing value of its own, such as `NA` or
 `-99`, see [Missing values](schemas#missing-values), which is written as it is. That value, and a number that is not
 finite, such as `NaN` or `-INF`, is space filled instead, so that it can be read back. Any other value is left justified and space filled, with each line
@@ -4099,7 +4100,7 @@ IOStreams.path("orders.csv").schema(IOStreams::Schema.new(JSON.parse(File.read("
 |------|---------|------------|
 | `string` | a `String`, such as the number of a number cell of a spreadsheet, to the digits that Excel displays, `2134` rather than `2134.0`, checked to be one of its `format`, see [Formats of strings](#formats-of-strings) | the text, or the text of any other value, except a `Hash` or an `Array`, which raise |
 | `integer` | an `Integer`, from text such as `42`, `-12` or `0042`, or a whole number with a decimal point, such as `12.0`, as a spreadsheet stores it | `42` |
-| `number` | a `BigDecimal`, from text such as `12.5`, `-1.5E3`, `NaN`, `INF` or `-INF`, whatever their case, or `Infinity` and `-Infinity`, as Ruby and JavaScript write them, and frictionless-py also reads them, or a number, including a `Rational`, or a `Float` with `floatNumber: true`, rounded to its `decimals` when it has them | `12.5`, or `12.50` with `decimals: 2`, and one that is not finite as `NaN`, `INF` or `-INF`, except to JSON, which cannot hold it, so that it raises `IOStreams::Errors::InvalidValue` |
+| `number` | a `BigDecimal`, from text such as `12.5`, `-1.5E3`, `NaN`, `INF` or `-INF`, whatever their case, or `Infinity` and `-Infinity`, as Ruby and JavaScript write them, and frictionless-py also reads them, or a number, including a `Rational`, or a `Float` with `floatNumber: true`, rounded to its `decimals` when it has them | `12.5`, a whole number without a decimal point, such as `42` for `42`, `42.0` or the text `42.0`, or `12.50` and `42.00` with `decimals: 2`, and one that is not finite as `NaN`, `INF` or `-INF`, except to JSON, which cannot hold it, so that it raises `IOStreams::Errors::InvalidValue` |
 | `boolean` | `true` or `false`, from one of its `trueValues` or `falseValues`, or the number `1` or `0`, such as `1.0` of a spreadsheet, or a number of JSON, a Parquet file or a query; any other number raises | the first of its `trueValues` or `falseValues` |
 | `date` | a `Date`, from `2026-10-13`, or text in its `format`, or a `Time` at midnight, by its own clock; any other time raises, rather than lose its time of day | `2026-10-13`, or text in its `format` |
 | `datetime` | a `Time`, from ISO 8601 with seconds, such as `2026-10-13T09:30:00Z`, also with a space in place of the `T`, such as `2026-10-13 09:30:00`, and an offset from UTC with or without a colon, or of hours alone, such as `+05:30`, `+0530` or `+05`, or text in its `format`. Text without an offset from UTC is read as UTC, or in its `timeZone`, and a date without a time raises | ISO 8601, such as `2026-10-13T09:30:00Z`, or text in its `format` |
@@ -4146,7 +4147,8 @@ a Hash that holds itself, raise `IOStreams::Errors::InvalidValue`, and so does w
 finite, such as `NaN`, which JSON cannot hold, naming the field.
 
 JSON writes integers, numbers and booleans as JSON numbers and booleans, with all of the digits of a `number`, and the
-digits after the decimal point that its `decimals` give, such as `12.50`, the same as CSV, an `object` or an `array`
+digits after the decimal point that its `decimals` give, such as `12.50`, or none for a whole number without
+`decimals`, such as `42`, the same as CSV, an `object` or an `array`
 as itself, and every other value as text, such as a date, including in an application that uses ActiveSupport, as
 Rails does, which replaces how Ruby writes JSON. Reading JSON keeps all of the digits of a `number` too, rather than
 reading it through a `Float`, rounded to its `decimals` when it has them, while the numbers of the other fields are a
@@ -5394,9 +5396,10 @@ end
 * **Reads** a decimal with an optional sign and exponent, such as `12.50`, `-1.5E3`, `.5` or `12.`, and the numbers
   that are not finite: `NaN`, `INF` and `-INF`, in any case, and `Infinity` and `-Infinity`, as Ruby and JavaScript
   write them.
-* **Written as** the plain digits of its value, such as `12.5` and `1500.0`. A whole number is written with `.0`, such
-  as `3.0`. A number that is not finite is written as `NaN`, `INF` or `-INF`. JSON cannot hold those, so writing one to
-  JSON raises `IOStreams::Errors::InvalidValue`.
+* **Written as** the plain digits of its value, such as `12.5` and `1500`. A whole number is written without a
+  decimal point, such as `3` for `3`, `3.0` or the text `3.000`, unless the field has `decimals`. A number that is not
+  finite is written as `NaN`, `INF` or `-INF`. JSON cannot hold those, so writing one to JSON raises
+  `IOStreams::Errors::InvalidValue`.
 * **`decimals`**, which IOStreams adds, gives the digits after the decimal point. It rounds the number read, and the
   number written, half up, so that a record holds the number that its file holds, such as `12.35` for `12.345` with
   `decimals: 2`.
@@ -5443,7 +5446,7 @@ end
 puts path.read
 # total,rounded
 # 12.5,12.50
-# 3.0,12.35
+# 3,12.35
 # INF,3.00
 ~~~
 
@@ -5459,7 +5462,7 @@ puts path.read
 * frictionless-py writes the numbers that are not finite as `NaN`, `Infinity` and `-Infinity`. IOStreams writes them
   as the spec spells them, `NaN`, `INF` and `-INF`.
 * frictionless-py writes the digits of the text that it read, so `12.50`, `1.5E3` and `3` are written as `12.50`,
-  `1.5E+3` and `3`. IOStreams writes the plain digits of the value, `12.5`, `1500.0` and `3.0`, unless `decimals` gives
+  `1.5E+3` and `3`. IOStreams writes the plain digits of the value, `12.5`, `1500` and `3`, unless `decimals` gives
   the digits after the point. Either way, each is the same number.
 * `decimals` is a property that IOStreams adds. `floatNumber` is not in the spec either: IOStreams reads it as
   frictionless-py does.
@@ -6189,7 +6192,7 @@ properties that IOStreams adds to the spec, such as `aliases` and `allowBlank`, 
 | `number` | `1.5e3`, a lower case `e` | an upper case `E` | reads | reads |
 | `number` | `1_000.5` | raises | `1000.5` | raises |
 | `number` | a number that is not finite, written | `NaN`, `INF`, `-INF` | `NaN`, `Infinity`, `-Infinity` | `NaN`, `INF`, `-INF` |
-| `number` | `12.50`, `1.5E3` and `3`, read and written | not defined | `12.50`, `1.5E+3` and `3` | `12.5`, `1500.0` and `3.0` |
+| `number` | `12.50`, `1.5E3` and `3`, read and written | not defined | `12.50`, `1.5E+3` and `3` | `12.5`, `1500` and `3` |
 | `number` | `decimals` | not defined | ignored | rounds the number read and written |
 | `number`, `integer` | `bareNumber: false` and `(12.50)` or `(12)` | up to each tool | `12.50` and `12` | `-12.50` and `-12` |
 | `number`, `integer` | `bareNumber: false` and `-$12.50` or `-$12` | up to each tool | raises | `-12.50` and `-12` |
@@ -10648,7 +10651,9 @@ of only spaces is `nil`, a missing value, where the layout read empty text, `""`
 `string` field writes a `Float` that is not finite as `NaN`, `INF` or `-INF`, where the layout wrote `NaN`, `Infinity`
 or `-Infinity`. A `number` field with `decimals` rounds the number read to them, such as `12.35` for `12.346` with
 `decimals: 2`, where the layout read all of its digits, and writes a negative number that rounds to zero, such as
-`-0.001`, as zero, without a minus sign, where the layout wrote one, such as `-0000.00`.
+`-0.001`, as zero, without a minus sign, where the layout wrote one, such as `-0000.00`. A `number` field that takes
+the remainder of the line, without `decimals`, writes a whole number without a decimal point, such as `12`, where the
+layout wrote `12.0`.
 
 `IOStreams::Schema.from_layout` raises `IOStreams::Errors::InvalidLayout` for a layout that a schema cannot hold: two
 columns with the same key, including `:a` and `"a"`, a key that is neither a String nor a Symbol, such as `1`, or

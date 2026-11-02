@@ -659,7 +659,8 @@ When reading, each value is the text of its field without its leading and traili
 its field, so that a field of only spaces is `nil`, a missing value, in every type, a `string` included. The keys of each record are the names of the fields as they are given, so that a field whose name is a
 Symbol returns a Symbol key.
 
-When writing, a number is right justified and zero filled, and a missing number is written as zero, as the
+When writing, a number is right justified and zero filled, such as `000042` for `42` without `decimals`, or `042.00`
+with `decimals: 2`, and a missing number is written as zero, as the
 specifications of most fixed width files require, unless its field has a missing value of its own, such as `NA` or
 `-99`, see [Missing values](schemas#missing-values), which is written as it is. That value, and a number that is not
 finite, such as `NaN` or `-INF`, is space filled instead, so that it can be read back. Any other value is left justified and space filled, with each line
