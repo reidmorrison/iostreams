@@ -200,16 +200,17 @@ IOStreams reads as Python does:
 
 | Directive | Reads | Writes |
 |-----------|-------|--------|
-| `%Y` | the year, exactly 4 digits, such as `2026`, so that `31/10/26` raises `IOStreams::Errors::InvalidValue` for `%d/%m/%Y`, rather than read the year 26 | 4 digits |
-| `%y` | the year, 2 digits, such as `26` for 2026 | 2 digits |
+| `%Y` | the year, exactly 4 digits, such as `2026`, so that `31/10/26` raises `IOStreams::Errors::InvalidValue` for `%d/%m/%Y`, rather than read the year 26, as does `%G`, the year of an ISO 8601 week | 4 digits |
+| `%y` | the year of the century, exactly 2 digits, such as `26` for 2026, so that `1/2/5` raises for `%d/%m/%y` | 2 digits |
 | `%f` | the microseconds of the second, 1 to 6 digits, such as `5` for half a second | 6 digits, such as `500000` |
 
-A `format` that starts with `fmt:`, as Data Package v0 wrote it, such as `"fmt:%d/%m/%Y"`, has the prefix removed, as
-Frictionless requires.
+A directive that reads several, such as `%F`, which is `%Y-%m-%d`, or `%c`, reads its year as they do, and so does a
+directive with the modifier `E` or `O`, such as `%EY`. A `format` that starts with `fmt:`, as Data Package v0 wrote it,
+such as `"fmt:%d/%m/%Y"`, has the prefix removed, as Frictionless requires, so `"fmt:default"` is the default form.
 
 Ruby's own directives also work, such as `%N` and `%L` for the fraction of a second, and `%s` for the seconds since
-1970, but other Frictionless tools do not read them, so prefer the directives of Python in a schema that other tools
-read.
+1970, which reads whole seconds, ignoring a fraction after it, such as that of `%s.%f`, but other Frictionless tools do
+not read them, so prefer the directives of Python in a schema that other tools read.
 
 ~~~ruby
 path = IOStreams.path("visits.csv").schema(
