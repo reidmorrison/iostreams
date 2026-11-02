@@ -980,6 +980,29 @@ class SchemaTest < Minitest::Test
           assert_equal(-1, number.cast("-inf").infinite?)
         end
 
+        it "reads Infinity and -Infinity, as Ruby and JavaScript write them, whatever their case" do
+          %w[Infinity infinity INFINITY].each do |text|
+            assert_equal BigDecimal("Infinity"), number.cast(text), text
+            assert_equal BigDecimal("-Infinity"), number.cast("-#{text}"), text
+          end
+          float = field(type: "number", floatNumber: true)
+
+          assert_equal Float::INFINITY, float.cast("Infinity")
+          assert_equal(-Float::INFINITY, float.cast(" -infinity "))
+          ["+Infinity", "Infinit", "Inf inity", "1Infinity"].each do |text|
+            assert_raises(IOStreams::Errors::InvalidValue, text) { number.cast(text) }
+          end
+          assert_raises(IOStreams::Errors::InvalidValue) { field(type: "integer").cast("Infinity") }
+        end
+
+        it "writes a number that is not finite as Frictionless does, NaN, INF or -INF, rather than Infinity" do
+          [number, field(type: "number", floatNumber: true), field(type: "number", decimals: 2)].each do |field|
+            assert_equal "NaN", field.render(Float::NAN, :text)
+            assert_equal "INF", field.render(BigDecimal("Infinity"), :text)
+            assert_equal "-INF", field.render("-Infinity", :text)
+          end
+        end
+
         it "returns a Float with floatNumber" do
           float = field(type: "number", floatNumber: true)
 
@@ -1521,6 +1544,21 @@ class SchemaTest < Minitest::Test
           assert_equal " 12 ", any.cast(" 12 ")
           assert_equal [1], any.render([1], :json)
           assert_equal "12", any.render(12, :text)
+        end
+
+        it "writes a Float or BigDecimal that is not finite as Frictionless does, NaN, INF or -INF, rather than Infinity" do
+          any = field
+
+          assert_equal "NaN", any.render(Float::NAN, :text)
+          assert_equal "INF", any.render(Float::INFINITY, :text)
+          assert_equal "-INF", any.render(-Float::INFINITY, :text)
+          assert_equal "NaN", any.render(BigDecimal("NaN"), :text)
+          assert_equal "INF", any.render(BigDecimal("Infinity"), :text)
+          assert_equal "-INF", any.render(BigDecimal("-Infinity"), :text)
+          assert_equal({"x" => "-INF"}, any.render({"x" => BigDecimal("-Infinity")}, :json))
+          assert_equal '{"x":"INF"}', any.render({"x" => BigDecimal("Infinity")}, :text)
+          assert_equal "INF", field(type: "string").cast(Float::INFINITY)
+          assert_equal "1.5", any.render(1.5, :text)
         end
 
         it "writes a BigDecimal, Date or Time as its usual text" do

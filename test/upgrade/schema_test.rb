@@ -136,6 +136,35 @@ class UpgradeSchemaTest < Minitest::Test
         end
       end
 
+      describe "numbers that are not finite" do
+        let(:schema) { {fields: [{name: "pay", type: "number"}, {name: "rate", type: "number", floatNumber: true}, {name: "note"}]} }
+
+        it "reads NaN, INF and -INF, as Frictionless writes them, and Infinity and -Infinity, whatever their case" do
+          rows = read("pay,rate,note\nNaN,inf,x\nINF,-INF,x\nInfinity,-infinity,x\n-INFINITY,Infinity,x\n", schema: schema)
+
+          assert_predicate rows[0]["pay"], :nan?
+          assert_equal Float::INFINITY, rows[0]["rate"]
+          assert_equal [BigDecimal("Infinity"), -Float::INFINITY], rows[1].values_at("pay", "rate")
+          assert_equal [BigDecimal("Infinity"), -Float::INFINITY], rows[2].values_at("pay", "rate")
+          assert_equal [BigDecimal("-Infinity"), Float::INFINITY], rows[3].values_at("pay", "rate")
+        end
+
+        it "writes them as NaN, INF and -INF, in a number field and a field without a type" do
+          records = [
+            {"pay" => BigDecimal("NaN"), "rate" => Float::INFINITY, "note" => -Float::INFINITY},
+            {"pay" => "-Infinity", "rate" => "NaN", "note" => BigDecimal("Infinity")}
+          ]
+
+          assert_equal "pay,rate,note\nNaN,INF,-INF\n-INF,NaN,INF\n", write(records, schema: schema)
+        end
+
+        it "writes a BigDecimal that is not finite in a field without a type to JSON as its text" do
+          written = write([{"pay" => BigDecimal("2.5"), "rate" => 1.5, "note" => BigDecimal("-Infinity")}], file_name: "people.json", schema: schema)
+
+          assert_equal %({"pay":2.5,"rate":1.5,"note":"-INF"}\n), written
+        end
+      end
+
       describe "the format of a date or datetime" do
         let(:dates) { {fields: [{name: "joined", type: "date", format: "%d/%m/%Y"}]} }
 
