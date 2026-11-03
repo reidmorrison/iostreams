@@ -140,12 +140,14 @@ back as `nil`, or as an empty value when that is empty text, and as `null` in JS
 
 An empty CSV value is empty text, with or without quotes, such as the middle value of `a,,b` or `a,"",b`, so the
 missing values decide what it is: without `""` among them, a `string` or `any` field reads it as `""`, and the other
-types raise for it.
+types raise for it. Without any missing values, `missingValues: []`, writing `nil` to a format of text, such as CSV,
+raises `IOStreams::Errors::InvalidValue`, since no text would read back as missing.
 
 **Compared with Frictionless**
 
 * The spec does not say how to write a missing value. IOStreams writes the first of the missing values, as
-  frictionless-py does, apart from JSON, which writes `null`.
+  frictionless-py does, apart from JSON, which writes `null`, and raises for one without missing values, which
+  frictionless-py writes as an empty value that reads back as `""`.
 * frictionless-py compares the text of every value with the missing values, so the JSON number `-99` is missing for
   `["-99"]`. IOStreams compares only text, since the spec says that missing values are text, so the number is `-99`,
   apart from a cell of a spreadsheet, whose text it compares, so a cell that holds the number `-99` is missing.

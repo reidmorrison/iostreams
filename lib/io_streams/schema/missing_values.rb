@@ -57,6 +57,12 @@ module IOStreams
         @default ? value.empty? : @set.key?(value)
       end
 
+      # Returns [true|false] whether there are no missing values, `missingValues: []`, so that no text is a missing value,
+      # not even empty text, and a format of text cannot write one, see `IOStreams::Schema::Field#render`.
+      def none?
+        @values.empty?
+      end
+
       # Returns [true|false] whether text other than empty text is a missing value, such as "NA", which the text of a
       # value that is not text can be, such as a cell of a spreadsheet that holds the number -99.
       def any_text?

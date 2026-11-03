@@ -1479,6 +1479,28 @@ class StreamTest < Minitest::Test
         assert_equal [{"name" => "", "city" => "", "age" => 7}], read(%(name|city|age\n||7\n), file_name: "a.psv", schema: schema)
         assert_equal [{"name" => "", "city" => nil, "age" => 7}],
                      read(%({"name":"","city":null,"age":7}\n), file_name: "a.json", schema: schema)
+        # The empty values at the end of a line of PSV too, as CSV reads them, while without a schema they are nil.
+        assert_equal [{"name" => "Jack", "city" => "", "age" => ""}],
+                     read(%(name|city|age\nJack||\n), file_name: "a.psv", schema: schema.merge(fields: [{name: "name"}, {name: "city"}, {name: "age"}]))
+        assert_equal [{"name" => "Jack", "city" => nil, "age" => nil}], read(%(name|city|age\nJack||\n), file_name: "a.psv", schema: nil)
+      end
+
+      it "raises for a missing value written as text with missingValues [], which no text would read back as" do
+        schema = {missingValues: [], fields: [{name: "name"}, {name: "city"}]}
+        error  = assert_raises(IOStreams::Errors::InvalidValue) do
+          IOStreams.stream(StringIO.new).format(:csv).schema(schema).writer(:hash) { |io| io << {"name" => "Jack", "city" => nil} }
+        end
+
+        assert_equal "city", error.field
+        assert_match(/a missing value cannot be written as text, since the field has no missingValues/, error.message)
+        json = StringIO.new
+        IOStreams.stream(json).format(:json).schema(schema).writer(:hash) { |io| io << {"name" => "Jack", "city" => nil} }
+
+        assert_equal %({"name":"Jack","city":null}\n), json.string
+        csv = StringIO.new
+        IOStreams.stream(csv).format(:csv).schema(schema).writer(:hash) { |io| io << {"name" => "Jack", "city" => ""} }
+
+        assert_equal [{"name" => "Jack", "city" => ""}], read(csv.string, schema: schema)
       end
 
       it "reads an empty value of CSV without quotes as a missing value by the default missing values, or without a schema" do

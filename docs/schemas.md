@@ -342,7 +342,8 @@ otherwise setting the schema raises `ArgumentError`, naming the text or label th
 
 Without `""`, empty text is a value: a `string` or `any` field reads it as `""`, and every other type raises
 `IOStreams::Errors::InvalidValue` for it. An empty value of CSV is empty text with a schema, with or without quotes,
-such as the second value of `a,,b`, as frictionless-py reads it, so the missing values decide it too. A required field
+such as the second value of `a,,b`, as frictionless-py reads it, and so are the empty values at the end of a line of
+PSV, such as the last of `a|b|`, so the missing values decide them too. A required field
 raises for a missing value, as it does for `nil`.
 
 A value that is not text, such as a number of JSON, a Parquet file or a query, is never a missing value, apart from a
@@ -351,8 +352,10 @@ type, so a cell that holds the number `-99` is `nil` with `missingValues: ["-99"
 text of a cell is the text that the CSV of the spreadsheet holds, see [Excel spreadsheets](formats#excel-spreadsheets).
 
 Writing writes `nil`, and a missing value, as the first missing value of the field, such as `NA`, as frictionless-py
-does, so that it reads back as `nil`, or as an empty value when that is empty text, or there are none, and as `null` in
-JSON. A fixed width file writes such a value of a number as it is, space filled, rather than as zeros.
+does, so that it reads back as `nil`, or as an empty value when that is empty text, and as `null` in JSON. Without
+missing values, `missingValues: []`, a format of text, such as CSV, raises `IOStreams::Errors::InvalidValue` for `nil`,
+since no text would read back as missing, not even an empty value, which reads back as `""`, while JSON writes `null`.
+A fixed width file writes such a value of a number as it is, space filled, rather than as zeros.
 
 A [contract](contracts) read over the records of a schema of the file takes the values that the schema read from the
 text, so the missing values of the contract do not apply to them: only those of the schema, which reads the text.

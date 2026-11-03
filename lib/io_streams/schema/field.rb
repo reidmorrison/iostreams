@@ -957,7 +957,9 @@ module IOStreams
       #
       # A value of nil, or a missing value, is nil in the `:typed` and `:json` forms, and in the `:text` form the first
       # missing value of the field, such as "NA" for `missingValues: ["NA"]`, as frictionless-py writes it, or nil when
-      # it is empty text, so that the format writes its own empty value.
+      # it is empty text, so that the format writes its own empty value. A field without missing values,
+      # `missingValues: []`, raises `IOStreams::Errors::InvalidValue` for it in the `:text` form, since no text of the
+      # file would read back as missing, not even its empty value, which it reads as empty text.
       #
       # Raises `IOStreams::Errors::InvalidValue` when the value is not one of this type, or when a Hash or an Array
       # written as JSON holds a number that is not finite, such as NaN, which JSON cannot hold, naming this field.
@@ -965,7 +967,7 @@ module IOStreams
         return render_json_structure(value, form) if form != :typed && json_structure?(value)
 
         value = cast(value)
-        return (@missing.text if form == :text) if value.nil?
+        return missing_text(form) if value.nil?
         return value if form == :typed
         return json(value) if form == :json
         return clock_of(value) if form == :scalar && @zone
@@ -980,6 +982,21 @@ module IOStreams
       end
 
       protected
+
+      # Returns [String|nil] what the supplied form of #render writes for a missing value: in the `:text` form the first
+      # missing value of the field, or nil for empty text, which the format writes as its own empty value, otherwise nil.
+      #
+      # Raises `IOStreams::Errors::InvalidValue` in the `:text` form for a field without missing values, see #render.
+      def missing_text(form)
+        return unless form == :text
+        return @missing.text unless @missing.none?
+
+        raise(IOStreams::Errors::InvalidValue.new(
+                "Field #{name.inspect}: a missing value cannot be written as text, since the field has no missingValues, " \
+                "so no text reads back as missing: give it a value, or add the text of a missing value to missingValues",
+                field: name, value: nil
+              ))
+      end
 
       # Returns [Hash] the frozen properties of the field, for #== and #eql?, without the copy that #to_h makes.
       attr_reader :properties

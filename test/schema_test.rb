@@ -1413,8 +1413,18 @@ class SchemaTest < Minitest::Test
           assert_nil integer.render(nil, :json)
           assert_nil integer.render(nil, :typed)
           assert_nil schema_field({missingValues: ["", "NA"]}, type: "integer").render(nil, :text)
-          assert_nil schema_field({missingValues: []}, type: "integer").render(nil, :text)
           assert_nil field(type: "integer").render(nil, :text)
+        end
+
+        it "raises for nil written as text without missing values, which no text would read back as, and not otherwise" do
+          none  = schema_field({missingValues: []}, type: "integer")
+          error = assert_raises(IOStreams::Errors::InvalidValue) { none.render(nil, :text) }
+
+          assert_equal "value", error.field
+          assert_nil none.render(nil, :json)
+          assert_nil none.render(nil, :typed)
+          assert_nil none.render(nil, :scalar)
+          assert_equal "", schema_field({missingValues: []}, type: "string").render("", :text)
         end
 
         it "converts a value that a schema already read, or a store returned, without comparing it with them" do

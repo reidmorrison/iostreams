@@ -18,12 +18,20 @@ module Tabular
           [e.class, e.message]
         end
 
+        # With a schema, the parser reads an empty value without quotes as empty text, in the encoding of the line, as
+        # `CSV.parse_line` reads it with `nil_value:`.
+        let :schema_parser do
+          IOStreams::Tabular::Parser::Csv.new(schema: IOStreams::Schema.new(fields: [{name: "a"}]))
+        end
+
         def assert_parses_like_csv(line)
           expected = outcome { CSV.parse_line(line) }
           actual   = outcome { parser.parse(line) }
           return assert_nil(actual, "Parsing #{line.inspect}") if expected.nil?
 
           assert_equal expected, actual, "Parsing #{line.inspect}"
+          assert_equal outcome { CSV.parse_line(line, nil_value: line[0, 0]) }, outcome { schema_parser.parse(line) },
+                       "Parsing #{line.inspect} with a schema"
         end
 
         describe "#parse" do
@@ -82,6 +90,16 @@ module Tabular
                 line.insert(random.rand(line.length + 1), ['"', ",", "\n", "\r", " "].sample(random: random))
               end
               assert_parses_like_csv(line) unless IOStreams::Utils.blank?(line)
+            end
+          end
+
+          it "reads each empty value without quotes as empty text of its own with a schema, also of a line that CSV parses" do
+            [%(a,,"b\nc",), %(a,,b,)].each do |line|
+              values = schema_parser.parse(line)
+
+              assert_equal ["a", "", values[2], ""], values
+              refute_predicate values[1], :frozen?
+              refute_same values[1], values[3]
             end
           end
 

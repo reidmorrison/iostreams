@@ -83,9 +83,13 @@ module IOStreams
         end
 
         # Returns [Array] the values of the line that `CSV.parse_line` reads, an empty value without quotes as empty text
-        # with a schema, see #initialize.
+        # with a schema, see #initialize, in the encoding of the line, as #split_line reads it, and a String of its own,
+        # rather than the one `nil_value:` of the csv gem, which every empty value of every line would share.
         def csv_parse_line(line)
-          @empty_text ? CSV.parse_line(line, nil_value: EMPTY) : CSV.parse_line(line)
+          values = CSV.parse_line(line)
+          return values unless @empty_text && values
+
+          values.map! { |value| value.nil? ? line[0, 0] : value }
         end
 
         # Returns [Array] the values of a line without quotes, where an empty value is nil, or empty text with a schema,
