@@ -63,10 +63,12 @@ module IOStreams
     # that is not a file, whether a row whose every value is blank is a blank row, which the rows of a database query
     # are not, see `IOStreams::Query::Stream`, nor the rows of a slice of them, which carries it, see
     # `IOStreams::Slice::Stream`, whether the rows have no header row, which a slice says, see
-    # `IOStreams::Slice#header?`, and whether their values are those of the fields, see `IOStreams::Slice#typed?`, and
-    # the format of the text that its streams decide, such as the CSV of a spreadsheet, see
-    # `IOStreams::Tabular::Settings#tabular`.
-    SOURCE_OPTION_NAMES = %i[blank_rows headerless typed text_format].freeze
+    # `IOStreams::Slice#header?`, whether their values are those of the fields, see `IOStreams::Slice#typed?`, whether
+    # they are only a part of a file, such as the rows of a slice, see `IOStreams::Slice::Stream`, and the format of the
+    # text that its streams decide, such as the CSV of a spreadsheet, see `IOStreams::Tabular::Settings#tabular`, and the
+    # form in which its rows hold the values of a schema, such as the cells of a spreadsheet, see
+    # `IOStreams::StreamFormat#rows_value_form`.
+    SOURCE_OPTION_NAMES = %i[blank_rows headerless typed part_of_file text_format value_form].freeze
 
     # Parse a delimited data source.
     #
@@ -131,6 +133,14 @@ module IOStreams
     #     Not an option of a call that reads or writes rows.
     #     Default: false
     #
+    #   part_of_file: [true|false]
+    #     Whether the rows are only a part of a file, such as the rows of a slice, see `IOStreams::Slice::Stream`, or
+    #     those written into a store of slices, see `IOStreams::Slice::TargetStream#write_slices`, rather than the whole
+    #     file, so that the values of the fields and keys of a schema that must be unique within the file are not
+    #     checked, since a part of a file cannot tell whether a value is unique within it, see
+    #     `IOStreams::Schema::Columns.new`. Not an option of a call that reads or writes rows.
+    #     Default: false
+    #
     #   text_format: [Symbol|nil]
     #     The format of the text whose lines are read and written, when a stream decides it, such as `:csv` for a
     #     spreadsheet, see `IOStreams::Builder#text_format`, in which the rows of a format that holds the text of each
@@ -138,9 +148,17 @@ module IOStreams
     #     reads or writes rows.
     #     Default: nil, the lines are those of the format of the rows.
     #
-    # Raises ArgumentError for a `headerless` that is not true, false or nil, or a `typed` that is not true or false.
+    #   value_form: [Symbol|nil]
+    #     The form in which the rows read and written hold the values of a schema, see `IOStreams::Schema::Field#parse`
+    #     and `IOStreams::Schema::Field#render`, when the stream that reads and writes them decides it, such as `:scalar`
+    #     for the cells of a spreadsheet, see `IOStreams::StreamFormat#rows_value_form`. Not an option of a call that
+    #     reads or writes rows.
+    #     Default: nil, the form of the format, see `IOStreams::Tabular::Parser::Base.value_form`.
+    #
+    # Raises ArgumentError for a `headerless` that is not true, false or nil, or a `typed` or `part_of_file` that is not
+    # true or false.
     def initialize(format: nil, file_name: nil, schema: nil, contract: nil, default_format: :csv, row_format_options: nil,
-                   blank_rows: true, headerless: nil, typed: false, text_format: nil)
+                   blank_rows: true, headerless: nil, typed: false, part_of_file: false, text_format: nil, value_form: nil)
       @format = file_name && format.nil? ? self.class.format_from_file_name(file_name) : format
       @format ||= default_format
       raise(Errors::UnknownFormat, "The format cannot be inferred from the file name: #{file_name}") unless @format
@@ -148,6 +166,9 @@ module IOStreams
         raise(ArgumentError, "headerless must be true, false or nil: #{headerless.inspect}")
       end
       raise(ArgumentError, "typed must be true or false: #{typed.inspect}") unless [true, false].include?(typed)
+      unless [true, false].include?(part_of_file)
+        raise(ArgumentError, "part_of_file must be true or false: #{part_of_file.inspect}")
+      end
 
       @file_schema        = schema
       @contract           = contract
@@ -155,8 +176,9 @@ module IOStreams
       @typed              = typed
       @row_format_options = row_format_options || {}
       @text_format        = text_format
+      @value_form         = value_form
       @parser             = build_parser
-      @mapping            = build_mapping(blank_rows, headerless, typed)
+      @mapping            = build_mapping(blank_rows, headerless, typed, part_of_file)
     end
 
     # Returns [IOStreams::Tabular] a new tabular with the same schema that reads the rows of the supplied format, such as
@@ -406,6 +428,24 @@ module IOStreams
       @mapping.decimal_positions
     end
 
+    # Returns [Array<Integer>|nil] the positions of the values of the rows read whose field is a `string`, so that a
+    # source that holds its numbers as Floats, such as a spreadsheet, reads as text the number that each cell of those
+    # columns holds, to the digits that Excel displays, such as `2134` rather than `2134.0`, see
+    # `IOStreams::Xlsx::Reader::Rows`, or nil until the header row is read, which places them, see
+    # `IOStreams::Tabular::Mapping#string_positions`.
+    def string_positions
+      @mapping.string_positions
+    end
+
+    # Returns [Hash<Integer, #call>|nil] the positions of the values of the rows read whose field has a missing value of
+    # text other than empty text, such as "-99", with what answers whether text is one of them, so that a source whose
+    # values are not text, such as a spreadsheet, compares the text of its cells with them, see
+    # `IOStreams::Xlsx::Reader::Rows`, or nil until the header row is read, which places them, see
+    # `IOStreams::Tabular::Mapping#missing_positions`.
+    def missing_positions
+      @mapping.missing_positions
+    end
+
     # Returns [Array<Integer>] the positions of the values of the rows rendered whose field is a `string`, which a
     # format that writes the values themselves, such as a spreadsheet, keeps as text, see
     # `IOStreams::Xlsx::RowsWriter`, or none without a schema, whose values have no type.
@@ -441,15 +481,17 @@ module IOStreams
     # schema, which describes the file. See `IOStreams::Tabular::Mapping#declared_schema`.
     #
     # Raises `IOStreams::Errors::InvalidHeader` for two columns that are the same key once cleansed, such as `Amount ($)`
-    # and `Amount (€)`, since a schema cannot hold both.
+    # and `Amount (€)`, since a record read without a schema cannot hold both.
     def declared_schema(row)
       @mapping.declared_schema(row)
     end
 
-    # Raises ArgumentError when nothing names the keys of the records of the file, see #unnamed_columns?, so that a reader
-    # or writer of records raises before the file is opened, see `IOStreams::Record::Reader` and
-    # `IOStreams::Record::Writer`.
+    # Raises ArgumentError when nothing names the keys of the records of the file, see #unnamed_columns?, or two fields of
+    # the schema have the same key, such as the same name, which Frictionless accepts, but a record cannot hold both,
+    # see `IOStreams::Schema#check_record_keys`, so that a reader or writer of records raises before the file is opened,
+    # see `IOStreams::Record::Reader` and `IOStreams::Record::Writer`.
     def check_records
+      schema&.check_record_keys
       return unless unnamed_columns?
 
       raise(ArgumentError, "The #{format.inspect} rows have no header row, and no keys, so the keys of their records " \
@@ -748,14 +790,16 @@ module IOStreams
 
     # Returns [IOStreams::Tabular::Mapping] the mapping of the columns of the file, see #mapping: by the fields of the
     # schema, otherwise by the header row, which it cleanses. A row whose every value is blank is a blank row unless
-    # `blank_rows` is false, the rows have no header row as `headerless` says, and the schema restores the values read
-    # from the forms that a store returned them in when `typed`, see #initialize.
-    def build_mapping(blank_rows, headerless, typed)
+    # `blank_rows` is false, the rows have no header row as `headerless` says, the schema restores the values read
+    # from the forms that a store returned them in when `typed`, and does not check the values that must be unique
+    # within the file when the rows are only a part of it, `part_of_file`, see #initialize.
+    def build_mapping(blank_rows, headerless, typed, part_of_file)
       header = Header.new
       if @schema
         SchemaMapping.new(@schema, header: header, parser: parser, format: format, blank_rows: blank_rows,
                                    headerless: headerless, typed: typed, every_field: !@contract.nil?,
-                                   contract: (@contract if @file_schema))
+                                   contract: (@contract if @file_schema), part_of_file: part_of_file,
+                                   value_form: @value_form)
       else
         HeaderMapping.new(header: header, parser: parser, format: format, blank_rows: blank_rows, headerless: headerless)
       end

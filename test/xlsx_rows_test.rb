@@ -100,6 +100,18 @@ class XlsxRowsTest < Minitest::Test
         assert_equal BigDecimal("0.3"), read(IOStreams.path(file_name).as(contract)).first["ratio"]
       end
 
+      it "reads a number cell into a string field as the number that the cell holds, to the digits that Excel displays" do
+        contract = IOStreams::Contract.new(
+          fields: %w[id amount ordered_at shipped_on zip paid notes ratio].map { |name| {name: name, type: "string"} }
+        )
+
+        assert_equal [{"id" => "1001", "amount" => "12.5", "ordered_at" => "2026-10-25T09:30:00Z", "shipped_on" => "2026-10-25",
+                       "zip" => "01234", "paid" => "true", "notes" => nil, "ratio" => "0.3"}],
+                     read(IOStreams.path(file_name).as(contract))
+        assert_equal [{"id" => "1001", "amount" => 12.5}],
+                     read(IOStreams.path(file_name).schema(fieldsMatch: "partial", fields: [{name: "id", type: "string"}, {name: "amount"}]))
+      end
+
       it "declares the names of its columns, whose cells each have their own type" do
         assert_equal(%w[any], IOStreams.path(file_name).infer_schema.fields.map(&:type).uniq)
       end
@@ -145,6 +157,63 @@ class XlsxRowsTest < Minitest::Test
 
         assert_equal [{"ratio" => BigDecimal("0.3"), "note" => "x"}], read(IOStreams.path(file_name).schema(schema))
       end
+
+      it "keep every digit of a whole number below 2**53, which a Float holds exactly, and are plain digits otherwise" do
+        workbook(%w[card small million big ratio count], [4_111_111_111_111_111.0, 1e-7, 1e15, 1.5e20, 0.1 + 0.2, 4_111_111_111_111_111.0])
+        schema = {fields: %w[card small million big ratio].map { |name| {name: name, type: "string"} } + [{name: "count", type: "number"}]}
+
+        assert_equal [{"card" => "4111111111111111", "small" => "0.0000001", "million" => "1000000000000000",
+                       "big" => "150000000000000000000", "ratio" => "0.3", "count" => BigDecimal("4111111111111111")}],
+                     read(IOStreams.path(file_name).schema(schema))
+      end
+
+      it "are the text of a string field, also of a file without a header row" do
+        workbook([2134.0, 0.1 + 0.2, -1.5, 1e20])
+        schema = {header: false, fields: %w[zip ratio change big].map { |name| {name: name, type: "string"} }}
+
+        assert_equal [{"zip" => "2134", "ratio" => "0.3", "change" => "-1.5", "big" => "100000000000000000000"}],
+                     read(IOStreams.path(file_name).schema(schema))
+      end
+
+      it "round the exact value of the Float half up, rather than its text, the same on every Ruby" do
+        # The Floats of 0.1234567890123455 and 5.393774484000625e-08 are below their text, which ends in 5.
+        workbook(%w[a b], [0.1234567890123455, 5.393774484000625e-08])
+        strings = {fields: %w[a b].map { |name| {name: name, type: "string"} }}
+        numbers = {fields: %w[a b].map { |name| {name: name, type: "number"} }}
+
+        assert_equal [{"a" => "0.123456789012345", "b" => "0.0000000539377448400062"}], read(IOStreams.path(file_name).schema(strings))
+        assert_equal [{"a" => BigDecimal("0.123456789012345"), "b" => BigDecimal("0.0000000539377448400062")}],
+                     read(IOStreams.path(file_name).schema(numbers))
+      end
+    end
+
+    describe "missing values" do
+      it "compare the text of each cell, whatever Excel holds, as Frictionless compares text before it reads a type" do
+        # Excel holds the number -99 as the text "-99", which a field reads as a Float.
+        workbook(%w[name score code on], ["Jack", -99, -99, Date.new(2026, 1, 2)], ["NA", 7, 12, Date.new(2026, 1, 3)])
+        schema = {
+          missingValues: ["NA"],
+          fields:        [
+            {name: "name"},
+            {name: "score", type: "integer", missingValues: ["-99"]},
+            {name: "code", type: "string", missingValues: ["-99"]},
+            {name: "on", type: "date", missingValues: ["2026-01-02"]}
+          ]
+        }
+
+        assert_equal [{"name" => "Jack", "score" => nil, "code" => nil, "on" => nil},
+                      {"name" => nil, "score" => 7, "code" => "12", "on" => Date.new(2026, 1, 3)}],
+                     read(IOStreams.path(file_name).schema(schema))
+        assert_equal [{"name" => "Jack", "score" => nil}, {"name" => nil, "score" => 7}],
+                     read(IOStreams.path(file_name).as(fieldsMatch: "subset", missingValues: ["NA"], fields: [{name: "name"}, schema[:fields][1]]))
+      end
+
+      it "compare the text of each cell of a file without a header row, by the positions of its fields" do
+        workbook([-99, "x"], [3, "y"])
+        schema = {header: false, fields: [{name: "score", type: "integer", missingValues: ["-99"]}, {name: "note"}]}
+
+        assert_equal [{"score" => nil, "note" => "x"}, {"score" => 3, "note" => "y"}], read(IOStreams.path(file_name).schema(schema))
+      end
     end
 
     describe "cells of each kind" do
@@ -159,6 +228,18 @@ class XlsxRowsTest < Minitest::Test
         replace_sheet(sheet)
 
         assert_equal [{"a" => nil, "b" => "xy", "c" => 2.0}], read
+      end
+
+      it "gives the time of the clock of a cell of a time of day, and nothing for any other cell" do
+        assert_equal "09:30:00", IOStreams::Xlsx::Cells.clock("0.39583333333333331", nil, :time)
+        assert_equal "09:30:00.500", IOStreams::Xlsx::Cells.clock("0.39583912037037035", "n", :time)
+        assert_nil IOStreams::Xlsx::Cells.clock("1.5", nil, :time)
+        assert_nil IOStreams::Xlsx::Cells.clock("-0.5", nil, :time)
+        assert_nil IOStreams::Xlsx::Cells.clock("0.5", nil, :date_time)
+        assert_nil IOStreams::Xlsx::Cells.clock("0.5", nil, nil)
+        assert_nil IOStreams::Xlsx::Cells.clock("0.5", "s", :time)
+        assert_nil IOStreams::Xlsx::Cells.clock("x", nil, :time)
+        assert_nil IOStreams::Xlsx::Cells.clock("", nil, :time)
       end
 
       it "classifies the number formats of Excel, rather than as the gem that reads them does" do
@@ -255,6 +336,32 @@ class XlsxRowsTest < Minitest::Test
           end
         end
 
+        it "is the text of the date, the time in UTC, or the time of the clock of a time of day in a string field" do
+          strings = IOStreams.path(file_name).schema(fields: columns.map { |name, *| {name: name, type: "string"} })
+          record  = {
+            "short" => "2026-09-06", "iso" => "2026-09-06", "dmy" => "2026-09-06", "at" => "2026-03-08T02:30:00Z",
+            "at_ms" => "2026-03-08T02:30:00.500Z", "clock" => "09:30:00", "shift" => "09:30:00", "count" => "1001",
+            "items" => "5"
+          }
+
+          assert_equal [record], read(strings)
+        end
+
+        it "reads the clock of a cell of a date and time, or of a time of day, in the timeZone of its field" do
+          zoned = IOStreams.path(file_name).schema(
+            fieldsMatch: "subset",
+            fields:      [
+              {name: "at_ms", type: "datetime", timeZone: "-05:00"},
+              {name: "clock", type: "time", timeZone: "America/New_York"},
+              {name: "shift", type: "time", timeZone: "+05:30"}
+            ]
+          )
+
+          assert_equal [{"at_ms" => Time.utc(2026, 3, 8, 7, 30, 0.5), "clock" => Time.new(2000, 1, 1, 9, 30, 0, "-05:00"),
+                         "shift" => Time.new(2000, 1, 1, 9, 30, 0, "+05:30")}],
+                       read(zoned)
+        end
+
         it "reads back through a contract as the same values as the rows of the workbook, once copied to a CSV file" do
           csv = File.join(dir, "copy.csv")
           IOStreams.path(csv).copy_from(file_name)
@@ -272,6 +379,16 @@ class XlsxRowsTest < Minitest::Test
         assert_equal "02:30:00", read(IOStreams.path(file_name), :line).last
         assert_equal [{"late" => Time.utc(2000, 1, 1, 2, 30)}], read(IOStreams.path(csv).as(contract))
         assert_equal read(IOStreams.path(file_name).as(contract)), read(IOStreams.path(csv).as(contract))
+      end
+
+      it "is the time of its clock in a string field only for a time of day, not a date and time of the same time" do
+        format_cells([["on_day", 22, nil, "36526.395833333336"], ["clock", 20, nil, "0.39583333333333331"],
+                      ["late", 20, nil, "46089.104166666667"]])
+        strings = IOStreams.path(file_name).schema(fields: %w[on_day clock late].map { |name| {name: name, type: "string"} })
+
+        assert_equal [Time.utc(2000, 1, 1, 9, 30)] * 2, read(IOStreams.path(file_name), :array).last.first(2)
+        assert_equal [{"on_day" => "2000-01-01T09:30:00Z", "clock" => "09:30:00", "late" => "2026-03-08T02:30:00Z"}],
+                     read(strings)
       end
 
       it "is the number of a date or a time that Excel does not hold, such as a negative one, or one of a huge exponent" do
@@ -348,6 +465,17 @@ class XlsxRowsTest < Minitest::Test
         end
 
         assert_equal [{"zip" => "01234", "code" => 1234.0}], read
+      end
+
+      it "writes a number rounded to the decimals of its field, as CSV writes it" do
+        schema = {fields: [{name: "amount", type: "number", decimals: 2}, {name: "ratio", type: "number", floatNumber: true, decimals: 2}]}
+        IOStreams.path(file_name).schema(schema).writer(:hash) do |io|
+          io << {"amount" => BigDecimal("12.345"), "ratio" => 2.675}
+          io << {"amount" => BigDecimal("-0.0049"), "ratio" => -0.001}
+        end
+
+        assert_equal [{"amount" => 12.35, "ratio" => 2.68}, {"amount" => 0.0, "ratio" => 0.0}], read
+        assert_equal ["0.0", "0.0"], read.last.values.map(&:to_s)
       end
 
       it "writes the values of a file without a schema as their types" do

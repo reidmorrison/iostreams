@@ -456,7 +456,12 @@ layout returned them, see [Keys of the records read](schemas#keys-of-the-records
 Unlike a layout, a schema that sets neither `truncate:` nor `floatNumber:` raises `IOStreams::Errors::ValueTooLong`
 for a string that is longer than its field, and reads a `number` field as a `BigDecimal`. The schema that
 `from_layout` returns sets both, so that it reads and writes as the layout did, except as described in
-[A fixed width number that holds no number raises](#a-fixed-width-number-that-holds-no-number-raises).
+[A fixed width number that holds no number raises](#a-fixed-width-number-that-holds-no-number-raises). A `string` field
+of only spaces is `nil`, a missing value, where the layout read empty text, `""`, see [Types](schemas#types). A
+`string` field writes a `Float` that is not finite as `NaN`, `INF` or `-INF`, where the layout wrote `NaN`, `Infinity`
+or `-Infinity`. A `number` field with `decimals` rounds the number read to them, such as `12.35` for `12.346` with
+`decimals: 2`, where the layout read all of its digits, and writes a negative number that rounds to zero, such as
+`-0.001`, as zero, without a minus sign, where the layout wrote one, such as `-0000.00`.
 
 `IOStreams::Schema.from_layout` raises `IOStreams::Errors::InvalidLayout` for a layout that a schema cannot hold: two
 columns with the same key, including `:a` and `"a"`, a key that is neither a String nor a Symbol, such as `1`, or
@@ -557,10 +562,11 @@ Fix: rescue `IOStreams::Errors::InvalidEncoding`, an `Encoding::UndefinedConvers
 Reading an `:integer` or `:float` column of a fixed width file that holds no number, such as `N/A` or `12-`, now
 raises `IOStreams::Errors::InvalidValue`, which names the field and the value. Previously the column was converted
 with `to_i` or `to_f`, to `0`, or to the number that its leading digits make, such as `12` for `12-`, so that a
-corrupt file was read without an error. Writing such a value also raises, as does writing a fraction to an
-`:integer` column, which was truncated. An `:integer` column still reads a whole number with a decimal point, such
-as `12.0`, as `12`, as `to_i` did, but a fraction, such as `12.5`, raises. A blank column is still read as `nil`,
-and a missing number is still written as zeros.
+corrupt file was read without an error. Writing such a value also raises, as does text of only spaces, such as
+`"  "`, which the layout wrote as zeros, and a fraction written to an `:integer` column, which was truncated. An
+`:integer` column still reads a whole number with a decimal point, such as `12.0`, as `12`, as `to_i` did, but a
+fraction, such as `12.5`, raises. A blank column is still read as `nil`, and a missing number is still written as
+zeros.
 
 Fix: correct the data, or read the column as a string, with `type: "string"` in the schema, and convert it in the
 application.
@@ -744,6 +750,9 @@ A schema reads the same records as the options it replaces, named as above, exce
   where the column options left the header row and the rows as they are in the file.
 * A value after the last column, which is not blank, raises `IOStreams::Errors::InvalidHeader` unless `fieldsMatch`
   is `"subset"` or `"partial"`, where it was dropped.
+* Empty text, such as a quoted `""` in CSV or `""` in JSON, is a missing value, `nil`, where the column options read
+  it as it is, see [Types](schemas#types). Writing works the same way: empty text is written as a missing value, an
+  empty value in CSV and `null` in JSON, where the column options wrote `""`.
 * A JSON record that has none of the fields, such as `{"other":3}` for the fields `name` and `zip`, raises
   `IOStreams::Errors::InvalidHeader` with `fieldsMatch: "partial"`, which needs at least one of them, where `columns:`
   read it as an empty record, `{}`.
@@ -754,6 +763,10 @@ A schema reads the same records as the options it replaces, named as above, exce
   keep the name and give the field the column as an alias, such as `{name: "prnom", aliases: ["Prénom"]}`.
 * A key of a record written that is the field only once compared loosely, such as `LastName` for `last_name`, is
   written, where `columns:` wrote an empty value.
+* A `Float` or `BigDecimal` that is not finite is written as `INF` or `-INF`, as Frictionless spells them, where the
+  column options wrote `Infinity` or `-Infinity`, and writing one to JSON raises `IOStreams::Errors::InvalidValue`,
+  where the json gem raised `JSON::GeneratorError`, and a Rails app, whose ActiveSupport writes it, wrote `null`, see
+  [Types](schemas#types).
 
 ##### Checking a schema before upgrading
 
@@ -831,9 +844,10 @@ v3.0 also writes spreadsheets, which v2.2 cannot, see [Excel spreadsheets](forma
 
 Give the columns that the code reads a schema or a [contract](contracts), whose fields convert each value to their
 types, such as `{name: "id", type: "integer"}` for `1001.0`, or `{name: "zip", type: "string"}` for text. With a type
-for each column, the values are those that v2.2 reads, apart from the text of a date and time cell, see
-[Spreadsheet date and time cells are read as ISO 8601](#spreadsheet-date-and-time-cells-are-read-as-iso-8601), and a
-`number` field, which reads the 15 digits that Excel displays, such as `0.3` where v2.2 reads `0.30000000000000004`.
+for each column, the values are those that v2.2 reads: in both, a `number` field reads the 15 digits that Excel
+displays, such as `0.3` where v2.1 read `0.30000000000000004`, and a `string` field the number that the cell holds, to
+those digits, such as `2134` where v2.1 read `2134.0`, and a cell of a time of day as the time of its clock, such as
+`09:30:00`, and both keep every digit of a whole number below 2^53, such as the card number `4111111111111111`.
 Remove a `delimiter:` or `buffer_size:` supplied to the rows and records of a spreadsheet, and an encoding set with
 `#encoding` when they are read or written, which now raise `ArgumentError`, since its rows are cells rather than lines of
 text; the `:line` mode still takes them. v2.2 reports reading the rows and records of a spreadsheet without a type for
@@ -1793,6 +1807,8 @@ for each one.
 - The message of an `IOStreams::Errors::InvalidValue` that a reader of rows or records raises ends with the record and
   the line, such as `..., in record 6 on line 7`. `#reason` returns the message without them, for code that compares
   the whole message.
+- Without a schema, a `Float` or `BigDecimal` that is not finite is written to CSV, and the other formats of text, as
+  `INF` or `-INF`, as Frictionless spells them, where v2.1 wrote `Infinity` or `-Infinity`.
 
 ## Upgrading to v2.2
 
@@ -1956,10 +1972,10 @@ working after an upgrade, apart from the changes that v3.0 makes to every file:
   reports as deprecated, while v3.0 takes only one at midnight, by its own clock, as its date, and raises
   `IOStreams::Errors::InvalidValue` for any other, rather than lose its time of day, see
   [A date field takes a time only at midnight](#a-date-field-takes-a-time-only-at-midnight).
-* A spreadsheet read with a type for each column reads the same values in both, apart from the text of a date and time
-  cell, which v3.0 reads in UTC, and a `number` field, which reads the 15 digits that Excel displays in v3.0, see
-  [Rows of a spreadsheet are the values of its cells](#rows-of-a-spreadsheet-are-the-values-of-its-cells).
 * Parquet files are only in v3.0.
+* A property of a schema or a field that IOStreams does not know raises `ArgumentError` in v2.2, while v3.0 keeps it,
+  as Frictionless allows, unless it is close to a property that IOStreams knows, such as `trueValue`, see
+  [Frictionless compatibility](schemas#frictionless-compatibility). Two fields of the same name raise in v2.2.
 
 ### Changes in behavior in v2.2
 

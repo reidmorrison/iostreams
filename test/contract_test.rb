@@ -48,7 +48,7 @@ class ContractTest < Minitest::Test
       end
 
       it "raises for a schema that is not valid" do
-        assert_raises(ArgumentError) { IOStreams::Contract.new(fields: [{name: "id", type: "year"}]) }
+        assert_raises(ArgumentError) { IOStreams::Contract.new(fields: [{name: "id", type: "geojson"}]) }
         assert_raises(ArgumentError) { IOStreams::Contract.new([{name: "id"}]) }
         assert_raises(ArgumentError) { IOStreams::Contract.new({fields: []}, fieldsMatch: "subset") }
       end
@@ -121,7 +121,7 @@ class ContractTest < Minitest::Test
       end
 
       it "raises for a field that is not valid as it is declared" do
-        assert_raises(ArgumentError) { Class.new(IOStreams::Contract) { field :id, :year } }
+        assert_raises(ArgumentError) { Class.new(IOStreams::Contract) { field :id, :geojson } }
         assert_raises(ArgumentError) { Class.new(IOStreams::Contract) { field "id", :integer } }
         assert_raises(ArgumentError) { Class.new(IOStreams::Contract) { field :"my-field", :integer } }
         assert_raises(ArgumentError) { Class.new(IOStreams::Contract) { field :id, :integer, colour: "red" } }
@@ -131,12 +131,54 @@ class ContractTest < Minitest::Test
         assert_raises(ArgumentError) { Class.new(IOStreams::Contract) { fields_match nil } }
       end
 
-      it "keeps the other constraints of a required field, named as Ruby names them, which a field rejects unless supported" do
-        error = assert_raises(ArgumentError) do
-          Class.new(IOStreams::Contract) { field :id, :integer, required: true, constraints: {max_length: 5} }
+      it "sets the missing values of every field with missing_values, which a field's own missing_values: replaces" do
+        contract = Class.new(IOStreams::Contract) do
+          missing_values ["", "NA"]
+          field :id, :integer
+          field :score, :integer, missing_values: ["-99"]
         end
 
-        assert_includes error.message, '"maxLength" is not supported'
+        assert_equal({missingValues: ["", "NA"], fields: [{name: "id", type: "integer"}, {name: "score", type: "integer", missingValues: ["-99"]}]},
+                     contract.to_h)
+        assert_nil contract.new(id: "NA").id
+        assert_nil contract.new(score: "-99").score
+        assert_raises(IOStreams::Errors::InvalidValue) { contract.new(score: "NA") }
+        assert_includes contract.to_dsl("Scores"), %(  missing_values ["", "NA"]\n)
+        assert_includes contract.to_dsl("Scores"), %(field :score, :integer, missing_values: ["-99"])
+        assert_raises(ArgumentError) { Class.new(IOStreams::Contract) { missing_values "NA" } }
+      end
+
+      it "checks the other constraints of a field, and its categories, and writes them as Ruby names them" do
+        contract = Class.new(IOStreams::Contract) do
+          field :code, :string, constraints: {min_length: 2, pattern: "[A-Z]+"}, categories: %w[AB CD], categories_ordered: true
+          field :age, :integer, required: true, constraints: {minimum: 0, exclusive_maximum: 150}
+        end
+
+        assert_equal({minLength: 2, pattern: "[A-Z]+"}, contract.fields.first.to_h[:constraints])
+        assert_equal "AB", contract.new(code: "AB", age: 3).code
+        assert_raises(IOStreams::Errors::InvalidValue) { contract.new(code: "EF", age: 3) }
+        assert_raises(IOStreams::Errors::InvalidValue) { contract.new(code: "AB", age: 150) }
+        dsl = contract.to_dsl("Codes")
+
+        assert_includes dsl, %(constraints: {min_length: 2, pattern: "[A-Z]+"})
+        assert_includes dsl, %(required: true, constraints: {minimum: 0, exclusive_maximum: 150})
+        assert_equal contract.to_h, Class.new(IOStreams::Contract) { class_eval(dsl.lines[1..-2].join, __FILE__, __LINE__) }.to_h
+      end
+
+      it "raises for an option of a field that is not a property of a field, which a schema from a Hash would keep" do
+        error = assert_raises(ArgumentError) { Class.new(IOStreams::Contract) { field :weight, :number, unit: "kg" } }
+        assert_equal 'The field "weight" has no option :unit, which is not a property of a field, see IOStreams::Schema::Field',
+                     error.message
+        assert_equal({name: "weight", type: "number", unit: "kg"},
+                     IOStreams::Contract.new(fields: [{name: "weight", type: "number", unit: "kg"}]).fields.first.to_h)
+      end
+
+      it "keeps the other constraints of a required field, named as Ruby names them, which a field rejects unless supported" do
+        error = assert_raises(ArgumentError) do
+          Class.new(IOStreams::Contract) { field :id, :integer, required: true, constraints: {json_schema: {}} }
+        end
+
+        assert_includes error.message, '"jsonSchema" is not supported'
       end
 
       it "names the subclass that has no fields" do

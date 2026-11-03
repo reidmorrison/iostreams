@@ -40,29 +40,48 @@ module IOStreams
       #     `IOStreams::Schema::ContractColumns`.
       #     Default: nil
       #
+      #   part_of_file: [true|false]
+      #     Whether the rows are only a part of a file, such as those of a slice, so that the values that must be unique
+      #     within the file are not checked, see `IOStreams::Schema::Columns#initialize`.
+      #     Default: false
+      #
+      #   value_form: [Symbol|nil]
+      #     The form in which the rows read and written hold the values of the fields, see
+      #     `IOStreams::Schema::Field#parse` and `IOStreams::Schema::Field#render`.
+      #     Default: nil, the form of the format, see `IOStreams::Tabular::Parser::Base.value_form`.
+      #
       #   See `IOStreams::Tabular::Mapping#initialize` for the others.
       #
       # Raises ArgumentError when the rows of a format with a header row, such as CSV, have none, and the schema cannot
-      # describe them, see `IOStreams::Schema#check_fields_in_order`.
+      # describe them, see `IOStreams::Schema#check_fields_in_order`, and when the rows of the format are records, such as
+      # JSON, or a contract meets the records of the schema, also in the `:array` mode, which two fields of the same key
+      # cannot be, see `IOStreams::Schema#check_record_keys`.
       def initialize(schema, header:, parser:, format:, blank_rows: true, headerless: nil, typed: false, every_field: false,
-                     contract: nil)
+                     contract: nil, part_of_file: false, value_form: nil)
         super(header: header, parser: parser, format: format, blank_rows: blank_rows)
+        schema.check_record_keys if parser.class.keyed? || contract
         @schema          = schema
+        # The form of the values that the format reads and writes, see `IOStreams::Tabular::Parser::Base.value_form`,
+        # which the fields read them from, and render them in, see `IOStreams::Schema::Field#parse` and #render, unless
+        # the stream that reads and writes the rows decides it, such as `:scalar` for the cells of a spreadsheet, see
+        # `IOStreams::StreamFormat#rows_value_form`.
+        @form            = value_form || parser.class.value_form
         @columns         =
           if contract
-            IOStreams::Schema::ContractColumns.new(schema.columns(typed: typed, every_field: true),
-                                                   contract.columns(every_field: true))
+            IOStreams::Schema::ContractColumns.new(
+              schema.columns(typed: typed, every_field: true, form: @form, part_of_file: part_of_file),
+              contract.columns(every_field: true, form: @form, read: true, part_of_file: part_of_file)
+            )
           else
             # A contract reads a key that a record leaves out as a missing value, while a schema of the file keeps the
             # rule of `fieldsMatch` for each record, as in v2.2.
-            schema.columns(typed: typed, every_field: every_field, keys_vary: every_field && parser.class.keys_vary?)
+            schema.columns(typed: typed, every_field: every_field, keys_vary: every_field && parser.class.keys_vary?,
+                           form: @form, part_of_file: part_of_file)
           end
         @requires_header = parser.requires_header? && (headerless.nil? ? schema.header? : !headerless)
         # Whether each row is a record whose keys are its columns, such as JSON, rather than the values in the order of
-        # the columns, see `IOStreams::Tabular::Parser::Base.keyed?`, and the form in which the format writes the values
-        # of the fields.
+        # the columns, see `IOStreams::Tabular::Parser::Base.keyed?`.
         @keyed           = parser.class.keyed?
-        @form            = parser.class.value_form
         # The columns of the rows of a file without a header row are the fields, in order: of a format with one whose
         # rows have none, see `IOStreams::Schema#check_fields_in_order`, or of a format without one, such as fixed width,
         # or JSON, whose rows are the values of the fields of its records.
@@ -181,6 +200,24 @@ module IOStreams
       # header row, otherwise nil until the header row is matched to the fields.
       def decimal_positions
         @columns.decimal_positions(in_order: !@requires_header)
+      end
+
+      # Returns [Array<Integer>|nil] the positions of the values of the rows read whose field is a `string`, see
+      # `IOStreams::Schema::Columns#string_positions`, as for #decimal_positions.
+      def string_positions
+        @columns.string_positions(in_order: !@requires_header)
+      end
+
+      # Returns [Hash<Integer, #call>|nil] the positions of the values of the rows read whose field has a missing value of
+      # text other than empty text, see `IOStreams::Schema::Columns#missing_positions`, as for #decimal_positions.
+      def missing_positions
+        @columns.missing_positions(in_order: !@requires_header)
+      end
+
+      # Returns [Array<Integer>] the positions of the values of the rows rendered whose field is a `string` of bytes, see
+      # `IOStreams::Schema::Columns#binary_positions`.
+      def binary_positions
+        @columns.binary_positions
       end
 
       # Returns [Array<Integer>] the positions of the values of the rows rendered whose field is a `string`, see

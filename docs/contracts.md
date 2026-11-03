@@ -73,8 +73,12 @@ Every one of them yields the same record:
   requires, and the source does not have, raises `IOStreams::Errors::InvalidHeader` before any work starts. A key that
   a JSON record leaves out is a value instead, which reading checks, as above.
 * Each value converts at most once: text, such as that of CSV, is parsed, and a value that is already of the type of its
-  field passes through, such as a `BigDecimal` of a Parquet file or a query. A value that cannot be of the type of its
-  field, such as `N/A` for `amount`, raises `IOStreams::Errors::InvalidValue`.
+  field passes through, such as a `BigDecimal` of a Parquet file or a query, apart from a number with more digits after
+  its decimal point than the `decimals` of its field, which is rounded to them, such as `12.35` for the `12.3456` of a
+  Parquet `decimal(38, 4)` with `decimals: 2`, as a contract's setter rounds it. A value that cannot be of the type of
+  its field, such as `N/A` for `amount`, raises `IOStreams::Errors::InvalidValue`. With a schema of the file set with
+  `#schema`, that schema reads the text, by its own `missingValues`, so those of the contract do not apply to the
+  values that it read, see [Missing values](schemas#missing-values).
 * A column whose type the source declares, such as a Parquet file, a query or the schema of a file, and which can never
   be the type of its field, such as a `boolean` for `amount`, raises `IOStreams::Errors::IncompatibleType` before the
   first row, see [Types that never fit](#types-that-never-fit).
@@ -143,13 +147,14 @@ Each raises `ArgumentError` when no contract is set.
 ### Types that never fit
 
 A source that declares the type of each column, such as a Parquet file, a query or the schema of a file, meets the
-contract before the first row. A value converts only when nothing is lost, so a column whose type can never be that of
-its field raises `IOStreams::Errors::IncompatibleType`, which is not an `InvalidHeader`:
+contract before the first row. A value converts only when nothing is lost, apart from a number rounded to the
+`decimals` of its field, so a column whose type can never be that of its field raises
+`IOStreams::Errors::IncompatibleType`, which is not an `InvalidHeader`:
 
 | The source declares | The field's type that takes it |
 |---------------------|--------------------------------|
 | `string`, or `any` | every type, since text is parsed, and each value of type `any` is checked as it is read |
-| `integer` or `number` | `integer`, `number`, `string` or `any`, where an `integer` field raises for a value with a fraction |
+| `integer` or `number` | `integer`, `number`, `boolean`, `string` or `any`, where an `integer` field raises for a value with a fraction, and a `boolean` field reads `1` and `0` and raises for any other number |
 | `datetime` | `datetime`, `date`, `time`, `string` or `any` |
 | `object` or `array` | its own or `any`, since a `string` field takes neither |
 | any other type | its own, `string` or `any` |
@@ -202,13 +207,15 @@ end
 # {"email" => "j@x.com", "date_of_birth" => #<Date: 2001-02-03 ((2451944j,0s,0n),+0s,2299161j)>, "subscribed" => true}
 ~~~
 
-* `field` takes the name of the field in Ruby, its type, see [Types](schemas#types), and the other properties of a
-  field, see [Field properties](schemas#field-properties), as Ruby names them, such as `decimals:`, `aliases:`,
-  `format:`, `true_values:` or `allow_blank:`. `required: true` is `constraints: {required: true}`, and `name:` names
-  the field in its schema, such as `name: "Ordered At"`, when it differs from its name in Ruby.
-* `fields_match`, `key_type` and `extra_columns` set `fieldsMatch`, `keyType` and `extraColumns`, see
-  [Schema properties](schemas#schema-properties). Without `fields_match`, the columns of a source must be the fields,
-  in order.
+* `field` takes the name of the field in Ruby, its type, see [Types](schemas#types) and
+  [Types and conversions](types), and the other properties of a field, see [Field properties](schemas#field-properties),
+  as Ruby names them, such as `decimals:`, `aliases:`, `format:`, `true_values:` or `allow_blank:`. `required: true` is
+  `constraints: {required: true}`, and `name:` names the field in its schema, such as `name: "Ordered At"`, when it
+  differs from its name in Ruby.
+* `fields_match`, `key_type`, `extra_columns`, `missing_values`, `unique_limit`, and after the fields that they name,
+  `primary_key` and `unique_keys`, set `fieldsMatch`, `keyType`, `extraColumns`, `missingValues`, `uniqueLimit`,
+  `primaryKey` and `uniqueKeys`, see [Schema properties](schemas#schema-properties). Without `fields_match`, the columns
+  of a source must be the fields, in order.
 * A subclass of a contract starts with its fields.
 * `Order.fields` returns its fields, and `Order.to_h` the contract as a Frictionless Table Schema, see below.
 * A contract is a class of its own, so name it so that it does not clash with a class of the application, such as an
@@ -307,8 +314,10 @@ puts IOStreams.path("samples/orders.csv").infer_schema(sample: 1_000).to_dsl("Or
   number or a string, raises `ArgumentError`, as does `sample:` with a schema set with `#schema`, which already gives
   the types.
 * It drafts `integer`, `number` with the most decimals seen, `boolean`, and `date`, `datetime` and `time` from ISO 8601
-  text. Anything else is `string`, and text with a leading zero, such as `01234` or `007`, stays `string`. A column
-  with no value in the sample is `any`, for a person to decide.
+  text. A record after the sample whose number has more decimals is rounded to them, so draft from every record, with
+  `sample: :all`, or check the decimals of a draft, when a file can have more. Anything else is `string`, and text with a leading zero, such as `01234` or `007`, stays `string`, as does a
+  column with text of only whitespace, which any other type raises for. A column with no value in the sample is `any`,
+  for a person to decide.
 * It recognizes US dates, such as `10/25/2026`, and records their format on the field, as `format: "%m/%d/%Y"`. A day
   above 12 settles whether the month or the day is first. When every sampled date could be either, it drafts month
   first, and says so in the field's `description`, for the reviewer.
@@ -325,7 +334,9 @@ contract writes its own class the same way with `Order.to_dsl`.
 
 The draft is a schema, an `IOStreams::Schema`: `#to_contract` returns its contract, without the `format` of a date,
 which describes how one file writes its text, and so stays in the schema of that file, and `#to_dsl` writes a comment
-for each `format` that it leaves out. A file of US dates is read with both: save the draft as the schema of the file
+for each `format` that it leaves out. It keeps the `timeZone` of a `datetime` or `time`, see
+[Time zones](schemas#time-zones), since the records of the program are in that zone, whatever file they are read
+from. A file of US dates is read with both: save the draft as the schema of the file
 too, and set it with `#schema` beside `#as`. To keep the contract as JSON instead, save the Hash of its
 contract, see [Building a contract from a Hash](#building-a-contract-from-a-hash):
 

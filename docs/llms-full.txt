@@ -406,6 +406,8 @@ When a gem is missing, the feature that needs it raises `LoadError`, naming the 
 * [File formats](formats): CSV, JSON, Excel, fixed width and Parquet files.
 * [Contracts](contracts): the typed records that your code needs, read the same way from any source.
 * [Schemas](schemas): describing the columns of a file, and the types and properties of fields.
+* [Types and conversions](types): how each type reads and writes values, with examples, and where IOStreams differs
+  from Frictionless.
 * [Compression and encryption](extensions): gzip, zip, bzip2, Zstandard, PGP and Symmetric Encryption.
 * [Paths](path): local files, S3, Google Cloud Storage (experimental), SFTP and HTTP, and the operations on a path.
 * [Copying and moving](copy_files): copying files between stores, and converting them on the way.
@@ -859,6 +861,8 @@ See [Copying and moving](copy_files).
 * [File formats](formats): CSV, JSON, fixed width, Excel and Parquet.
 * [Contracts](contracts): the typed records that your code needs, read the same way from any source.
 * [Schemas](schemas): describing the columns of a file, and the types and properties of fields.
+* [Types and conversions](types): how each type reads and writes values, with examples, and where IOStreams differs
+  from Frictionless.
 * [Compression and encryption](extensions): the options of each stream.
 * [Paths](path): local files, S3, SFTP and HTTP, and the operations on a path.
 * [Copying and moving](copy_files): copying files between stores, and converting them on the way.
@@ -1077,7 +1081,8 @@ IOStreams.path("people.csv.gz").schema("people.json").each(:slice, size: 500) do
 end
 ~~~
 
-Where a slice is processed, `IOStreams.stream(slice)` reads its rows as the rows of its file:
+Where a slice is processed, `IOStreams.stream(slice)` reads its rows as the rows of its file, apart from the values that
+must be [unique](schemas#unique-values) within the file, which only a read of the whole file can check:
 
 ~~~ruby
 IOStreams.stream(slice).schema(schema).each(:hash) do |person|
@@ -2950,7 +2955,8 @@ IOStreams.path("example.psv").read
 # => "name|note\nJack|a:b c\n"
 ~~~
 
-In CSV, a value that is empty is read as `nil`, and a quoted empty value, `""`, as an empty String.
+In CSV, a value that is empty is read as `nil`, and a quoted empty value, `""`, as an empty String, unless a
+[schema](schemas#types) reads it, which reads empty text as `nil`, a missing value, as Frictionless does.
 
 ## JSON files
 
@@ -3115,12 +3121,27 @@ does:
 
 A whole number is a `Float`, such as `1001.0`: an `integer` field of a [schema](schemas) or [contract](contracts)
 converts it, and raises for `1001.5`. A `number` field reads the digits that Excel displays, its 15 most significant,
-such as `0.3` rather than the `Float` `0.30000000000000004`. The lines of the spreadsheet are the text of each cell, the
-same in every process: a date as `2026-01-02`, a date and time as its time in UTC, such as `2026-01-02T09:30:00Z`, a
-cell of a time format as the time of its clock, which Excel shows, such as `09:30:00`, so that a field of its type
-reads it, and a number as the workbook holds it, such as `1001` or `12.5`, whatever its format shows. A number of a date
+such as `0.3` rather than the `Float` `0.30000000000000004`, or every digit of a whole number below 2^53, which a
+`Float` holds exactly, such as the card number `4111111111111111`, and a `string` field reads the number that the cell
+holds, to those digits, without its number format, such as `0.125` for `12.5%`, in plain digits, such as `0.0000001`
+rather than `1.0e-07`, and without a decimal point for a whole number, such as `2134` for a zip code that Excel holds as
+the `Float` `2134.0`. A `string` field reads a cell of a date as `2026-01-02`, of a date and time as its time in UTC,
+such as `2026-01-02T09:30:00Z`, and of a time of day, a time format of less than a day, as the time of its clock, such
+as `09:30:00`. The lines of the spreadsheet are the text of each cell, the same in every process: a date as `2026-01-02`, a date and time as its time in UTC, such as
+`2026-01-02T09:30:00Z`, a cell of a time format as the time of its clock, which Excel shows, such as `09:30:00`, so that
+a field of its type reads it, and a number as the workbook holds it, such as `1001` or `12.5`, whatever its format
+shows. A number of a date
 or time format that is not a date that Excel holds, such as a negative number, which Excel shows as `####`, is its
-number, in the lines and in the rows.
+number, in the lines and in the rows. A field whose `missingValues` hold text other than empty text, such as `"-99"`,
+compares that text of each cell with them, whatever the type of the cell, see [Missing values](schemas#missing-values).
+A `datetime` or `time` field with a `timeZone` reads the clock of a cell of a date and time, or of a time of day, in its
+zone, since a cell holds no zone, such as `2026-07-01 09:30` as `13:30` UTC in `America/New_York`, see
+[Time zones](schemas#time-zones), while the lines, which have no schema, hold the clock as UTC, as above.
+
+A `list` field reads a cell that holds its text, such as `1.5,2`, as its items, and a cell that holds one value, such as
+the number `1.5`, as a list of that one item, `[1.5]`, as the CSV text of the cell reads, see
+[Lists, years, months and points](schemas#lists-years-months-and-points). A `list` of `string` items reads a number as
+a `string` field does, such as `["2134"]`.
 
 The rows that `each(:slice)` reads are the values of the cells, in the `:array` format, and `slice.to_h` holds each
 `Date` and `Time` as its ISO 8601 text, which a schema or contract reads back. A `delimiter:` raises `ArgumentError` for
@@ -3128,9 +3149,11 @@ the rows and records, which are cells rather than lines.
 
 Writing writes a workbook with one worksheet, with the `xlsxtream` gem. The rows and records are written as the types
 of their values, by the fields of a schema or contract when there is one, so that a number is a number cell, a `Date` a
-date, a `Time` a date and time, and text, such as `"01234"`, is text. A `BigDecimal` is written as the `Float` that Excel
-holds, shown without the `decimals` of its field, see [Limitations](#spreadsheet-limitations), and a `Hash` or an
-`Array` as its JSON:
+date, a `Time` a date and time, holding its clock in UTC, or in the `timeZone` of its field, and text, such as
+`"01234"`, is text. A `BigDecimal` is written as the `Float` that Excel
+holds, shown without the `decimals` of its field, see [Limitations](#spreadsheet-limitations). A field whose value is
+not one value, a `list`, `geopoint`, `array` or `object`, and a `yearmonth`, is written as its text, as CSV writes it,
+such as `a,b` or `2026-10`, and a `Hash` or an `Array` of a field of type `any`, or without a schema, as its JSON:
 
 ~~~ruby
 # Order is a contract, see Contracts.
@@ -3168,8 +3191,8 @@ Notes:
 * Reading a spreadsheet needs a local file, so one stored elsewhere, or within another stream, is copied into a temp
   file first. Its lines, and its bytes, are converted into CSV in a second temp file, since the `creek` gem returns them
   to a block, while its rows and records are read straight from the workbook. Writing streams the workbook, without a temp file, see [When temp files are used](config#when-temp-files-are-used).
-* On JRuby, `creek` reads a value that holds a line break only up to the line break, unless the workbook was written
-  with `use_shared_strings: true`, as Excel does.
+* On JRuby, `creek` reads a value that holds a line break or a `]` only up to it, such as the JSON text of a `geopoint`
+  of the `array` format, unless the workbook was written with `use_shared_strings: true`, as Excel does.
 
 ### Limitations {#spreadsheet-limitations}
 
@@ -3232,10 +3255,11 @@ describes itself, such as a CSV file with a header row, JSON, a spreadsheet or P
 
 [Apache Parquet](https://parquet.apache.org/) files hold the type of each column, so their records are read with typed
 values, such as an `Integer`, `BigDecimal`, `Date` or `Time`, even without a schema, apart from the columns that
-[Limitations](#parquet-limitations) names. A column of times of day is read
-as a `Time` on 2000-01-01, in UTC, as a `time` field reads it. A `.parquet` file name selects the format, and it can also be compressed
-or encrypted, such as `data.parquet.pgp`. Install the [parquet](https://github.com/njaremko/parquet-ruby) gem, which is
-not available on JRuby.
+[Limitations](#parquet-limitations) names. A column of times of day is read as a `Time` on 2000-01-01, in UTC, as a
+`time` field reads it, and empty text, or empty binary data, as `nil`, a missing value, as a field reads it, see
+[Types](schemas#types). A `.parquet` file name selects the format, and it can also be compressed or encrypted, such as
+`data.parquet.pgp`. Install the [parquet](https://github.com/njaremko/parquet-ruby) gem, which is not available on
+JRuby.
 
 ~~~ruby
 IOStreams.path("s3://bucket/people.parquet").each(:hash) do |record|
@@ -3254,7 +3278,7 @@ each type is written as:
 
 | Type | Parquet type |
 |------|--------------|
-| `string` | `string` |
+| `string` | `string`, or `binary` with `format: "binary"`, whose bytes a schema with the field reads back |
 | `integer` | `int64` |
 | `number` | `decimal(38, decimals)`, rounding each value to its `decimals`, or `double` with `floatNumber: true` |
 | `boolean` | `boolean` |
@@ -3263,10 +3287,13 @@ each type is written as:
 | `time` | `time_micros`, not adjusted to UTC, holding the time of its clock, which is read back as a `Time` on 2000-01-01 in UTC |
 | `duration` | `string`, holding its ISO 8601 text, such as `P1M2DT3H`, which a schema with the field reads back as an `ActiveSupport::Duration` |
 | `object`, `array` | `string`, holding its JSON text, which a schema with the field reads back as a `Hash` or an `Array` |
+| `list` | a Parquet list of the type of its `itemType`, as above, so a list of `number` items is a list of `decimal(38, decimals)`, or of `double` with `floatNumber: true` |
+| `yearmonth`, `geopoint` | `string`, holding its text, such as `2026-10` or `90.5, 45.5`, which a schema with the field reads back |
+| `year` | `int64` |
 
-A `number` field needs `decimals` or `floatNumber: true`, since a Parquet decimal has a fixed number of digits after
-its point, and a field of type `any` raises `ArgumentError`, since it has no type. A field whose `constraints` are
-`required` is written as a column that cannot be null, unless it has `allowBlank: true`.
+A `number` field, and a `list` of `number` items, needs `decimals` or `floatNumber: true`, since a Parquet decimal has a
+fixed number of digits after its point, and a field of type `any` raises `ArgumentError`, since it has no type. A field
+whose `constraints` are `required` is written as a column that cannot be null, unless it has `allowBlank: true`.
 
 ~~~ruby
 schema = {
@@ -3360,6 +3387,13 @@ end
 # {"id" => 1, "wait" => 8 hours and 30 minutes, "tags" => ["a", "b"], "address" => {"zip" => "01234"}}
 ~~~
 
+A `list` is written as a Parquet list of the type of its items, but the `parquet` gem does not report the type of the
+items of a list column, so without a schema it is read as an `Array` of its values, and `#infer_schema` gives the
+column the type `array`. A copy of the file without a schema then writes it as an `array`, whose numbers are written
+as their digits, without the `decimals` of the list, such as `["1.5","2.25"]` for the items `1.50` and `2.25` of a list
+with `decimals: 2`. Read it with the schema or contract that wrote it to keep the type of its items and their
+`decimals`.
+
 ## Fixed width files
 
 Fixed width files have no delimiters; each field is at the same position in every line. Since the positions cannot be
@@ -3437,12 +3471,13 @@ length, ignoring what follows the last field. Otherwise every line ends where th
 length raises `IOStreams::Errors::InvalidLineLength`.
 
 When reading, each value is the text of its field without its leading and trailing spaces, converted to the type of
-its field. The keys of each record are the names of the fields as they are given, so that a field whose name is a
+its field, so that a field of only spaces is `nil`, a missing value, in every type, a `string` included. The keys of each record are the names of the fields as they are given, so that a field whose name is a
 Symbol returns a Symbol key.
 
 When writing, a number is right justified and zero filled, and a missing number is written as zero, as the
-specifications of most fixed width files require. A number that is not finite, such as `NaN` or `-INF`, is space
-filled instead, so that it can be read back. Any other value is left justified and space filled, with each line
+specifications of most fixed width files require, unless its field has a missing value of its own, such as `NA` or
+`-99`, see [Missing values](schemas#missing-values), which is written as it is. That value, and a number that is not
+finite, such as `NaN` or `-INF`, is space filled instead, so that it can be read back. Any other value is left justified and space filled, with each line
 break replaced with a space, so that a value cannot add records. The characters that no field covers, such as a
 filler, are spaces. The keys of the records written may be strings or symbols.
 
@@ -3585,8 +3620,12 @@ Every one of them yields the same record:
   requires, and the source does not have, raises `IOStreams::Errors::InvalidHeader` before any work starts. A key that
   a JSON record leaves out is a value instead, which reading checks, as above.
 * Each value converts at most once: text, such as that of CSV, is parsed, and a value that is already of the type of its
-  field passes through, such as a `BigDecimal` of a Parquet file or a query. A value that cannot be of the type of its
-  field, such as `N/A` for `amount`, raises `IOStreams::Errors::InvalidValue`.
+  field passes through, such as a `BigDecimal` of a Parquet file or a query, apart from a number with more digits after
+  its decimal point than the `decimals` of its field, which is rounded to them, such as `12.35` for the `12.3456` of a
+  Parquet `decimal(38, 4)` with `decimals: 2`, as a contract's setter rounds it. A value that cannot be of the type of
+  its field, such as `N/A` for `amount`, raises `IOStreams::Errors::InvalidValue`. With a schema of the file set with
+  `#schema`, that schema reads the text, by its own `missingValues`, so those of the contract do not apply to the
+  values that it read, see [Missing values](schemas#missing-values).
 * A column whose type the source declares, such as a Parquet file, a query or the schema of a file, and which can never
   be the type of its field, such as a `boolean` for `amount`, raises `IOStreams::Errors::IncompatibleType` before the
   first row, see [Types that never fit](#types-that-never-fit).
@@ -3655,13 +3694,14 @@ Each raises `ArgumentError` when no contract is set.
 ### Types that never fit
 
 A source that declares the type of each column, such as a Parquet file, a query or the schema of a file, meets the
-contract before the first row. A value converts only when nothing is lost, so a column whose type can never be that of
-its field raises `IOStreams::Errors::IncompatibleType`, which is not an `InvalidHeader`:
+contract before the first row. A value converts only when nothing is lost, apart from a number rounded to the
+`decimals` of its field, so a column whose type can never be that of its field raises
+`IOStreams::Errors::IncompatibleType`, which is not an `InvalidHeader`:
 
 | The source declares | The field's type that takes it |
 |---------------------|--------------------------------|
 | `string`, or `any` | every type, since text is parsed, and each value of type `any` is checked as it is read |
-| `integer` or `number` | `integer`, `number`, `string` or `any`, where an `integer` field raises for a value with a fraction |
+| `integer` or `number` | `integer`, `number`, `boolean`, `string` or `any`, where an `integer` field raises for a value with a fraction, and a `boolean` field reads `1` and `0` and raises for any other number |
 | `datetime` | `datetime`, `date`, `time`, `string` or `any` |
 | `object` or `array` | its own or `any`, since a `string` field takes neither |
 | any other type | its own, `string` or `any` |
@@ -3714,13 +3754,15 @@ end
 # {"email" => "j@x.com", "date_of_birth" => #<Date: 2001-02-03 ((2451944j,0s,0n),+0s,2299161j)>, "subscribed" => true}
 ~~~
 
-* `field` takes the name of the field in Ruby, its type, see [Types](schemas#types), and the other properties of a
-  field, see [Field properties](schemas#field-properties), as Ruby names them, such as `decimals:`, `aliases:`,
-  `format:`, `true_values:` or `allow_blank:`. `required: true` is `constraints: {required: true}`, and `name:` names
-  the field in its schema, such as `name: "Ordered At"`, when it differs from its name in Ruby.
-* `fields_match`, `key_type` and `extra_columns` set `fieldsMatch`, `keyType` and `extraColumns`, see
-  [Schema properties](schemas#schema-properties). Without `fields_match`, the columns of a source must be the fields,
-  in order.
+* `field` takes the name of the field in Ruby, its type, see [Types](schemas#types) and
+  [Types and conversions](types), and the other properties of a field, see [Field properties](schemas#field-properties),
+  as Ruby names them, such as `decimals:`, `aliases:`, `format:`, `true_values:` or `allow_blank:`. `required: true` is
+  `constraints: {required: true}`, and `name:` names the field in its schema, such as `name: "Ordered At"`, when it
+  differs from its name in Ruby.
+* `fields_match`, `key_type`, `extra_columns`, `missing_values`, `unique_limit`, and after the fields that they name,
+  `primary_key` and `unique_keys`, set `fieldsMatch`, `keyType`, `extraColumns`, `missingValues`, `uniqueLimit`,
+  `primaryKey` and `uniqueKeys`, see [Schema properties](schemas#schema-properties). Without `fields_match`, the columns
+  of a source must be the fields, in order.
 * A subclass of a contract starts with its fields.
 * `Order.fields` returns its fields, and `Order.to_h` the contract as a Frictionless Table Schema, see below.
 * A contract is a class of its own, so name it so that it does not clash with a class of the application, such as an
@@ -3819,8 +3861,10 @@ puts IOStreams.path("samples/orders.csv").infer_schema(sample: 1_000).to_dsl("Or
   number or a string, raises `ArgumentError`, as does `sample:` with a schema set with `#schema`, which already gives
   the types.
 * It drafts `integer`, `number` with the most decimals seen, `boolean`, and `date`, `datetime` and `time` from ISO 8601
-  text. Anything else is `string`, and text with a leading zero, such as `01234` or `007`, stays `string`. A column
-  with no value in the sample is `any`, for a person to decide.
+  text. A record after the sample whose number has more decimals is rounded to them, so draft from every record, with
+  `sample: :all`, or check the decimals of a draft, when a file can have more. Anything else is `string`, and text with a leading zero, such as `01234` or `007`, stays `string`, as does a
+  column with text of only whitespace, which any other type raises for. A column with no value in the sample is `any`,
+  for a person to decide.
 * It recognizes US dates, such as `10/25/2026`, and records their format on the field, as `format: "%m/%d/%Y"`. A day
   above 12 settles whether the month or the day is first. When every sampled date could be either, it drafts month
   first, and says so in the field's `description`, for the reviewer.
@@ -3837,7 +3881,9 @@ contract writes its own class the same way with `Order.to_dsl`.
 
 The draft is a schema, an `IOStreams::Schema`: `#to_contract` returns its contract, without the `format` of a date,
 which describes how one file writes its text, and so stays in the schema of that file, and `#to_dsl` writes a comment
-for each `format` that it leaves out. A file of US dates is read with both: save the draft as the schema of the file
+for each `format` that it leaves out. It keeps the `timeZone` of a `datetime` or `time`, see
+[Time zones](schemas#time-zones), since the records of the program are in that zone, whatever file they are read
+from. A file of US dates is read with both: save the draft as the schema of the file
 too, and set it with `#schema` beside `#as`. To keep the contract as JSON instead, save the Hash of its
 contract, see [Building a contract from a Hash](#building-a-contract-from-a-hash):
 
@@ -4028,20 +4074,33 @@ IOStreams.path("orders.csv").schema(IOStreams::Schema.new(JSON.parse(File.read("
 
 | Type | Read as | Written as |
 |------|---------|------------|
-| `string` | a `String` | the text, or the text of any other value, except a `Hash` or an `Array`, which raise |
+| `string` | a `String`, such as the number of a number cell of a spreadsheet, to the digits that Excel displays, `2134` rather than `2134.0`, checked to be one of its `format`, see [Formats of strings](#formats-of-strings) | the text, or the text of any other value, except a `Hash` or an `Array`, which raise |
 | `integer` | an `Integer`, from text such as `42`, `-12` or `0042`, or a whole number with a decimal point, such as `12.0`, as a spreadsheet stores it | `42` |
-| `number` | a `BigDecimal`, from text such as `12.5`, `-1.5E3`, `NaN`, `INF` or `-INF`, or a number, including a `Rational`, or a `Float` with `floatNumber: true` | `12.5`, or `12.50` with `decimals: 2` |
-| `boolean` | `true` or `false`, from one of its `trueValues` or `falseValues` | the first of its `trueValues` or `falseValues` |
+| `number` | a `BigDecimal`, from text such as `12.5`, `-1.5E3`, `NaN`, `INF` or `-INF`, whatever their case, or `Infinity` and `-Infinity`, as Ruby and JavaScript write them, and frictionless-py also reads them, or a number, including a `Rational`, or a `Float` with `floatNumber: true`, rounded to its `decimals` when it has them | `12.5`, or `12.50` with `decimals: 2`, and one that is not finite as `NaN`, `INF` or `-INF`, except to JSON, which cannot hold it, so that it raises `IOStreams::Errors::InvalidValue` |
+| `boolean` | `true` or `false`, from one of its `trueValues` or `falseValues`, or the number `1` or `0`, such as `1.0` of a spreadsheet, or a number of JSON, a Parquet file or a query; any other number raises | the first of its `trueValues` or `falseValues` |
 | `date` | a `Date`, from `2026-10-13`, or text in its `format`, or a `Time` at midnight, by its own clock; any other time raises, rather than lose its time of day | `2026-10-13`, or text in its `format` |
-| `datetime` | a `Time`, from ISO 8601, such as `2026-10-13T09:30:00Z`, or text in its `format`. Text without an offset from UTC is read as UTC | ISO 8601, or text in its `format` |
-| `time` | a time of day, a `Time` on 2000-01-01, as Active Record holds a `time` column, from ISO 8601, such as `09:30:00`, `09:30:00.250` or `09:30:00-05:00`, or text in its `format`. Text without an offset from UTC is read as UTC. A `Time` on another day keeps the time of its clock and its offset | the time of its clock, such as `09:30:00`, without its offset, or text in its `format` |
+| `datetime` | a `Time`, from ISO 8601 with seconds, such as `2026-10-13T09:30:00Z`, also with a space in place of the `T`, such as `2026-10-13 09:30:00`, and an offset from UTC with or without a colon, or of hours alone, such as `+05:30`, `+0530` or `+05`, or text in its `format`. Text without an offset from UTC is read as UTC, or in its `timeZone`, and a date without a time raises | ISO 8601, such as `2026-10-13T09:30:00Z`, or text in its `format` |
+| `time` | a time of day, a `Time` on 2000-01-01, as Active Record holds a `time` column, from ISO 8601 with seconds, such as `09:30:00`, `09:30:00.250`, `09:30:00-05:00` or `09:30:00-0500`, or text in its `format`. Text without an offset from UTC is read as UTC, or in its `timeZone`. A `Time` on another day keeps the time of its clock and its offset | the time of its clock, such as `09:30:00`, without its offset, or text in its `format` |
 | `duration` | an `ActiveSupport::Duration`, from ISO 8601, such as `PT8H30M` or `P1M2DT3H`, keeping its months and days apart from its seconds. **Needs the `activesupport` gem**, see below | ISO 8601, such as `P1M2DT3H`, also in JSON |
-| `object` | a `Hash`, from the text of a JSON object, such as `{"a":1}` | that JSON text, or in JSON an object |
-| `array` | an `Array`, from the text of a JSON array, such as `[1,2]` | that JSON text, or in JSON an array |
+| `object` | a `Hash`, from the text of a JSON object, such as `{"a":1}`, or a `Hash` as JSON holds it, see below | that JSON text, or in JSON an object |
+| `array` | an `Array`, from the text of a JSON array, such as `[1,2]`, or an `Array` as JSON holds it, see below | that JSON text, or in JSON an array |
+| `list` | an `Array` of items of its `itemType`, from text of the items separated by its `delimiter`, such as `a,b,c`, each in the default form of its type, or from an `Array`, or a single value that is not text as a list of that one item | the items separated by its `delimiter`, or in JSON an array |
+| `year` | an `Integer` from 0 to 9999, from text of 4 digits, such as `2026`, or a whole number | 4 digits, or in JSON a number |
+| `yearmonth` | a `Date` on the first of its month, from text such as `2026-10`, or a `Date` on the first of its month, up to the year 9999 | `2026-10` |
+| `geopoint` | a point on the earth, `[lon, lat]`, two `BigDecimal`s, from the form of its `format`: `default`, the text `90.50, 45.50`; `array`, a JSON array, such as `[90.50, 45.50]`, or its text; or `object`, a JSON object, such as `{"lon": 90.50, "lat": 45.50}`, or its text | the form of its `format` |
 | `any` | the value as it is read | the value, with a `BigDecimal`, `Date` or `Time` as its text, and in a format of text a `Hash` or an `Array` as JSON, see [Values without a field](#values-without-a-field) |
 
-A field without a `type` is `any`, as in Frictionless. Empty text is read as `nil`, except for a `string` or `any`
-field, which keeps it.
+A field without a `type` is `any`, as in Frictionless. [Types and conversions](types) shows each type with examples,
+and where IOStreams differs from Frictionless.
+
+Empty text is a missing value, read as `nil` in every type, a `string` and `any` included, as Frictionless' default
+`missingValues` of `[""]` says, see [Missing values](#missing-values), and written as an empty value, or `null` in
+JSON. Text of only whitespace, such as
+`"  "`, is not a missing value: a `string` or `any` field keeps it, and every other type raises
+`IOStreams::Errors::InvalidValue` for it, rather than read it as `nil`. Leading and trailing whitespace around a value
+of another type, such as ` 12 ` for an `integer`, is removed before it is read. An empty binary value, such as an
+empty `bytea` or BLOB of a query, is `nil` too, where frictionless-py keeps empty bytes. A row whose every value is
+`nil` or blank text is still a blank row, see [Blank rows](streams#blank-rows), which is not read by the fields.
 
 A value that is not one of the type of its field, such as `N/A` for an `integer`, raises
 `IOStreams::Errors::InvalidValue`, naming the field and the value, both when reading and when writing. So does a `date`
@@ -4053,12 +4112,21 @@ is written as `09:30:00`, whatever time zone the server is in. A `time` read fro
 write the offset too. Use an offset rather than the name of a zone, `%Z`, since a time moved from another day keeps its
 offset but not the name of its zone.
 
+An `object` or `array` field holds what JSON holds of a `Hash` or an `Array`, so that a source of Ruby objects, such
+as the `:hash` format, a Parquet file or a query, gives the same record as JSON: its keys become Strings, and a
+`Symbol`, `BigDecimal`, `Date`, `Time` or `DateTime` within it becomes the text that IOStreams writes for it to JSON,
+such as `{theme: :dark, limit: BigDecimal("12.5")}` read as `{"theme" => "dark", "limit" => "12.5"}`, while any other
+value is kept as it is, such as a `Rational`, which can differ from the value that its JSON text reads. Frictionless
+keeps a dict as it is, so IOStreams adds this. Hashes and Arrays nested more than 100 deep, as JSON reads them, such as
+a Hash that holds itself, raise `IOStreams::Errors::InvalidValue`.
+
 JSON writes integers, numbers and booleans as JSON numbers and booleans, with all of the digits of a `number`, and the
 digits after the decimal point that its `decimals` give, such as `12.50`, the same as CSV, an `object` or an `array`
-as itself, and every other value as text, such as a date, including in an application that uses ActiveSupport, as Rails does, which replaces how Ruby
-writes JSON. Reading JSON keeps all of the digits of a `number` too, rather than reading it through a `Float`, while
-the numbers of the other fields are a `Float`, as they are without a schema. The `:hash` and `:array` formats keep the
-values themselves.
+as itself, and every other value as text, such as a date, including in an application that uses ActiveSupport, as
+Rails does, which replaces how Ruby writes JSON. Reading JSON keeps all of the digits of a `number` too, rather than
+reading it through a `Float`, rounded to its `decimals` when it has them, while the numbers of the other fields are a
+`Float`, as they are without a schema. The `:hash` and `:array` formats keep the values themselves, apart from a
+`number` with `decimals`, which is rounded to them, both when reading and when writing.
 
 **A `duration` field needs the `activesupport` gem**, since its values are `ActiveSupport::Duration`s, which keep the
 months and days of a duration, such as a PostgreSQL `interval`, apart from its seconds, as neither has a fixed number of
@@ -4067,6 +4135,285 @@ schema with a `duration` field raises `LoadError`, naming the gem. IOStreams loa
 parts of ActiveSupport that it needs, but not ActiveSupport's JSON, so it does not change how the application writes
 JSON. A duration is read only from ISO 8601
 text, so a number, such as `30600`, raises, since it does not say what it counts.
+
+### Formats of strings
+
+The `format` of a `string`, as Frictionless defines it, says what its text is, which each value read and written is
+checked to be, raising `IOStreams::Errors::InvalidValue`, such as `Field "email": "jack" is not a valid email`:
+
+| `format` | Each value |
+|----------|------------|
+| `email` | is an email address, as Ruby's `URI::MailTo::EMAIL_REGEXP` matches it, such as `jack@example.org`, which is a simple check of its form, not that the address exists |
+| `uri` | is a URI of RFC 3986 with a scheme, such as `https://example.org/a`, `mailto:jack@example.org` or `s3://bucket/a.csv`, as frictionless-py requires, so `example.org` raises |
+| `uuid` | is a UUID of 32 hexadecimal digits, in any case, in groups of 8-4-4-4-12 separated by `-`, such as `123e4567-e89b-12d3-a456-426614174000`, which is read as it is |
+| `binary` | is bytes, read from their base64 text, and written as it, in CSV, JSON and a spreadsheet |
+
+A `binary` field reads the text of a format of text, such as CSV, fixed width or JSON, as base64, also when it is read
+as binary text, such as with `encoding("BINARY")`, and the whitespace within it, such as the line breaks of MIME
+base64, is left out, while text of only whitespace raises, as it does for the other types that are not text. A source
+whose values are Ruby objects holds the bytes themselves, as a binary `String`, whose encoding is `BINARY`, such as a
+Parquet binary column, or a PostgreSQL `bytea` column of a query, so write bytes to it as a binary `String`, such as
+`data.b`, while any other text is read as base64. The `:hash` and `:array` formats hold the bytes, and Parquet writes
+them to a binary column, which `#infer_schema` declares as a `string` with `format: "binary"`. Its `minLength` and
+`maxLength` count the bytes, where frictionless-py counts the characters of their base64 text, and a `pattern` raises
+`ArgumentError`, since bytes are not text. A `format` of `any`, which Frictionless defines only for a date, datetime or
+time, raises `ArgumentError`, as does any other.
+
+A Parquet `BYTE_ARRAY` column without the annotation that says that it holds text, `UTF8`, is declared as bytes, so a
+copy of it to CSV or JSON writes its base64 text. When such a column holds text, as some older writers left it, read it
+as text with a schema whose field is a `string` without a `format`.
+
+The `format` of a string says what its values are, so a [contract](contracts), and the target of a copy that takes the
+types of its source, keep it, while the `format` of a date, a time or a geopoint, which says how a file writes their
+text, is left to the file. These checks differ from frictionless-py in a few ways:
+
+* `uuid` reads only the 8-4-4-4-12 form with `-`, not 32 digits without them, braces, or a `urn:uuid:` prefix, which
+  frictionless-py reads.
+* `uri` does not read a space, a character that is not ASCII, or an IRI, which frictionless-py reads: percent-encode
+  them, such as `%20` for a space.
+* `email` does not read an internationalized address, whose name or domain is not ASCII, and reads an address without
+  a top level domain, such as `jack@localhost`.
+
+### Lists, years, months and points
+
+A `list`, as Frictionless defines it, holds the items of one type, its `itemType`, which is `string`, `integer`,
+`boolean`, `number`, `datetime`, `date` or `time`, `string` by default, separated by its `delimiter`, `,` by default.
+Each item is read in the default form of its type, such as `2026-10-13` for a `date`, as Frictionless requires, and an
+empty item is `nil`. A `string` item keeps its spaces, so give a list of `a, b` the `delimiter` `", "`. The text is
+split at each `delimiter` as it is, even a space, after the whitespace around the whole text is removed. Text is always
+read as delimited text, so the text of a JSON array, such as `["a","b"]`, is not an array, while an `Array`, such as one
+of JSON or the `:hash` format, is read item by item. A single value that is not text, such as the number of a cell of a
+spreadsheet, of JSON or of a Parquet column of numbers, is read, and written, as a list of that one item, which
+IOStreams adds, so that the rows of a spreadsheet read as its CSV text does, such as `[1.5]` for a cell that holds
+`1.5`, while frictionless-py reads only text and arrays as a list. Writing an item whose text holds the `delimiter`,
+such as `a,b` of a list whose `delimiter` is `,`, raises `IOStreams::Errors::InvalidValue`, since it would be read back
+as two items, so choose a `delimiter` that its items never hold. Its `minLength` and `maxLength` count its items. A list
+of `number` items takes `decimals` and `floatNumber`, as a `number` field does: each item is written with its
+`decimals`, such as `1.50,2.25` with `decimals: 2`, and each item read is rounded to them, half up, or read as a `Float`
+with `floatNumber: true`, while a list of any other `itemType` raises `ArgumentError` for them. A `year` is from 0 to
+9999, as its 4 digits hold it.
+
+~~~ruby
+path = IOStreams.path("orders.csv").schema(
+  fields: [
+    {name: "tags", type: "list"},
+    {name: "sizes", type: "list", itemType: "integer", delimiter: ";"},
+    {name: "year", type: "year"},
+    {name: "month", type: "yearmonth"},
+    {name: "location", type: "geopoint"}
+  ]
+)
+path.each(:hash) do |order|
+  p order
+end
+# "tags,sizes,year,month,location\n\"a,b\",10;12,2026,2026-10,\"90.5, 45.5\"\n" =>
+# {"tags" => ["a", "b"], "sizes" => [10, 12], "year" => 2026, "month" => #<Date: 2026-10-01 ...>,
+#  "location" => [0.905e2, 0.455e2]}
+~~~
+
+A `geopoint` is read as `[lon, lat]` from the form of its `format`, and from an `Array` or a `Hash` of `lon` and `lat`
+whatever its format, such as of the `:hash` format or Parquet, and is written in the form of its format, apart from a
+format whose values are Ruby objects, such as the `:hash` format, which holds the point itself, `[lon, lat]`. The numbers
+of a geopoint, and of a list of numbers, of a JSON file keep every digit, as those of a `number` field do. Its longitude
+must be from -180 to 180, and its latitude from -90 to 90. `geojson` is not supported yet, so it raises
+`ArgumentError`.
+
+Each format writes them as it can hold them:
+
+| Format | `list` | `year` | `yearmonth` | `geopoint` |
+|--------|--------|--------|-------------|------------|
+| CSV, PSV and fixed width | the items separated by its `delimiter` | 4 digits | `2026-10` | the text of its format, such as `90.5, 45.5` or `[90.5,45.5]` |
+| JSON | an array of its items | a number | `"2026-10"` | the text of the default format, or a JSON array or object |
+| Parquet | a Parquet list of the type of its `itemType`, a `number` as a decimal of its `decimals` or a `double` with `floatNumber: true`, one of which it needs | an `int64` | a `string` | a `string` of the text of its format |
+| A spreadsheet | the items separated by its `delimiter`, as CSV writes it | a number | `2026-10` | the text of its format |
+| `:hash` and `:array` | an `Array` | an `Integer` | a `Date` | the point, `[lon, lat]` |
+
+A target that takes the types of the rows that a copy reads, see
+[Converting rows and records](copy_files#converting-rows-and-records), writes a `list` with the default `delimiter`,
+`,`, as it writes a date in ISO 8601 rather than in the `format` of the source, since these describe the text of the
+source.
+
+### Missing values
+
+`missingValues`, on the schema, or on a field, as Frictionless defines it, lists the text that is a missing value, read
+as `nil`, such as `["", "NA", "-"]`. Text is a missing value when it is exactly one of them, before anything else is
+done to it, such as the removal of its leading and trailing whitespace, in every type, so `" NA "` and `"na"` are not
+missing. A field's own `missingValues` replaces those of the schema, rather than adds to them, so include `""` to keep
+empty text missing too. An entry can be an object of the text and a label, which only describes it to people, such as
+`{value: "-99", label: "Refused"}`:
+
+~~~ruby
+path = IOStreams.path("survey.csv").schema(
+  missingValues: ["", "NA"],
+  fields:        [
+    {name: "name"},
+    {name: "age", type: "integer"},
+    {name: "income", type: "integer", missingValues: [{value: "-99", label: "Refused"}]}
+  ]
+)
+path.each(:hash) do |answer|
+  p answer
+end
+# "name,age,income\nNA,NA,-99\n" => {"name" => nil, "age" => nil, "income" => nil}
+~~~
+
+As Frictionless requires, a list holds either text or such objects, not both, and each text, and each label, only once,
+otherwise setting the schema raises `ArgumentError`, naming the text or label that it repeats.
+
+Without `""`, empty text is a value: a `string` or `any` field reads it as `""`, and every other type raises
+`IOStreams::Errors::InvalidValue` for it. An empty value of CSV without quotes, such as the second value of `a,,b`, is
+still `nil` whatever the missing values, since the CSV parser reads it as no value, while a quoted one, `""`, is empty
+text. A required field raises for a missing value, as it does for `nil`.
+
+A value that is not text, such as a number of JSON, a Parquet file or a query, is never a missing value, apart from a
+cell of a spreadsheet, whose text is compared with them, as Frictionless compares the text of a value before it reads its
+type, so a cell that holds the number `-99` is `nil` with `missingValues: ["-99"]`, whatever the type of its field. The
+text of a cell is the text that the CSV of the spreadsheet holds, see [Excel spreadsheets](formats#excel-spreadsheets).
+
+Writing writes `nil`, and a missing value, as the first missing value of the field, such as `NA`, as frictionless-py
+does, so that it reads back as `nil`, or as an empty value when that is empty text, or there are none, and as `null` in
+JSON. A fixed width file writes such a value of a number as it is, space filled, rather than as zeros.
+
+A [contract](contracts) read over the records of a schema of the file takes the values that the schema read from the
+text, so the missing values of the contract do not apply to them: only those of the schema, which reads the text.
+
+### Time zones
+
+Text of a `datetime` or `time` without an offset from UTC, of ISO 8601 or of a `format` without a zone, is read as UTC
+by default, so that a file reads the same on every server. `timeZone`, which IOStreams adds, reads it in another zone:
+`UTC`, an offset, such as `+05:30` or `-05:00`, or the name of a zone of the IANA time zone database, such as
+`America/New_York`, whose offset is that of the time read, in summer or in winter:
+
+~~~ruby
+path = IOStreams.path("visits.csv").schema(
+  fields: [
+    {name: "visited_at", type: "datetime", format: "%m/%d/%Y %H:%M", timeZone: "America/New_York"},
+    {name: "opens", type: "time", timeZone: "America/New_York"}
+  ]
+)
+path.each(:hash) do |visit|
+  p visit
+end
+# "visited_at,opens\n07/01/2026 09:30,09:00:00\n" =>
+# {"visited_at" => 2026-07-01 09:30:00 -0400, "opens" => 2000-01-01 09:00:00 -0500}
+~~~
+
+* Text with an offset, such as `2026-07-01T09:30:00Z`, or a `format` with a zone, `%z` or `%Z`, is read at its own
+  offset, whatever the `timeZone`.
+* A `datetime` written with a `format` without a zone is written in the `timeZone`, or UTC, so that it reads back as
+  the same time, while one written in ISO 8601 has its own offset. A `time` with a `timeZone` is written as the time of
+  the clock of its zone, without a `format` that writes its offset, on 2000-01-01, whose offset in New York is `-05:00`,
+  as Active Record holds a time of day.
+* A `time` without a `timeZone` is written as the clock of its own offset, as a Rails app shows it, while one with
+  `timeZone: "UTC"` is written as its clock in UTC. The default, UTC, applies to reading text without an offset.
+* A `Time` of a `time` field, such as one of a summer day in New York, or of Rails, is the clock that its zone shows at
+  that time, on 2000-01-01, so `09:30` of July is written `09:30`, though New York is at `-04:00` in July and `-05:00`
+  on 2000-01-01.
+* A clock that the zone skips, such as `2026-03-08 02:30` in New York, as its clocks move forward, raises
+  `IOStreams::Errors::InvalidValue`, naming why, and a clock that it has twice, as its clocks move back, or as a zone
+  changed its offset for good, such as Moscow on 2014-10-26, is the first.
+* `%s` and `%Q`, the seconds and milliseconds since 1970, are a time whatever the `timeZone`.
+* A Parquet column of times of day holds the clock that the schema writes, without an offset, so it is read in the
+  `timeZone` of its field too, and `09:30` in New York reads back as `09:30`. A spreadsheet's date and time cells hold
+  no zone either, so a field with a `timeZone` writes the clock of its zone to a cell, such as `2026-07-01 09:30` for
+  `13:30` UTC in New York, and reads the clock of a cell in its zone, as it reads the text `2026-07-01 09:30:00`, so a
+  spreadsheet made by hand in New York reads as the times that were entered, while a field without a `timeZone` writes
+  and reads the clock in UTC. The lines of a spreadsheet, its CSV text, have no schema, so they hold the clock of a
+  date and time as UTC, such as `2026-07-01T09:30:00Z`, which a field reads as that time, whatever its `timeZone`, so
+  read the rows of a spreadsheet, rather than its lines, with a field that has one.
+* A spreadsheet's cell holds the clock alone, so both times of a clock that the zone has twice, such as `01:30` on
+  2026-11-01 in New York, which is `05:30` UTC, at `-04:00`, and an hour later `06:30` UTC, at `-05:00`, are written as
+  the cell `2026-11-01 01:30`, which reads back as the first, `05:30` UTC, while CSV writes each time with its offset.
+* A [contract](contracts) keeps the `timeZone` of a field, and so does the target of a copy that takes the types of its
+  source, see [Converting rows and records](copy_files#converting-rows-and-records), since the zone says which clock
+  the values are, so that a copy to a spreadsheet writes the clock of the zone to each cell, and a copy to Parquet the
+  clock of the zone of each time of day, which read back as the same times, while CSV and JSON write each time with its
+  offset, as before.
+* The name of a zone needs the tzinfo gem, which Rails includes, and the IANA time zone database, which Linux and macOS
+  have, while Windows and some slim container images need the `tzinfo-data` gem, otherwise setting the schema raises
+  `ArgumentError`, as it does for a zone that is not one, or an offset of more than 23 hours or 59 minutes. An offset
+  does not need either.
+
+### Text of numbers
+
+`groupChar`, `decimalChar` and `bareNumber`, as Frictionless defines them, describe the text of the numbers of a
+`number` or `integer` field, such as a European file whose numbers are written `1.234,50`, or a report whose numbers
+carry their units:
+
+~~~ruby
+path = IOStreams.path("report.csv").schema(
+  fields: [
+    {name: "pay",    type: "number", groupChar: ".", decimalChar: ","},
+    {name: "change", type: "number", bareNumber: false},
+    {name: "count",  type: "integer", groupChar: ","}
+  ]
+)
+path.each(:hash) do |row|
+  p row
+end
+# "pay,change,count\n\"1.234,50\",($12.50),\"1,200\"\n" =>
+# {"pay" => 0.12345e4, "change" => -0.125e2, "count" => 1200}
+~~~
+
+With `bareNumber: false`, the text before and after the number that has no digits is removed, as Frictionless
+requires, such as the `$` of `$12.50`, the `%` of `95%`, the `abc` of `12abc`, or the `Rs.` of `Rs.500`, since a number
+starts with its decimal point, such as `.50` in `$.50`, only when neither a letter nor a point comes before it. With a
+`decimalChar`, the number is found first, then its decimal point checked, so `ca. 12,50` and `12,50 Mio.` read `12.50`
+with `decimalChar: ","`. Frictionless leaves what that text means to each tool, and IOStreams reads two kinds of it as a
+sign: a `-` before the number, such as in `-$12.50` or `USD -12`, and parentheses around it, such as `(12.50)` or
+`($12.50)`, as accountants write a negative number, both read as `-12.50`, while frictionless-py reads `(12.50)` as
+`12.50`, and raises for `-$12.50`. Text with digits before or after the number, such as `12abc3`, text without a
+number, such as `N/A`, a sign twice, such as `(-12)`, a `-` after the number, such as `12-`, which some systems write
+for a negative number, and a parenthesis without its pair, such as `(12.50`, raise `IOStreams::Errors::InvalidValue`,
+rather than read a number that could have the wrong sign.
+
+An `integer` has no decimal point, so its `groupChar` can be `"."`, such as `1.234.567`, as Frictionless allows, while
+frictionless-py does not read the `groupChar` of an integer. As in frictionless-py, a `number` whose `decimalChar` is not
+`"."` raises for a `.` in its number that is not its `groupChar`, such as `12.50` with `decimalChar: ","`, rather than
+guess which one the file meant.
+
+Writing writes the text of each number with its `groupChar` between each group of 3 digits of its whole part, and its
+`decimalChar`, such as `1.234,50`, and without the text that `bareNumber: false` removes, which it does not know. JSON
+writes plain numbers, such as `1234.50`, since a JSON number has neither, and reads its numbers as they are. A number
+that is not finite is written as `NaN`, `INF` or `-INF`.
+
+The slices of a spreadsheet, see [Background Jobs](background_jobs), hold the CSV text of its cells, with a number as
+the workbook holds it, such as `1234.5`, rather than in the form that these properties describe. So read them with a
+schema without `groupChar`, `decimalChar` and `bareNumber`, since `groupChar: "."` would read `1234.5` as `12345`.
+
+### Formats of dates and times
+
+The `format` of a `date`, `datetime` or `time` field is a pattern of Python's strptime, as Frictionless defines it, which
+reads the text of each value, and writes it. Ruby reads and writes the same directives, apart from these, which
+IOStreams reads as Python does:
+
+| Directive | Reads | Writes |
+|-----------|-------|--------|
+| `%Y` | the year, exactly 4 digits, such as `2026`, so that `31/10/26` raises `IOStreams::Errors::InvalidValue` for `%d/%m/%Y`, rather than read the year 26, as does `%G`, the year of an ISO 8601 week | 4 digits |
+| `%y` | the year of the century, exactly 2 digits, such as `26` for 2026, so that `1/2/5` raises for `%d/%m/%y` | 2 digits |
+| `%f` | the microseconds of the second, 1 to 6 digits, such as `5` for half a second | 6 digits, such as `500000` |
+
+A directive that reads several, such as `%F`, which is `%Y-%m-%d`, or `%c`, reads its year as they do, and so does a
+directive with the modifier `E` or `O`, such as `%EY`. A `format` that starts with `fmt:`, as Data Package v0 wrote it,
+such as `"fmt:%d/%m/%Y"`, has the prefix removed, as Frictionless requires, so `"fmt:default"` is the default form.
+
+Ruby's own directives also work, such as `%N` and `%L` for the fraction of a second, and `%s` for the seconds since
+1970, which reads whole seconds, ignoring a fraction after it, such as that of `%s.%f`, but other Frictionless tools do
+not read them, so prefer the directives of Python in a schema that other tools read.
+
+~~~ruby
+path = IOStreams.path("visits.csv").schema(
+  fields: [
+    {name: "visited_on", type: "date", format: "%d/%m/%Y"},
+    {name: "visited_at", type: "datetime", format: "%Y-%m-%d %H:%M:%S.%f"}
+  ]
+)
+path.each(:hash) do |visit|
+  p visit
+end
+# "visited_on,visited_at\n31/10/2026,2026-10-31 09:30:00.5\n" =>
+# {"visited_on" => #<Date: 2026-10-31 ...>, "visited_at" => 2026-10-31 09:30:00.5 UTC}
+~~~
 
 ## Matching columns to fields
 
@@ -4087,6 +4434,10 @@ A column that is the same as several fields in step 3, or as none, is the field 
 once cleansed, if there is one. So a schema whose fields are named as a header row is cleansed without a schema finds
 every column that the cleansing named, such as the fields `e_mail` and `email`, which are the same once compared
 loosely, for the columns `E-mail` and `Email`.
+
+Two fields of the same name, which Frictionless accepts, see [Frictionless compatibility](#frictionless-compatibility),
+take the columns of that name in order, also those that match it loosely, such as `A` and `a`, so the first column is
+the first field, and the second column the second field.
 
 The columns are matched once, when the header row is read, or once for each set of keys of the JSON records, which
 are usually the same for every record, rather than for each value.
@@ -4254,11 +4605,12 @@ out, and any other `fieldsMatch` raises `ArgumentError` for `"keep"`, since it d
 
 A field whose `constraints` are `required`, as Frictionless defines it, must have a value: a header row, or JSON
 record, without the field raises `IOStreams::Errors::InvalidHeader`, whatever `fieldsMatch` is, and a value that is
-`nil`, or empty text, raises `IOStreams::Errors::InvalidValue`, both when reading and when writing, including a blank
-record or row written, such as `{}`, which is otherwise written as a blank line. A blank row read, whose every value is
-`nil` or blank text, is `nil` instead, as a blank line is, see [Blank rows](streams#blank-rows). Text that is only spaces
-is a value for a `string` field of a row that has other values, as in Frictionless, but not for a type that reads it
-as `nil`, such as an `integer`.
+`nil`, or a missing value, such as empty text, raises `IOStreams::Errors::InvalidValue`, both when reading and when
+writing, including a blank record or row written, such as `{}`, which is otherwise written as a blank line. A blank row
+read, whose every value is `nil` or blank text, is `nil` instead, as a blank line is, see
+[Blank rows](streams#blank-rows). Text that is only spaces is a value, as in Frictionless, so a `string` field keeps it,
+in a row that has other values, while any other type raises `IOStreams::Errors::InvalidValue` for it, see
+[Types](#types).
 
 ~~~ruby
 # An upload, whose columns may be in any order, with names that people typed, and columns that the code ignores.
@@ -4279,8 +4631,9 @@ end
 
 A file can need a column whose values can be blank, such as a middle name that must be in every upload, but that
 many people do not have. Give its field `allowBlank: true` with `required`: a header row, or JSON record, without
-the field still raises, while a value that is `nil`, or empty text, is read and written as it is. A JSON record read
-through a [contract](contracts) alone is the exception: its missing key is a blank value, which the field allows:
+the field still raises, while a value that is `nil`, or a missing value, such as empty text, is read and written as
+`nil`, a missing value. A JSON record read through a [contract](contracts) alone is the exception: its missing key is a
+blank value, which the field allows:
 
 ~~~ruby
 schema = {
@@ -4302,8 +4655,133 @@ end
 accepts other properties of a field. A field that is not `required` raises `ArgumentError` for it, since its values
 can be blank anyway.
 
-IOStreams does not support the other constraints of Frictionless yet, such as `maxLength`, so they raise
-`ArgumentError`, rather than appear to check values that they do not.
+## Constraints
+
+The other `constraints` of Frictionless check each value once its field reads it as its type, both when reading and when
+writing, as `required` does. A value that does not follow one raises `IOStreams::Errors::InvalidValue`, naming the field,
+the value as it was read, and the constraint:
+
+| Constraint | Types | Each value |
+|------------|-------|------------|
+| `enum` | every type | is one of its values |
+| `unique` | every type | is unique within the file, see [Unique values](#unique-values) |
+| `minimum`, `maximum` | `integer`, `number`, `date`, `time`, `datetime`, `duration`, `year`, `yearmonth` | is at least, or at most, its value |
+| `exclusiveMinimum`, `exclusiveMaximum` | the same | is more, or less, than its value |
+| `minLength`, `maxLength` | `string`, and the items of a `list`, `array` or `object` | has at least, or at most, that many characters or items |
+| `pattern` | `string` | matches the whole text with its regular expression |
+
+~~~ruby
+path = IOStreams.path("people.csv").schema(
+  fields: [
+    {name: "status", type: "string", constraints: {enum: ["active", "closed"]}},
+    {name: "age",    type: "integer", constraints: {minimum: 0, maximum: 120}},
+    {name: "joined", type: "date", constraints: {minimum: "2000-01-01"}},
+    {name: "zip",    type: "string", constraints: {pattern: "\\d{5}(-\\d{4})?", maxLength: 10}}
+  ]
+)
+path.each(:hash) do |person|
+  p person
+end
+# "status,age,joined,zip\nactive,130,2026-10-13,12345\n" =>
+# IOStreams::Errors::InvalidValue: Field "age": "130" is more than its maximum, 120, in record 1 on line 2
+~~~
+
+The value of each constraint is read by its field, as its values are, so `minimum: "2000-01-01"` of a `date` is a `Date`,
+and `minimum: 0` of a `number` is a `BigDecimal`. A `date`, `datetime` or `time` with a `format` also reads ISO 8601,
+such as `"2000-01-01"`, in which Frictionless writes it. A value given as a Ruby object that JSON does not hold, such as
+`Date.new(2000, 1, 1)` or `BigDecimal("1.5")`, is kept as its text, `"2000-01-01"` or `"1.5"`, so that the schema as JSON
+reads back. A constraint of another type, such as `minLength` of an `integer`, a value that is not one of the field,
+bounds that leave no value, such as a `minimum` more than the `maximum`, and a bound that is `NaN` raise
+`ArgumentError` when the schema is set. A value that cannot be compared with a bound, such as `NaN` of a `number` with
+a `minimum`, does not follow it. `nil`, or a missing value, is not checked, other than by `required`.
+
+Each constraint checks the value that the field reads, so a `number` with `decimals` is checked once it is rounded to
+them: with `decimals: 0` and `maximum: 100`, `100.4` reads `100`, which follows it. A `time` compares as the instant that
+it is, so a `maximum` of `"17:00:00"`, which is UTC, accepts `18:00:00+02:00`. A field of type `any` compares the value
+as it is read with its `enum`, so the text `"1"` of CSV is not the number `1` of its `enum`.
+
+`pattern` is a Ruby regular expression that the whole text must match, as if it were written `\A(?:pattern)\z`, so
+`"\\d{5}"` matches `12345` but not `123456` or `x12345`. Its classes, such as `\w`, `\d` and `\b`, are those of
+Unicode, as in XML Schema, so that `"\\w+"` matches `café`. Text that cannot be matched with it, such as text that is not
+valid in its encoding, raises `IOStreams::Errors::InvalidValue`. Frictionless writes it in the syntax of XML Schema,
+which also matches the whole text, and whose patterns are mostly those of Ruby, apart from its classes `\i` and `\c`,
+the characters that start and continue an XML name, and its subtraction of classes, such as `[a-z-[aeiou]]`, which Ruby
+does not have, while Ruby has some that XML Schema does not, such as `\A` and lookahead, so keep to their common syntax
+in a schema that other tools read.
+
+A `string` or `integer` field can also have `categories`, the values that it can have, each a value or an object of a
+value and a text label, which only describes it to people, such as
+`[{value: 1, label: "Low"}, {value: 2, label: "High"}]`, with no value or label twice. A value read must be one of them,
+as for `enum`, whose values must be among them, otherwise `ArgumentError` raises. `categoriesOrdered: true` says that
+the order of the categories is their natural order, and does not change how values are read; without `categories` it
+raises `ArgumentError`.
+
+`jsonSchema` is not supported yet, so it raises `ArgumentError`, rather than appear to check values that it does not.
+
+## Unique values
+
+The values of a field whose `constraints` are `unique`, of the `primaryKey` of the schema, and of each of its
+`uniqueKeys`, as Frictionless defines them, must be unique within the file. Each read and each write of a file checks
+the values of its records once each is read as its fields, or as it is written, and raises
+`IOStreams::Errors::InvalidValue` for a value that an earlier record had, naming the field or key, the value, and the
+record and line where it reads it:
+
+~~~ruby
+path = IOStreams.path("people.csv").schema(
+  primaryKey: "id",
+  uniqueKeys: [["first_name", "last_name"]],
+  fields:     [
+    {name: "id", type: "integer"},
+    {name: "email", type: "string", constraints: {unique: true}},
+    {name: "first_name"},
+    {name: "last_name"}
+  ]
+)
+path.each(:hash) do |person|
+  p person
+end
+# "id,email,first_name,last_name\n1,a@x.com,Jack,Jones\n2,a@x.com,Jill,Jones\n" =>
+# IOStreams::Errors::InvalidValue: Field "email": "a@x.com" is not unique, it is the value of an earlier record, in record 2 on line 3
+~~~
+
+* `primaryKey` is the name of a field, or an Array of the names of fields, whose values together identify each record.
+  Each of its fields is required, as if its `constraints` were `required`, so it cannot have `allowBlank`.
+* `uniqueKeys` is an Array of keys, each an Array of the names of fields whose values together must be unique. A record
+  with `nil` in any field of a key is not compared, as SQL compares a unique key, and neither is `nil` of a field
+  whose `constraints` are `unique`.
+* Each field and key is checked on its own, as Frictionless requires, and values are compared as their fields read
+  them, so `1` and `01` of an `integer` are the same, and a `number` with `decimals` once it is rounded to them, so
+  `1.001` and `1.004` with `decimals: 2` are both `1.00`. Writing compares the values as it writes them, such as their
+  text, and names a value in its message as its field writes it, such as `"1.00"`.
+* A record whose values are not valid, such as one that `on_invalid:` hands on, does not count, nor does one that a
+  [contract](contracts) rejects, read through the schema of the file, which counts only once both have read it.
+* `primaryKey` and `uniqueKeys` name fields that are read, so a field with `skip: true` raises `ArgumentError`, and
+  `uniqueKeys` holds at least one key, as Frictionless requires.
+
+Each read or write remembers the values that it has seen, so the check applies to one read or write of a whole file,
+such as each file that a job reads or writes. A read that resumes, with `resume_at:`, checks the records from that one
+on, not those that it skips, see [Resuming at a record](streams#resuming-at-a-record). When the work on a file is split
+into slices, see [Background Jobs](background_jobs), only a read or write of every row of the file can check them:
+
+* A slice is only a part of a file, so reading one, as a worker does, does not check them, since another slice may hold
+  the same value.
+* `each(:slice, validate: true)` reads every row of the file once while it slices it, so it checks them across the
+  whole file. Without `validate: true` it does not parse the rows, so it checks none of them.
+* A write into a store of slices checks them only with `validate: true`, across every row of that write, as for the
+  upload of a file. Without it, the write may be the results of a worker, only a part of the output file, so it checks
+  none of them, in any mode.
+* `writer(:slice, validate: true)` parses every row of the slices that it writes, so it checks them across the whole
+  output file. Without `validate: true` it checks only the rows of the slices that it converts, such as slices of CSV
+  written to a JSON file, or slices of typed values, since it parses their rows, and not those of the slices that it
+  writes as they are.
+
+Any other writer, of rows or records to a file, checks the rows that it writes. Each read or write remembers up to
+1,000,000 distinct values of each field and key, so that a large file does not fill the memory, and raises
+`IOStreams::Errors::UniqueLimitExceeded` once it would need to remember more, rather than miss a duplicate. Each field
+and key has its own limit, and remembering costs memory: about 60 MB for 1,000,000 Integers, and about 190 MB for
+1,000,000 Strings such as UUIDs, or keys of several fields. The `uniqueLimit` of the schema, which IOStreams adds,
+changes how many: raise it for a larger file, or check the uniqueness of a very large one elsewhere, such as with a
+unique index of a database. `foreignKeys` is not supported yet, so it raises `ArgumentError`.
 
 ## Schema properties
 
@@ -4320,6 +4798,12 @@ IOStreams does not support the other constraints of Frictionless yet, such as `m
   Default: the names as they are given.
 * `extraColumns` `keep` to keep the columns that the schema does not list, which `subset` and `partial` skip, see
   [Keeping the other columns](#keeping-the-other-columns). IOStreams adds this property. Default: `skip`
+* `missingValues` The text that is a missing value of every field, read as `nil`, such as `["", "NA"]`, see
+  [Missing values](#missing-values). Default: `[""]`
+* `primaryKey` The field, or fields, whose values identify each record, and `uniqueKeys`, the fields of each key
+  whose values must be unique, see [Unique values](#unique-values).
+* `uniqueLimit` The most distinct values of each field or key that must be unique that a read or write remembers, see
+  [Unique values](#unique-values). IOStreams adds this property. Default: `1_000_000`
 
 `$schema`, `title` and `description` describe the schema to people and have no effect.
 
@@ -4366,19 +4850,45 @@ and `#copy_to`, whose options only apply to the target.
 
 * `name` The key of the field in each record, and its column in the header row written. Required.
 * `type` See [Types](#types). Default: `any`
-* `constraints` `{required: true}` for a field that must have a value, see [Required fields](#required-fields).
+* `constraints` `{required: true}` for a field that must have a value, see [Required fields](#required-fields), and the
+  rules that its values must follow, such as `{minimum: 0}`, see [Constraints](#constraints).
+* `categories` For a `string` or an `integer`, the values that it can have, and `categoriesOrdered`, whether their
+  order is their natural order, see [Constraints](#constraints).
+* `missingValues` The text that is a missing value of the field, which replaces those of the schema, see
+  [Missing values](#missing-values).
 * `format` For a `date`, a `datetime` or a `time`, the strptime pattern of its text, such as `"%d/%m/%Y"`, `"%Y%m%d"`
-  or `"%I:%M %p"` for `9:30 PM`. Default: ISO 8601.
+  or `"%I:%M %p"` for `9:30 PM`, see [Formats of dates and times](#formats-of-dates-and-times). Default: ISO 8601. For
+  a `geopoint`, `default`, `array` or `object`, see [Lists, years, months and points](#lists-years-months-and-points).
+  For a `string`, `email`, `uri`, `uuid` or `binary`, see [Formats of strings](#formats-of-strings).
+* `itemType` and `delimiter` For a `list`, the type of its items and the text between them, see
+  [Lists, years, months and points](#lists-years-months-and-points). Default: `string` and `,`
 * `trueValues` and `falseValues` For a `boolean`, the text that is true and false.
   Default: `["true", "True", "TRUE", "1"]` and `["false", "False", "FALSE", "0"]`
-* `floatNumber` For a `number`, `true` to read a `Float` rather than a `BigDecimal`, as frictionless-py does.
+* `floatNumber` For a `number`, or a `list` of `number` items, `true` to read a `Float` rather than a `BigDecimal`, as
+  frictionless-py does for a `number`, while IOStreams adds it to a `list`.
+* `groupChar` For a `number` or an `integer`, the text that groups the digits of its whole part, such as `","` for
+  `1,234,567`, which reading removes wherever it is, as frictionless-py does, and writing places between each group of 3
+  digits, see [Text of numbers](#text-of-numbers). Default: none
+* `decimalChar` For a `number`, the text of its decimal point, such as `","` for `12,50`, so that a `.` that is not the
+  `groupChar` raises. Default: `"."`
+* `bareNumber` For a `number` or an `integer`, `false` to read text around the number, such as `95%`, `$12.50` or
+  `EUR 95`, see [Text of numbers](#text-of-numbers). Default: `true`
+* `timeZone` For a `datetime` or a `time`, the zone of its text without an offset from UTC: `UTC`, an offset, such as
+  `-05:00`, or the name of a zone, such as `America/New_York`, see [Time zones](#time-zones). IOStreams adds this
+  property. Default: `UTC`
 * `aliases` The other names of the column of the field, see [Matching columns to fields](#matching-columns-to-fields).
   IOStreams adds this property.
-* `allowBlank` For a field whose `constraints` are `required`, `true` to accept a value that is `nil`, or empty text,
-  while the file must still have its column, see [Required fields](#required-fields). IOStreams adds this property.
-* `decimals` For a `number`, the number of digits to write after the decimal point, rounding a `BigDecimal` half up,
-  and a `Float`, with `floatNumber: true`, as Ruby's `format` does, to the nearest of its binary value, as the layouts
-  of fixed width files did before v3.0. IOStreams adds this property.
+* `allowBlank` For a field whose `constraints` are `required`, `true` to accept a value that is `nil`, or a missing
+  value, while the file must still have its column, see [Required fields](#required-fields). Text of only whitespace is
+  not blank, so it is still read as the type of the field. IOStreams adds this property.
+* `decimals` For a `number`, or each item of a `list` of `number` items, the number of digits after the decimal point,
+  rounding a `BigDecimal` half up, and a `Float`, with `floatNumber: true`, as Ruby's `format` writes it, as the
+  layouts of fixed width files did before v3.0, which rounds a `Float` whose text ends in 5 to the even digit, whatever
+  its binary value, such as `0.12` for `0.125`, `0.02` for `0.025` and `2.68` for `2.675`. It rounds the number read,
+  also one that is not text, such as of JSON or the `:hash` format, as well as the number written, also to the `:hash`
+  and `:array` formats, so that a record read holds the number that is written, such as `12.35` for the `BigDecimal`
+  `12.345` with `decimals: 2`. A number that rounds to zero is zero, rather than `-0.0`, which would be written as
+  `-0.00`. IOStreams adds this property.
 * `skip` `true` for a field that only holds the place of its column, such as a column of a file without a header row
   that the code does not read: reading leaves it out of the rows and records, and writing writes an empty value in its
   column, or leaves it out of a JSON record, and a Parquet file has no column for it. It takes only the properties
@@ -4388,9 +4898,11 @@ and `#copy_to`, whose options only apply to the target.
   one schema can describe both a fixed width file and the CSV file that it is converted to.
 
 `title`, `description`, `example` and `rdfType` describe a field to people and have no effect, as do the properties
-of other tools, whose names include a `:`, such as `"mytool:owner"`. Any other property raises `ArgumentError`, as do
-the parts of Frictionless that IOStreams does not support yet, such as `missingValues`, `primaryKey`, the constraints
-other than `required`, and the `year` type, so that a schema never appears to check a value that it does not.
+of other tools, such as `"mytool:owner"`, and any other property that IOStreams does not know, which is kept, unless it
+is close to one that it knows, such as `trueValue`, which raises `ArgumentError`, see
+[Frictionless compatibility](#frictionless-compatibility). The parts of Frictionless that IOStreams does not support
+yet, such as `foreignKeys`, the constraint `jsonSchema`, and the `geojson` type, raise `ArgumentError` too, so that a
+schema never appears to check a value that it does not.
 
 ## Values without a field
 
@@ -4399,7 +4911,8 @@ A value of a file without a schema, or of a field without a type, is written as 
 | Value | Written as |
 |-------|------------|
 | `BigDecimal` | a plain decimal, such as `12.5`, rather than `0.125e2` |
-| `Time` or `DateTime` | ISO 8601, such as `2026-10-13T09:30:00Z`, with as many digits of its fraction of a second as it needs |
+| `Float` or `BigDecimal` that is not finite | `NaN`, `INF` or `-INF`, as the Frictionless spec spells them, rather than Ruby's `Infinity`, while JSON, which cannot hold one, raises `IOStreams::Errors::InvalidValue`, apart from a `BigDecimal` inside a `Hash` or an `Array`, which it writes as that text |
+| `Time` or `DateTime` | ISO 8601, such as `2026-10-13T09:30:00Z`, with its fraction of a second in groups of 3 digits, as many as it needs, such as `.100`, `.250` or `.123456` |
 | `Date` | ISO 8601, such as `2026-10-13` |
 | `Hash` or `Array` | JSON, such as `{"a":1}` or `[1,2]`, as the JSON format writes it |
 | any other value | its `to_s`, such as `42` or `true` |
@@ -4409,12 +4922,1256 @@ keeps all of its digits, and writes every other value as itself, such as a numbe
 formats keep the values themselves. To write a value in another form, such as a date as `13/10/2026`, give its field
 a type and a `format` in the schema.
 
+## Frictionless compatibility
+
+A schema is a [Frictionless Table Schema v2](https://datapackage.org/standard/table-schema/), with a few properties that
+IOStreams adds, so a schema written by another Frictionless tool reads the same records. A schema written for IOStreams
+can be read by other tools, which ignore the properties of IOStreams, as long as it keeps to what Frictionless defines:
+a schema in Ruby can also use what only IOStreams reads, such as the directives `%s`, `%N` and `%L` of a `format`, and
+Symbols as names and keys, which JSON does not hold.
+
+A schema of Frictionless v1 reads the same, including its forms that v2 replaced, such as a `primaryKey` that is the
+name of one field, and `missingValues` as text, and `$schema`, which names the version, is kept, though not checked,
+and does not change how the schema reads.
+
+A property that IOStreams does not know is kept, and has no effect, as Frictionless allows the properties of other
+tools, so `#to_h` returns it, and the schema reads back from JSON the same. A property close to one that it knows, such
+as `trueValue` for `trueValues`, `groupchar` for `groupChar`, or `contraints` for `constraints`, raises
+`ArgumentError` naming the property that it is close to, since it is most likely mistyped, rather than have no effect
+without a word: one that is the same once both are lowercase, or one character added, left out, replaced, or two
+characters swapped. Name the property of another tool with a prefix, such as `"mytool:owner"`, which is never taken for
+a mistyped one. A property that IOStreams knows of another type of field, such as `trueValues` of a `number`, still
+raises `ArgumentError`, and so does an option of `field` in the class of a [contract](contracts), which is Ruby rather
+than a schema of other tools.
+
+Supported: the types `string`, with the formats `email`, `uri`, `uuid` and `binary`, `integer`, `number`, `boolean`,
+`date`, `datetime`, `time`, `duration`, `year`, `yearmonth`, `list`, `object`, `array`, `geopoint` and `any`; the
+properties of fields `format`, `trueValues`, `falseValues`, `groupChar`, `decimalChar`, `bareNumber`, `delimiter`,
+`itemType`, `categories`, `categoriesOrdered`, `missingValues`, `title`, `description`, `example` and `rdfType`; the
+constraints `required`, `unique`, `enum`, `minimum`, `maximum`, `exclusiveMinimum`, `exclusiveMaximum`, `minLength`,
+`maxLength` and `pattern`; and the properties of the schema `fields`, `fieldsMatch`, `missingValues`, `primaryKey`,
+`uniqueKeys`, `$schema`, `title` and `description`.
+
+Two fields of the same name are accepted, as Frictionless requires, since v1 allowed them: the rows of a format whose
+columns are in order, such as CSV or Parquet, read and write them by their positions, matching the columns of a header
+row of that name to them in order, see [Matching columns to fields](#matching-columns-to-fields), while records, a
+format whose rows are records, such as JSON, and a contract, raise `ArgumentError`, since a record cannot hold two
+values of one key, as do a `primaryKey` or `uniqueKeys` that names them, and `aliases` of either, since a column of an
+alias would not say which of them it is. A file with more columns of that name than the fields of it raises
+`IOStreams::Errors::InvalidHeader`. The fields `:id` and `"id"` are of the same name too.
+
+Not supported yet, so they raise `ArgumentError`, rather than appear to check what they do not: the type `geojson`, the
+property `foreignKeys`, the constraint `jsonSchema`, and the `format` `any` of a date, datetime or time.
+
+IOStreams adds these properties, which other tools ignore:
+
+| Property | Of | See |
+|----------|----|-----|
+| `aliases` | a field | [Matching columns to fields](#matching-columns-to-fields) |
+| `decimals`, `floatNumber` | a `number`, or a `list` of `number` items | [Field properties](#field-properties) |
+| `timeZone` | a `datetime` or `time` | [Time zones](#time-zones) |
+| `allowBlank` | a required field | [Required fields](#required-fields) |
+| `width`, `start`, `truncate` | a field of a fixed width file | [Fixed width files](formats#fixed-width-files) |
+| `skip` | a field that only holds the place of its column | [Field properties](#field-properties) |
+| `header` | the schema, as a Frictionless Table Dialect says it | [Schema properties](#schema-properties) |
+| `keyType` | the schema | [Keys of the records read](#keys-of-the-records-read) |
+| `extraColumns` | the schema | [Keeping the other columns](#keeping-the-other-columns) |
+| `uniqueLimit` | the schema | [Unique values](#unique-values) |
+| `width` | the schema of a fixed width file | [Fixed width files](formats#fixed-width-files) |
+
+IOStreams reads some text that Frictionless does not define, so that files from other tools read:
+
+* The text of a value of a type other than `string` and `any` is read without the whitespace around it, such as ` 12 `.
+* An `integer` reads a whole number with a decimal point, such as `12.0`, as a spreadsheet stores every number.
+* A `number` reads `Infinity` and `-Infinity`, as Ruby and JavaScript write them, as well as `NaN`, `INF` and `-INF`,
+  which it writes, in any case, such as `nan` or `inf`.
+* A `datetime` reads a space in place of the `T`, such as `2026-10-13 09:30:00`, and a `datetime` or `time` an offset
+  without a colon, or of hours alone, such as `+0530` or `+05`, as well as `+05:30` and `Z`.
+* A `format` of a date, datetime or time takes Ruby's own directives, such as `%s`, `%N` and `%L`, as well as those of
+  Python's strptime, which Frictionless defines, and the prefix `fmt:`, such as `fmt:%d/%m/%Y`, which frictionless-py
+  reads.
+* A field takes the values of a source of Ruby objects, such as the `:hash` format, a Parquet file or a query: a
+  `boolean` the number `1` or `0`, a `list` an `Array`, and a `geopoint` an `Array` or a `Hash` whatever its `format`,
+  whose numbers can be their text, such as `"90.5"`.
+* A column of a header row matches a field without its case, spaces and punctuation, and by its `aliases`, see
+  [Matching columns to fields](#matching-columns-to-fields), where Frictionless compares names exactly.
+* `primaryKey` and `uniqueKeys` take the names of fields as Symbols, as well as Strings.
+
+Some rules differ from frictionless-py, the reference implementation of Frictionless:
+
+* A `pattern` is a Ruby regular expression, whose classes are those of Unicode, see [Constraints](#constraints).
+* JSON writes a `list` as an array of its items, where frictionless-py writes its delimited text, and an empty item of a
+  list is `nil`, where frictionless-py raises for one of a type other than `string`.
+* The target of a copy that takes the types of its source writes a `geopoint` in the default format, `lon, lat`, and a
+  `list` with the default `delimiter`, since these say how the source writes its text.
+* `bareNumber: false` reads `(12.50)` as negative and `-$12.50` as `-12.50`, see [Text of numbers](#text-of-numbers),
+  and the formats of a `string` check a little differently, see [Formats of strings](#formats-of-strings).
+
 ## Schemas in IOStreams 2.2 and 3.0
 
 IOStreams 2.2 has the same schema, with the same properties, so an application can move to a schema while it still
 runs 2.2. A schema in 2.2 reads and writes as it does here, apart from the changes that 3.0 makes to every file, such
 as reading text as UTF-8, see [A schema in v2.2 and v3.0](upgrading#a-schema-in-v22-and-v30). 3.0 also adds the `time`
-and `duration` types, which 2.2 raises `ArgumentError` for, as types that it does not support.
+and `duration` types, and these parts of Frictionless, which 2.2 raises `ArgumentError` for, as parts that it does not
+support: the types `list`, `year`, `yearmonth` and `geopoint`, the formats of a `string`, `groupChar`, `decimalChar` and
+`bareNumber`, `missingValues`, the constraints other than `required`, `categories`, `primaryKey`, `uniqueKeys`, and
+`timeZone` and `uniqueLimit`, which IOStreams adds. Two fields of the same name raise `ArgumentError` in 2.2.
+
+---
+
+# Types and Conversions
+
+A CSV file holds only text. The `42` in it is the characters `4` and `2`, and `2026-10-13` is ten characters, until
+something says what they mean. A schema says it: it lists the fields of the file, which are its columns, and gives
+each one a type, such as `integer` or `date`. Reading the file converts the text of each value into a Ruby value of
+the type of its field, such as the Integer `42` or the Date 2026-10-13. Writing converts each value back into text.
+
+IOStreams writes its schemas as a [Frictionless Table Schema](https://datapackage.org/standard/table-schema/).
+Frictionless is an open standard for describing data, such as the columns of a CSV file. A Table Schema is plain JSON,
+so a schema written once tells any tool that supports the standard how to read the file, whatever its language.
+[frictionless-py](https://github.com/frictionlessdata/frictionless-py) is the Python library of the Frictionless
+project, and the one that other tools are compared with. This page calls the standard "the spec".
+
+A schema is a Hash, or the JSON of one. Its `fields` list the fields of the file, in order. Each field is a Hash of its
+properties: its `name`, its `type`, and properties that say how its text is written, such as the `format` of a date:
+
+~~~json
+{
+  "fields": [
+    {"name": "id", "type": "integer"},
+    {"name": "ordered_on", "type": "date", "format": "%d/%m/%Y"}
+  ]
+}
+~~~
+
+IOStreams follows version 2 of the spec, with a few properties of its own, and reads some text that the spec does not
+define, so that files from other tools read too. This page shows how each type converts values, and marks every place
+where IOStreams differs from the spec or from frictionless-py 5.21.
+
+How to set a schema on a path, how the columns of a file are matched to its fields, and every property, are in
+[Schemas](schemas). A property that is not valid, or that IOStreams does not support, raises `ArgumentError` when the
+schema is read: a schema in a Hash when it is set, and a schema file, set by its path or url, the first time that a
+reader or writer needs it. A [contract](contracts), the fields that a program needs, declared in Ruby, has the same
+types and properties, with the names of its properties written as Ruby writes them, such as
+`field :paid, :boolean, true_values: ["Y"]` for `{name: "paid", type: "boolean", trueValues: ["Y"]}`.
+
+A schema keeps a property that IOStreams does not know, such as one of another tool, as the spec allows, and it has no
+effect, while a property close to one that IOStreams knows, such as `trueValue` for `trueValues`, raises
+`ArgumentError`, since it is most likely mistyped, see [Frictionless compatibility](schemas#frictionless-compatibility).
+
+## A first example
+
+Most examples on this page write a small CSV file, set a schema on its path, and read it with `each(:hash)`, which
+yields each row as a record: a Hash of its fields. Writing with `writer(:hash)` turns each value of a record back into
+the text of its type:
+
+~~~ruby
+IOStreams.path("orders.csv").write(<<~CSV)
+  id,amount,paid,ordered_on
+  1,12.50,true,2026-10-13
+  2,3,false,
+CSV
+
+path = IOStreams.path("orders.csv").schema(
+  fields: [
+    {name: "id", type: "integer"},
+    {name: "amount", type: "number"},
+    {name: "paid", type: "boolean"},
+    {name: "ordered_on", type: "date"}
+  ]
+)
+path.each(:hash) do |order|
+  p order
+end
+# {"id" => 1, "amount" => 0.125e2, "paid" => true, "ordered_on" => #<Date: 2026-10-13 ...>}
+# {"id" => 2, "amount" => 0.3e1, "paid" => false, "ordered_on" => nil}
+
+path.writer(:hash) do |io|
+  io << {"id" => 3, "amount" => BigDecimal("7.25"), "paid" => true, "ordered_on" => Date.new(2026, 10, 31)}
+end
+puts path.read
+# id,amount,paid,ordered_on
+# 3,7.25,true,2026-10-31
+~~~
+
+* `id` is the Integer `1`, rather than the text `"1"`.
+* `amount` is a `BigDecimal`, which keeps every digit of a number. Ruby prints it in scientific notation: `0.125e2` is
+  0.125 times 10 to the power 2, which is 12.5, and `0.3e1` is 3.
+* `paid` is `true` or `false`.
+* `ordered_on` is a `Date`. Ruby prints more of it than shown here, which this page leaves out as `...`. The second row
+  has no value, so it is `nil`, see [Missing values](#missing-values).
+* Writing replaces what the file held, and writes the header row of the fields first.
+
+The same schema reads a JSON file, a spreadsheet, a Parquet file, or the rows of a database query. Their values are
+not all text: a JSON number, a number cell of a spreadsheet, or a column of a query already has a type. A field takes
+such a value as it is when it is of the type of the field, and converts it when nothing is lost, such as the number
+`12.0` of a spreadsheet for an `integer` field, see [File formats](formats). The examples on this page read CSV, whose
+values are all text.
+
+Where IOStreams differs from Frictionless, a section ends with **Compared with Frictionless**: what the spec says,
+and what frictionless-py does. [Summary of the differences](#summary-of-the-differences) lists them all in one table.
+
+## What every type shares
+
+### Missing values
+
+Empty text is a missing value, read as `nil`, in every type, including `string`. That is the default of the spec:
+its `missingValues` are `[""]`. Give the schema its own `missingValues` to read other text as missing too, such as
+`NA`. A field can have its own list, which replaces that of the schema, so include `""` in it to keep empty text
+missing:
+
+~~~ruby
+IOStreams.path("survey.csv").write(<<~CSV)
+  name,age,income
+  Jack,NA,-99
+  ,42,
+CSV
+
+path = IOStreams.path("survey.csv").schema(
+  missingValues: ["", "NA"],
+  fields:        [
+    {name: "name", type: "string"},
+    {name: "age", type: "integer"},
+    {name: "income", type: "integer", missingValues: ["", "-99"]}
+  ]
+)
+path.each(:hash) do |answer|
+  p answer
+end
+# {"name" => "Jack", "age" => nil, "income" => nil}
+# {"name" => nil, "age" => 42, "income" => nil}
+~~~
+
+Text is missing only when it is exactly one of them, before anything else is done to it, so `" NA"` and `na` are not
+missing. Writing writes `nil` as the first missing value of the field, such as `NA` for `["NA", ""]`, so that it reads
+back as `nil`, or as an empty value when that is empty text, and as `null` in JSON. See
+[Missing values](schemas#missing-values).
+
+An empty CSV value without quotes, such as the middle value of `a,,b`, holds no text, so it is always `nil`, whatever
+the missing values. Of empty values, the missing values decide only what one within quotes, `""`, is: without `""`
+among them, a `string` or `any` field reads it as `""`, and the other types raise for it.
+
+**Compared with Frictionless**
+
+* The spec does not say how to write a missing value. IOStreams writes the first of the missing values, as
+  frictionless-py does, apart from JSON, which writes `null`.
+* frictionless-py reads an empty CSV value the same with or without quotes. Without `""` among the missing values, it
+  reads both as `""` for a `string` or `any`, and raises for the other types. IOStreams reads an empty value without
+  quotes as `nil`.
+* frictionless-py compares the text of every value with the missing values, so the JSON number `-99` is missing for
+  `["-99"]`. IOStreams compares only text, since the spec says that missing values are text, so the number is `-99`,
+  apart from a cell of a spreadsheet, whose text it compares, so a cell that holds the number `-99` is missing.
+* The spec requires the missing values to be all text, or all objects of a `value` and a `label`, with each text, and
+  each label, only once. IOStreams raises `ArgumentError` for a list that is not, when the schema is read, naming the
+  text or label that it repeats. frictionless-py raises for a list that mixes text and objects, or that repeats the
+  `value` or `label` of an object, but accepts text repeated, such as `["NA", "NA"]`.
+
+### Spaces around a value
+
+The spaces before and after the text of a value are removed before it is read, in every type other than `string` and
+`any`, so `" 42 "` is the integer 42 and `" true "` is `true`. A `string` or `any` field keeps them. Text of only spaces
+is not missing: a `string` or `any` field keeps it, and every other type raises for it, rather than read it as `nil`. A
+row whose every value is empty or spaces is a blank row, which `each(:hash)` yields as `nil` rather than read its
+fields, see [Blank rows](streams#blank-rows).
+
+**Compared with Frictionless**
+
+* The spec does not say. frictionless-py removes the spaces around an `integer` or a `number`, but raises for spaces
+  around a `boolean`, `date`, `datetime`, `time`, `year` or `duration`, such as `" true "` or `" 2026-10-13 "`, and for
+  the items of the list `true, false`, which IOStreams reads.
+
+### Values that are not valid
+
+A value that is not one of the type of its field, such as `N/A` for an `integer`, raises
+`IOStreams::Errors::InvalidValue`, which names the field, the value, and where it is in the file. Writing raises it
+too:
+
+~~~ruby
+IOStreams.path("people.csv").write(<<~CSV)
+  name,age
+  Jack,21
+  Jill,N/A
+CSV
+
+path = IOStreams.path("people.csv").schema(
+  fields: [
+    {name: "name", type: "string"},
+    {name: "age", type: "integer"}
+  ]
+)
+path.each(:hash) do |person|
+  p person
+end
+# {"name" => "Jack", "age" => 21}
+# IOStreams::Errors::InvalidValue: Field "age": "N/A" is not a valid integer, in record 2 on line 3
+~~~
+
+To collect every row that is not valid and carry on, rather than stop at the first one, see
+[Values that are not valid](streams#values-that-are-not-valid).
+
+## Text
+
+### `string`
+
+* **Read as** a `String`, the text as it is, spaces included. Leading zeros are kept, so a zip code such as `01234`
+  stays `"01234"`, where an `integer` would read `1234`.
+* **From other sources** any value that is not text is read as its text, such as `"42"` for the JSON number `42`,
+  apart from a `Hash` or an `Array`, which raise. A number cell of a spreadsheet is read as the digits that Excel
+  displays, such as `2134` rather than `2134.0`, and a cell of a time of day as the time of its clock, such as
+  `09:30:00`, see [Excel spreadsheets](formats#excel-spreadsheets).
+* **Written as** the text.
+
+~~~ruby
+IOStreams.path("codes.csv").write(<<~CSV)
+  code,note
+  01234,"  two spaces first"
+CSV
+
+path = IOStreams.path("codes.csv").schema(
+  fields: [
+    {name: "code", type: "string"},
+    {name: "note", type: "string"}
+  ]
+)
+path.each(:hash) do |row|
+  p row
+end
+# {"code" => "01234", "note" => "  two spaces first"}
+~~~
+
+**Compared with Frictionless**
+
+* frictionless-py raises for a value of a `string` field that is not text, such as the JSON number `42`. IOStreams
+  reads its text, `"42"`, so that a column of ids reads the same from CSV and from JSON.
+
+### Formats of text: `email`, `uri`, `uuid` and `binary`
+
+The `format` of a `string` says what its text is. Each value read and written is checked to be one:
+
+| `format` | Each value is |
+|----------|---------------|
+| `email` | an email address, such as `jack@example.org`. The check is of its form, as Ruby's `URI::MailTo::EMAIL_REGEXP` matches it, not that the address exists. |
+| `uri` | a URI with a scheme, such as `https://example.org/a`, `mailto:jack@example.org` or `s3://bucket/a.csv`. `example.org` has no scheme, so it raises. |
+| `uuid` | a UUID: 32 hexadecimal digits, in any case, in groups of 8-4-4-4-12 separated by `-`, such as `123e4567-e89b-12d3-a456-426614174000`. |
+| `binary` | bytes, read from their base64 text into a binary `String`, and written as base64. |
+
+~~~ruby
+IOStreams.path("users.csv").write(<<~CSV)
+  email,site,id,avatar
+  jack@example.org,https://example.org,123e4567-e89b-12d3-a456-426614174000,aGVsbG8=
+CSV
+
+path = IOStreams.path("users.csv").schema(
+  fields: [
+    {name: "email", type: "string", format: "email"},
+    {name: "site", type: "string", format: "uri"},
+    {name: "id", type: "string", format: "uuid"},
+    {name: "avatar", type: "string", format: "binary"}
+  ]
+)
+path.each(:hash) do |user|
+  p user
+end
+# {"email" => "jack@example.org", "site" => "https://example.org", "id" => "123e4567-e89b-12d3-a456-426614174000", "avatar" => "hello"}
+~~~
+
+The base64 text `aGVsbG8=` is the bytes of `hello`. The text of CSV, fixed width, JSON or a spreadsheet is always
+base64, and reading ignores the line breaks within it, such as those of MIME base64. A source of Ruby objects, such as
+a Parquet binary column or a query, holds the bytes themselves, as a binary `String`. Writing writes a binary `String`,
+such as one that `File.binread` or `data.b` returns, as base64, and takes any other `String` as base64 text already, so
+`"hello"` raises, while `"hello".b` is written as `aGVsbG8=`. The `minLength` and `maxLength` of a `binary` field count
+its bytes, and a `pattern` raises `ArgumentError` when the schema is read, since bytes are not text. See
+[Formats of strings](schemas#formats-of-strings).
+
+**Compared with Frictionless**
+
+* The spec says only "a valid email address", "a valid URI" and "a string that is a uuid", so tools check them
+  differently:
+  * `email`: frictionless-py raises for some addresses that IOStreams reads, such as `jack@localhost`, whose domain
+    has no dot. It reads an address whose name or domain is not ASCII, such as `jäck@exämple.org`, which IOStreams
+    raises for.
+  * `uri`: frictionless-py reads a URI with a space in it, such as `https://exa mple.org`, and an IRI, a URI with
+    characters that are not ASCII, such as `https://exämple.org/ä`, which IOStreams raises for. Percent-encode them,
+    such as `%20` for a space.
+  * `uuid`: frictionless-py also reads the 32 digits without the `-`, a UUID within braces, such as
+    `{123e4567-e89b-12d3-a456-426614174000}`, and one after the prefix `urn:uuid:`, which IOStreams raises for.
+* `binary`: frictionless-py checks that the text is base64, and keeps the text. IOStreams decodes it into its bytes,
+  and writes them back as base64. So frictionless-py counts the `minLength` and `maxLength` of a `binary` field in the
+  characters of its base64 text, such as 8 for `aGVsbG8=`, where IOStreams counts its bytes, 5, and frictionless-py
+  matches a `pattern` with the base64 text, which IOStreams raises `ArgumentError` for.
+* frictionless-py also reads the `format` `wkt`, a shape in Well-Known Text, which the spec does not define. IOStreams
+  raises `ArgumentError` for it when the schema is read.
+
+## Numbers
+
+### `integer`
+
+* **Read as** an `Integer`, from digits with an optional sign, such as `42`, `-12`, `+12` or `0042`.
+* **Also reads** a whole number with a decimal point, such as `12.0`, since a spreadsheet stores every number with
+  one. `12.5` raises, as do `1e3` and `1,200`, unless its `groupChar` is `,`, see
+  [Numbers written with other characters](#numbers-written-with-other-characters).
+* **Written as** its digits, such as `42`.
+
+~~~ruby
+IOStreams.path("counts.csv").write(<<~CSV)
+  count
+  42
+  -12
+  0042
+  12.0
+CSV
+
+path = IOStreams.path("counts.csv").schema(
+  fields: [
+    {name: "count", type: "integer"}
+  ]
+)
+path.each(:hash) do |row|
+  p row
+end
+# {"count" => 42}
+# {"count" => -12}
+# {"count" => 42}
+# {"count" => 12}
+~~~
+
+**Compared with Frictionless**
+
+* `12.0` reads as `12`. The spec and frictionless-py raise for it.
+* frictionless-py reads digits separated by `_`, such as `1_000`, as Python does. The spec and IOStreams raise for it.
+* The spec gives an `integer` a `groupChar`, which IOStreams reads and writes. frictionless-py ignores the `groupChar`
+  of an `integer`, so it raises for `1,200`, and writes `1200`.
+
+### `number`
+
+* **Read as** a `BigDecimal`, which keeps every digit. A `Float` cannot hold a number such as `0.1` exactly, while a
+  `BigDecimal` can. With `floatNumber: true`, it is a `Float` instead.
+* **Reads** a decimal with an optional sign and exponent, such as `12.50`, `-1.5E3`, `.5` or `12.`, and the numbers
+  that are not finite: `NaN`, `INF` and `-INF`, in any case, and `Infinity` and `-Infinity`, as Ruby and JavaScript
+  write them.
+* **Written as** the plain digits of its value, such as `12.5` and `1500.0`. A whole number is written with `.0`, such
+  as `3.0`. A number that is not finite is written as `NaN`, `INF` or `-INF`. JSON cannot hold those, so writing one to
+  JSON raises `IOStreams::Errors::InvalidValue`.
+* **`decimals`**, which IOStreams adds, gives the digits after the decimal point. It rounds the number read, and the
+  number written, half up, so that a record holds the number that its file holds, such as `12.35` for `12.345` with
+  `decimals: 2`.
+
+~~~ruby
+IOStreams.path("prices.csv").write(<<~CSV)
+  price
+  12.50
+  -1.5E3
+  .5
+  INF
+  NaN
+CSV
+
+path = IOStreams.path("prices.csv").schema(
+  fields: [
+    {name: "price", type: "number"}
+  ]
+)
+path.each(:hash) do |row|
+  p row
+end
+# {"price" => 0.125e2}
+# {"price" => -0.15e4}
+# {"price" => 0.5e0}
+# {"price" => Infinity}
+# {"price" => NaN}
+~~~
+
+Writing, with and without `decimals`:
+
+~~~ruby
+path = IOStreams.path("totals.csv").schema(
+  fields: [
+    {name: "total", type: "number"},
+    {name: "rounded", type: "number", decimals: 2}
+  ]
+)
+path.writer(:hash) do |io|
+  io << {"total" => BigDecimal("12.50"), "rounded" => BigDecimal("12.5")}
+  io << {"total" => 3, "rounded" => BigDecimal("12.345")}
+  io << {"total" => Float::INFINITY, "rounded" => 3}
+end
+puts path.read
+# total,rounded
+# 12.5,12.50
+# 3.0,12.35
+# INF,3.00
+~~~
+
+**Compared with Frictionless**
+
+* `Infinity` and `-Infinity` are not in the spec, which spells them `INF` and `-INF`. IOStreams and frictionless-py
+  both read them.
+* frictionless-py also reads `+INF`, and `sNaN`, a kind of `NaN` in Python, which are not in the spec either. IOStreams
+  raises for them.
+* The spec writes an exponent with an upper case `E`. IOStreams and frictionless-py both read a lower case `e` too,
+  such as `1.5e3`.
+* frictionless-py reads digits separated by `_`, such as `1_000.5`. The spec and IOStreams raise for it.
+* frictionless-py writes the numbers that are not finite as `NaN`, `Infinity` and `-Infinity`. IOStreams writes them
+  as the spec spells them, `NaN`, `INF` and `-INF`.
+* frictionless-py writes the digits of the text that it read, so `12.50`, `1.5E3` and `3` are written as `12.50`,
+  `1.5E+3` and `3`. IOStreams writes the plain digits of the value, `12.5`, `1500.0` and `3.0`, unless `decimals` gives
+  the digits after the point. Either way, each is the same number.
+* `decimals` is a property that IOStreams adds. `floatNumber` is not in the spec either: IOStreams reads it as
+  frictionless-py does.
+
+### Numbers written with other characters
+
+Three properties of the spec describe numbers that are not written as plain digits:
+
+* `groupChar`, of a `number` or an `integer`, the character between the groups of digits, such as `,` in `1,234,567`.
+  Reading removes it wherever it is. Writing puts it between each group of 3 digits.
+* `decimalChar`, of a `number`, the decimal point, such as `,` in `12,50`. A `.` that is not the `groupChar` then
+  raises.
+* `bareNumber: false`, of a `number` or an `integer`, for text around the number, such as `95%`, `$12.50` or
+  `EUR 95`. Reading removes the text without digits before and after the number. A `-` before the number, such as in
+  `-$12.50`, and parentheses around it, such as `(12.50)`, as accountants write a negative number, make it negative.
+  Text with digits before or after the number, such as `12abc3`, a `-` after it, such as `12-`, and a parenthesis
+  without its pair, such as `(12.50`, raise, rather than read a number whose sign could be wrong. Writing writes the
+  number alone.
+
+~~~ruby
+IOStreams.path("report.csv").write(<<~CSV)
+  pay,change,count
+  "1.234,50",95%,"1,200"
+  "12,00",($12.50),7
+  "0,50",-$12.50,0
+CSV
+
+path = IOStreams.path("report.csv").schema(
+  fields: [
+    {name: "pay", type: "number", groupChar: ".", decimalChar: ","},
+    {name: "change", type: "number", bareNumber: false},
+    {name: "count", type: "integer", groupChar: ","}
+  ]
+)
+path.each(:hash) do |row|
+  p row
+end
+# {"pay" => 0.12345e4, "change" => 0.95e2, "count" => 1200}
+# {"pay" => 0.12e2, "change" => -0.125e2, "count" => 7}
+# {"pay" => 0.5e0, "change" => -0.125e2, "count" => 0}
+~~~
+
+An `integer` reads its text the same way, so with `bareNumber: false` it reads `(12)` and `-$12` as `-12`, and raises
+for `12-`. See [Text of numbers](schemas#text-of-numbers).
+
+**Compared with Frictionless**
+
+* The spec says that the text around a number is removed, and leaves what it means to each tool. IOStreams reads
+  parentheses as a negative number, so `(12.50)` and `($12.50)` are `-12.50`, and `(12)` is `-12`, where
+  frictionless-py reads `12.50` and `12`.
+* frictionless-py removes only the text before a `-`, so it raises for `-$12.50` and `-$12`, which IOStreams reads as
+  `-12.50` and `-12`. Both read `USD -12` as `-12`.
+* frictionless-py removes all of the text after the last digit, and a parenthesis before the number, even without its
+  pair, so it reads `12-` as `12` and `(12.50` as `12.50`. IOStreams raises for them, rather than read a number whose
+  sign could be wrong.
+
+## `boolean`
+
+* **Read as** `true` or `false`, from the text of its `trueValues` and `falseValues`, which are compared exactly, so
+  case matters. By default they are `true`, `True`, `TRUE` and `1`, and `false`, `False`, `FALSE` and `0`.
+* **From other sources** the number `1` is `true` and `0` is `false`, such as a JSON number, the `1.0` of a
+  spreadsheet, or a column of numbers of a Parquet file or a query. Any other number raises.
+* **Written as** the first of its `trueValues` or `falseValues`.
+
+~~~ruby
+IOStreams.path("answers.csv").write(<<~CSV)
+  default,custom
+  true,Y
+  0,no
+CSV
+
+path = IOStreams.path("answers.csv").schema(
+  fields: [
+    {name: "default", type: "boolean"},
+    {name: "custom", type: "boolean", trueValues: ["Y", "yes"], falseValues: ["N", "no"]}
+  ]
+)
+path.each(:hash) do |row|
+  p row
+end
+# {"default" => true, "custom" => true}
+# {"default" => false, "custom" => false}
+
+path.writer(:hash) do |io|
+  io << {"default" => false, "custom" => false}
+end
+puts path.read
+# default,custom
+# false,N
+~~~
+
+With its own `trueValues` and `falseValues`, the field reads only those: `custom` raises for `true` and for `y`.
+
+**Compared with Frictionless**
+
+* The spec defines a `boolean` only as text, and does not say how to read a number. frictionless-py raises for the
+  numbers `1` and `0`, which IOStreams reads as `true` and `false`.
+
+## Dates and times
+
+### `date`
+
+* **Read as** a `Date`, from `YYYY-MM-DD`, such as `2026-10-13`, with exactly 4, 2 and 2 digits, or from the text of
+  its `format`, see [Patterns of dates and times](#patterns-of-dates-and-times). A date that does not exist, such as
+  `2026-02-30`, raises.
+* **From other sources** a `Time` at midnight is its date, such as a date and time cell of a spreadsheet, or a
+  timestamp column of a query, at midnight. Any other time raises, rather than lose its time of day.
+* **Written as** `2026-10-13`, or in its `format`.
+
+~~~ruby
+IOStreams.path("shipments.csv").write(<<~CSV)
+  shipped,ordered
+  2026-10-13,31/10/2026
+CSV
+
+path = IOStreams.path("shipments.csv").schema(
+  fields: [
+    {name: "shipped", type: "date"},
+    {name: "ordered", type: "date", format: "%d/%m/%Y"}
+  ]
+)
+path.each(:hash) do |row|
+  p row
+end
+# {"shipped" => #<Date: 2026-10-13 ...>, "ordered" => #<Date: 2026-10-31 ...>}
+~~~
+
+**Compared with Frictionless**
+
+* frictionless-py reads a month or day of one digit, such as `2026-1-5`, since Python's `%m` and `%d` read one or two
+  digits. The spec and IOStreams require `YYYY-MM-DD`.
+* The spec defines the `format` `any`, for any text that a tool can read as a date, and does not recommend it.
+  frictionless-py reads it. IOStreams raises `ArgumentError` for it when the schema is read, for a `date`, `datetime`
+  or `time`.
+
+### `datetime`
+
+* **Read as** a `Time`, from ISO 8601 with seconds, such as `2026-10-13T09:30:00Z`, `2026-10-13T09:30:00.250Z` or
+  `2026-10-13T09:30:00-05:00`. A date alone, or a time without seconds, raises.
+* **Also reads** a space in place of the `T`, such as `2026-10-13 09:30:00`, and an offset from UTC without a colon,
+  or of hours alone, such as `+0530` or `+05`, as databases write them.
+* **Text without an offset** from UTC, such as `2026-10-13T09:30:00`, is read as UTC, so that a file reads the same on
+  every server, or in the `timeZone` of the field, see [Time zones](#time-zones).
+* **Written as** ISO 8601 with its offset, such as `2026-10-13T09:30:00Z` for UTC or `2026-10-13T09:30:00+05:30`, or
+  in its `format`. A fraction of a second is written in groups of 3 digits, as many as it needs, such as `.100`,
+  `.250` or `.123456`.
+
+~~~ruby
+IOStreams.path("visits.csv").write(<<~CSV)
+  visited_at
+  2026-10-13T09:30:00Z
+  2026-10-13T09:30:00.250+05:30
+  2026-10-13 09:30:00
+  2026-10-13T09:30:00+0530
+CSV
+
+path = IOStreams.path("visits.csv").schema(
+  fields: [
+    {name: "visited_at", type: "datetime"}
+  ]
+)
+path.each(:hash) do |visit|
+  p visit
+end
+# {"visited_at" => 2026-10-13 09:30:00 UTC}
+# {"visited_at" => 2026-10-13 09:30:00.25 +0530}
+# {"visited_at" => 2026-10-13 09:30:00 UTC}
+# {"visited_at" => 2026-10-13 09:30:00 +0530}
+
+path.writer(:hash) do |io|
+  io << {"visited_at" => Time.utc(2026, 10, 13, 9, 30)}
+  io << {"visited_at" => Time.new(2026, 10, 13, 9, 30, 0.25r, "+05:30")}
+end
+puts path.read
+# visited_at
+# 2026-10-13T09:30:00Z
+# 2026-10-13T09:30:00.250+05:30
+~~~
+
+**Compared with Frictionless**
+
+* The spec writes ISO 8601 with a `T`, and an offset with a colon, such as `+05:30`. IOStreams and frictionless-py
+  both also read a space for the `T`, and an offset such as `+0530` or `+05`.
+* frictionless-py reads any one character between the date and the time, such as `_` or a lower case `t`, a lower
+  case `z`, and a comma before the fraction of a second, such as `09:30:00,5`. IOStreams raises for them.
+* The spec does not give text without an offset a zone, and frictionless-py reads it as a time without one, which it
+  writes without an offset. IOStreams reads it as UTC, or in the `timeZone` of the field, and writes it with its
+  offset, such as `Z`.
+* frictionless-py writes an offset without a colon, such as `+0530`, and leaves out the fraction of a second, such as
+  the `.250` above, which the spec's form allows as milliseconds. IOStreams writes `+05:30` and the fraction.
+
+### `time`
+
+* **Read as** a time of day: a `Time` on 2000-01-01, which is how Active Record holds a `time` column, since Ruby has
+  no class for a time of day. It reads `09:30:00`, `09:30:00.250`, `09:30:00Z`, `09:30:00-05:00` or `09:30:00-0500`.
+  `9:30:00`, `09:30` and `24:00:00` raise.
+* **Text without an offset** is read as UTC, or in the `timeZone` of the field.
+* **Written as** the time of its own clock, without its offset, such as `09:30:00`, or in its `format`. Give it a
+  `format` of `"%H:%M:%S%:z"` to write the offset too. A fraction of a second is written as a `datetime` writes it,
+  such as `09:30:00.250`.
+
+~~~ruby
+IOStreams.path("shifts.csv").write(<<~CSV)
+  starts
+  09:30:00
+  17:45:30.250
+  09:30:00-05:00
+CSV
+
+path = IOStreams.path("shifts.csv").schema(
+  fields: [
+    {name: "starts", type: "time"}
+  ]
+)
+path.each(:hash) do |shift|
+  p shift
+end
+# {"starts" => 2000-01-01 09:30:00 UTC}
+# {"starts" => 2000-01-01 17:45:30.25 UTC}
+# {"starts" => 2000-01-01 09:30:00 -0500}
+~~~
+
+A shift that starts at 09:30 in New York is written as `09:30:00`, whatever the time zone of the server, see
+[Types](schemas#types).
+
+**Compared with Frictionless**
+
+* The spec gives the form `hh:mm:ss`. IOStreams and frictionless-py both also read a fraction of a second and an
+  offset.
+* frictionless-py reads `24:00:00` as midnight, `00:00:00`. IOStreams raises for it.
+* frictionless-py reads text without an offset as a time without a zone. IOStreams reads it as UTC, or in the
+  `timeZone` of the field. Both write it without an offset, such as `09:30:00`.
+* frictionless-py writes the offset of a time that has one, such as `09:30:00-0500`. IOStreams writes the time of its
+  clock, `09:30:00`, unless its `format` writes the offset.
+* The spec's form, `hh:mm:ss`, has no fraction of a second, and frictionless-py leaves it out. IOStreams writes it,
+  such as `09:30:00.250`, so that the time reads back as it was.
+
+### Patterns of dates and times
+
+The `format` of a `date`, `datetime` or `time` is a pattern of Python's `strptime`, as the spec defines it, such as
+`"%d/%m/%Y"` for `31/10/2026`, `"%Y%m%d"` for `20261031`, or `"%I:%M %p"` for `9:30 PM`. Each `%` and letter reads
+one part of the text, and writes it:
+
+~~~ruby
+IOStreams.path("bookings.csv").write(<<~CSV)
+  booked_at,starts
+  31/10/2026 09:30,9:30 PM
+CSV
+
+path = IOStreams.path("bookings.csv").schema(
+  fields: [
+    {name: "booked_at", type: "datetime", format: "%d/%m/%Y %H:%M"},
+    {name: "starts", type: "time", format: "%I:%M %p"}
+  ]
+)
+path.each(:hash) do |booking|
+  p booking
+end
+# {"booked_at" => 2026-10-31 09:30:00 UTC, "starts" => 2000-01-01 21:30:00 UTC}
+~~~
+
+Ruby's patterns are almost the same as Python's. IOStreams reads these as Python does: `%Y` is exactly 4 digits, so
+`31/10/26` raises for `%d/%m/%Y`, `%y` is exactly 2 digits, and `%f` is the microseconds, which Ruby does not have. A
+`format` that starts with `fmt:`, as an old version of the spec wrote it, has the prefix removed, as the spec requires.
+See [Formats of dates and times](schemas#formats-of-dates-and-times).
+
+**Compared with Frictionless**
+
+* IOStreams also reads Ruby's own directives, such as `%s` for the seconds since 1970, and `%N` and `%L` for the
+  fraction of a second. Python, so frictionless-py, does not. Use the directives of Python in a schema that other
+  tools read.
+
+### Time zones
+
+Text of a `datetime` or `time` without an offset is read as UTC. `timeZone`, a property that IOStreams adds, reads it
+in another zone: `UTC`, an offset such as `-05:00`, or the name of a zone such as `America/New_York`, whose offset is
+that of the date, in summer or in winter. The name of a zone needs the tzinfo gem, which Rails includes.
+
+~~~ruby
+IOStreams.path("logins.csv").write(<<~CSV)
+  login_at
+  2026-07-01 09:30:00
+  2026-12-01 09:30:00
+CSV
+
+path = IOStreams.path("logins.csv").schema(
+  fields: [
+    {name: "login_at", type: "datetime", timeZone: "America/New_York"}
+  ]
+)
+path.each(:hash) do |login|
+  p login
+end
+# {"login_at" => 2026-07-01 09:30:00 -0400}
+# {"login_at" => 2026-12-01 09:30:00 -0500}
+~~~
+
+A `time` is a `Time` on 2000-01-01, so text without an offset takes the offset of the zone on that date, `-05:00` in New
+York, even for a shift on a summer day. A `Time` written to a `time` field with a `timeZone` is written as the clock of
+the zone on its own date, so 13:30 UTC on 2026-07-01 is written `09:30:00` in New York, which is at `-04:00` in July.
+
+A date and time cell of a spreadsheet, or a cell of a time of day, holds a clock without a zone, as text without an
+offset does. So a field with a `timeZone` writes the clock of its zone to a cell, such as `2026-07-01 09:30` for 13:30
+UTC in New York, and reads the clock of a cell in its zone, so the cell `2026-07-01 09:30` is 13:30 UTC, while a field
+without one writes and reads the clock in UTC. See [Excel spreadsheets](formats#excel-spreadsheets).
+
+A copy keeps the `timeZone` of a field in the schema that it gives its target, such as the records of a
+[contract](contracts) copied to a spreadsheet, since the zone says which clock the values are. So the cells of the
+spreadsheet hold the clocks of the zone, as the source read them, and read back as the same times, while CSV and JSON
+write each time with its offset.
+
+See [Time zones](schemas#time-zones). Neither the spec nor frictionless-py has `timeZone`.
+
+### `year`
+
+* **Read as** an `Integer`, from exactly 4 digits of text, such as `2026`.
+* **From other sources** a whole number from 0 to 9999, such as the JSON number `2026`.
+* **Written as** 4 digits of text, such as `2026`, or `0026` for the year 26. JSON writes it as a number, such as
+  `2026`.
+
+### `yearmonth`
+
+* **Read as** a `Date` on the first of its month, from `YYYY-MM`, such as `2026-10`.
+* **Written as** `2026-10`.
+
+~~~ruby
+IOStreams.path("budgets.csv").write(<<~CSV)
+  year,month
+  2026,2026-10
+CSV
+
+path = IOStreams.path("budgets.csv").schema(
+  fields: [
+    {name: "year", type: "year"},
+    {name: "month", type: "yearmonth"}
+  ]
+)
+path.each(:hash) do |budget|
+  p budget
+end
+# {"year" => 2026, "month" => #<Date: 2026-10-01 ...>}
+~~~
+
+**Compared with Frictionless**
+
+* The spec's `year` is the `gYear` of XML Schema, whose usual form is 4 digits. IOStreams and frictionless-py read only
+  that form, and raise for its others, such as a year with a sign, `-0044`, a year of 5 digits, `12026`, or a year with
+  a zone, `2026Z`.
+* frictionless-py writes the year 26 as `26`, which it then cannot read, since it reads only 4 digits. IOStreams
+  writes `0026`, or the number `26` in JSON.
+* frictionless-py reads a month of one digit, such as `2026-1`. The spec and IOStreams require `YYYY-MM`.
+* frictionless-py reads a `yearmonth` as a pair of its year and month, `(2026, 10)`, where IOStreams reads a `Date` on
+  the first of the month.
+* frictionless-py also reads a JSON array of the year and month, such as `[2026, 10]`, which IOStreams raises for.
+
+### `duration`
+
+* **Read as** an `ActiveSupport::Duration`, from ISO 8601, such as `PT8H30M` for 8 hours and 30 minutes, or
+  `P1M2DT3H` for a month, 2 days and 3 hours. It keeps the months and days apart from the seconds, since a month has
+  no fixed number of seconds. A number, such as `30600`, raises, since it does not say what it counts.
+* **Written as** ISO 8601, such as `P1M2DT3H`.
+* **Needs the activesupport gem**, which Rails includes. Without it, setting a schema with a `duration` field raises
+  `LoadError`.
+
+~~~ruby
+IOStreams.path("jobs.csv").write(<<~CSV)
+  wait
+  PT8H30M
+  P1M2DT3H
+CSV
+
+path = IOStreams.path("jobs.csv").schema(
+  fields: [
+    {name: "wait", type: "duration"}
+  ]
+)
+path.each(:hash) do |job|
+  p job
+end
+# {"wait" => 8 hours and 30 minutes}
+# {"wait" => 1 month, 2 days, and 3 hours}
+~~~
+
+**Compared with Frictionless**
+
+* The spec lets a `duration` have a `minimum` and a `maximum`, which IOStreams checks. frictionless-py does not
+  support them, and reports the schema as not valid.
+
+## Objects and arrays
+
+* **`object`** is read as a `Hash`, from the text of a JSON object, such as `{"theme":"dark"}`.
+* **`array`** is read as an `Array`, from the text of a JSON array, such as `[10,12]`.
+* **Written as** that JSON text. A JSON file holds the object or array itself.
+* **From other sources** a `Hash` or an `Array` is read as JSON holds it: its keys become Strings, and a `Symbol`,
+  `BigDecimal`, `Date` or `Time` within it becomes its text, so that a record reads the same from every source.
+
+A CSV value that holds a `"` is written within quotes, with each `"` doubled:
+
+~~~ruby
+IOStreams.path("settings.csv").write(<<~CSV)
+  settings,sizes
+  "{""theme"":""dark""}","[10,12]"
+CSV
+
+path = IOStreams.path("settings.csv").schema(
+  fields: [
+    {name: "settings", type: "object"},
+    {name: "sizes", type: "array"}
+  ]
+)
+path.each(:hash) do |row|
+  p row
+end
+# {"settings" => {"theme" => "dark"}, "sizes" => [10, 12]}
+
+path.writer(:hash) do |io|
+  io << {"settings" => {theme: :light}, "sizes" => [8]}
+end
+puts path.read
+# settings,sizes
+# "{""theme"":""light""}",[8]
+~~~
+
+**Compared with Frictionless**
+
+* frictionless-py writes JSON with a space after each `,` and `:`, such as `{"a": 1}`. IOStreams writes `{"a":1}`.
+  Both are the same JSON.
+* frictionless-py keeps a Python dict as it is. IOStreams converts a `Hash` to what JSON holds of it, as above.
+
+## Lists
+
+A `list` holds several values of one type, its `itemType`, in one text, separated by its `delimiter`:
+
+* **Read as** an `Array` of its items, each read in the default form of its type, as the spec requires, such as
+  `2026-10-13` for a `date`. An empty item is `nil`.
+* **`itemType`** is `string`, `integer`, `number`, `boolean`, `date`, `datetime` or `time`. Default: `string`
+* **`delimiter`** is the text between the items. Default: `,`. A `string` item keeps its spaces, so give the list
+  `a, b` the delimiter `", "`.
+* **From other sources** an `Array` is read as its items, such as an array of JSON, or a list column of Parquet. Text is
+  always read as delimited text, so the text of a JSON array, such as `["a","b"]`, is the items `["a"` and `"b"]`. A
+  single value that is not text, such as a number of JSON, a number cell of a spreadsheet, or a column of numbers of
+  Parquet, is a list of that one item, such as `[1.5]`, so that the rows of a spreadsheet read as its CSV text does, and
+  a `list` of `string` items reads a number cell as a `string` field does, such as `["2134"]`.
+* **Written as** its items separated by its `delimiter`, also to a spreadsheet, whose cells hold the same text. A JSON
+  file holds an array, and Parquet a list column. Writing an item whose text holds the `delimiter` raises, since it
+  would read back as two items.
+* **`decimals` and `floatNumber`** of a list of `number` items apply to each item, as they do to a
+  [`number`](#number): each item is written with its `decimals`, such as `1.50,2.25` with `decimals: 2`, and rounded to
+  them when read, half up, or read as a `Float` with `floatNumber: true`. Parquet holds a list of decimals of its
+  `decimals`, or of doubles with `floatNumber: true`, one of which it needs. A list of any other `itemType` raises
+  `ArgumentError` for them.
+
+~~~ruby
+IOStreams.path("orders.csv").write(<<~CSV)
+  tags,sizes
+  "red,large",10;12
+  "red,,large",8
+CSV
+
+path = IOStreams.path("orders.csv").schema(
+  fields: [
+    {name: "tags", type: "list"},
+    {name: "sizes", type: "list", itemType: "integer", delimiter: ";"}
+  ]
+)
+path.each(:hash) do |order|
+  p order
+end
+# {"tags" => ["red", "large"], "sizes" => [10, 12]}
+# {"tags" => ["red", nil, "large"], "sizes" => [8]}
+~~~
+
+**Compared with Frictionless**
+
+* The spec does not say what an empty item is. frictionless-py reads it as `""` for a `string` item, and raises for
+  the other types. IOStreams reads it as `nil`.
+* JSON writes a list as an array of its items, where frictionless-py writes its delimited text.
+* The spec defines a list only as delimited text, and frictionless-py reads only text or an array, raising for any
+  other value, such as the number `1.5` of JSON, which IOStreams reads as the list `[1.5]`.
+* Neither the spec nor frictionless-py gives `decimals` or `floatNumber` to a list. frictionless-py ignores them, so it
+  reads each number of `1.005,2.5` as a `Decimal` of its own digits, and writes each one as its digits, `1.5,2.25`.
+
+## Geographic points
+
+A `geopoint` is a point on the earth, read as `[lon, lat]`, two `BigDecimal`s: its longitude, from -180 to 180, then
+its latitude, from -90 to 90. Its `format` says how the text holds them:
+
+| `format` | Text |
+|----------|------|
+| `default` | `90.50, 45.50`, the space being optional |
+| `array` | `[90.50, 45.50]`, a JSON array |
+| `object` | `{"lon": 90.50, "lat": 45.50}`, a JSON object |
+
+~~~ruby
+IOStreams.path("places.csv").write(<<~CSV)
+  default,array,object
+  "90.50, 45.50","[90.50, 45.50]","{""lon"": 90.50, ""lat"": 45.50}"
+CSV
+
+path = IOStreams.path("places.csv").schema(
+  fields: [
+    {name: "default", type: "geopoint"},
+    {name: "array", type: "geopoint", format: "array"},
+    {name: "object", type: "geopoint", format: "object"}
+  ]
+)
+path.each(:hash) do |place|
+  p place
+end
+# {"default" => [0.905e2, 0.455e2], "array" => [0.905e2, 0.455e2], "object" => [0.905e2, 0.455e2]}
+
+path.writer(:hash) do |io|
+  io << {"default" => [90.5, 45.5], "array" => [90.5, 45.5], "object" => [90.5, 45.5]}
+end
+puts path.read
+# default,array,object
+# "90.5, 45.5","[90.5,45.5]","{""lon"":90.5,""lat"":45.5}"
+~~~
+
+From other sources, such as JSON, Parquet, or a query, a `geopoint` reads an `Array` or a `Hash` of `lon` and `lat`,
+whatever its `format`.
+
+**Compared with Frictionless**
+
+* frictionless-py writes the `default` format without the space, and with the digits that it read, such as
+  `90.50,45.50`. IOStreams writes `90.5, 45.5`.
+* frictionless-py reads a number with an exponent in the `default` format, such as `1e1, 45`. IOStreams raises for it.
+* frictionless-py cannot write a geopoint that it has read in the `array` or `object` format: it raises `TypeError`,
+  since Python's JSON cannot write the `Decimal`s of the point. IOStreams writes `[90.5,45.5]` and
+  `{"lon":90.5,"lat":45.5}`, as above.
+* The spec also defines the type `geojson`, a shape in GeoJSON, which frictionless-py reads. IOStreams does not
+  support it yet, so it raises `ArgumentError` when the schema is read.
+
+## `any`
+
+A field of type `any` reads each value as it is, without converting it. It is the type of a field without a `type`.
+
+* **Read as** the value itself: text from CSV, such as `"42"`, and a number from JSON, such as `42`. Empty text is
+  still a missing value, `nil`.
+* **Written as** the text of the value: a `BigDecimal` as its plain digits, such as `12.5`, a `Date` or `Time` as ISO
+  8601, a `Hash` or an `Array` as JSON, and a number that is not finite as `NaN`, `INF` or `-INF`.
+
+~~~ruby
+path = IOStreams.path("values.csv").schema(
+  fields: [
+    {name: "value"}
+  ]
+)
+path.writer(:hash) do |io|
+  io << {"value" => BigDecimal("12.50")}
+  io << {"value" => Date.new(2026, 10, 13)}
+  io << {"value" => {"a" => 1}}
+end
+puts path.read
+# value
+# 12.5
+# 2026-10-13
+# "{""a"":1}"
+
+path.each(:hash) do |row|
+  p row
+end
+# {"value" => "12.5"}
+# {"value" => "2026-10-13"}
+# {"value" => "{\"a\":1}"}
+~~~
+
+See [Values without a field](schemas#values-without-a-field).
+
+**Compared with Frictionless**
+
+* The spec, and IOStreams, give a field without a `type` the type `any`. frictionless-py gives it the type `string`,
+  which matters for a value that is not text, such as a JSON number.
+* frictionless-py writes Python's text of a value, such as `{'a': 1}` for a dict, which is not JSON, and `inf`.
+  IOStreams writes JSON, and `INF`.
+* frictionless-py writes the digits of a decimal as it holds them, such as `12.50`. IOStreams writes the plain digits
+  of its value, `12.5`, as above.
+
+## Constraints, required and unique values
+
+`constraints` are rules that each value must follow, once its field has read it, both when reading and when writing.
+A value that breaks one raises `IOStreams::Errors::InvalidValue`. `required: true` means that the field must have a
+value:
+
+~~~ruby
+IOStreams.path("contacts.csv").write(<<~CSV)
+  name,email
+  Jack,jack@example.org
+  Jill,
+CSV
+
+path = IOStreams.path("contacts.csv").schema(
+  fields: [
+    {name: "name", type: "string"},
+    {name: "email", type: "string", constraints: {required: true}}
+  ]
+)
+path.each(:hash) do |contact|
+  p contact
+end
+# {"name" => "Jack", "email" => "jack@example.org"}
+# IOStreams::Errors::InvalidValue: Field "email" is required, but has no value, in record 2 on line 3
+~~~
+
+`enum`, `minimum`, `maximum`, `exclusiveMinimum`, `exclusiveMaximum`, `minLength`, `maxLength` and `pattern` check
+each value. The value of a constraint is read by its field, so `minimum: "2000-01-01"` of a `date` is a `Date`:
+
+~~~ruby
+IOStreams.path("members.csv").write(<<~CSV)
+  status,age,joined
+  active,30,2026-10-13
+  closed,130,2026-10-13
+CSV
+
+path = IOStreams.path("members.csv").schema(
+  fields: [
+    {name: "status", type: "string", constraints: {enum: ["active", "closed"]}},
+    {name: "age", type: "integer", constraints: {minimum: 0, maximum: 120}},
+    {name: "joined", type: "date", constraints: {minimum: "2000-01-01"}}
+  ]
+)
+path.each(:hash) do |member|
+  p member
+end
+# {"status" => "active", "age" => 30, "joined" => #<Date: 2026-10-13 ...>}
+# IOStreams::Errors::InvalidValue: Field "age": "130" is more than its maximum, 120, in record 2 on line 3
+~~~
+
+`categories`, a property of a `string` or `integer` field rather than a constraint, lists the values that the field can
+have, such as `categories: ["active", "closed"]`, and a value that is not one of them raises, as for `enum`.
+
+`unique: true`, and the `primaryKey` and `uniqueKeys` of the schema, check that no two records have the same value:
+
+~~~ruby
+IOStreams.path("accounts.csv").write(<<~CSV)
+  id,email
+  1,jack@example.org
+  2,jack@example.org
+CSV
+
+path = IOStreams.path("accounts.csv").schema(
+  primaryKey: "id",
+  fields:     [
+    {name: "id", type: "integer"},
+    {name: "email", type: "string", constraints: {unique: true}}
+  ]
+)
+path.each(:hash) do |account|
+  p account
+end
+# {"id" => 1, "email" => "jack@example.org"}
+# IOStreams::Errors::InvalidValue: Field "email": "jack@example.org" is not unique, it is the value of an earlier record, in record 2 on line 3
+~~~
+
+Each read and each write of a file checks its own records, and remembers up to 1,000,000 values of each field and key,
+which `uniqueLimit`, a property of the schema that IOStreams adds, changes. A slice is only a part of a file, so reading
+one, as a background job does, does not check them, since another slice may hold the same value, and neither does a
+write into a store of slices without `validate: true`, such as the results of a job. With `validate: true`, slicing the
+file with `each(:slice)`, a write into a store of slices, such as the upload of a file, and `writer(:slice)` check them
+across every row that they read or write. See
+[Required fields](schemas#required-fields), [Constraints](schemas#constraints) and [Unique values](schemas#unique-values).
+
+**Compared with Frictionless**
+
+* `pattern` is a Ruby regular expression that the whole text must match. The spec writes it in the syntax of XML
+  Schema, which is almost the same, see [Constraints](schemas#constraints). frictionless-py matches it with Python's
+  `$`, which also accepts a line break at the end, such as `12345` followed by a line break for `\d{5}`, which
+  IOStreams raises for.
+* The spec gives `minLength` and `maxLength` to a `string`, an `array` and an `object`. IOStreams and frictionless-py
+  also give them to a `list`, whose items they count.
+* The spec says that each value must be one of the `categories` of its field. frictionless-py does not check them, so
+  it reads a value that is not one of them. IOStreams raises for it.
+* The constraint `jsonSchema` is in the spec. Neither IOStreams nor frictionless-py supports it: IOStreams raises
+  `ArgumentError` when the schema is read.
+* `foreignKeys`, which link the values of a field to those of another table, are in the spec, and frictionless-py
+  checks them. IOStreams does not support them yet, so it raises `ArgumentError` when the schema is read.
+
+## Summary of the differences
+
+Every difference on this page, by type. "Not defined" means that the spec does not say. "Raises" means that reading
+raises `IOStreams::Errors::InvalidValue` in IOStreams, that frictionless-py reports the value as not valid, and, in
+The spec column, that the spec does not allow it, such as text that is not in its form. The
+properties that IOStreams adds to the spec, such as `aliases` and `allowBlank`, are listed in
+[Frictionless compatibility](schemas#frictionless-compatibility).
+
+| Type | Text or value | The spec | frictionless-py 5.21 | IOStreams |
+|------|---------------|----------|----------------------|-----------|
+| every type | a missing value, written | not defined | the first of `missingValues`, such as `NA` | the first of `missingValues`, or `null` in JSON |
+| every type | an empty CSV value without quotes, such as in `a,,b`, with `missingValues: ["NA"]` | not defined | `""` for a `string` or `any`, otherwise raises | `nil` |
+| every type | the JSON number `-99`, with `missingValues: ["-99"]` | missing values are text | missing, `nil` | not missing, `-99` |
+| every type | `missingValues` that repeat a text, such as `["NA", "NA"]` | each one once | accepted | raises `ArgumentError` |
+| every type | `missingValues` of both text and objects | not allowed | rejects the schema | raises `ArgumentError` |
+| every type but `string` and `any` | spaces around the text, such as `" true "` or `" 2026-10-13 "` | not defined | removed around an `integer` or a `number`, raises for a `boolean`, `date`, `datetime`, `time`, `year` or `duration` | removed |
+| `string` | a value that is not text, such as the JSON number `42` | not defined | raises | `"42"` |
+| `string` `email` | `jack@localhost` | not defined | raises | reads |
+| `string` `email` | `jäck@exämple.org`, not ASCII | not defined | reads | raises |
+| `string` `uri` | `https://exa mple.org` | not defined | reads | raises |
+| `string` `uri` | `https://exämple.org/ä`, an IRI | not defined | reads | raises |
+| `string` `uuid` | the 32 digits without `-` | not defined | reads | raises |
+| `string` `uuid` | `{123e4567-e89b-12d3-a456-426614174000}`, or after `urn:uuid:` | not defined | reads | raises |
+| `string` `binary` | `aGVsbG8=` | base64 | checks it, and keeps the text | decodes it into its bytes, `hello`, written as base64 |
+| `string` `binary` | `minLength` and `maxLength` | not defined | count the characters of the base64 text | count the bytes |
+| `string` `binary` | a `pattern` | not defined | matches the base64 text | raises `ArgumentError` |
+| `string` | `format: "wkt"` | not defined | reads | raises `ArgumentError` |
+| `integer` | `12.0` | raises | raises | `12` |
+| `integer` | `1_000` | raises | `1000` | raises |
+| `integer` | `groupChar: ","` and `1,200` | `1200` | raises, and writes `1200` | `1200`, written as `1,200` |
+| `number` | `Infinity` and `-Infinity` | `INF` and `-INF` | reads | reads |
+| `number` | `+INF` and `sNaN` | raises | reads | raises |
+| `number` | `1.5e3`, a lower case `e` | an upper case `E` | reads | reads |
+| `number` | `1_000.5` | raises | `1000.5` | raises |
+| `number` | a number that is not finite, written | `NaN`, `INF`, `-INF` | `NaN`, `Infinity`, `-Infinity` | `NaN`, `INF`, `-INF` |
+| `number` | `12.50`, `1.5E3` and `3`, read and written | not defined | `12.50`, `1.5E+3` and `3` | `12.5`, `1500.0` and `3.0` |
+| `number` | `decimals` | not defined | ignored | rounds the number read and written |
+| `number`, `integer` | `bareNumber: false` and `(12.50)` or `(12)` | up to each tool | `12.50` and `12` | `-12.50` and `-12` |
+| `number`, `integer` | `bareNumber: false` and `-$12.50` or `-$12` | up to each tool | raises | `-12.50` and `-12` |
+| `number`, `integer` | `bareNumber: false` and `12-` or `(12` | up to each tool | `12` | raises |
+| `boolean` | the number `1` or `0`, such as of JSON | not defined | raises | `true` or `false` |
+| `date` | `2026-1-5` | raises | reads | raises |
+| `date`, `datetime`, `time` | `format: "any"` | any form, not recommended | reads any form | raises `ArgumentError` |
+| `date`, `datetime`, `time` | the directives `%s`, `%N` and `%L` of a `format` | not defined | raises | reads |
+| `datetime` | `2026-10-13 09:30:00`, a space for the `T` | raises | reads | reads |
+| `datetime` | `+0530` or `+05` | raises | reads | reads |
+| `datetime` | `2026-10-13t09:30:00z`, lower case, or `_` for the `T` | raises | reads | raises |
+| `datetime`, `time` | `09:30:00,5`, a comma before the fraction | raises | reads | raises |
+| `datetime` | text without an offset, such as `2026-10-13T09:30:00` | no zone | no zone, written without an offset | UTC, or its `timeZone`, written with its offset, such as `Z` |
+| `time` | text without an offset, such as `09:30:00` | no zone | no zone, written without an offset | UTC, or its `timeZone`, written without an offset |
+| `datetime` | an offset, written | `+05:30` | `+0530` | `+05:30` |
+| `datetime` | a fraction of a second, written | optional milliseconds | left out | written, such as `.250` |
+| `time` | a fraction of a second, written | `hh:mm:ss`, no fraction | left out | written, such as `09:30:00.250` |
+| `datetime`, `time` | `timeZone` | not defined | ignored | the zone of text without an offset, and of the clock of a spreadsheet's cell |
+| `time` | `24:00:00` | `hh:mm:ss` | `00:00:00` | raises |
+| `time` | the offset of a time, written | not defined | written, such as `09:30:00-0500` | not written, unless its `format` writes it |
+| `year` | `-0044`, `12026` or `2026Z` | `gYear` reads them | raises | raises |
+| `year` | the year 26, written | not defined | `26` | `0026`, or the number `26` in JSON |
+| `yearmonth` | `2026-1` | raises | reads | raises |
+| `yearmonth` | `2026-10`, read | not defined | a pair, `(2026, 10)` | a `Date`, 2026-10-01 |
+| `yearmonth` | the JSON array `[2026, 10]` | `YYYY-MM` | reads | raises |
+| `duration` | `minimum` and `maximum` | allowed | not supported | checked |
+| `object`, `array` | written | JSON | `{"a": 1}` | `{"a":1}` |
+| `list` | an empty item, such as in `a,,c` | not defined | `""` for a `string`, otherwise raises | `nil` |
+| `list` | an item that holds the `delimiter`, written | not defined | written as it is | raises |
+| `list` | written to JSON | not defined | the delimited text, `"a,b"` | an array, `["a","b"]` |
+| `list` | `decimals` and `floatNumber` of `number` items | not defined | ignored | as for a `number` |
+| `list` | a single value that is not text, such as the number `1.5` of JSON | not defined | raises | `[1.5]` |
+| `geopoint` | the `default` format, written | `lon, lat` | `90.50,45.50` | `90.5, 45.5` |
+| `geopoint` | `1e1, 45` | not defined | reads | raises |
+| `geopoint` | the `array` or `object` format, written | a JSON array or object | raises `TypeError` for a point that it read | `[90.5,45.5]` or `{"lon":90.5,"lat":45.5}` |
+| `geojson` | any value | GeoJSON | reads | raises `ArgumentError` |
+| `any` | a field without a `type` | `any` | `string` | `any` |
+| `any` | a `Hash`, written | not defined | `{'a': 1}` | `{"a":1}` |
+| `any` | `BigDecimal("12.50")`, written | not defined | `12.50` | `12.5` |
+| `string` | `pattern: "\\d{5}"` and `12345` with a line break after it | raises | reads | raises |
+| `list` | `minLength` and `maxLength` | not defined | count its items | count its items |
+| `string`, `integer` | a value that is not one of its `categories` | raises | reads | raises |
+| every type | the constraint `jsonSchema` | defined | not supported | raises `ArgumentError` |
+| the schema | `foreignKeys` | defined | checked | raises `ArgumentError` |
 
 ---
 
@@ -4947,7 +6704,9 @@ since its types are never guessed, so a Parquet target needs a schema or a contr
 it is opened without one, so that an existing file is kept.
 
 * The contract is handed on without what says how the source writes its text, the `format` of a date and the
-  `trueValues` and `falseValues` of a boolean, so that the target writes its own, such as a date in ISO 8601.
+  `trueValues` and `falseValues` of a boolean, so that the target writes its own, such as a date in ISO 8601. It keeps
+  the `timeZone` of a `datetime` or `time`, which says which clock its values are, so that a spreadsheet target writes
+  the clock of the zone to each cell, as the source read it, see [Time zones](schemas#time-zones).
 * A column of a Parquet file of lists, maps or structs is an `array` or `object`, which another Parquet file holds as
   JSON text, and a column of binary values is of type `any`, which Parquet cannot write without a schema on the target
   that gives its type.
@@ -5128,7 +6887,10 @@ end
 `#each` returns the number of rows that it read, header row included, as it returns the number of lines of a file. A
 second traversal of the reader that `#reader` yields continues where the first stopped, as for a file.
 
-Each value is cast as `pluck` casts it, which is how the attributes of a model hold it, but without building a model,
+Each value is cast as `pluck` casts it, except empty text, and an empty binary value, which are `nil`, a missing
+value, see [Types](schemas#types), and the values of a PostgreSQL array of dates, times or decimals, which are their
+text, as JSON holds them, such as `"2026-10-20"`, `"2026-10-20T08:30:00-04:00"` or `"12.5"`, see the table below. That
+is how the attributes of a model hold it, but without building a model,
 so that its methods, such as a reader that it overrides, do not run: an enum attribute is the name of its value, such
 as `"shipped"`, an encrypted attribute is its plain text, a JSON column is the value of its JSON, such as a Hash, and a
 datetime is an `ActiveSupport::TimeWithZone` in the time zone of the application. The columns of a joined table are
@@ -5253,7 +7015,10 @@ a model that the query joins, otherwise the type that the database gives the col
 | decimal with a scale, such as `decimal(10, 2)` | `number`, with `decimals` of the scale | decimal |
 | decimal without a scale, such as a PostgreSQL `numeric`, or a sum that PostgreSQL computes | `number` | needs `decimals` |
 | float | `number`, with `floatNumber: true` | double |
-| string, text, uuid, an enum | `string` | string |
+| string, text, an enum | `string` | string |
+| uuid | `string`, with `format: "uuid"` | string |
+| binary, such as a PostgreSQL `bytea` or a MySQL `blob`, whose values are bytes | `string`, with `format: "binary"`, which a format of text and JSON write as base64 | binary |
+| a PostgreSQL `hstore`, as a `Hash` | `object` | the JSON text of the object |
 | a PostgreSQL `inet` or `cidr` address, as the text that PostgreSQL returns, such as `10.0.0.0/8` | `string` | string |
 | boolean | `boolean` | boolean |
 | date | `date` | date32 |
@@ -5261,8 +7026,8 @@ a model that the query joins, otherwise the type that the database gives the col
 | time, as the time of its clock in the time zone of the application, see [Times of day](#times-of-day) | `time` | time of day, not adjusted to UTC |
 | a PostgreSQL `interval`, as an `ActiveSupport::Duration` | `duration` | the ISO 8601 text of the duration, such as `P1M2DT3H` |
 | a PostgreSQL type that Active Record does not know, such as `timetz`, as the text that PostgreSQL returns, such as `17:00:00+02` | `string` | string |
-| a PostgreSQL array, such as `text[]`, with an array of addresses as their text | `array` | the JSON text of the array |
-| json, binary, a serialized attribute, or a type of the application | `any` | needs a type |
+| a PostgreSQL array, such as `text[]`, with an array of addresses as their text, and the values of an array of dates, times or decimals as their JSON text, as a JSON source reads them | `array` | the JSON text of the array |
+| json, a serialized attribute, or a type of the application | `any` | needs a type |
 
 * An attribute that Active Record decorates, such as one that `encrypts` or `normalizes`, has the type of the
   attribute within, so an encrypted string is a `string`. A serialized attribute, also one that is encrypted, and an
@@ -5288,17 +7053,13 @@ a model that the query joins, otherwise the type that the database gives the col
 ### Columns that need a type
 
 A Parquet file needs the type of every column, so a column of `any`, or a number without decimals, raises
-`ArgumentError` before the file is written. The other formats write such a column, apart from binary data:
+`ArgumentError` before the file is written. The other formats write such a column:
 
 * A JSON column is `any`, since its values can be objects, arrays, or any other JSON value. CSV writes each value as
   its JSON text, and JSON as itself. For Parquet, give it the type `object` when each of its values is an object, or
   `array` when each is an array, which Parquet holds as their JSON text. Otherwise, leave it out, or select its JSON
   text as a column of another name, such as `details::text AS details_json` on PostgreSQL, which is a `string`. On
   MySQL and SQLite, whose computed columns are `any`, give such a column the type `string` in the schema, see below.
-* A binary column is `any` too, and its bytes are not text: CSV writes them as they are, which is not valid UTF-8, so
-  reading the file raises `IOStreams::Errors::InvalidEncoding`, and JSON raises it as it writes them. Leave it out,
-  or select it as text, such as `encode(image, 'base64') AS image_base64` on PostgreSQL, or
-  `TO_BASE64(image) AS image_base64` on MySQL.
 * A number without decimals, such as a sum on PostgreSQL, needs its `decimals`.
 
 To give a column a type, read the query through a [contract](contracts), which a copy hands to a target with neither
@@ -5526,6 +7287,13 @@ They end with the transaction, or are set back in a transaction that was already
 
 A cursor never runs its query in parallel, so a query that PostgreSQL runs with parallel workers otherwise, such as an
 aggregate of a large table, can take longer to export than it takes in `psql`.
+
+A `numeric` column can hold `'NaN'`, and from PostgreSQL 14 one without a scale also `'Infinity'` and `'-Infinity'`, as
+can a `real` or `double precision` column, which Active Record reads as a `BigDecimal` or `Float` that is not finite.
+CSV writes them as `NaN`, `INF` and `-INF`, as Frictionless spells them, while JSON, which cannot hold them, and a
+Parquet decimal raise `IOStreams::Errors::InvalidValue`, naming the column. To export such a column to them, select it
+as a missing value, such as `CASE WHEN amount = 'NaN' THEN NULL ELSE amount END AS amount`, or as its text, under
+another name, such as `amount::text AS amount_text`, which is a `string`.
 
 When the block raises, or the export is interrupted, such as by `Timeout`, Active Record rolls back the transaction of
 the cursor, which cancels a fetch that is still running. On JRuby, PgJDBC waits for a fetch in Java, which a `Timeout`
@@ -5950,7 +7718,11 @@ end
   format, such as CSV results written to a JSON file, is read by its header row and written in the format of the file.
 * Every slice must come from the same file, or the same kind of results: a slice with another header row or format
   raises `ArgumentError`.
-* `validate: true` parses each row before it is written, to catch a value that is not valid before it reaches the file.
+* `validate: true` parses each row before it is written, to catch a value that is not valid before it reaches the file,
+  and a value that must be [unique](schemas#unique-values) that an earlier slice had. A job that writes its results to
+  a store of slices does not check those values, since its results are only a part of the output file, so check them
+  here, across the whole file. Without `validate: true`, only the rows of a slice in another format, which are parsed
+  anyway, are checked for them.
 * As for any writer, the file is kept when the block returns, and not when it raises.
 * A job whose input slice holds more rows than the `slice_size` of its store of results, 100 unless the store says
   otherwise, writes more than one result slice, each with the number of its input slice, so they are still in the
@@ -5974,7 +7746,8 @@ end
 * `nil` reads the whole file, so the cursor of a job that has not started yet, which is usually `nil`, can be supplied
   as it is.
 * The file is read again up to the cursor, since a file cannot be read from the middle, such as when it is compressed,
-  but those rows are not parsed, so it is quick. The header row is still read, and matched to the schema.
+  but those rows are not parsed, so it is quick. The header row is still read, and matched to the schema. So the values
+  that must be [unique](schemas#unique-values) are checked from the cursor on, not against the records that it skips.
 * `each(:hash, resume_at: cursor)` works too, for a job that keeps a cursor for each record, see
   [Resuming at a record](streams#resuming-at-a-record).
 * A query is read again from its start too, so give the relation an order, such as `order(:id)`, so that its rows come
@@ -6134,6 +7907,12 @@ end
 The slices still hold the rows as they are in the file. Validating parses every row twice, once here and once in the
 job, so it is worth it when starting work on a file that is only partly valid is worse than reading it slower.
 
+Values that must be [unique](schemas#unique-values), such as those of a `primaryKey`, are unique within the whole
+file, so a job that reads its slice does not check them, since another slice may hold the same value, and neither does
+a job that writes its results to a store of slices. Validating reads the whole file once while it is sliced, so it
+checks them across the whole file, and raises for a duplicate before the slice that holds it is handed on. Without
+`validate: true`, nothing checks them before the jobs run.
+
 ### Hand on the slices only once the file is read
 
 `each(:slice)` yields each slice as soon as it is read, so when reading fails part way through, such as for a value
@@ -6270,7 +8049,10 @@ end
   as it has been read, before the first slice, and also for a file that has a header row and no rows. Use it, for
   example, to record the columns of the upload. It is not called for a file without a header row, such as JSON.
 * **Validating as you write.** `validate: true` parses each row before the slice that holds it is written, as for
-  `each(:slice)`: `writer(:hash, validate: true)` or `copy_from(path, mode: :line, validate: true)`.
+  `each(:slice)`: `writer(:hash, validate: true)` or `copy_from(path, mode: :line, validate: true)`. It parses every
+  row of the write, so it checks the values that must be [unique](schemas#unique-values) across all of its slices, as
+  for the upload of a file. Without it, a write checks none of them, in any mode, since it may be the results of one
+  job, only a part of the output file, which `writer(:slice, validate: true)` checks once every job has finished.
 
 The store decides the size of its slices, rather than each call, since it knows how it keeps them.
 
@@ -6612,7 +8394,14 @@ IOStreams raises these classes itself:
     names the record that it is in and the line that the record starts on, such as `..., in record 6 on line 7`, which
     its `#record_number` and `#line_number` hold, with its `#field`, `#value` and `#reason`, see
     [Values that are not valid](streams#values-that-are-not-valid). `on_invalid:` hands each bad row to a handler
-    instead, as an `IOStreams::InvalidRow`.
+    instead, as an `IOStreams::InvalidRow`. A value that does not follow a [constraint](schemas#constraints) raises
+    it too, and so does a value of a field or key that must be [unique](schemas#unique-values) that an earlier record
+    of the same read or write had, whose `#field` is the name of the field, or the names of the fields of a key.
+  * `IOStreams::Errors::UniqueLimitExceeded`: a read or write has seen more distinct values of a field or key that
+    must be [unique](schemas#unique-values) than it remembers, the `uniqueLimit` of the schema, 1,000,000 by default,
+    so that it can no longer tell whether a value is a duplicate. It is not an `InvalidValue`, since the value may well
+    be unique, so `on_invalid:` does not take it: raise `uniqueLimit`, or check the uniqueness elsewhere, such as with a
+    unique index of a database.
   * `IOStreams::Errors::InvalidLineLength`: a fixed width line does not have the length of its schema.
   * `IOStreams::Errors::ValueTooLong`: a value does not fit within its fixed width field.
   * `IOStreams::Errors::InvalidLayout`: nothing raises it since v3.0 removed the layout of a fixed width file, which a
@@ -8719,7 +10508,12 @@ layout returned them, see [Keys of the records read](schemas#keys-of-the-records
 Unlike a layout, a schema that sets neither `truncate:` nor `floatNumber:` raises `IOStreams::Errors::ValueTooLong`
 for a string that is longer than its field, and reads a `number` field as a `BigDecimal`. The schema that
 `from_layout` returns sets both, so that it reads and writes as the layout did, except as described in
-[A fixed width number that holds no number raises](#a-fixed-width-number-that-holds-no-number-raises).
+[A fixed width number that holds no number raises](#a-fixed-width-number-that-holds-no-number-raises). A `string` field
+of only spaces is `nil`, a missing value, where the layout read empty text, `""`, see [Types](schemas#types). A
+`string` field writes a `Float` that is not finite as `NaN`, `INF` or `-INF`, where the layout wrote `NaN`, `Infinity`
+or `-Infinity`. A `number` field with `decimals` rounds the number read to them, such as `12.35` for `12.346` with
+`decimals: 2`, where the layout read all of its digits, and writes a negative number that rounds to zero, such as
+`-0.001`, as zero, without a minus sign, where the layout wrote one, such as `-0000.00`.
 
 `IOStreams::Schema.from_layout` raises `IOStreams::Errors::InvalidLayout` for a layout that a schema cannot hold: two
 columns with the same key, including `:a` and `"a"`, a key that is neither a String nor a Symbol, such as `1`, or
@@ -8820,10 +10614,11 @@ Fix: rescue `IOStreams::Errors::InvalidEncoding`, an `Encoding::UndefinedConvers
 Reading an `:integer` or `:float` column of a fixed width file that holds no number, such as `N/A` or `12-`, now
 raises `IOStreams::Errors::InvalidValue`, which names the field and the value. Previously the column was converted
 with `to_i` or `to_f`, to `0`, or to the number that its leading digits make, such as `12` for `12-`, so that a
-corrupt file was read without an error. Writing such a value also raises, as does writing a fraction to an
-`:integer` column, which was truncated. An `:integer` column still reads a whole number with a decimal point, such
-as `12.0`, as `12`, as `to_i` did, but a fraction, such as `12.5`, raises. A blank column is still read as `nil`,
-and a missing number is still written as zeros.
+corrupt file was read without an error. Writing such a value also raises, as does text of only spaces, such as
+`"  "`, which the layout wrote as zeros, and a fraction written to an `:integer` column, which was truncated. An
+`:integer` column still reads a whole number with a decimal point, such as `12.0`, as `12`, as `to_i` did, but a
+fraction, such as `12.5`, raises. A blank column is still read as `nil`, and a missing number is still written as
+zeros.
 
 Fix: correct the data, or read the column as a string, with `type: "string"` in the schema, and convert it in the
 application.
@@ -9007,6 +10802,9 @@ A schema reads the same records as the options it replaces, named as above, exce
   where the column options left the header row and the rows as they are in the file.
 * A value after the last column, which is not blank, raises `IOStreams::Errors::InvalidHeader` unless `fieldsMatch`
   is `"subset"` or `"partial"`, where it was dropped.
+* Empty text, such as a quoted `""` in CSV or `""` in JSON, is a missing value, `nil`, where the column options read
+  it as it is, see [Types](schemas#types). Writing works the same way: empty text is written as a missing value, an
+  empty value in CSV and `null` in JSON, where the column options wrote `""`.
 * A JSON record that has none of the fields, such as `{"other":3}` for the fields `name` and `zip`, raises
   `IOStreams::Errors::InvalidHeader` with `fieldsMatch: "partial"`, which needs at least one of them, where `columns:`
   read it as an empty record, `{}`.
@@ -9017,6 +10815,10 @@ A schema reads the same records as the options it replaces, named as above, exce
   keep the name and give the field the column as an alias, such as `{name: "prnom", aliases: ["Prénom"]}`.
 * A key of a record written that is the field only once compared loosely, such as `LastName` for `last_name`, is
   written, where `columns:` wrote an empty value.
+* A `Float` or `BigDecimal` that is not finite is written as `INF` or `-INF`, as Frictionless spells them, where the
+  column options wrote `Infinity` or `-Infinity`, and writing one to JSON raises `IOStreams::Errors::InvalidValue`,
+  where the json gem raised `JSON::GeneratorError`, and a Rails app, whose ActiveSupport writes it, wrote `null`, see
+  [Types](schemas#types).
 
 ##### Checking a schema before upgrading
 
@@ -9094,9 +10896,10 @@ v3.0 also writes spreadsheets, which v2.2 cannot, see [Excel spreadsheets](forma
 
 Give the columns that the code reads a schema or a [contract](contracts), whose fields convert each value to their
 types, such as `{name: "id", type: "integer"}` for `1001.0`, or `{name: "zip", type: "string"}` for text. With a type
-for each column, the values are those that v2.2 reads, apart from the text of a date and time cell, see
-[Spreadsheet date and time cells are read as ISO 8601](#spreadsheet-date-and-time-cells-are-read-as-iso-8601), and a
-`number` field, which reads the 15 digits that Excel displays, such as `0.3` where v2.2 reads `0.30000000000000004`.
+for each column, the values are those that v2.2 reads: in both, a `number` field reads the 15 digits that Excel
+displays, such as `0.3` where v2.1 read `0.30000000000000004`, and a `string` field the number that the cell holds, to
+those digits, such as `2134` where v2.1 read `2134.0`, and a cell of a time of day as the time of its clock, such as
+`09:30:00`, and both keep every digit of a whole number below 2^53, such as the card number `4111111111111111`.
 Remove a `delimiter:` or `buffer_size:` supplied to the rows and records of a spreadsheet, and an encoding set with
 `#encoding` when they are read or written, which now raise `ArgumentError`, since its rows are cells rather than lines of
 text; the `:line` mode still takes them. v2.2 reports reading the rows and records of a spreadsheet without a type for
@@ -10056,6 +11859,8 @@ for each one.
 - The message of an `IOStreams::Errors::InvalidValue` that a reader of rows or records raises ends with the record and
   the line, such as `..., in record 6 on line 7`. `#reason` returns the message without them, for code that compares
   the whole message.
+- Without a schema, a `Float` or `BigDecimal` that is not finite is written to CSV, and the other formats of text, as
+  `INF` or `-INF`, as Frictionless spells them, where v2.1 wrote `Infinity` or `-Infinity`.
 
 ## Upgrading to v2.2
 
@@ -10219,10 +12024,10 @@ working after an upgrade, apart from the changes that v3.0 makes to every file:
   reports as deprecated, while v3.0 takes only one at midnight, by its own clock, as its date, and raises
   `IOStreams::Errors::InvalidValue` for any other, rather than lose its time of day, see
   [A date field takes a time only at midnight](#a-date-field-takes-a-time-only-at-midnight).
-* A spreadsheet read with a type for each column reads the same values in both, apart from the text of a date and time
-  cell, which v3.0 reads in UTC, and a `number` field, which reads the 15 digits that Excel displays in v3.0, see
-  [Rows of a spreadsheet are the values of its cells](#rows-of-a-spreadsheet-are-the-values-of-its-cells).
 * Parquet files are only in v3.0.
+* A property of a schema or a field that IOStreams does not know raises `ArgumentError` in v2.2, while v3.0 keeps it,
+  as Frictionless allows, unless it is close to a property that IOStreams knows, such as `trueValue`, see
+  [Frictionless compatibility](schemas#frictionless-compatibility). Two fields of the same name raise in v2.2.
 
 ### Changes in behavior in v2.2
 

@@ -104,10 +104,10 @@ class SliceStreamTest < Minitest::Test
 
       describe "of rows that are each a record, such as those of a query" do
         let(:records) do
-          rows = [["Jack", 21], [nil, nil], ["", nil]]
+          rows = [["Jack", 21], [nil, nil], [" ", nil]]
           IOStreams::Slice.new(rows, header: %w[name age].freeze, format: :array, blank_rows: false)
         end
-        let(:expected) { [{"name" => "Jack", "age" => 21}, {"name" => nil, "age" => nil}, {"name" => "", "age" => nil}] }
+        let(:expected) { [{"name" => "Jack", "age" => 21}, {"name" => nil, "age" => nil}, {"name" => " ", "age" => nil}] }
 
         it "reads a row whose every value is blank as a record, with or without skip_blanks" do
           assert_equal expected, each(IOStreams.stream(records).schema(schema))
@@ -125,7 +125,7 @@ class SliceStreamTest < Minitest::Test
           output = StringIO.new
           IOStreams.stream(records).schema(schema).copy_to(IOStreams.stream(output).format(:json), mode: :hash)
 
-          assert_equal %({"name":"Jack","age":21}\n{"name":null,"age":null}\n{"name":"","age":null}\n), output.string
+          assert_equal %({"name":"Jack","age":21}\n{"name":null,"age":null}\n{"name":" ","age":null}\n), output.string
         end
 
         it "gives the slices that its rows are read in again rows that are each a record" do
@@ -134,6 +134,12 @@ class SliceStreamTest < Minitest::Test
 
           assert_equal [false, false], list.map(&:blank_rows?)
           assert_equal(expected, list.flat_map { |part| each(IOStreams.stream(part).schema(schema)) })
+        end
+
+        it "reads empty text as nil, a missing value" do
+          empty = IOStreams::Slice.new([["", nil]], header: %w[name age].freeze, format: :array, blank_rows: false)
+
+          assert_equal [{"name" => nil, "age" => nil}], each(IOStreams.stream(empty).schema(schema))
         end
       end
 

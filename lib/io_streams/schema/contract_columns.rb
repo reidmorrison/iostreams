@@ -12,7 +12,9 @@ module IOStreams
     # that the contract is matched to, so that a missing column raises before the first row, see
     # `IOStreams::Schema#check_columns`. Each record and row read is then read by the schema of the file, and its values
     # converted to the fields of the contract, each at most once, since a value already of the type of its field passes
-    # through, see `IOStreams::Schema::Field#cast`, and has every field of the contract, in its order.
+    # through, see `IOStreams::Schema::Field#cast`, and has every field of the contract, in its order. The missing
+    # values of the contract do not apply to them, since the schema of the file read its text, by its own missing
+    # values, see `IOStreams::Schema::Field#cast_typed`.
     #
     # Each record and row written is converted to the fields of the contract first, and written by the schema of the
     # file, each value in the column of the field of the file that the field of the contract matched.
@@ -62,6 +64,18 @@ module IOStreams
         @source.decimal_positions(in_order: in_order)
       end
 
+      # Returns [Array<Integer>|nil] the positions of the values of the rows of the file whose field of the schema of the
+      # file is a `string`, see `IOStreams::Schema::Columns#string_positions`.
+      def string_positions(in_order: false)
+        @source.string_positions(in_order: in_order)
+      end
+
+      # Returns [Hash<Integer, #call>|nil] the positions of the values of the rows of the file whose field of the schema of
+      # the file has a missing value of text other than empty text, see `IOStreams::Schema::Columns#missing_positions`.
+      def missing_positions(in_order: false)
+        @source.missing_positions(in_order: in_order)
+      end
+
       # Returns [Array<Integer>] the positions of the values of the rows of the file rendered whose field of the schema of
       # the file is a `string`, see `IOStreams::Schema::Columns#text_positions`.
       def text_positions
@@ -79,49 +93,55 @@ module IOStreams
       end
 
       # Returns [Array] the value of each field of the contract, from the values of a row of the columns of the file.
+      #
+      # The values that must be unique of the schema of the file, and of the contract, are each checked, then
+      # remembered only once both have read the row, so that a row that the contract rejects adds none of them, see
+      # `IOStreams::Schema::Uniqueness`. The same for each row and record read and written.
       def row(values)
-        @contract.row(@source.row(values))
+        remember_unique { @contract.row(@source.row(values, remember: false), remember: false) }
       end
 
       # Returns [Hash] the record of the contract, from the values of a row of the columns of the file.
       def record(values)
-        @contract.record(@source.row(values))
+        remember_unique { @contract.record(@source.row(values, remember: false), remember: false) }
       end
 
       # Returns [Hash] the record of the contract, from a record of a format whose records supply their own keys, such
       # as JSON, which the schema of the file reads first.
       def read_hash(hash)
-        @contract.read_hash(@source.read_hash(hash))
+        remember_unique { @contract.read_hash(@source.read_hash(hash, remember: false), remember: false) }
       end
 
       # Returns [Array] the value of each field of the contract, in order, from a record of a format whose records
       # supply their own keys, such as JSON.
       def read_row(hash)
-        @contract.read_row(@source.read_hash(hash))
+        remember_unique { @contract.read_row(@source.read_hash(hash, remember: false), remember: false) }
       end
 
       # Returns [Array<IOStreams::Errors::InvalidValue>] an error for each field of the file whose value of the supplied row
       # is not valid, otherwise for each field of the contract, see `IOStreams::Schema::Columns#value_errors`.
       def value_errors(values)
         errors = @source.value_errors(values)
-        errors.empty? ? @contract.value_errors(@source.row(values)) : errors
+        errors.empty? ? @contract.value_errors(@source.row(values, unique: false)) : errors
       end
 
       # Returns [Array<IOStreams::Errors::InvalidValue>] an error for each field whose value of a record of a format whose
       # records supply their own keys, such as JSON, is not valid, see #value_errors.
       def hash_errors(hash)
         errors = @source.hash_errors(hash)
-        errors.empty? ? @contract.hash_errors(@source.read_hash(hash)) : errors
+        errors.empty? ? @contract.hash_errors(@source.read_hash(hash, unique: false)) : errors
       end
 
       # Returns [Array|Hash] the values of a row or record written, converted to the fields of the contract, see
       # `IOStreams::Schema::Columns#render`, then rendered by the schema of the file, in the column of the field of the
       # file that each field of the contract matched, in the supplied form.
       def render(row, form, keyed)
-        values = @contract.render(row, :typed, true)
-        record = {}
-        renames.each { |name, label| record[label] = values[name] }
-        @source.render(record, form, keyed)
+        remember_unique do
+          values = @contract.render(row, :typed, true, remember: false)
+          record = {}
+          renames.each { |name, label| record[label] = values[name] }
+          @source.render(record, form, keyed, remember: false)
+        end
       end
 
       # Raises for a blank row written when a field of the contract, or of the schema of the file, needs a value, see
@@ -144,6 +164,16 @@ module IOStreams
       end
 
       private
+
+      # Returns the result of the block, which reads or writes a row or record by the schema of the file and the contract
+      # without remembering the values that must be unique, once it has, then asks both to remember them, see
+      # `IOStreams::Schema::Columns#remember_unique`.
+      def remember_unique
+        result = yield
+        @source.remember_unique
+        @contract.remember_unique
+        result
+      end
 
       # Returns [Array<String|Symbol>] the keys of the fields of the contract, once it is matched to the keys of the
       # records that the schema of the file reads, which raises `IOStreams::Errors::InvalidHeader` when they do not

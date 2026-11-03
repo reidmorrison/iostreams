@@ -142,7 +142,10 @@ end
 `#each` returns the number of rows that it read, header row included, as it returns the number of lines of a file. A
 second traversal of the reader that `#reader` yields continues where the first stopped, as for a file.
 
-Each value is cast as `pluck` casts it, which is how the attributes of a model hold it, but without building a model,
+Each value is cast as `pluck` casts it, except empty text, and an empty binary value, which are `nil`, a missing
+value, see [Types](schemas#types), and the values of a PostgreSQL array of dates, times or decimals, which are their
+text, as JSON holds them, such as `"2026-10-20"`, `"2026-10-20T08:30:00-04:00"` or `"12.5"`, see the table below. That
+is how the attributes of a model hold it, but without building a model,
 so that its methods, such as a reader that it overrides, do not run: an enum attribute is the name of its value, such
 as `"shipped"`, an encrypted attribute is its plain text, a JSON column is the value of its JSON, such as a Hash, and a
 datetime is an `ActiveSupport::TimeWithZone` in the time zone of the application. The columns of a joined table are
@@ -267,7 +270,10 @@ a model that the query joins, otherwise the type that the database gives the col
 | decimal with a scale, such as `decimal(10, 2)` | `number`, with `decimals` of the scale | decimal |
 | decimal without a scale, such as a PostgreSQL `numeric`, or a sum that PostgreSQL computes | `number` | needs `decimals` |
 | float | `number`, with `floatNumber: true` | double |
-| string, text, uuid, an enum | `string` | string |
+| string, text, an enum | `string` | string |
+| uuid | `string`, with `format: "uuid"` | string |
+| binary, such as a PostgreSQL `bytea` or a MySQL `blob`, whose values are bytes | `string`, with `format: "binary"`, which a format of text and JSON write as base64 | binary |
+| a PostgreSQL `hstore`, as a `Hash` | `object` | the JSON text of the object |
 | a PostgreSQL `inet` or `cidr` address, as the text that PostgreSQL returns, such as `10.0.0.0/8` | `string` | string |
 | boolean | `boolean` | boolean |
 | date | `date` | date32 |
@@ -275,8 +281,8 @@ a model that the query joins, otherwise the type that the database gives the col
 | time, as the time of its clock in the time zone of the application, see [Times of day](#times-of-day) | `time` | time of day, not adjusted to UTC |
 | a PostgreSQL `interval`, as an `ActiveSupport::Duration` | `duration` | the ISO 8601 text of the duration, such as `P1M2DT3H` |
 | a PostgreSQL type that Active Record does not know, such as `timetz`, as the text that PostgreSQL returns, such as `17:00:00+02` | `string` | string |
-| a PostgreSQL array, such as `text[]`, with an array of addresses as their text | `array` | the JSON text of the array |
-| json, binary, a serialized attribute, or a type of the application | `any` | needs a type |
+| a PostgreSQL array, such as `text[]`, with an array of addresses as their text, and the values of an array of dates, times or decimals as their JSON text, as a JSON source reads them | `array` | the JSON text of the array |
+| json, a serialized attribute, or a type of the application | `any` | needs a type |
 
 * An attribute that Active Record decorates, such as one that `encrypts` or `normalizes`, has the type of the
   attribute within, so an encrypted string is a `string`. A serialized attribute, also one that is encrypted, and an
@@ -302,17 +308,13 @@ a model that the query joins, otherwise the type that the database gives the col
 ### Columns that need a type
 
 A Parquet file needs the type of every column, so a column of `any`, or a number without decimals, raises
-`ArgumentError` before the file is written. The other formats write such a column, apart from binary data:
+`ArgumentError` before the file is written. The other formats write such a column:
 
 * A JSON column is `any`, since its values can be objects, arrays, or any other JSON value. CSV writes each value as
   its JSON text, and JSON as itself. For Parquet, give it the type `object` when each of its values is an object, or
   `array` when each is an array, which Parquet holds as their JSON text. Otherwise, leave it out, or select its JSON
   text as a column of another name, such as `details::text AS details_json` on PostgreSQL, which is a `string`. On
   MySQL and SQLite, whose computed columns are `any`, give such a column the type `string` in the schema, see below.
-* A binary column is `any` too, and its bytes are not text: CSV writes them as they are, which is not valid UTF-8, so
-  reading the file raises `IOStreams::Errors::InvalidEncoding`, and JSON raises it as it writes them. Leave it out,
-  or select it as text, such as `encode(image, 'base64') AS image_base64` on PostgreSQL, or
-  `TO_BASE64(image) AS image_base64` on MySQL.
 * A number without decimals, such as a sum on PostgreSQL, needs its `decimals`.
 
 To give a column a type, read the query through a [contract](contracts), which a copy hands to a target with neither
@@ -540,6 +542,13 @@ They end with the transaction, or are set back in a transaction that was already
 
 A cursor never runs its query in parallel, so a query that PostgreSQL runs with parallel workers otherwise, such as an
 aggregate of a large table, can take longer to export than it takes in `psql`.
+
+A `numeric` column can hold `'NaN'`, and from PostgreSQL 14 one without a scale also `'Infinity'` and `'-Infinity'`, as
+can a `real` or `double precision` column, which Active Record reads as a `BigDecimal` or `Float` that is not finite.
+CSV writes them as `NaN`, `INF` and `-INF`, as Frictionless spells them, while JSON, which cannot hold them, and a
+Parquet decimal raise `IOStreams::Errors::InvalidValue`, naming the column. To export such a column to them, select it
+as a missing value, such as `CASE WHEN amount = 'NaN' THEN NULL ELSE amount END AS amount`, or as its text, under
+another name, such as `amount::text AS amount_text`, which is a `string`.
 
 When the block raises, or the export is interrupted, such as by `Timeout`, Active Record rolls back the transaction of
 the cursor, which cancels a fetch that is still running. On JRuby, PgJDBC waits for a fetch in Java, which a `Timeout`

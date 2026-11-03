@@ -11,8 +11,8 @@ module IOStreams
     # the fields into Parquet types.
     class Columns
       # The types of field whose values can be empty text: a string, or a value of any type, such as of a binary or JSON
-      # column, which a field that is required rejects, see `IOStreams::Schema::Constraints#no_text`, so that a column
-      # of them is never required, see #field.
+      # column, which a field that is required rejects, as Frictionless reads empty text as a missing value, see
+      # `IOStreams::Schema::Field#cast`, so that a column of them is never required, see #field.
       EMPTY_TEXT_TYPES = %w[string any].freeze
 
       # The most digits that a 64-bit integer holds, whatever they are, see #integer_properties.
@@ -21,7 +21,7 @@ module IOStreams
       # The type of field of each type that an Active Record type names, apart from a number, see #type_properties.
       FIELD_TYPES = {
         integer: "integer", big_integer: "integer",
-        string: "string", text: "string", uuid: "string", citext: "string", enum: "string", inet: "string",
+        string: "string", text: "string", citext: "string", enum: "string", inet: "string",
         cidr: "string", macaddr: "string",
         boolean: "boolean",
         date: "date",
@@ -111,6 +111,9 @@ module IOStreams
       # Returns [Array] the raw values of a row, as the driver of the database returns them, in the order of the
       # columns, each cast by the type of its column, as `pluck` casts them: an enum attribute returns the name of its
       # value, an encrypted attribute its plain text, and a datetime an `ActiveSupport::TimeWithZone` in a Rails app.
+      # The field of each column then reads its value, see #field, so that the row read differs from `pluck` where a
+      # field converts it: empty text is nil, and an array field holds what JSON holds of an array of dates, times or
+      # decimals, their text, see `IOStreams::Schema::Field.json_data`.
       #
       # Raises `IOStreams::Errors::InvalidValue` for a value that Active Record would cast to a wrong one: a time of day
       # outside a day, see #check_clock, or an infinite interval, see #check_duration.
@@ -224,6 +227,9 @@ module IOStreams
         case type.type
         when :decimal, :money then number_properties(type)
         when :float then {type: "number", floatNumber: true}
+        when :uuid then {type: "string", format: "uuid"}
+        when :binary then {type: "string", format: "binary"}
+        when :hstore then {type: "object"}
         else {type: FIELD_TYPES.fetch(type.type, "any")}
         end
       end

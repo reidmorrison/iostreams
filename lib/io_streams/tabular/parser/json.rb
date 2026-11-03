@@ -6,6 +6,10 @@ module IOStreams
     module Parser
       # For parsing a single line of JSON at a time
       class Json < Base
+        # The most Hashes and Arrays within each other that the JSON format writes, the default `max_nesting` of the
+        # json gem, whose coder raises `JSON::NestingError` for a deeper one, as .json_value does.
+        MAX_NESTING = 100
+
         # Returns [:json] JSON writes numbers and booleans as themselves, and every other value as text.
         def self.value_form
           :json
@@ -92,10 +96,12 @@ module IOStreams
         # an Array within it, when none of its values needs it, so that the record is copied only where it changes.
         #
         # Raises `IOStreams::Errors::InvalidEncoding` for text that is not valid, see .json_text.
-        def self.json_value(value)
+        # Raises `JSON::NestingError` for Hashes and Arrays nested more than MAX_NESTING deep, such as a Hash that holds
+        # itself, as the json gem raises it, rather than overflow the stack.
+        def self.json_value(value, depth = 0)
           case value
-          when ::Hash then json_hash(value)
-          when ::Array then json_array(value)
+          when ::Hash then json_hash(value, depth + 1)
+          when ::Array then json_array(value, depth + 1)
           when String then json_text(value)
           when Integer, Float, true, false, nil then value
           # JSON writes a Symbol as the text of its name.
@@ -143,12 +149,13 @@ module IOStreams
         #
         # A key or value that JSON writes as it is, such as ASCII text or a number, see .plain?, is taken as it is
         # without converting it, since most are.
-        def self.json_hash(hash)
+        def self.json_hash(hash, depth)
+          nesting(depth)
           copy  = nil
           index = 0
           hash.each_pair do |key, item|
             name = key.is_a?(String) && key.ascii_only? ? key : json_name(key)
-            json = plain?(item) ? item : json_value(item)
+            json = plain?(item) ? item : json_value(item, depth)
             copy ||= hash.first(index).to_h unless name.equal?(key) && json.equal?(item)
             copy[name] = json if copy
             index += 1
@@ -159,17 +166,24 @@ module IOStreams
 
         # Returns [Array] the array as the JSON format writes it, see .json_value, or the array itself when none of its
         # values needs it.
-        def self.json_array(array)
+        def self.json_array(array, depth)
+          nesting(depth)
           copy = nil
           array.each_with_index do |item, index|
             next if plain?(item)
 
-            json = json_value(item)
+            json = json_value(item, depth)
             (copy ||= array.dup)[index] = json unless json.equal?(item)
           end
           copy || array
         end
         private_class_method :json_array
+
+        # Raises `JSON::NestingError` when a Hash or an Array is nested deeper than MAX_NESTING, see .json_value.
+        def self.nesting(depth)
+          raise(::JSON::NestingError, "nesting of #{depth} is too deep") if depth > MAX_NESTING
+        end
+        private_class_method :nesting
 
         # Returns [true|false] whether JSON writes the value as it is: nil, true, false, an Integer, a Float, or ASCII
         # text, see .json_value. Ruby keeps what it found the first time that it checked the text, which the json gem

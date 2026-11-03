@@ -6,11 +6,12 @@ module IOStreams
     # in the form that the `parquet` gem writes it.
     #
     # The type of each field:
-    #   "string"    string
+    #   "string"    string, or binary for a string of bytes, with `format: "binary"`, see `IOStreams::Schema::Field`.
     #   "integer"   int64
-    #   "number"    decimal(38, decimals), or double with `floatNumber: true`, whose value is rounded to its `decimals`, if
-    #               any, as the field rounds the number that CSV writes, see `IOStreams::Schema::Field#round`. A number
-    #               needs one of them, since a Parquet decimal has a fixed number of digits after its point.
+    #   "number"    decimal(38, decimals), or double with `floatNumber: true`, whose value is already rounded to its
+    #               `decimals`, if any, by its field, as the field rounds the number that CSV writes, see
+    #               `IOStreams::Schema::Field#round`. A number needs one of them, since a Parquet decimal has a fixed
+    #               number of digits after its point.
     #   "boolean"   boolean
     #   "date"      date32
     #   "datetime"  timestamp_micros, adjusted to UTC, so the time read back is in UTC, and has whole microseconds.
@@ -21,6 +22,14 @@ module IOStreams
     #               `ActiveSupport::Duration`, since the `parquet` gem has no interval type.
     #   "object"    string, holding the JSON text of the Hash, which a schema with the field reads back as the Hash.
     #   "array"     string, holding the JSON text of the Array, read back the same way.
+    #   "list"      a list of the Parquet type of its `itemType`, as above, so that a list read back is the same Array,
+    #               and each item is in its own Parquet type, as other tools, such as DuckDB, read it: a list of numbers
+    #               is a list of decimal(38, decimals), or of double with `floatNumber: true`, and needs one of them, as
+    #               a number does.
+    #   "year"      int64.
+    #   "yearmonth" string, holding its text, such as `2026-10`, since Parquet has no type of a month.
+    #   "geopoint"  string, holding the text of its format, such as `90.5, 45.5`, or the JSON text of an array or an
+    #               object.
     #
     # A field whose `constraints` are `required` cannot be null, unless it allows blank values, see `allowBlank` in
     # `IOStreams::Schema::Field`. A field of type "any" raises ArgumentError, since Parquet needs the type of every
@@ -34,11 +43,13 @@ module IOStreams
 
       # Parameters:
       #   field: [IOStreams::Schema::Field]
-      #     The field that the column holds.
+      #     The field that the column holds, or the field of the items of a list, see
+      #     `IOStreams::Schema::Field#item_field`.
       #
       # Raises ArgumentError when the field has no Parquet type, see above.
       def initialize(field)
         @field = field
+        @items = Column.new(field.item_field) if field.type == "list"
         @type  = parquet_type
         freeze
       end
@@ -50,14 +61,11 @@ module IOStreams
 
       # Returns [Hash] the field of the schema of the `parquet` gem that describes this column.
       def descriptor
-        descriptor = {name: @field.name.to_s, type: @type, nullable: !@field.value_required?}
-        descriptor.merge!(precision: PRECISION, scale: @field.decimals) if @type == :decimal
-        descriptor[:timezone] = "UTC" if @type == :timestamp_micros
-        descriptor
+        {name: @field.name.to_s, **type_descriptor, nullable: !@field.value_required?}
       end
 
       # Returns the value, of the type of the field, see `IOStreams::Schema::Field#render`, in the form that the
-      # `parquet` gem writes it: a number rounded to the decimals of its field, as the field rounds it, see
+      # `parquet` gem writes it: a number as it is, already rounded to the decimals of its field, see
       # `IOStreams::Schema::Field#round`, which for a decimal is its scale, since the gem drops the digits after it. A Date
       # is the Time at the start of its day in UTC, since the gem converts the text of a date at midnight in the time zone
       # of the process, which writes the day before east of UTC, and for a date before 1970 the day after west of UTC.
@@ -74,23 +82,38 @@ module IOStreams
         return value if value.nil?
 
         case @type
+        when :list then value.map { |item| @items.value(item) }
         when :int64 then int64(value)
         when :decimal then decimal(value)
-        when :double then @field.round(value)
         when :date32 then Time.utc(value.year, value.month, value.day)
         when :timestamp_micros then value.getutc
         when :time_micros then Time.utc(2000, 1, 1, value.hour, value.min, value.sec + value.subsec)
         when :string then value.is_a?(String) ? value : @field.render(value, :text)
+        # A double, and a boolean, as they are.
         else value
         end
+      end
+
+      protected
+
+      # Returns [Hash] the Parquet type of the column, as the `parquet` gem describes it, see #descriptor, which an item
+      # of a list has too, which can be null.
+      def type_descriptor
+        descriptor = {type: @type}
+        descriptor.merge!(precision: PRECISION, scale: @field.decimals) if @type == :decimal
+        descriptor[:timezone] = "UTC" if @type == :timestamp_micros
+        descriptor[:item] = @items.type_descriptor.merge(nullable: true) if @type == :list
+        descriptor
       end
 
       private
 
       def parquet_type
         case @field.type
-        when "string", "duration", "object", "array" then :string
-        when "integer" then :int64
+        when "list" then :list
+        when "string" then @field.binary? ? :binary : :string
+        when "duration", "object", "array", "yearmonth", "geopoint" then :string
+        when "integer", "year" then :int64
         when "number" then number_type
         when "boolean" then :boolean
         when "date" then :date32
@@ -121,22 +144,27 @@ module IOStreams
       def int64(value)
         return value if INT64.cover?(value)
 
-        raise(IOStreams::Errors::InvalidValue, "Field #{@field.name.inspect}: #{value.inspect} is outside the range of a " \
-                                               "Parquet int64")
+        invalid(value, "#{value.inspect} is outside the range of a Parquet int64")
       end
 
       def decimal(value)
         unless value.finite?
-          raise(IOStreams::Errors::InvalidValue, "Field #{@field.name.inspect}: #{value.inspect} is not finite, so it " \
-                                                 "cannot be written as a Parquet decimal")
+          invalid(value, "#{IOStreams::Schema::Field.special_text(value)} is not finite, so it cannot be written as a " \
+                         "Parquet decimal")
         end
 
-        rounded = @field.round(value)
-        return rounded if rounded.abs < 10**(PRECISION - @field.decimals)
+        return value if value.abs < 10**(PRECISION - @field.decimals)
 
-        raise(IOStreams::Errors::InvalidValue, "Field #{@field.name.inspect}: #{value.to_s('F')} has more than " \
-                                               "#{PRECISION - @field.decimals} digits before its decimal point, which " \
-                                               "a Parquet decimal(#{PRECISION}, #{@field.decimals}) cannot hold")
+        invalid(value, "#{@field.render(value, :text)} has more than #{PRECISION - @field.decimals} digits before its " \
+                       "decimal point, which a Parquet decimal(#{PRECISION}, #{@field.decimals}) cannot hold")
+      end
+
+      # Raises `IOStreams::Errors::InvalidValue` for a value of the column that Parquet cannot hold, naming its field,
+      # and holding the value, see `IOStreams::Errors::InvalidValue#value`, as a field raises for a value that is not of
+      # its type.
+      def invalid(value, problem)
+        message = "Field #{@field.name.inspect}: #{problem}"
+        raise(IOStreams::Errors::InvalidValue.new(message, field: @field.name, value: value))
       end
     end
   end

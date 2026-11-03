@@ -13,7 +13,10 @@ module IOStreams
     # once, when the header row is read or written, or once for each list of keys of the records, which are usually the
     # same for every record, rather than for each value.
     #
-    # Each reader or writer has its own, see `IOStreams::Schema#columns`, since it holds the columns of its file.
+    # Each reader or writer has its own, see `IOStreams::Schema#columns`, since it holds the columns of its file, and the
+    # values seen of each field and key whose values must be unique within it, see `IOStreams::Schema#uniqueness`,
+    # which it checks for each row and record that it reads or writes, once it has converted its values, unless its rows
+    # are only a part of the file, such as those of a slice, which cannot tell whether a value is unique within it.
     class Columns
       # The most sets of keys whose plans it keeps, see #read_plan and #write_plan, so that records whose keys vary, such
       # as JSON records that leave out the keys without a value, are matched once for each set of keys, while records
@@ -49,9 +52,34 @@ module IOStreams
       #     `IOStreams::Contract`. A format whose records are all keyed by the same columns, such as Parquet, checks a
       #     missing column as CSV does, and so does a schema of a file without a contract, as in v2.2.
       #     Default: false
-      def initialize(schema, typed: false, every_field: false, keys_vary: false)
+      #
+      #   form: [:text|:json|:typed|:scalar]
+      #     The form of the values of the rows and records read, that of the format that reads them, see
+      #     `IOStreams::Tabular::Parser::Base.value_form`, or of the stream that reads them, see
+      #     `IOStreams::StreamFormat#rows_value_form`, which each field reads them from, see
+      #     `IOStreams::Schema::Field#parse`, such as `:json` for JSON, whose objects and arrays are already what JSON
+      #     holds, or `:scalar` for the cells of a spreadsheet.
+      #     Default: :typed, values of any class
+      #
+      #   read: [true|false]
+      #     Whether the values of the rows and records read are those that the schema of the file already read, which a
+      #     contract converts to the types of its fields without comparing them with its missing values, which describe
+      #     the text of a file, see `IOStreams::Schema::ContractColumns`.
+      #     Default: false
+      #
+      #   part_of_file: [true|false]
+      #     Whether the rows and records are only a part of a file, such as the rows of a slice, see
+      #     `IOStreams::Slice::Stream`, or those written into a store of slices, see `IOStreams::Slice::TargetStream`, so
+      #     that the values of the fields and keys that must be unique within the file are not checked, see
+      #     `IOStreams::Schema#uniqueness`, since they may be those of another part of it, while the whole file, such as
+      #     when it is sliced with `validate: true`, checks them.
+      #     Default: false
+      def initialize(schema, typed: false, every_field: false, keys_vary: false, form: :typed, read: false,
+                     part_of_file: false)
         @schema       = schema
         @typed        = typed
+        @form         = form
+        @read         = read
         @every_field  = every_field
         @keys_vary    = keys_vary
         # The column that each field matched, by the field, see #match, so that a contract that reads the records of
@@ -86,6 +114,13 @@ module IOStreams
         @write_plans = {}
         @write_keys  = nil
         @write_plan  = nil
+        # The values seen of each field and key that must be unique, of this read or write, or nil, the values of the
+        # last row or record checked that wait to be remembered, see #remember_unique, and the position of each field of
+        # the uniqueness in the rows and records of each kind, by the plan or columns that it was found for, see
+        # #unique_positions.
+        @unique           = schema.uniqueness unless part_of_file
+        @pending          = nil
+        @unique_positions = {}
       end
 
       # Matches the columns of a header row read to the fields. The columns without a name at the end of the header row,
@@ -104,7 +139,10 @@ module IOStreams
         @matched = @schema.fields.filter_map do |field|
           [field, positions[field], @schema.key(field)] if (@every_field || positions.key?(field)) && !field.skip?
         end
-        @labels  = positions.to_h { |field, index| [field, labels[index]] }.compare_by_identity
+        # By identity from the start, since two fields of the same name and properties are equal, see
+        # `IOStreams::Schema#namesake`, while each has its own column.
+        @labels = {}.compare_by_identity
+        positions.each { |field, index| @labels[field] = labels[index] }
         @extra   = extra_columns(labels, positions, "column")
         @width   = labels.size
         names
@@ -230,16 +268,35 @@ module IOStreams
       # #match, otherwise nil, or with `in_order: true`, of the fields in order, as a file without a header row holds
       # them, see #match_in_order, so that they are known before its first row.
       def decimal_positions(in_order: false)
-        return @schema.fields.each_index.select { |index| @schema.fields[index].decimal? } if in_order
-        return unless matched?
+        read_positions(in_order, &:decimal?)
+      end
 
-        matched.filter_map { |field, index, _key| index if index && field.decimal? }
+      # Returns [Array<Integer>|nil] the position of each value of a row read whose field holds text, a `string` or a
+      # `list` of strings, see `IOStreams::Schema::Field#string?`, as #decimal_positions finds them.
+      def string_positions(in_order: false)
+        read_positions(in_order, &:string?)
+      end
+
+      # Returns [Hash<Integer, #call>|nil] the position of each value of a row read whose field has a missing value of
+      # text other than empty text, as #decimal_positions finds them, with what answers whether text is one of them,
+      # see `IOStreams::Schema::Field#missing_value?`, so that a format whose values are not text, such as a spreadsheet,
+      # compares the text of its values with them, see `IOStreams::Schema#missing_text?`.
+      def missing_positions(in_order: false)
+        read_fields(in_order)&.each_with_object({}) do |(field, index), positions|
+          positions[index] = field.method(:missing_value?) if field.missing_text?
+        end
       end
 
       # Returns [Array<Integer>] the position of each value of a row rendered whose field is a `string`, see #render: every
       # field, in order, a field that only holds the place of a column included.
       def text_positions
         @schema.fields.each_index.select { |index| @schema.fields[index].type == "string" }
+      end
+
+      # Returns [Array<Integer>] the position of each value of a row rendered whose field is a `string` of bytes, with
+      # `format: "binary"`, see `IOStreams::Schema::Field#binary?`, as #text_positions finds them.
+      def binary_positions
+        @schema.fields.each_index.select { |index| @schema.fields[index].binary? }
       end
 
       # Returns [Array<String|Symbol>] the keys of the fields that the columns of the file matched, see #names, without
@@ -255,10 +312,18 @@ module IOStreams
       # #extra_columns, whose values follow, as they are.
       #
       # Raises `IOStreams::Errors::InvalidHeader` when the row has values after its last column, see #check_extra.
-      def row(values)
+      # Raises `IOStreams::Errors::InvalidValue` when a value of a field or key that must be unique is not, see
+      # `IOStreams::Schema::Uniqueness`, unless `unique` is false, for a row read again, see
+      # `IOStreams::Schema::ContractColumns#value_errors`. The values that must be unique are remembered at once, unless
+      # `remember` is false, when they wait for #remember_unique.
+      def row(values, unique: true, remember: true)
         columns = matched
         check_extra(values, @width, "column")
         row = columns.map { |field, index| read_value(field, index && values[index]) }
+        if @unique && unique
+          positions = unique_positions(:row, columns) { |field| columns.index { |each_field, _| each_field.equal?(field) } }
+          check_unique(row, positions, remember)
+        end
         @extra.each { |extra| row << values[extra.first] }
         row
       end
@@ -268,11 +333,18 @@ module IOStreams
       # that the schema keeps, see #extra_columns, as they are.
       #
       # Raises `IOStreams::Errors::InvalidHeader` when the row has values after its last column, see #check_extra.
-      def record(values)
+      # Raises `IOStreams::Errors::InvalidValue` when a value of a field or key that must be unique is not, as for #row.
+      def record(values, remember: true)
         columns = matched
         check_extra(values, @width, "column")
         record = {}
         columns.each { |field, index, key| record[key] = read_value(field, index && values[index]) }
+        if @unique
+          positions = unique_positions(:record, columns) do |field|
+            columns.find { |each_field, _| each_field.equal?(field) }&.last
+          end
+          check_unique(record, positions, remember)
+        end
         @extra.each { |index, key| record[key] = values[index] }
         record
       end
@@ -283,11 +355,17 @@ module IOStreams
       #
       # Raises `IOStreams::Errors::InvalidHeader` when its keys do not match the fields, see
       # `IOStreams::Schema#check_columns`.
-      def read_hash(hash)
+      # Raises `IOStreams::Errors::InvalidValue` when a value of a field or key that must be unique is not, as for #row.
+      def read_hash(hash, unique: true, remember: true)
         record = {}
-        read_plan(hash.keys).each do |field, key, name|
+        plan   = read_plan(hash.keys)
+        plan.each do |field, key, name|
           value        = hash[key] unless key.nil?
           record[name] = field ? read_value(field, value) : value
+        end
+        if @unique && unique
+          positions = unique_positions(:hash, plan) { |field| plan.find { |each_field, _| each_field&.equal?(field) }&.last }
+          check_unique(record, positions, remember)
         end
         record
       end
@@ -300,7 +378,7 @@ module IOStreams
       # `IOStreams::Schema#check_columns`.
       # Raises ArgumentError when the schema keeps the keys that it does not list, see #extra_columns, which the rows
       # cannot hold, since each record can have other keys, which the header row of the rows does not name.
-      def read_row(hash)
+      def read_row(hash, remember: true)
         if @keep_extra
           raise(ArgumentError, "A schema with extraColumns \"keep\" cannot read the rows of a format whose records " \
                                "supply their own keys, such as JSON, since each record can have keys that the header row " \
@@ -309,7 +387,12 @@ module IOStreams
 
         keys = hash.keys
         plan = keys.eql?(@row_keys) ? @row_plan : row_plan(keys)
-        plan.map { |field, key| read_value(field, key.nil? ? nil : hash[key]) }
+        row  = plan.map { |field, key| read_value(field, key.nil? ? nil : hash[key]) }
+        if @unique
+          positions = unique_positions(:hash_row, plan) { |field| plan.index { |each_field, _| each_field.equal?(field) } }
+          check_unique(row, positions, remember)
+        end
+        row
       end
 
       # Returns [Array|Hash] the value of each field of the schema, in order, in the form that the format writes it, see
@@ -321,15 +404,29 @@ module IOStreams
       # Raises `IOStreams::Errors::InvalidHeader` when it has a key, or more values than there are fields or columns,
       # that the schema does not skip, see `IOStreams::Schema#check_unknown`.
       # Raises `IOStreams::Errors::TypeMismatch` when it is neither a Hash nor an Array.
-      def render(row, form, keyed)
-        return render_values(row, form, keyed) if row.is_a?(::Array)
-        unless row.is_a?(::Hash)
-          raise(IOStreams::Errors::TypeMismatch,
-                "Don't know how to write a #{row.class.name} with a schema, which writes a Hash or an Array")
+      #
+      # Raises `IOStreams::Errors::InvalidValue` when a value of a field or key that must be unique is not, see
+      # `IOStreams::Schema::Uniqueness`, compared as it is written, and remembered as for #row.
+      def render(row, form, keyed, remember: true)
+        out = render_row(row, form, keyed)
+        if @unique
+          fields    = @schema.fields
+          positions = unique_positions(keyed ? :keyed : :values, fields) do |field|
+            keyed ? field.name : fields.index { |each_field| each_field.equal?(field) }
+          end
+          check_unique(out, positions, remember)
         end
+        out
+      end
 
-        keys = row.keys
-        render_record(row, form, keyed, keys.eql?(@write_keys) ? @write_plan : write_plan(keys))
+      # Remembers the values that must be unique of the last row or record read or written with `remember: false`, once
+      # a contract has read or written it too, see `IOStreams::Schema::ContractColumns`, so that a row or record that
+      # the contract rejects adds none of them, see `IOStreams::Schema::Uniqueness`.
+      def remember_unique
+        return if @pending.nil?
+
+        @unique.add(@pending)
+        @pending = nil
       end
 
       # Returns nil, the line of a blank record or row, which a file writes as a blank line, see
@@ -353,11 +450,67 @@ module IOStreams
 
       private
 
-      # Returns the value of the supplied field read from a row or record, converted to the type of the field, see
-      # `IOStreams::Schema::Field#cast`, or, when the values read are those of the fields, see #initialize, restored to
-      # it from the form that a store returned it in, see `IOStreams::Schema::Field#restore`.
+      # Checks the values of a row or record that must be unique, at the supplied position of each field of the
+      # uniqueness, see `IOStreams::Schema::Uniqueness#check`, and remembers them, unless `remember` is false, when they
+      # wait for #remember_unique.
+      def check_unique(values, positions, remember)
+        pending = @unique.check(values, positions)
+        if remember
+          @unique.add(pending)
+        else
+          @pending = pending
+        end
+      end
+
+      # Returns [Array] the position of each field of the uniqueness, see `IOStreams::Schema::Uniqueness#fields`, in the
+      # rows or records of a kind, which the block finds once for each list of columns or plan of keys, rather than for
+      # each value, since they are usually the same for every row.
+      def unique_positions(kind, plan, &)
+        last = @unique_positions[kind]
+        return last.last if last&.first.equal?(plan)
+
+        positions = @unique.fields.map(&)
+        @unique_positions[kind] = [plan, positions]
+        positions
+      end
+
+      # Returns [Array|Hash] the value of each field of the schema, in the form that the format writes it, see #render.
+      def render_row(row, form, keyed)
+        return render_values(row, form, keyed) if row.is_a?(::Array)
+        unless row.is_a?(::Hash)
+          raise(IOStreams::Errors::TypeMismatch,
+                "Don't know how to write a #{row.class.name} with a schema, which writes a Hash or an Array")
+        end
+
+        keys = row.keys
+        render_record(row, form, keyed, keys.eql?(@write_keys) ? @write_plan : write_plan(keys))
+      end
+
+      # Returns the value of the supplied field read from a row or record, converted to the type of the field from the
+      # form of the values read, see `IOStreams::Schema::Field#parse`, or, when the values read are those of the fields,
+      # see #initialize, restored to it from the form that a store returned it in, see
+      # `IOStreams::Schema::Field#restore`, or, when the schema of the file already read them, converted without its
+      # missing values, see `IOStreams::Schema::Field#cast_typed`.
       def read_value(field, value)
-        @typed ? field.restore(value) : field.cast(value)
+        return field.parse(value, @form) unless @typed || @read
+
+        @typed ? field.restore(value) : field.cast_typed(value)
+      end
+
+      # Returns [Array<Integer>|nil] the position of each value of a row read whose field the block selects, see
+      # #decimal_positions.
+      def read_positions(in_order)
+        read_fields(in_order)&.filter_map { |field, index| index if yield(field) }
+      end
+
+      # Returns [Array<Array(IOStreams::Schema::Field, Integer)>|nil] each field of a row read with the position of its
+      # value, every field in order, or those whose columns the header row read has, or nil until it is read, see
+      # #decimal_positions.
+      def read_fields(in_order)
+        return @schema.fields.each_with_index.to_a if in_order
+        return unless matched?
+
+        matched.filter_map { |field, index, _key| [field, index] if index }
       end
 
       # Returns [IOStreams::Errors::InvalidValue|nil] the error of the value of the field, or nil when it is valid.
@@ -439,6 +592,8 @@ module IOStreams
         positions = {}.compare_by_identity
         labels.each_with_index do |label, index|
           field = @schema.field_for(label, noun)
+          # A field whose name another field has too is the next of them that no column before it took.
+          field = @schema.namesake(field, positions) || field if field && positions.key?(field)
           # The label before it is the name of the field, so this one is not the field.
           field = nil if by_name && field && positions.key?(field) && own_label?(labels[positions[field]], field)
           if field.nil?
@@ -449,6 +604,8 @@ module IOStreams
           elsif by_name && own_label?(label, field)
             unknown << labels[positions[field]]
             positions[field] = index
+          elsif @schema.namesake_count(field) > 1
+            raise(IOStreams::Errors::InvalidHeader, namesakes_problem(labels, field, noun))
           else
             raise(
               IOStreams::Errors::InvalidHeader,
@@ -458,6 +615,15 @@ module IOStreams
           end
         end
         [found, unknown, positions]
+      end
+
+      # Returns [String] why the labels have more columns of the name of a field than the fields of that name, such as
+      # `3 columns named "a", while the schema has 2 fields of that name`, see #find_fields.
+      def namesakes_problem(labels, field, noun)
+        name  = field.name.to_s
+        count = labels.count { |label| @schema.field_for(label, noun)&.name.to_s == name }
+        "The #{noun}s have #{count} #{noun}s named #{name.inspect}, while the schema has #{@schema.namesake_count(field)} " \
+          "fields of that name, each of which takes one #{noun}, in order"
       end
 
       # Returns [Array<Array(Integer, String|Symbol)>] the position and key of each label that is not a field, in the

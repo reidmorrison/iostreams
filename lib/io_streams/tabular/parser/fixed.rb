@@ -12,10 +12,10 @@ module IOStreams
       # which the schema then converts to the type of its field.
       #
       # When writing, a number is right justified and zero filled, and a missing number is written as zero, as most
-      # specifications of fixed width files require, except a number that is not finite, such as NaN, which is space
-      # filled, so that it can be read back. Any other value is left justified and space filled, with each
-      # line break replaced with a space, so that a value cannot add records. The characters that no field covers,
-      # such as fillers, are spaces.
+      # specifications of fixed width files require, unless its field writes a missing value of its own, such as "-99",
+      # which is space filled, as is a number that is not finite, such as NaN, so that each can be read back. Any other
+      # value is left justified and space filled, with each line break replaced with a space, so that a value cannot add
+      # records. The characters that no field covers, such as fillers, are spaces.
       class Fixed < Base
         DIGIT = /\d/
 
@@ -138,7 +138,7 @@ module IOStreams
 
         def render_value(column, text)
           field = column.field
-          return render_number(column, text.nil? ? field.render(0, :text) : text.to_s) if field.numeric?
+          return render_number(column, text.nil? ? field.render(0, :text) : text.to_s, field) if field.numeric?
 
           text = text.to_s
           text = text.gsub(LINE_BREAK, " ") if LINE_BREAK.match?(text)
@@ -149,12 +149,13 @@ module IOStreams
           text[0, column.width]
         end
 
-        def render_number(column, text)
+        def render_number(column, text, field)
           return text if column.width == -1
 
           padded =
-            # A number that is not finite, such as NaN or -INF, has no digits to zero fill, so that it can be read back.
-            if !DIGIT.match?(text)
+            # A number that is not finite, such as NaN or -INF, has no digits to zero fill, and a missing value, such as
+            # "-99", is written as it is, so that each can be read back.
+            if !DIGIT.match?(text) || field.missing_value?(text)
               text.rjust(column.width)
             elsif text.start_with?("-")
               "-#{text.delete_prefix('-').rjust(column.width - 1, '0')}"

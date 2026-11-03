@@ -219,7 +219,8 @@ IOStreams.path("people.csv.gz").schema("people.json").each(:slice, size: 500) do
 end
 ~~~
 
-Where a slice is processed, `IOStreams.stream(slice)` reads its rows as the rows of its file:
+Where a slice is processed, `IOStreams.stream(slice)` reads its rows as the rows of its file, apart from the values that
+must be [unique](schemas#unique-values) within the file, which only a read of the whole file can check:
 
 ~~~ruby
 IOStreams.stream(slice).schema(schema).each(:hash) do |person|

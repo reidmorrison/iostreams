@@ -108,6 +108,13 @@ module IOStreams
       end
     end
 
+    # The values of a field or key of a schema that must be unique, see `unique`, `primaryKey` and `uniqueKeys` in
+    # `IOStreams::Schema`, of which a read or write has seen more distinct values than it remembers, its `uniqueLimit`,
+    # so that it can no longer tell whether a value is a duplicate. It is not an `InvalidValue`, since the value may well
+    # be unique, so that code that rescues duplicates, or reads with `on_invalid:`, does not take it for one.
+    class UniqueLimitExceeded < Error
+    end
+
     # A column whose type, which its source declares, such as a Parquet file, a database query, or the schema of a file,
     # can never be the type of its field in a contract, such as a boolean for a number, see `IOStreams::Stream#as`. It
     # is raised when the stream opens, before the first row, and is not an `InvalidHeader`, which a missing column

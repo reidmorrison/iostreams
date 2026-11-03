@@ -59,7 +59,13 @@ class InferSampleTest < Minitest::Test
       end
 
       it "drafts any for a column without a value, for a person to decide" do
-        assert_equal({name: "notes", type: "any"}, drafted("id,notes\n1,\n2,  \n", "notes"))
+        assert_equal({name: "notes", type: "any"}, drafted("id,notes\n1,\n2,\n", "notes"))
+      end
+
+      it "drafts a string for a column with text of only whitespace, which is not a missing value, and no other type reads" do
+        assert_equal "string", drafted("id,notes\n1,\n2,  \n", "notes")[:type]
+        assert_equal "string", drafted("id,n\n1,12\n2,  \n", "n")[:type]
+        assert_equal "integer", drafted("id,n\n1,12\n2,\n3, 7 \n", "n")[:type]
       end
 
       it "drafts a string for a column of text with blank values, also null in JSON" do
@@ -71,6 +77,8 @@ class InferSampleTest < Minitest::Test
         assert_equal "boolean", drafted("v\ntrue\nFALSE\nTrue\n", "v")[:type]
         assert_equal "string", drafted("v\ntRuE\n", "v")[:type]
         assert_equal "datetime", drafted("v\n2026-10-25T23:59:59Z\n", "v")[:type]
+        assert_equal "datetime", drafted("v\n2026-10-25 09:30:00\n2026-10-25T09:30:00+0530\n", "v")[:type]
+        assert_equal "time", drafted("v\n09:30:00-0500\n", "v")[:type]
         assert_equal "string", drafted("v\n2026-10-25T25:00:00\n", "v")[:type]
       end
 
@@ -79,7 +87,7 @@ class InferSampleTest < Minitest::Test
         assert_equal "string", drafted("v\n2026-10-25\n2026-10-25T09:30:00Z\n", "v")[:type]
         assert_equal "string", drafted("v\n1e5\n", "v")[:type]
         assert_equal "string", drafted("v\n2026-02-30\n", "v")[:type]
-        assert_equal "string", drafted("v\n2026-10-25 09:30:00\n", "v")[:type]
+        assert_equal "string", drafted("v\n2026-10-25 09:30\n", "v")[:type]
       end
 
       it "recognizes US dates, recording their format, and dates written day first" do
@@ -161,7 +169,19 @@ class InferSampleTest < Minitest::Test
           end
         end
 
-        it "drafts a column of type any from its values, opening an IO once, and leaving it to be read" do
+        it "drafts a column that it declares as any from its values, such as a fixed length byte array" do
+          Dir.mktmpdir do |dir|
+            file = File.join(dir, "codes.parquet")
+            require "parquet"
+            schema = {type: :struct, fields: [{name: "id", type: :int64}, {name: "code", type: "fixed_len_byte_array(4)"}]}
+            ::Parquet.write_rows([[1, "abcd".b], [2, "wxyz".b]].each, schema: schema, write_to: file)
+
+            assert_equal({fieldsMatch: "subset", fields: [{name: "id", type: "integer"}, {name: "code", type: "string"}]},
+                         IOStreams.path(file).infer_schema(sample: 10).to_h)
+          end
+        end
+
+        it "keeps the types that it declares, such as bytes of a binary column, opening an IO once, and leaving it to be read" do
           Dir.mktmpdir do |dir|
             file = File.join(dir, "blobs.parquet")
             require "parquet"
@@ -175,7 +195,7 @@ class InferSampleTest < Minitest::Test
             writer.write(File.binread(file))
             writer.close
 
-            expected = {fieldsMatch: "subset", fields: [{name: "id", type: "integer"}, {name: "blob", type: "string"}]}
+            expected = {fieldsMatch: "subset", fields: [{name: "id", type: "integer"}, {name: "blob", type: "string", format: "binary"}]}
 
             assert_equal expected, IOStreams.stream(reader).file_name("blobs.parquet").infer_schema(sample: 10).to_h
             stream = IOStreams.stream(StringIO.new(File.binread(file))).file_name("blobs.parquet")

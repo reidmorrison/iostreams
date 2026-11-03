@@ -5,7 +5,9 @@ module IOStreams
     # Reads the rows of a Parquet file, each one as a Hash of its typed values by the names of its columns, such as an
     # Integer, BigDecimal, Date, Time, or an Array or Hash for a nested column. A time of day of a column of the file is a
     # Time on 2000-01-01, see `IOStreams::Schema::Field.time_of_day`, rather than on the day that the `parquet` gem reads
-    # it.
+    # it, and empty text of a column of text or of type "any" is nil, a missing value, as a field of the schema that the
+    # file declares reads it, see `IOStreams::Schema::Field#cast`, so that the rows read without a schema hold the values
+    # that their slices and copies do, which are read by that schema.
     #
     # A Parquet file records its columns at its end, so it is read from a file, and any other input is first copied
     # into a temp file, see `IOStreams::Reader.stream`.
@@ -45,11 +47,12 @@ module IOStreams
       def initialize(file_name, schema = nil)
         super(nil)
         @file_name = file_name
+        @schema    = schema
         @columns   = schema&.projection { labels }
       end
 
       # Yields [Hash<String, Object>] each row, by the names of its columns, in the order of the columns, with each time of
-      # day on 2000-01-01, see #time_columns.
+      # day on 2000-01-01, see #time_columns, and empty text as nil, see #text_columns.
       #
       # Raises the RuntimeError of the parquet gem, tagged as `IOStreams::Errors::Corrupt`, for a file that it cannot
       # read, see .failure_kind.
@@ -59,9 +62,11 @@ module IOStreams
       # block is not running.
       def each(&block)
         in_block = false
-        times    = time_columns
+        times    = time_fields
+        texts    = text_columns
         ::Parquet.each_row(@file_name, columns: @columns) do |row|
-          times.each { |name| (time = row[name]) && (row[name] = Schema::Field.time_of_day(time)) }
+          times.each { |name, field| (time = row[name]) && (row[name] = time_of_day(time, field)) }
+          texts.each { |name| row[name] = nil if row[name] == "" }
           in_block = true
           block.call(row)
           # Not reset in an ensure, which would clear it before the exception that the block raised reaches the rescue.
@@ -83,7 +88,8 @@ module IOStreams
       #   boolean, date, datetime (a timestamp, or the INT96 of older writers), time and string (text, an enum or JSON).
       #   array:    a list.
       #   object:   a map or a struct.
-      #   any:      binary, and any other column.
+      #   string with `format: "binary"`: binary, a byte array without a logical type, whose values are bytes.
+      #   any:      any other column.
       # A column that cannot be null, `REQUIRED`, is required, `constraints: {required: true}`, unless its values are text
       # or of type "any", which can be empty, as for the columns of a query, see `IOStreams::Query::Columns`.
       def declared_schema
@@ -128,13 +134,10 @@ module IOStreams
         converted = column["converted_type"]
         scale     = column.dig("logical_type", "scale") || column["scale"]
         decimal   = logical == "Decimal" || (logical.nil? && converted == "DECIMAL")
-        type      =
-          if decimal then "number"
-          elsif column["type"] == "group" then LOGICAL_TYPES[logical] || CONVERTED_TYPES.fetch(converted, "object")
-          else LOGICAL_TYPES[logical] || CONVERTED_TYPES[converted] || PHYSICAL_TYPES.fetch(column["physical_type"], "any")
-          end
+        type      = decimal ? "number" : declared_type(column, logical, converted)
 
         field = {name: column["name"], type: type}
+        field = {name: column["name"], type: "string", format: "binary"} if binary?(column, type)
         if decimal
           field[:decimals] = scale if scale.is_a?(Integer) && !scale.negative?
         elsif type == "number"
@@ -142,6 +145,20 @@ module IOStreams
         end
         field[:constraints] = {required: true} if column["repetition"] == "REQUIRED" && !EMPTY_TYPES.include?(type)
         field
+      end
+
+      # Returns [String] the type of a field of a column that is not a decimal, by its logical type, otherwise its converted
+      # type, otherwise its physical type, see #declared_field.
+      def declared_type(column, logical, converted)
+        return LOGICAL_TYPES[logical] || CONVERTED_TYPES.fetch(converted, "object") if column["type"] == "group"
+
+        LOGICAL_TYPES[logical] || CONVERTED_TYPES[converted] || PHYSICAL_TYPES.fetch(column["physical_type"], "any")
+      end
+
+      # Returns [true|false] whether the column holds bytes, a byte array without a logical or converted type, which a
+      # string with `format: "binary"` reads, see `IOStreams::Schema::Field`.
+      def binary?(column, type)
+        type == "any" && column["type"] != "group" && column["physical_type"] == "BYTE_ARRAY"
       end
 
       # Returns [Array<String>] the names of the columns of the file, in order, which it records at its end, so that
@@ -157,6 +174,31 @@ module IOStreams
       def time_columns
         names = fields.filter_map { |field| field["name"] if field.dig("logical_type", "type") == "Time" }
         @columns ? names & @columns : names
+      end
+
+      # Returns [Array<String>] the names of the columns that are read whose values can be empty text, those of text or
+      # of type "any", such as binary, whose empty text #each reads as nil, a missing value, as a field of that type
+      # reads it, see #declared_schema. Only a column of the file itself, not text within a column of structs or lists.
+      def text_columns
+        names = fields.filter_map { |field| field["name"] if EMPTY_TYPES.include?(declared_field(field)[:type]) }
+        @columns ? names & @columns : names
+      end
+
+      # Returns [Array<Array(String, IOStreams::Schema::Field|nil)>] each column of times of day, see #time_columns, with
+      # its `time` field of the schema, if any, which reads the clock of its values in its zone, see #time_of_day.
+      def time_fields
+        time_columns.map do |name|
+          field = @schema&.field_for(name, "column")
+          [name, (field if field&.type == "time")]
+        end
+      end
+
+      # Returns [Time] the time of day, on 2000-01-01, of a value of a column of times of day, which holds the clock that
+      # a schema wrote, without an offset from UTC: in the zone of its field, see `timeZone` in
+      # `IOStreams::Schema::Field`, so that a time of day written in New York reads back as the same time, otherwise in
+      # UTC, see `IOStreams::Schema::Field#time_of_clock`.
+      def time_of_day(time, field)
+        field ? field.time_of_clock(time) : Schema::Field.time_of_day(time)
       end
 
       # Returns [Array<Hash>] the columns of the file, as the `parquet` gem describes them, read once from its end.

@@ -449,6 +449,8 @@ See [Copying and moving](copy_files).
 * [File formats](formats): CSV, JSON, fixed width, Excel and Parquet.
 * [Contracts](contracts): the typed records that your code needs, read the same way from any source.
 * [Schemas](schemas): describing the columns of a file, and the types and properties of fields.
+* [Types and conversions](types): how each type reads and writes values, with examples, and where IOStreams differs
+  from Frictionless.
 * [Compression and encryption](extensions): the options of each stream.
 * [Paths](path): local files, S3, SFTP and HTTP, and the operations on a path.
 * [Copying and moving](copy_files): copying files between stores, and converting them on the way.

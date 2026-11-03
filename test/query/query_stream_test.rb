@@ -208,15 +208,15 @@ class QueryStreamTest < Minitest::Test
           assert_equal [{"id" => slices.last[0].first, "name" => "c"}], each(IOStreams.stream(slices.last).schema(IOStreams.stream(orders.select(:id, :name)).infer_schema))
         end
 
-        it "reads a row whose every value is null or empty text, which is a record, not a blank line" do
+        it "reads a row whose every value is null or empty text, which is a record, not a blank line, with empty text as a missing value" do
           db.order.where(name: "b").update_all(name: "")
           relation = orders.select(:name, :shipped_on)
-          expected = [{"name" => "a", "shipped_on" => Date.new(2026, 10, 1)}, {"name" => "", "shipped_on" => nil},
+          expected = [{"name" => "a", "shipped_on" => Date.new(2026, 10, 1)}, {"name" => nil, "shipped_on" => nil},
                       {"name" => "c", "shipped_on" => Date.new(1969, 12, 31)}]
 
           assert_equal expected, each(IOStreams.stream(relation))
           assert_equal expected, each(IOStreams.stream(relation), skip_blanks: true)
-          assert_equal [%w[name shipped_on], *relation.pluck(:name, :shipped_on)], each(IOStreams.stream(relation), :array)
+          assert_equal [%w[name shipped_on], *expected.map(&:values)], each(IOStreams.stream(relation), :array)
         end
 
         it "copies a row whose every value is null" do
@@ -906,6 +906,18 @@ class QueryStreamTest < Minitest::Test
       assert_equal %w[integer number number boolean date datetime], required(*types)
       assert_equal %w[integer date], required(*types, requirable_types: %w[integer date])
       assert_empty required(*types, requirable_types: [])
+    end
+
+    it "describes a uuid as a string of the uuid format, binary as a string of the binary format, and hstore as an object" do
+      types = [ActiveModel::Type::Binary.new]
+      if defined?(ActiveRecord::ConnectionAdapters::PostgreSQL::OID::Uuid)
+        types += [ActiveRecord::ConnectionAdapters::PostgreSQL::OID::Uuid.new, ActiveRecord::ConnectionAdapters::PostgreSQL::OID::Hstore.new]
+      end
+      columns = IOStreams::Query::Columns.new(names: types.each_index.map { |index| "c#{index}" }, types: types,
+                                              not_null: [false] * types.size, requirable_types: REQUIRABLE_TYPES)
+      fields  = [{name: "c0", type: "string", format: "binary"}, {name: "c1", type: "string", format: "uuid"}, {name: "c2", type: "object"}]
+
+      assert_equal fields.first(types.size), columns.schema[:fields]
     end
 
     it "does not require a column whose values can be empty, such as text, binary or JSON, whatever the database" do

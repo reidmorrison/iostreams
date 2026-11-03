@@ -893,6 +893,21 @@ class SliceTargetStreamTest < Minitest::Test
                      read(store.slices.first, typed_schema)
       end
 
+      it "keep the values that are the text of a missing value, once a store that holds them as JSON returns them" do
+        schema = {
+          "missingValues" => [{"value" => ""}, {"value" => "-99", "label" => "Refused"}, {"value" => "0"}],
+          "fields"        => [{"name" => "name"}, {"name" => "pay", "type" => "number"}]
+        }
+        records = [{"name" => "Jack", "pay" => BigDecimal("-99")}, {"name" => "Jill", "pay" => BigDecimal("0")}]
+        stream.format(:hash).schema(schema).writer(:hash) do |io|
+          records.each { |record| io << record }
+        end
+        stored = IOStreams.slice(JSON.parse(JSON.generate(store.slices.first.to_h)))
+
+        assert_equal store.slices.first, stored
+        assert_equal records, read(stored, schema)
+      end
+
       it "are restored to the types of their fields, once a store that changed their form returns them" do
         schema = typed_schema.merge("fields" => typed_schema["fields"] + [{"name" => "wait", "type" => "duration"}])
         stream.format(:hash).schema(schema).writer(:hash) do |io|

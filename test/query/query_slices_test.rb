@@ -128,12 +128,12 @@ class QuerySlicesTest < Minitest::Test
         assert_equal %({"shipped_on":"2026-10-01","weight":1.5}\n{"shipped_on":null,"weight":null}\n), output.string
       end
 
-      it "reads a row whose every value is empty text, or null, as a record too" do
+      it "reads a row whose every value is empty text, or null, as a record too, with empty text as a missing value" do
         relation = db.order.order(:id).select("'' AS note", "NULL AS other")
         list     = []
         IOStreams.stream(relation).each(:slice, size: 5) { |slice| list << IOStreams.slice(JSON.parse(JSON.generate(slice.to_h))) }
 
-        assert_equal [{"note" => "", "other" => nil}] * 3, each(IOStreams.stream(list.first), :hash, skip_blanks: true)
+        assert_equal [{"note" => nil, "other" => nil}] * 3, each(IOStreams.stream(list.first), :hash, skip_blanks: true)
       end
     end
   end

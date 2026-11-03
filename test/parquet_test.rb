@@ -86,6 +86,33 @@ class ParquetTest < Minitest::Test
       ENV["TZ"] = original
     end
 
+    describe "empty text that another writer stored" do
+      before do
+        require "parquet"
+        columns = [{"name" => "string"}, {"data" => "binary"}, {"note" => "string"}, {"age" => "int64"}]
+        ::Parquet.write_rows([["", "".b, " ", 1]].each, schema: columns, write_to: path.to_s)
+      end
+
+      let :missing do
+        [{"name" => nil, "data" => nil, "note" => " ", "age" => 1}]
+      end
+
+      it "reads empty text, and empty binary data, as nil, a missing value, without a schema, as its slices and copies do" do
+        slices = []
+        path.each(:slice, size: 10) { |slice| slices << slice }
+        output = StringIO.new
+        path.copy_to(IOStreams.stream(output).format(:json), mode: :hash)
+
+        assert_equal missing, read
+        assert_equal(missing, slices.flat_map { |slice| read(IOStreams.stream(slice)) })
+        assert_equal %({"name":null,"data":null,"note":" ","age":1}\n), output.string
+      end
+
+      it "reads it as nil with a schema too" do
+        assert_equal missing, read(path.schema(path.infer_schema))
+      end
+    end
+
     it "reads slices that carry the schema of the file, whose values JSON keeps exactly" do
       path = IOStreams.path(dir, "people.parquet")
       path.schema(schema).writer(:hash) { |io| records.each { |record| io << record } }
@@ -478,9 +505,14 @@ class ParquetTest < Minitest::Test
       assert_equal "existing", File.read(File.join(dir, "people.parquet"))
     end
 
-    it "raises for a number that a decimal cannot hold" do
+    it "raises for a number that a decimal cannot hold, naming its field, as Frictionless spells it" do
       error = assert_raises(IOStreams::Errors::InvalidValue) { write(path.schema(schema), [{"id" => 1, "amount" => "NaN"}]) }
-      assert_match(/\AField "amount": .* is not finite, so it cannot be written as a Parquet decimal/, error.message)
+      assert_match(/\AField "amount": NaN is not finite, so it cannot be written as a Parquet decimal/, error.message)
+      assert_equal "amount", error.field
+      assert_predicate error.value, :nan?
+
+      error = assert_raises(IOStreams::Errors::InvalidValue) { write(path.schema(schema), [{"id" => 1, "amount" => "-Infinity"}]) }
+      assert_match(/\AField "amount": -INF is not finite/, error.message)
     end
 
     it "rounds a number to its decimals as CSV writes it" do
@@ -502,6 +534,18 @@ class ParquetTest < Minitest::Test
       assert_equal(values.map { |value| Float(format("%.0f", value)) }, read.map { |record| record["whole"] })
     end
 
+    it "reads a decimal of more digits after its point than the decimals of its field rounded to them, and zero for -0.0049" do
+      wide   = {fields: [{name: "amount", type: "number", decimals: 4}]}
+      narrow = {fields: [{name: "amount", type: "number", decimals: 2}]}
+      write(path.schema(wide), [{"amount" => "12.3456"}, {"amount" => "-0.0049"}])
+
+      assert_equal([BigDecimal("12.3456"), BigDecimal("-0.0049")], read.map { |record| record["amount"] })
+      amounts = read(path.schema(narrow)).map { |record| record["amount"] }
+
+      assert_equal [BigDecimal("12.35"), BigDecimal("0")], amounts
+      assert_equal "0.0", amounts.last.to_s
+    end
+
     it "writes a double that is not finite, whatever its decimals" do
       doubles = {fields: [{name: "ratio", type: "number", floatNumber: true, decimals: 0}]}
       write(path.schema(doubles), [{"ratio" => Float::NAN}, {"ratio" => -Float::INFINITY}])
@@ -516,6 +560,7 @@ class ParquetTest < Minitest::Test
         writer << records[0]
         error = assert_raises(IOStreams::Errors::InvalidValue) { writer << {"id" => 2**63} }
         assert_match(/Field "id": .* outside the range of a Parquet int64/, error.message)
+        assert_equal ["id", 2**63], [error.field, error.value]
         writer << {"id" => -(2**63)}
         break
       end
@@ -527,7 +572,8 @@ class ParquetTest < Minitest::Test
       wide = {fields: [{name: "amount", type: "number", decimals: 36}]}
 
       error = assert_raises(IOStreams::Errors::InvalidValue) { write(path.schema(wide), [{"amount" => "123.5"}]) }
-      assert_match(/Field "amount": 123.5 has more than 2 digits before its decimal point/, error.message)
+      assert_match(/Field "amount": 123.5000* has more than 2 digits before its decimal point/, error.message)
+      assert_equal ["amount", BigDecimal("123.5")], [error.field, error.value]
       write(path.schema(wide), [{"amount" => "99.5"}])
 
       assert_equal [{"amount" => BigDecimal("99.5")}], read

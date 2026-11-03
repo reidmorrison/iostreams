@@ -140,6 +140,36 @@ class BlankRowsTest < Minitest::Test
       it "still raise for a required field of a row that is not blank" do
         assert_raises(IOStreams::Errors::InvalidValue) { read(stream("name,age\n,21\n").schema(schema), :hash) }
       end
+
+      it "are read as nil when every value is only whitespace, which the fields of a row that is not blank raise for" do
+        assert_equal [nil, {"name" => "Jack", "age" => 21}], read(stream("name,age\n  ,\t\nJack,21\n").schema(schema), :hash)
+        error = assert_raises(IOStreams::Errors::InvalidValue) { read(stream("name,age\nJack,  \n").schema(schema), :hash) }
+        assert_equal 'Field "age": "  " is not a valid integer', error.reason
+        assert_equal [{"name" => "  ", "age" => 21}], read(stream("name,age\n  ,21\n").schema(schema), :hash)
+      end
+
+      it "write empty text as a missing value, which CSV writes as an empty value, and raise for whitespace of other types" do
+        schema = {fields: [{name: "name"}, {name: "age", type: "integer"}, {name: "note", type: "string"}]}
+        write  = lambda do |rows, mode|
+          output = StringIO.new
+          IOStreams.stream(output).file_name("people.csv").schema(schema).writer(mode) { |io| rows.each { |row| io << row } }
+          output.string
+        end
+
+        assert_equal "name,age,note\n,21,\n", write.call([{"name" => "", "age" => 21, "note" => ""}], :hash)
+        assert_equal "name,age,note\nJack,21, \n", write.call([["Jack", 21, " "]], :array)
+        assert_raises(IOStreams::Errors::InvalidValue) { write.call([{"name" => "Jack", "age" => "  ", "note" => "x"}], :hash) }
+        assert_raises(IOStreams::Errors::InvalidValue) { write.call([["Jack", " ", "x"]], :array) }
+      end
+
+      it "read empty text as nil, a missing value, in every type, a string included" do
+        schema = {fields: [{name: "name", type: "string"}, {name: "note"}, {name: "age", type: "integer"}]}
+
+        assert_equal [{"name" => nil, "note" => nil, "age" => 21}],
+                     read(stream(%(name,note,age\n"","",21\n)).schema(schema), :hash)
+        assert_equal [{"name" => nil, "note" => nil, "age" => 21}],
+                     read(stream(%({"name":"","note":"","age":21}\n)).format(:json).schema(schema), :hash)
+      end
     end
 
     describe "a Tabular" do

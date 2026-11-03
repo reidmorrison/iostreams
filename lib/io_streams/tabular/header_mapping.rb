@@ -304,8 +304,10 @@ module IOStreams
 
         labels = indexes.map { |_key, index| row[index].inspect }
         raise(IOStreams::Errors::InvalidHeader,
-              "The columns #{labels.join(' and ')} are the same key, #{indexes.first.first.inspect}, once cleansed, so " \
-              "a schema cannot hold both: rename one of them, or set a schema whose fields name each one")
+              "The columns #{labels.join(' and ')} are the same key, #{indexes.first.first.inspect}, once cleansed, which " \
+              "a record read without a schema cannot hold twice: rename one of them, or set a schema whose fields name " \
+              "each one, which can be two fields of the same name for a format whose columns are in order, such as CSV, " \
+              "read as rows")
       end
     end
   end

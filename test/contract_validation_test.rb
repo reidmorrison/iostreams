@@ -180,6 +180,28 @@ class ContractValidationTest < Minitest::Test
           end
         end
 
+        it "reads a column of 1 and 0 as a boolean, and raises for any other number" do
+          Dir.mktmpdir do |dir|
+            path = IOStreams.path(dir, "flags.parquet")
+            path.schema(fields: [{name: "id", type: "integer"}, {name: "active", type: "integer"}]).writer(:hash) do |io|
+              io << {"id" => 1, "active" => 1}
+              io << {"id" => 2, "active" => 0}
+            end
+            contract = IOStreams::Contract.new(fields: [{name: "id", type: "integer"}, {name: "active", type: "boolean"}])
+            records  = []
+            IOStreams.path(dir, "flags.parquet").as(contract).each(:hash) { |record| records << record }
+
+            assert_equal [{"id" => 1, "active" => true}, {"id" => 2, "active" => false}], records
+
+            path.schema(fields: [{name: "id", type: "integer"}, {name: "active", type: "integer"}]).writer(:hash) do |io|
+              io << {"id" => 3, "active" => 2}
+            end
+            assert_raises(IOStreams::Errors::InvalidValue) do
+              IOStreams.path(dir, "flags.parquet").as(contract).each(:hash) { |record| records << record }
+            end
+          end
+        end
+
         it "converts a type that loses nothing, such as an integer to a number" do
           Dir.mktmpdir do |dir|
             path = IOStreams.path(dir, "orders.parquet")
@@ -218,7 +240,12 @@ class ContractValidationTest < Minitest::Test
         assert field("time").converts?("datetime")
         refute field("datetime").converts?("date")
         refute field("number").converts?("boolean")
-        refute field("boolean").converts?("integer")
+        refute field("boolean").converts?("date")
+      end
+
+      it "takes a column of numbers for a boolean, which reads 1 and 0, and raises for any other number" do
+        assert field("boolean").converts?("integer")
+        assert field("boolean").converts?("number")
       end
 
       it "takes text and values of type any in every field but a string, which takes neither an object nor an array" do

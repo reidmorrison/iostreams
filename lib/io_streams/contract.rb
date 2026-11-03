@@ -39,11 +39,17 @@ module IOStreams
     autoload :RecordWriter, "io_streams/contract/record_writer"
 
     # The names in Ruby of the properties of a contract that its class declares, see .fields_match.
-    DSL_PROPERTIES = {fieldsMatch: "fields_match", keyType: "key_type", extraColumns: "extra_columns"}.freeze
+    DSL_PROPERTIES = {
+      fieldsMatch: "fields_match", keyType: "key_type", extraColumns: "extra_columns", missingValues: "missing_values",
+      primaryKey: "primary_key", uniqueKeys: "unique_keys", uniqueLimit: "unique_limit"
+    }.freeze
 
     # A name of a method in Ruby, which an accessor of a field must be.
     ACCESSOR = /\A[[:lower:]_][[:word:]]*\z/
-    private_constant :DSL_PROPERTIES, :ACCESSOR
+    # The properties that name fields, which `.to_dsl` writes after them, since the contract checks that the fields
+    # that they name are declared.
+    KEY_PROPERTIES = %i[primaryKey uniqueKeys].freeze
+    private_constant :DSL_PROPERTIES, :ACCESSOR, :KEY_PROPERTIES
 
     class << self
       # Returns [Class] a new contract whose fields are the supplied Frictionless Table Schema, as `Struct.new` returns a
@@ -136,6 +142,37 @@ module IOStreams
         set_property(:extraColumns, value)
       end
 
+      # Sets the text that is a missing value of every field, such as `missing_values ["", "NA"]`, see `missingValues` in
+      # `IOStreams::Schema`, which a field's own `missing_values:` replaces.
+      def missing_values(value)
+        set_property(:missingValues, value)
+      end
+
+      # Sets the field, or fields, whose values identify each record, such as `primary_key "id"` or
+      # `primary_key ["region", "id"]`, by their names in the schema, see `primaryKey` in `IOStreams::Schema`, after
+      # the fields that it names are declared.
+      #
+      # Raises ArgumentError for a name that is not that of a field declared before it.
+      def primary_key(value)
+        check_key_names("primary_key", Array(value))
+        set_property(:primaryKey, value)
+      end
+
+      # Sets the fields of each key whose values must be unique, such as `unique_keys [["email"]]`, see `uniqueKeys` in
+      # `IOStreams::Schema`, after the fields that it names are declared.
+      #
+      # Raises ArgumentError for a name that is not that of a field declared before it.
+      def unique_keys(value)
+        check_key_names("unique_keys", value.is_a?(Array) ? value.flatten : [])
+        set_property(:uniqueKeys, value)
+      end
+
+      # Sets the most distinct values of each field or key that must be unique that a read or write remembers, see
+      # `uniqueLimit` in `IOStreams::Schema`.
+      def unique_limit(value)
+        set_property(:uniqueLimit, value)
+      end
+
       # Returns [IOStreams::Schema] the fields of the contract and its other properties, as a schema, which the readers
       # and writers read and write by.
       #
@@ -183,15 +220,12 @@ module IOStreams
       #     Default: the name of this class, or "Contract" for one without a name.
       def to_dsl(class_name = name || "Contract")
         lines = ["class #{class_name} < IOStreams::Contract"]
-        to_h.except(:fields).each { |property, value| lines << "  #{dsl_property(property, value)}" }
+        keys  = to_h.slice(*KEY_PROPERTIES)
+        to_h.except(:fields, *KEY_PROPERTIES).each { |property, value| lines << "  #{dsl_property(property, value)}" }
         lines << "" if lines.size > 1 && !fields.empty?
-        rows = fields.zip(accessors).map { |field, accessor| [":#{accessor}", ":#{field.type}", dsl_options(field, accessor)] }
-        width = rows.map { |row| row[0].size }.max.to_i + 1
-        types = rows.map { |row| row[1].size }.max.to_i + 1
-        rows.each do |accessor, type, options|
-          type = "#{"#{type},".ljust(types)} #{options}" unless options.empty?
-          lines << "  field #{"#{accessor},".ljust(width)} #{type}".rstrip
-        end
+        lines.concat(dsl_fields)
+        lines << "" unless keys.empty? || fields.empty?
+        keys.each { |property, value| lines << "  #{dsl_property(property, value)}" }
         lines << "end"
         "#{lines.join("\n")}\n"
       end
@@ -323,7 +357,19 @@ module IOStreams
       # Returns [String] the line of the class that declares a property of the contract, see #to_dsl.
       def dsl_property(property, value)
         method = DSL_PROPERTIES[property]
-        method ? "#{method} #{value.inspect}" : "# #{property}: #{value.inspect}"
+        method ? "#{method} #{ruby_literal(value)}" : "# #{property}: #{ruby_literal(value)}"
+      end
+
+      # Returns [Array<String>] the line of `field` that declares each field, see #to_dsl, its accessor, type and options
+      # aligned.
+      def dsl_fields
+        rows  = fields.zip(accessors).map { |field, accessor| [":#{accessor}", ":#{field.type}", dsl_options(field, accessor)] }
+        width = rows.map { |row| row[0].size }.max.to_i + 1
+        types = rows.map { |row| row[1].size }.max.to_i + 1
+        rows.map do |accessor, type, options|
+          type = "#{"#{type},".ljust(types)} #{options}" unless options.empty?
+          "  field #{"#{accessor},".ljust(width)} #{type}".rstrip
+        end
       end
 
       # Returns [String] the options of `field` that declare the supplied field, see #to_dsl.
@@ -332,10 +378,32 @@ module IOStreams
         options    = []
         options << "required: true" if properties.dig(:constraints, :required)
         constraints = properties.delete(:constraints)&.except(:required)
-        properties[:constraints] = constraints unless constraints.nil? || constraints.empty?
-        properties.each { |property, value| options << "#{ruby_name(property)}: #{value.inspect}" }
+        unless constraints.nil? || constraints.empty?
+          properties[:constraints] = constraints.transform_keys { |constraint| ruby_name(constraint).to_sym }
+        end
+        properties.each { |property, value| options << "#{ruby_name(property)}: #{ruby_literal(value)}" }
         options << "name: #{field.name.inspect}" unless field.name.to_s == accessor.to_s && field.name.is_a?(String)
         options.join(", ")
+      end
+
+      # Returns [String] the Ruby of a value of a property, such as `{maximum: 120}`, which writes a Hash as Ruby 3.4
+      # inspects it, `{key: value}`, on every version of Ruby, whose Hash#inspect wrote `{:key=>value}` before 3.4.
+      def ruby_literal(value)
+        case value
+        when ::Hash
+          pairs = value.map { |key, item| "#{ruby_key(key)} #{ruby_literal(item)}" }
+          pairs.empty? ? "{}" : "{#{pairs.join(', ')}}"
+        when ::Array then "[#{value.map { |item| ruby_literal(item) }.join(', ')}]"
+        else value.inspect
+        end
+      end
+
+      # Returns [String] the key of a Hash in Ruby, see #ruby_literal: `key:` for a Symbol, quoted when it is not a name,
+      # such as `"my key":`, otherwise `"key" =>`.
+      def ruby_key(key)
+        return "#{key.inspect} =>" unless key.is_a?(Symbol)
+
+        /\A[a-zA-Z_][a-zA-Z0-9_]*[?!]?\z/.match?(key) ? "#{key}:" : "#{key.to_s.inspect}:"
       end
 
       # Returns [String] the name in Ruby of a property of a field, such as `true_values` for `trueValues`, see .field.
@@ -346,6 +414,7 @@ module IOStreams
       # Sets the properties and fields of the contract, checking them as a schema, see #schema.
       def descriptor=(descriptor)
         schema = IOStreams::Schema.new(descriptor)
+        schema.check_record_keys
         layout = schema.layout_properties
         unless layout.empty?
           raise(ArgumentError, "A contract never lays out a file, so it cannot have the #{layout.join(', ')}: set them in " \
@@ -365,14 +434,35 @@ module IOStreams
       end
 
       # Returns [Hash] the descriptor of a field declared by .field, its properties named as the schema names them.
+      #
+      # Raises ArgumentError for an option that is not a property of a field, see
+      # `IOStreams::Schema::Field.known_property?`, since the options of a method in Ruby are checked, while the schema of
+      # a contract built from a Hash keeps the properties of other tools, as Frictionless allows.
       def field_descriptor(name, type, required, properties)
-        field = {name: name, type: type.to_s}
+        field   = {name: name, type: type.to_s}
+        unknown = properties.keys.find { |property| !IOStreams::Schema::Field.known_property?(property_name(property)) }
+        if unknown
+          raise(ArgumentError, "The field #{name.to_s.inspect} has no option #{unknown.inspect}, which is not a property " \
+                               "of a field, see IOStreams::Schema::Field")
+        end
+
         properties.each do |property, value|
           value = value.transform_keys { |key| property_name(key) } if property == :constraints && value.is_a?(::Hash)
           field[property_name(property)] = value
         end
         field[:constraints] = {**(field[:constraints] || {}), required: true} if required
         field
+      end
+
+      # Raises ArgumentError for a name of a key, see #primary_key, that is not that of a field declared before it, since
+      # the contract checks its properties as each is set.
+      def check_key_names(method, names)
+        declared = @schema ? fields.map { |field| field.name.to_s } : []
+        missing  = names.find { |name| (name.is_a?(String) || name.is_a?(Symbol)) && !declared.include?(name.to_s) }
+        return if missing.nil?
+
+        raise(ArgumentError, "The contract has no field named #{missing.to_s.inspect}: declare #{method} after the " \
+                             "fields that it names")
       end
 
       def set_property(property, value)

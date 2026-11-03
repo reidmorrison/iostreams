@@ -117,7 +117,8 @@ IOStreams.path("example.psv").read
 # => "name|note\nJack|a:b c\n"
 ~~~
 
-In CSV, a value that is empty is read as `nil`, and a quoted empty value, `""`, as an empty String.
+In CSV, a value that is empty is read as `nil`, and a quoted empty value, `""`, as an empty String, unless a
+[schema](schemas#types) reads it, which reads empty text as `nil`, a missing value, as Frictionless does.
 
 ## JSON files
 
@@ -282,12 +283,27 @@ does:
 
 A whole number is a `Float`, such as `1001.0`: an `integer` field of a [schema](schemas) or [contract](contracts)
 converts it, and raises for `1001.5`. A `number` field reads the digits that Excel displays, its 15 most significant,
-such as `0.3` rather than the `Float` `0.30000000000000004`. The lines of the spreadsheet are the text of each cell, the
-same in every process: a date as `2026-01-02`, a date and time as its time in UTC, such as `2026-01-02T09:30:00Z`, a
-cell of a time format as the time of its clock, which Excel shows, such as `09:30:00`, so that a field of its type
-reads it, and a number as the workbook holds it, such as `1001` or `12.5`, whatever its format shows. A number of a date
+such as `0.3` rather than the `Float` `0.30000000000000004`, or every digit of a whole number below 2^53, which a
+`Float` holds exactly, such as the card number `4111111111111111`, and a `string` field reads the number that the cell
+holds, to those digits, without its number format, such as `0.125` for `12.5%`, in plain digits, such as `0.0000001`
+rather than `1.0e-07`, and without a decimal point for a whole number, such as `2134` for a zip code that Excel holds as
+the `Float` `2134.0`. A `string` field reads a cell of a date as `2026-01-02`, of a date and time as its time in UTC,
+such as `2026-01-02T09:30:00Z`, and of a time of day, a time format of less than a day, as the time of its clock, such
+as `09:30:00`. The lines of the spreadsheet are the text of each cell, the same in every process: a date as `2026-01-02`, a date and time as its time in UTC, such as
+`2026-01-02T09:30:00Z`, a cell of a time format as the time of its clock, which Excel shows, such as `09:30:00`, so that
+a field of its type reads it, and a number as the workbook holds it, such as `1001` or `12.5`, whatever its format
+shows. A number of a date
 or time format that is not a date that Excel holds, such as a negative number, which Excel shows as `####`, is its
-number, in the lines and in the rows.
+number, in the lines and in the rows. A field whose `missingValues` hold text other than empty text, such as `"-99"`,
+compares that text of each cell with them, whatever the type of the cell, see [Missing values](schemas#missing-values).
+A `datetime` or `time` field with a `timeZone` reads the clock of a cell of a date and time, or of a time of day, in its
+zone, since a cell holds no zone, such as `2026-07-01 09:30` as `13:30` UTC in `America/New_York`, see
+[Time zones](schemas#time-zones), while the lines, which have no schema, hold the clock as UTC, as above.
+
+A `list` field reads a cell that holds its text, such as `1.5,2`, as its items, and a cell that holds one value, such as
+the number `1.5`, as a list of that one item, `[1.5]`, as the CSV text of the cell reads, see
+[Lists, years, months and points](schemas#lists-years-months-and-points). A `list` of `string` items reads a number as
+a `string` field does, such as `["2134"]`.
 
 The rows that `each(:slice)` reads are the values of the cells, in the `:array` format, and `slice.to_h` holds each
 `Date` and `Time` as its ISO 8601 text, which a schema or contract reads back. A `delimiter:` raises `ArgumentError` for
@@ -295,9 +311,11 @@ the rows and records, which are cells rather than lines.
 
 Writing writes a workbook with one worksheet, with the `xlsxtream` gem. The rows and records are written as the types
 of their values, by the fields of a schema or contract when there is one, so that a number is a number cell, a `Date` a
-date, a `Time` a date and time, and text, such as `"01234"`, is text. A `BigDecimal` is written as the `Float` that Excel
-holds, shown without the `decimals` of its field, see [Limitations](#spreadsheet-limitations), and a `Hash` or an
-`Array` as its JSON:
+date, a `Time` a date and time, holding its clock in UTC, or in the `timeZone` of its field, and text, such as
+`"01234"`, is text. A `BigDecimal` is written as the `Float` that Excel
+holds, shown without the `decimals` of its field, see [Limitations](#spreadsheet-limitations). A field whose value is
+not one value, a `list`, `geopoint`, `array` or `object`, and a `yearmonth`, is written as its text, as CSV writes it,
+such as `a,b` or `2026-10`, and a `Hash` or an `Array` of a field of type `any`, or without a schema, as its JSON:
 
 ~~~ruby
 # Order is a contract, see Contracts.
@@ -335,8 +353,8 @@ Notes:
 * Reading a spreadsheet needs a local file, so one stored elsewhere, or within another stream, is copied into a temp
   file first. Its lines, and its bytes, are converted into CSV in a second temp file, since the `creek` gem returns them
   to a block, while its rows and records are read straight from the workbook. Writing streams the workbook, without a temp file, see [When temp files are used](config#when-temp-files-are-used).
-* On JRuby, `creek` reads a value that holds a line break only up to the line break, unless the workbook was written
-  with `use_shared_strings: true`, as Excel does.
+* On JRuby, `creek` reads a value that holds a line break or a `]` only up to it, such as the JSON text of a `geopoint`
+  of the `array` format, unless the workbook was written with `use_shared_strings: true`, as Excel does.
 
 ### Limitations {#spreadsheet-limitations}
 
@@ -399,10 +417,11 @@ describes itself, such as a CSV file with a header row, JSON, a spreadsheet or P
 
 [Apache Parquet](https://parquet.apache.org/) files hold the type of each column, so their records are read with typed
 values, such as an `Integer`, `BigDecimal`, `Date` or `Time`, even without a schema, apart from the columns that
-[Limitations](#parquet-limitations) names. A column of times of day is read
-as a `Time` on 2000-01-01, in UTC, as a `time` field reads it. A `.parquet` file name selects the format, and it can also be compressed
-or encrypted, such as `data.parquet.pgp`. Install the [parquet](https://github.com/njaremko/parquet-ruby) gem, which is
-not available on JRuby.
+[Limitations](#parquet-limitations) names. A column of times of day is read as a `Time` on 2000-01-01, in UTC, as a
+`time` field reads it, and empty text, or empty binary data, as `nil`, a missing value, as a field reads it, see
+[Types](schemas#types). A `.parquet` file name selects the format, and it can also be compressed or encrypted, such as
+`data.parquet.pgp`. Install the [parquet](https://github.com/njaremko/parquet-ruby) gem, which is not available on
+JRuby.
 
 ~~~ruby
 IOStreams.path("s3://bucket/people.parquet").each(:hash) do |record|
@@ -421,7 +440,7 @@ each type is written as:
 
 | Type | Parquet type |
 |------|--------------|
-| `string` | `string` |
+| `string` | `string`, or `binary` with `format: "binary"`, whose bytes a schema with the field reads back |
 | `integer` | `int64` |
 | `number` | `decimal(38, decimals)`, rounding each value to its `decimals`, or `double` with `floatNumber: true` |
 | `boolean` | `boolean` |
@@ -430,10 +449,13 @@ each type is written as:
 | `time` | `time_micros`, not adjusted to UTC, holding the time of its clock, which is read back as a `Time` on 2000-01-01 in UTC |
 | `duration` | `string`, holding its ISO 8601 text, such as `P1M2DT3H`, which a schema with the field reads back as an `ActiveSupport::Duration` |
 | `object`, `array` | `string`, holding its JSON text, which a schema with the field reads back as a `Hash` or an `Array` |
+| `list` | a Parquet list of the type of its `itemType`, as above, so a list of `number` items is a list of `decimal(38, decimals)`, or of `double` with `floatNumber: true` |
+| `yearmonth`, `geopoint` | `string`, holding its text, such as `2026-10` or `90.5, 45.5`, which a schema with the field reads back |
+| `year` | `int64` |
 
-A `number` field needs `decimals` or `floatNumber: true`, since a Parquet decimal has a fixed number of digits after
-its point, and a field of type `any` raises `ArgumentError`, since it has no type. A field whose `constraints` are
-`required` is written as a column that cannot be null, unless it has `allowBlank: true`.
+A `number` field, and a `list` of `number` items, needs `decimals` or `floatNumber: true`, since a Parquet decimal has a
+fixed number of digits after its point, and a field of type `any` raises `ArgumentError`, since it has no type. A field
+whose `constraints` are `required` is written as a column that cannot be null, unless it has `allowBlank: true`.
 
 ~~~ruby
 schema = {
@@ -527,6 +549,13 @@ end
 # {"id" => 1, "wait" => 8 hours and 30 minutes, "tags" => ["a", "b"], "address" => {"zip" => "01234"}}
 ~~~
 
+A `list` is written as a Parquet list of the type of its items, but the `parquet` gem does not report the type of the
+items of a list column, so without a schema it is read as an `Array` of its values, and `#infer_schema` gives the
+column the type `array`. A copy of the file without a schema then writes it as an `array`, whose numbers are written
+as their digits, without the `decimals` of the list, such as `["1.5","2.25"]` for the items `1.50` and `2.25` of a list
+with `decimals: 2`. Read it with the schema or contract that wrote it to keep the type of its items and their
+`decimals`.
+
 ## Fixed width files
 
 Fixed width files have no delimiters; each field is at the same position in every line. Since the positions cannot be
@@ -604,12 +633,13 @@ length, ignoring what follows the last field. Otherwise every line ends where th
 length raises `IOStreams::Errors::InvalidLineLength`.
 
 When reading, each value is the text of its field without its leading and trailing spaces, converted to the type of
-its field. The keys of each record are the names of the fields as they are given, so that a field whose name is a
+its field, so that a field of only spaces is `nil`, a missing value, in every type, a `string` included. The keys of each record are the names of the fields as they are given, so that a field whose name is a
 Symbol returns a Symbol key.
 
 When writing, a number is right justified and zero filled, and a missing number is written as zero, as the
-specifications of most fixed width files require. A number that is not finite, such as `NaN` or `-INF`, is space
-filled instead, so that it can be read back. Any other value is left justified and space filled, with each line
+specifications of most fixed width files require, unless its field has a missing value of its own, such as `NA` or
+`-99`, see [Missing values](schemas#missing-values), which is written as it is. That value, and a number that is not
+finite, such as `NaN` or `-INF`, is space filled instead, so that it can be read back. Any other value is left justified and space filled, with each line
 break replaced with a space, so that a value cannot add records. The characters that no field covers, such as a
 filler, are spaces. The keys of the records written may be strings or symbols.
 

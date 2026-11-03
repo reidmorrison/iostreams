@@ -503,7 +503,7 @@ class PostgresqlCursorTest < Minitest::Test
                       {name: "tags", type: "array", constraints: {required: true}},
                       {name: "starts", type: "date", constraints: {required: true}}, {name: "note", type: "string"}],
                      IOStreams.stream(model.all).infer_schema.to_h[:fields]
-        assert_equal [{"tags" => [], "starts" => Date.new(2026, 10, 21), "note" => ""}],
+        assert_equal [{"tags" => [], "starts" => Date.new(2026, 10, 21), "note" => nil}],
                      each(IOStreams.stream(model.select(:tags, :starts, :note)))
       ensure
         execute("DROP TABLE IF EXISTS pg_required")
@@ -567,7 +567,7 @@ class PostgresqlCursorTest < Minitest::Test
         it "describes the columns by the types of PostgreSQL" do
           expected = [
             {name: "id", type: "integer", constraints: {required: true}},
-            {name: "code", type: "string"},
+            {name: "code", type: "string", format: "uuid"},
             {name: "doc", type: "any"},
             {name: "ints", type: "array"},
             {name: "words", type: "array"},
@@ -579,7 +579,7 @@ class PostgresqlCursorTest < Minitest::Test
             {name: "mac", type: "string"},
             {name: "seen", type: "datetime"},
             {name: "opens", type: "time"},
-            {name: "blob", type: "any"},
+            {name: "blob", type: "string", format: "binary"},
             {name: "feeling", type: "string"},
             {name: "whole", type: "integer"},
             {name: "network", type: "string"},
@@ -780,13 +780,14 @@ class PostgresqlCursorTest < Minitest::Test
           execute("DROP TABLE IF EXISTS pg_decorated")
           execute(<<~SQL)
             CREATE TABLE pg_decorated (
-              id bigserial PRIMARY KEY, reminders timestamp[], labels text[], hosts inet[], networks cidr[], address inet
+              id bigserial PRIMARY KEY, reminders timestamp[], labels text[], hosts inet[], networks cidr[], address inet,
+              amounts numeric(10,2)[], days date[]
             )
           SQL
           execute(<<~SQL)
-            INSERT INTO pg_decorated (reminders, labels, hosts, networks, address)
+            INSERT INTO pg_decorated (reminders, labels, hosts, networks, address, amounts, days)
             VALUES ('{"2026-10-20 12:30:00","2026-10-21 08:00:00"}', '{"a ","b"}', '{10.0.0.0/8,192.168.1.5/24}',
-                    '{10.0.0.0/8,192.168.1.0/24}', '192.168.1.5/24')
+                    '{10.0.0.0/8,192.168.1.0/24}', '192.168.1.5/24', '{12.50,3}', '{2026-10-20,2026-10-21}')
           SQL
           model.reset_column_information
         end
@@ -799,10 +800,20 @@ class PostgresqlCursorTest < Minitest::Test
 
           assert_equal [{name: "reminders", type: "array"}, {name: "labels", type: "array"}],
                        IOStreams.stream(relation).infer_schema.to_h[:fields]
-          assert_equal relation.pluck(:reminders, :labels).first, record.values_at("reminders", "labels")
-          assert_equal [ActiveSupport::TimeWithZone], record["reminders"].map(&:class).uniq
-          assert_equal Time.utc(2026, 10, 20, 12, 30), record["reminders"].first
+          assert_equal [ActiveSupport::TimeWithZone], relation.pluck(:reminders).first.map(&:class).uniq
+          # What JSON holds of it, the ISO 8601 text of each time in the time zone of the application, as a JSON source
+          # reads it, see `IOStreams::Schema::Field.json_data`.
+          assert_equal ["2026-10-20T08:30:00-04:00", "2026-10-21T04:00:00-04:00"], record["reminders"]
           assert_equal ["a ", "b"], record["labels"]
+        end
+
+        it "reads an array of decimals or dates as the text that JSON holds of each one, rather than what pluck gives" do
+          relation = model.select(:amounts, :days)
+          record   = each(IOStreams.stream(relation)).first
+
+          assert_equal [[BigDecimal("12.5"), BigDecimal("3")], [Date.new(2026, 10, 20), Date.new(2026, 10, 21)]],
+                       relation.pluck(:amounts, :days).first
+          assert_equal({"amounts" => %w[12.5 3.0], "days" => %w[2026-10-20 2026-10-21]}, record)
         end
 
         it "reads an array of addresses, and one that is normalized, as the text that PostgreSQL returns, with its host" do

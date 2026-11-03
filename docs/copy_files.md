@@ -155,7 +155,9 @@ since its types are never guessed, so a Parquet target needs a schema or a contr
 it is opened without one, so that an existing file is kept.
 
 * The contract is handed on without what says how the source writes its text, the `format` of a date and the
-  `trueValues` and `falseValues` of a boolean, so that the target writes its own, such as a date in ISO 8601.
+  `trueValues` and `falseValues` of a boolean, so that the target writes its own, such as a date in ISO 8601. It keeps
+  the `timeZone` of a `datetime` or `time`, which says which clock its values are, so that a spreadsheet target writes
+  the clock of the zone to each cell, as the source read it, see [Time zones](schemas#time-zones).
 * A column of a Parquet file of lists, maps or structs is an `array` or `object`, which another Parquet file holds as
   JSON text, and a column of binary values is of type `any`, which Parquet cannot write without a schema on the target
   that gives its type.

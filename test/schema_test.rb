@@ -34,14 +34,25 @@ class SchemaTest < Minitest::Test
         assert_equal ["id"], schema.fields.map(&:name)
       end
 
-      it "raises for an unknown property of the schema" do
+      it "keeps a property that it does not know, as Frictionless allows, which has no effect" do
+        schema = IOStreams::Schema.new(fields: [{name: "id", unit: "kg"}], profile: "tabular", "mytool:owner": "ops")
+
+        assert_equal({profile: "tabular", "mytool:owner": "ops", fields: [{name: "id", unit: "kg"}]}, schema.to_h)
+        assert_equal schema, IOStreams::Schema.new(JSON.parse(JSON.generate(schema.to_h)))
+      end
+
+      it "raises for a property of the schema that is close to one that it knows, which is most likely mistyped" do
         error = assert_raises(ArgumentError) { IOStreams::Schema.new(fields: [], widht: 3) }
-        assert_equal 'Unknown schema property: "widht"', error.message
+        assert_equal 'Unknown schema property "widht", which is close to "width": correct it, or name the property of ' \
+                     'another tool with a prefix, such as "mytool:widht"', error.message
+        %i[fieldMatch fieldsmatch primaryKeys keytype Header uniqueKey].each do |property|
+          assert_raises(ArgumentError, property.inspect) { IOStreams::Schema.new(fields: [], property => 1) }
+        end
       end
 
       it "raises for a property of Frictionless that is not supported, rather than ignore its rule" do
-        error = assert_raises(ArgumentError) { IOStreams::Schema.new(fields: [{name: "id"}], primaryKey: ["id"]) }
-        assert_equal 'The schema property "primaryKey" is not supported', error.message
+        error = assert_raises(ArgumentError) { IOStreams::Schema.new(fields: [{name: "id"}], foreignKeys: []) }
+        assert_equal 'The schema property "foreignKeys" is not supported', error.message
       end
 
       it "raises without an Array of fields" do
@@ -58,19 +69,35 @@ class SchemaTest < Minitest::Test
         assert_match(/must have a name/, error.message)
       end
 
-      it "raises for fields with the same name" do
-        error = assert_raises(ArgumentError) { IOStreams::Schema.new(fields: [{name: "id"}, {name: :id}]) }
-        assert_equal "Field names must be unique: id", error.message
+      it "accepts fields of the same name, as Frictionless requires, raising only for records keyed by them" do
+        schema = IOStreams::Schema.new(fields: [{name: "id"}, {name: "id"}])
+
+        assert_equal %w[id id], schema.fields.map(&:name)
+        error = assert_raises(ArgumentError) { schema.check_record_keys }
+        assert_equal 'The schema has two fields named "id", which Frictionless accepts, but a record holds each field by a ' \
+                     "key of its own: read and write their rows, whose values are in the order of the fields, such as with " \
+                     "each(:array) of a CSV file, or give each field a name of its own", error.message
+        assert_nil IOStreams::Schema.new(fields: [{name: "id"}, {name: "name"}]).check_record_keys
       end
 
-      it "raises for an unknown property of a field" do
+      it "raises for a property of a field that is close to one that it knows, which is most likely mistyped" do
         error = assert_raises(ArgumentError) { field(widht: 3) }
-        assert_equal 'Field "value": unknown property "widht"', error.message
+        assert_equal 'Field "value": unknown property "widht", which is close to "width": correct it, or name the property ' \
+                     'of another tool with a prefix, such as "mytool:widht"', error.message
+        [{type: "boolean", trueValue: ["y"]}, {type: "number", groupchar: ","}, {Constraints: {}}, {contraints: {}},
+         {aliase: ["x"]}, {type: "number", decimal: 2}, {fromat: "%Y"}, {tpye: "string"}].each do |properties|
+          assert_raises(ArgumentError, properties.inspect) { field(**properties) }
+        end
       end
 
-      it "raises for a property of Frictionless that is not supported, rather than ignore its check" do
-        error = assert_raises(ArgumentError) { field(missingValues: ["-"]) }
-        assert_equal 'Field "value": the property "missingValues" is not supported', error.message
+      it "keeps a property of a field that it does not know, also of a field with skip: true, which has no effect" do
+        assert_equal({name: "value", unit: "kg", "mytool:x": 1}, field(unit: "kg", "mytool:x": 1).to_h)
+        assert_equal({name: "value", skip: true, unit: "kg"}, field(skip: true, unit: "kg").to_h)
+      end
+
+      it "raises for a property of Frictionless of another type, rather than ignore its check" do
+        error = assert_raises(ArgumentError) { field(delimiter: ";") }
+        assert_equal 'Field "value": "delimiter" only applies to a list field', error.message
       end
 
       it "accepts the required constraint" do
@@ -82,8 +109,8 @@ class SchemaTest < Minitest::Test
       end
 
       it "raises for the constraints of Frictionless that are not supported, and unknown ones" do
-        error = assert_raises(ArgumentError) { field(constraints: {required: true, maxLength: 5}) }
-        assert_equal 'Field "value": the constraint "maxLength" is not supported', error.message
+        error = assert_raises(ArgumentError) { field(constraints: {required: true, jsonSchema: {}}) }
+        assert_equal 'Field "value": the constraint "jsonSchema" is not supported', error.message
 
         error = assert_raises(ArgumentError) { field(constraints: {mandatory: true}) }
         assert_equal 'Field "value": unknown constraint "mandatory"', error.message
@@ -161,12 +188,12 @@ class SchemaTest < Minitest::Test
 
       it "raises for a property of another type of field" do
         error = assert_raises(ArgumentError) { field(type: "integer", decimals: 2) }
-        assert_equal 'Field "value": "decimals" only applies to a number field', error.message
+        assert_equal 'Field "value": "decimals" only applies to a list or number field', error.message
       end
 
       it "raises for a type of Frictionless that is not supported" do
-        error = assert_raises(ArgumentError) { field(type: "year") }
-        assert_equal 'Field "value": the type "year" is not supported', error.message
+        error = assert_raises(ArgumentError) { field(type: "geojson") }
+        assert_equal 'Field "value": the type "geojson" is not supported', error.message
       end
 
       it "raises for an unknown type" do
@@ -174,8 +201,8 @@ class SchemaTest < Minitest::Test
         assert_equal 'Field "value": unknown type "money"', error.message
       end
 
-      it "raises for a format of a string" do
-        assert_raises(ArgumentError) { field(type: "string", format: "email") }
+      it "raises for a format of a string other than those of Frictionless" do
+        assert_raises(ArgumentError) { field(type: "string", format: "url") }
       end
 
       it "accepts the default format" do
@@ -315,9 +342,9 @@ class SchemaTest < Minitest::Test
           error = assert_raises(ArgumentError) { IOStreams::Schema.read(path.to_s) }
           assert_match(/\AInvalid schema in .*people\.json: /, error.message)
 
-          path.write(JSON.generate(fields: [{name: "id", type: "year"}]))
+          path.write(JSON.generate(fields: [{name: "id", type: "geojson"}]))
           error = assert_raises(ArgumentError) { IOStreams::Schema.read(path.to_s) }
-          assert_match(/people\.json: Field "id": the type "year" is not supported\z/, error.message)
+          assert_match(/people\.json: Field "id": the type "geojson" is not supported\z/, error.message)
         end
       end
     end
@@ -355,23 +382,23 @@ class SchemaTest < Minitest::Test
 
     describe "a field that is skipped" do
       it "takes only the properties that place its column" do
-        field = IOStreams::Schema::Field.new(name: "filler", skip: true, type: "any", width: 3, start: 4, aliases: ["x"], title: "Filler", "tool:x" => 1)
+        field = IOStreams::Schema::Field.new({name: "filler", skip: true, type: "any", width: 3, start: 4, aliases: ["x"], title: "Filler", "tool:x" => 1})
 
         assert_predicate field, :skip?
-        refute_predicate IOStreams::Schema::Field.new(name: "id"), :skip?
-        refute_predicate IOStreams::Schema::Field.new(name: "id", skip: false, type: "integer"), :skip?
+        refute_predicate IOStreams::Schema::Field.new({name: "id"}), :skip?
+        refute_predicate IOStreams::Schema::Field.new({name: "id", skip: false, type: "integer"}), :skip?
       end
 
       it "raises for a type, constraints or any other property that reads its values" do
         [{type: "integer"}, {constraints: {required: true}}, {format: "%Y"}, {truncate: true}].each do |property|
-          error = assert_raises(ArgumentError) { IOStreams::Schema::Field.new(name: "filler", skip: true, **property) }
+          error = assert_raises(ArgumentError) { IOStreams::Schema::Field.new({name: "filler", skip: true, **property}) }
           assert_equal "Field \"filler\": #{property.keys.first.to_s.inspect} does not apply to a field with skip: true, which only " \
                        "holds the place of its column, since its values are not read", error.message
         end
       end
 
       it "raises for a skip that is not true or false" do
-        error = assert_raises(ArgumentError) { IOStreams::Schema::Field.new(name: "filler", skip: "yes") }
+        error = assert_raises(ArgumentError) { IOStreams::Schema::Field.new({name: "filler", skip: "yes"}) }
         assert_equal 'Field "filler": skip must be true or false: "yes"', error.message
       end
     end
@@ -724,9 +751,25 @@ class SchemaTest < Minitest::Test
       describe "string" do
         let(:string) { field(type: "string") }
 
-        it "keeps text as it is" do
+        it "keeps text as it is, also text of only whitespace, which is not a missing value" do
           assert_equal " Jack ", string.cast(" Jack ")
-          assert_equal "", string.cast("")
+          assert_equal "   ", string.cast("   ")
+        end
+
+        it "reads empty text as nil, a missing value, as Frictionless' default missingValues of [\"\"] does" do
+          assert_nil string.cast("")
+          assert_nil field.cast("")
+          assert_nil string.render("", :text)
+          assert_nil string.render("", :json)
+        end
+
+        it "writes a number that is not finite as Frictionless writes it, NaN, INF or -INF" do
+          assert_equal "INF", string.cast(Float::INFINITY)
+          assert_equal "-INF", string.cast(BigDecimal("-Infinity"))
+          assert_equal "NaN", string.cast(Float::NAN)
+          assert_equal "-INF", field.render(-Float::INFINITY, :text)
+          assert_raises(IOStreams::Errors::InvalidValue) { field.render(BigDecimal("Infinity"), :json) }
+          assert_equal "INF", IOStreams::Schema::Field.any_text(Float::INFINITY)
         end
 
         it "converts other values to text" do
@@ -762,8 +805,14 @@ class SchemaTest < Minitest::Test
 
         it "reads empty text as nil" do
           assert_nil integer.cast("")
-          assert_nil integer.cast("   ")
           assert_nil integer.cast(nil)
+        end
+
+        it "raises for text of only whitespace, which is not a missing value, but is not an integer" do
+          ["   ", "\t", " \n "].each do |text|
+            error = assert_raises(IOStreams::Errors::InvalidValue, text.inspect) { integer.cast(text) }
+            assert_equal "Field \"value\": #{text.inspect} is not a valid integer", error.message
+          end
         end
 
         it "accepts numbers that are whole" do
@@ -826,6 +875,30 @@ class SchemaTest < Minitest::Test
           assert_equal(-1, number.cast("-inf").infinite?)
         end
 
+        it "reads Infinity and -Infinity, as Ruby and JavaScript write them, whatever their case" do
+          float = field(type: "number", floatNumber: true)
+
+          %w[Infinity INFINITY infinity].each do |text|
+            assert_equal 1, number.cast(text).infinite?, text
+            assert_equal Float::INFINITY, float.cast(text), text
+          end
+          assert_equal(-1, number.cast("-Infinity").infinite?)
+          assert_equal(-Float::INFINITY, float.cast(" -infinity "))
+          ["+INF", "Inf1", "Infinit", "--Infinity"].each do |text|
+            assert_raises(IOStreams::Errors::InvalidValue, text) { number.cast(text) }
+          end
+        end
+
+        it "writes a number that is not finite as Frictionless writes it, NaN, INF or -INF, rather than Infinity" do
+          assert_equal "INF", number.render("Infinity", :text)
+          assert_equal "-INF", field(type: "number", floatNumber: true).render("-Infinity", :text)
+          assert_equal "-INF", number.dump(BigDecimal("-Infinity"))
+        end
+
+        it "keeps reading the text of a whole number with a decimal point as an integer, as a leniency" do
+          assert_equal 12, field(type: "integer").cast("12.0")
+        end
+
         it "returns a Float with floatNumber" do
           float = field(type: "number", floatNumber: true)
 
@@ -875,6 +948,64 @@ class SchemaTest < Minitest::Test
           assert_equal "2.68", decimals.render("2.675", :text)
           assert_equal "-0.13", decimals.render(-0.125, :text)
           assert_equal "13", field(type: "number", decimals: 0).render("12.5", :text)
+        end
+
+        it "rounds the number read to its decimals, as it rounds the number written, so that a record holds what is written" do
+          decimals = field(type: "number", decimals: 2)
+          float    = field(type: "number", floatNumber: true, decimals: 2)
+
+          assert_equal BigDecimal("12.35"), decimals.cast("12.345")
+          assert_equal BigDecimal("-0.13"), decimals.cast("-0.125")
+          assert_equal BigDecimal("2.68"), decimals.cast(BigDecimal("2.675"))
+          assert_equal BigDecimal("1.01"), decimals.cast(1.005)
+          assert_equal BigDecimal("0.33"), decimals.cast(1/3r)
+          assert_equal BigDecimal("12.5"), decimals.cast(12.5)
+          # A Float is rounded as `format` writes it, 12.345, whose text ends in 5, to the even digit.
+          assert_in_delta 12.34, float.cast("12.345")
+          assert_equal "12.34", float.render("12.345", :text)
+          assert_equal Float(float.render(2.675, :text)), float.cast(2.675)
+          assert_equal decimals.render("12.345", :text), decimals.render(decimals.cast("12.345"), :text)
+        end
+
+        it "rounds to no decimals as a BigDecimal, half up, whatever the rounding mode of BigDecimal" do
+          whole = field(type: "number", decimals: 0)
+
+          assert_equal BigDecimal("3"), whole.cast("2.5")
+          assert_kind_of BigDecimal, whole.cast("2.5")
+          BigDecimal.save_rounding_mode do
+            BigDecimal.mode(BigDecimal::ROUND_MODE, :banker)
+
+            assert_equal BigDecimal("3"), whole.cast("2.5")
+            assert_equal "3", whole.render("2.5", :text)
+          end
+        end
+
+        it "rounds a Float whose text ends in 5 to the even digit, whatever its binary value, as format does" do
+          assert_equal Float("2"), field(type: "number", floatNumber: true, decimals: 0).cast("2.5")
+          assert_equal Float("4"), field(type: "number", floatNumber: true, decimals: 0).cast("3.5")
+          assert_equal Float("0.12"), field(type: "number", floatNumber: true, decimals: 2).cast("0.125")
+          # The Float 0.025 is above 0.025, and 2.675 below 2.675.
+          assert_equal Float("0.02"), field(type: "number", floatNumber: true, decimals: 2).cast("0.025")
+          assert_equal Float("2.68"), field(type: "number", floatNumber: true, decimals: 2).cast("2.675")
+          assert_equal BigDecimal("0.13"), field(type: "number", decimals: 2).cast("0.125")
+        end
+
+        it "rounds a negative number to zero, rather than -0.0" do
+          float   = field(type: "number", floatNumber: true, decimals: 2)
+          decimal = field(type: "number", decimals: 2)
+
+          # The text of -0.0 is "-0.0", for a Float and for a BigDecimal.
+          [float.cast("-0.001"), decimal.cast("-0.001"), field(type: "number", decimals: 0).cast("-0.4")].each do |zero|
+            assert_equal "0.0", zero.to_s, zero.inspect
+          end
+          assert_equal "0.00", float.render("-0.001", :text)
+          assert_equal "0.00", decimal.render("-0.001", :text)
+          assert_equal "0.00", JSON.generate([float.render(-0.001, :json)])[1..-2]
+        end
+
+        it "keeps a number that is not finite as it is, whatever its decimals" do
+          assert_predicate field(type: "number", decimals: 2).cast("NaN"), :nan?
+          assert_equal(-1, field(type: "number", decimals: 2).cast("-INF").infinite?)
         end
 
         it "renders a Float with the number of decimals" do
@@ -953,11 +1084,531 @@ class SchemaTest < Minitest::Test
                        json(field(type: "number", floatNumber: true, decimals: 0), 12.5)
         end
 
-        it "renders a JSON number that is not finite as a Float, which JSON cannot hold" do
-          assert_predicate number.render("NaN", :json), :nan?
-          assert_equal Float::INFINITY, number.render("INF", :json)
-          assert_predicate field(type: "number", decimals: 0).render("NaN", :json), :nan?
-          assert_raises(JSON::GeneratorError) { json(field(type: "number", decimals: 2), "NaN") }
+        it "raises for a JSON number that is not finite, which JSON cannot hold, naming the field" do
+          [number, field(type: "number", floatNumber: true), field(type: "number", decimals: 2)].each do |numbers|
+            ["NaN", "INF", "-INF", Float::NAN, BigDecimal("-Infinity")].each do |value|
+              error = assert_raises(IOStreams::Errors::InvalidValue, value.inspect) { numbers.render(value, :json) }
+              assert_includes error.message, 'Field "value": JSON cannot hold a number that is not finite'
+            end
+          end
+
+          assert_equal "INF", number.render("INF", :text)
+          [Float::NAN, Float::INFINITY, BigDecimal("-Infinity")].each do |value|
+            error = assert_raises(IOStreams::Errors::InvalidValue, value.inspect) { field.render(value, :json) }
+            assert_includes error.message, "JSON cannot hold a number that is not finite"
+          end
+          assert_equal({"x" => BigDecimal("-Infinity")}, field.render({"x" => BigDecimal("-Infinity")}, :json))
+        end
+      end
+
+      describe "constraints" do
+        it "checks enum of every type, reading its values as the field reads its values" do
+          status = field(type: "string", constraints: {enum: %w[open closed]})
+          on     = field(type: "date", format: "%d/%m/%Y", constraints: {enum: ["01/02/2026", "2026-03-04"]})
+
+          assert_equal "open", status.cast("open")
+          error = assert_raises(IOStreams::Errors::InvalidValue) { status.cast("pending") }
+          assert_equal 'Field "value": "pending" is not one of its enum values', error.message
+          assert_equal "pending", error.value
+          assert_equal 2, field(type: "integer", constraints: {enum: [1, "2"]}).cast(" 2 ")
+          assert_equal Date.new(2026, 3, 4), on.cast("04/03/2026")
+          assert_raises(IOStreams::Errors::InvalidValue) { on.cast("05/03/2026") }
+          assert_equal BigDecimal("1.5"), field(type: "number", constraints: {enum: ["1.50"]}).cast(1.5)
+          assert_nil status.cast(nil)
+        end
+
+        it "checks minimum, maximum, exclusiveMinimum and exclusiveMaximum of the types that are ordered" do
+          age  = field(type: "integer", constraints: {minimum: 0, maximum: "120"})
+          rate = field(type: "number", constraints: {exclusiveMinimum: 0, exclusiveMaximum: 1})
+          on   = field(type: "date", constraints: {minimum: "2026-01-01"})
+
+          assert_equal 0, age.cast("0")
+          assert_equal 120, age.cast(120)
+          error = assert_raises(IOStreams::Errors::InvalidValue) { age.cast("-1") }
+          assert_equal 'Field "value": "-1" is less than its minimum, 0', error.message
+          error = assert_raises(IOStreams::Errors::InvalidValue) { age.cast(121) }
+          assert_equal 'Field "value": 121 is more than its maximum, "120"', error.message
+          assert_equal BigDecimal("0.5"), rate.cast("0.5")
+          error = assert_raises(IOStreams::Errors::InvalidValue) { rate.cast("0") }
+          assert_equal 'Field "value": "0" is not more than its exclusiveMinimum, 0', error.message
+          assert_raises(IOStreams::Errors::InvalidValue) { rate.cast("1") }
+          assert_raises(IOStreams::Errors::InvalidValue) { rate.cast("NaN") }
+          assert_equal Date.new(2026, 1, 1), on.cast("2026-01-01")
+          assert_raises(IOStreams::Errors::InvalidValue) { on.cast(Date.new(2025, 12, 31)) }
+        end
+
+        it "compares times, datetimes and durations" do
+          at    = field(type: "datetime", constraints: {maximum: "2026-10-31T23:59:59Z"})
+          clock = field(type: "time", constraints: {minimum: "09:00:00", maximum: "17:00:00"})
+          long  = field(type: "duration", constraints: {minimum: "PT1H"})
+
+          assert_raises(IOStreams::Errors::InvalidValue) { at.cast("2026-11-01T00:00:00Z") }
+          assert_equal Time.utc(2000, 1, 1, 9), clock.cast("09:00:00")
+          assert_raises(IOStreams::Errors::InvalidValue) { clock.cast("08:59:59") }
+          assert_equal "PT2H", long.cast("PT2H").iso8601
+          assert_raises(IOStreams::Errors::InvalidValue) { long.cast("PT30M") }
+        end
+
+        it "checks minLength and maxLength of the characters of a string, and the items of an array or object" do
+          code = field(type: "string", constraints: {minLength: 2, maxLength: 3})
+          tags = field(type: "array", constraints: {maxLength: 2})
+
+          assert_equal "ab", code.cast("ab")
+          error = assert_raises(IOStreams::Errors::InvalidValue) { code.cast("a") }
+          assert_equal 'Field "value": "a" has a length of 1, less than its minLength, 2', error.message
+          error = assert_raises(IOStreams::Errors::InvalidValue) { code.cast("abcd") }
+          assert_equal 'Field "value": "abcd" has a length of 4, more than its maxLength, 3', error.message
+          assert_equal "é日本", code.cast("é日本")
+          assert_equal [1, 2], tags.cast("[1,2]")
+          assert_raises(IOStreams::Errors::InvalidValue) { tags.cast([1, 2, 3]) }
+          assert_raises(IOStreams::Errors::InvalidValue) { field(type: "object", constraints: {minLength: 1}).cast({}) }
+        end
+
+        it "matches the whole text of a string with pattern, a Ruby regular expression" do
+          zip = field(type: "string", constraints: {pattern: "\\d{5}|\\d{5}-\\d{4}"})
+
+          assert_equal "12345", zip.cast("12345")
+          assert_equal "12345-6789", zip.cast("12345-6789")
+          %W[1234 123456 x12345 12345-67 12345\n].each do |text|
+            assert_raises(IOStreams::Errors::InvalidValue, text.inspect) { zip.cast(text) }
+          end
+          error = assert_raises(IOStreams::Errors::InvalidValue) { zip.cast("1234") }
+          assert_equal 'Field "value": "1234" does not match its pattern, /\d{5}|\d{5}-\d{4}/', error.message
+        end
+
+        it "matches the classes of a pattern as Unicode, as XML Schema does" do
+          word = field(type: "string", constraints: {pattern: "\\w+( \\w+)*"})
+
+          assert_equal "café crème", word.cast("café crème")
+          assert_equal "Zürich", word.cast("Zürich")
+          assert_raises(IOStreams::Errors::InvalidValue) { word.cast("a-b") }
+        end
+
+        it "raises for text that cannot be matched with its pattern, such as text that is not valid in its encoding" do
+          name = field(type: "string", constraints: {pattern: "é+"})
+
+          error = assert_raises(IOStreams::Errors::InvalidValue) { name.cast("\xE9t\xE9".b) }
+          assert_match(/cannot be matched with its pattern/, error.message)
+          assert_raises(IOStreams::Errors::InvalidValue) { name.cast("\xFF\xFE") }
+        end
+
+        it "raises for a pattern that closes a group that it does not open, rather than change its anchors" do
+          error = assert_raises(ArgumentError) { field(type: "string", constraints: {pattern: "a)|(b"}) }
+          assert_match(/constraints pattern is not a valid regular expression/, error.message)
+        end
+
+        it "checks each value written too" do
+          age = field(type: "integer", constraints: {minimum: 0})
+
+          assert_equal "5", age.render(5, :text)
+          assert_raises(IOStreams::Errors::InvalidValue) { age.render(-5, :text) }
+          assert_raises(IOStreams::Errors::InvalidValue) { age.render(-5, :typed) }
+        end
+
+        it "raises for a constraint that does not apply to the type of the field" do
+          [
+            {type: "string", constraints: {minimum: "a"}}, {type: "boolean", constraints: {maximum: true}},
+            {type: "integer", constraints: {minLength: 1}}, {type: "integer", constraints: {pattern: "\\d+"}},
+            {type: "any", constraints: {maxLength: 1}}
+          ].each do |properties|
+            assert_raises(ArgumentError, properties.inspect) { field(**properties) }
+          end
+          error = assert_raises(ArgumentError) { field(type: "integer", constraints: {pattern: "1"}) }
+          assert_equal 'Field "value": the constraint "pattern" only applies to a field of type string, not integer', error.message
+        end
+
+        it "checks a value that the field read, such as a number rounded to its decimals, and no missing value" do
+          rounded = field(type: "number", decimals: 0, constraints: {maximum: 100})
+          missing = IOStreams::Schema.new(
+            missingValues: ["NA"],
+            fields:        [{name: "value", type: "integer", constraints: {minimum: 1, enum: [1, 2]}}]
+          ).fields.first
+
+          assert_equal BigDecimal("100"), rounded.cast("100.4")
+          assert_nil missing.cast("NA")
+          assert_nil missing.cast(nil)
+          assert_raises(IOStreams::Errors::InvalidValue) { missing.cast("0") }
+        end
+
+        it "compares integers and strings with enum as the keys of a Hash, and other types with ==" do
+          assert_equal 2, field(type: "integer", constraints: {enum: [1, 2]}).cast("2")
+          assert_equal BigDecimal(1), field(type: "number", constraints: {enum: [1.0]}).cast("1")
+          assert_equal "b", field(type: "string", categories: %w[a b]).cast("b")
+          assert_raises(IOStreams::Errors::InvalidValue) { field(type: "string", constraints: {enum: %w[a b]}).cast("c") }
+        end
+
+        it "says that a value that cannot be compared with a bound, such as NaN, cannot be" do
+          error = assert_raises(IOStreams::Errors::InvalidValue) { field(type: "number", constraints: {minimum: 0}).cast("NaN") }
+          assert_equal 'Field "value": "NaN" cannot be compared with its minimum, 0', error.message
+        end
+
+        it "keeps a value of a constraint that JSON does not hold as the text that the field writes, which reads back" do
+          date   = field(type: "date", constraints: {minimum: Date.new(2026, 1, 1), enum: [Date.new(2026, 1, 2)]})
+          number = field(type: "number", constraints: {maximum: BigDecimal("1.5")})
+
+          assert_equal({minimum: "2026-01-01", enum: ["2026-01-02"]}, date.to_h[:constraints])
+          assert_equal({maximum: "1.5"}, number.to_h[:constraints])
+          error = assert_raises(IOStreams::Errors::InvalidValue) { number.cast("2") }
+          assert_equal 'Field "value": "2" is more than its maximum, "1.5"', error.message
+          schema = IOStreams::Schema.new(fields: [date.to_h, number.to_h.merge(name: "pay")])
+
+          assert_equal schema, IOStreams::Schema.new(JSON.parse(JSON.generate(schema.to_h)))
+        end
+
+        it "raises for bounds that leave no value, or that are NaN" do
+          [
+            {minimum: 5, maximum: 4}, {minimum: 5, exclusiveMaximum: 5}, {exclusiveMinimum: 5, maximum: 5},
+            {exclusiveMinimum: 5, exclusiveMaximum: 5}, {minimum: "NaN"}, {maximum: "nan"}
+          ].each do |constraints|
+            assert_raises(ArgumentError, constraints.inspect) { field(type: "number", constraints: constraints) }
+          end
+          assert_equal BigDecimal(5), field(type: "number", constraints: {minimum: 5, maximum: 5}).cast("5")
+          error = assert_raises(ArgumentError) { field(type: "integer", constraints: {minimum: 5, maximum: 4}) }
+          assert_equal 'Field "value": constraints minimum, 5, leaves no value up to its maximum, 4', error.message
+        end
+
+        it "raises for a value of a constraint that is not valid, or not a value of the field" do
+          [
+            {type: "integer", constraints: {minimum: "x"}}, {type: "integer", constraints: {minimum: 1.5}},
+            {type: "date", constraints: {maximum: "31/12/2026"}}, {type: "string", constraints: {minLength: -1}},
+            {type: "string", constraints: {maxLength: "3"}}, {type: "string", constraints: {pattern: "("}},
+            {type: "string", constraints: {pattern: 5}}, {type: "string", constraints: {enum: []}},
+            {type: "string", constraints: {enum: "a"}}, {type: "integer", constraints: {enum: [1, "x"]}},
+            {type: "integer", constraints: {minimum: nil}}, {type: "integer", constraints: {minimum: ""}}
+          ].each do |properties|
+            assert_raises(ArgumentError, properties.inspect) { field(**properties) }
+          end
+          error = assert_raises(ArgumentError) { field(type: "integer", constraints: {minimum: "x"}) }
+          assert_equal 'Field "value": constraints minimum must be a value of the field: Field "value": "x" is not a valid integer',
+                       error.message
+        end
+
+        it "keeps raising for jsonSchema, which is not supported" do
+          error = assert_raises(ArgumentError) { field(type: "object", constraints: {jsonSchema: {type: "object"}}) }
+          assert_equal 'Field "value": the constraint "jsonSchema" is not supported', error.message
+        end
+
+        it "names the record that a value not following a constraint is in, when reading" do
+          schema = IOStreams::Schema.new(fields: [{name: "age", type: "integer", constraints: {minimum: 0}}])
+          rows   = []
+          error  = assert_raises(IOStreams::Errors::InvalidValue) do
+            IOStreams.stream(StringIO.new("age\n5\n-1\n")).file_name("a.csv").schema(schema).each(:hash) { |row| rows << row }
+          end
+
+          assert_equal 'Field "age": "-1" is less than its minimum, 0', error.reason
+          assert_equal 2, error.record_number
+          assert_equal [{"age" => 5}], rows
+        end
+      end
+
+      describe "categories" do
+        it "reads a value of a string or integer field only when it is one of its categories" do
+          size = field(type: "string", categories: %w[S M L])
+          code = field(type: "integer", categories: [{value: 1, label: "One"}, {"value" => "2", "label" => "Two"}])
+
+          assert_equal "M", size.cast("M")
+          error = assert_raises(IOStreams::Errors::InvalidValue) { size.cast("XL") }
+          assert_equal 'Field "value": "XL" is not one of its categories', error.message
+          assert_equal 2, code.cast("2")
+          assert_raises(IOStreams::Errors::InvalidValue) { code.cast("3") }
+          assert_nil size.cast("")
+        end
+
+        it "accepts categoriesOrdered, which does not change how values are read" do
+          size = field(type: "string", categories: %w[S M L], categoriesOrdered: true)
+
+          assert_equal "L", size.cast("L")
+          assert_equal({name: "value", type: "string", categories: %w[S M L], categoriesOrdered: true}, size.to_h)
+        end
+
+        it "raises for an enum value that is not one of its categories" do
+          error = assert_raises(ArgumentError) { field(type: "string", categories: %w[S M], constraints: {enum: %w[M L]}) }
+          assert_equal 'Field "value": the enum value "L" is not one of its categories', error.message
+          assert_equal "S", field(type: "string", categories: %w[S M], constraints: {enum: %w[S]}).cast("S")
+        end
+
+        it "raises for categories that are not valid, or of another type of field" do
+          [
+            {type: "string", categories: "S"}, {type: "string", categories: []}, {type: "integer", categories: ["x"]},
+            {type: "string", categories: [{label: "x"}]}, {type: "string", categories: [{value: "x", label: 1}]},
+            {type: "string", categories: [{value: "x", code: 1}]}, {type: "number", categories: [1]},
+            {type: "string", categories: %w[a], categoriesOrdered: "yes"}, {type: "date", categoriesOrdered: true},
+            {type: "string", categories: %w[a b a]}, {type: "integer", categories: [1, {value: 1, label: "One"}]},
+            {type: "integer", categories: [{value: 1, label: "One"}, {value: 2, label: "One"}]},
+            {type: "string", categories: [{value: "a", label: nil}]}, {type: "string", categoriesOrdered: true}
+          ].each do |properties|
+            assert_raises(ArgumentError, properties.inspect) { field(**properties) }
+          end
+        end
+      end
+
+      describe "missingValues" do
+        # Returns [IOStreams::Schema::Field] the field of a schema of the supplied properties.
+        def schema_field(schema = {}, **properties)
+          IOStreams::Schema.new(fields: [{name: "value", **properties}], **schema).fields.first
+        end
+
+        it "reads text that is exactly one of the missing values of the schema as nil, in every type" do
+          %w[any string integer number boolean date datetime time object array].each do |type|
+            missing = schema_field({missingValues: ["NA", "-"]}, type: type)
+
+            assert_nil missing.cast("NA"), type
+            assert_nil missing.cast("-"), type
+          end
+        end
+
+        it "compares the text as it is read, before its whitespace is removed, and keeps text that is not missing" do
+          missing = schema_field({missingValues: ["NA"]}, type: "integer")
+
+          assert_raises(IOStreams::Errors::InvalidValue) { missing.cast(" NA ") }
+          assert_raises(IOStreams::Errors::InvalidValue) { missing.cast("na") }
+          assert_equal "na", schema_field({missingValues: ["NA"]}, type: "string").cast("na")
+        end
+
+        it "replaces the empty text of the default, so that empty text is a value, or not one of the type" do
+          assert_equal "", schema_field({missingValues: ["NA"]}, type: "string").cast("")
+          assert_equal "", schema_field({missingValues: []}).cast("")
+          error = assert_raises(IOStreams::Errors::InvalidValue) { schema_field({missingValues: ["NA"]}, type: "integer").cast("") }
+          assert_equal 'Field "value": "" is not a valid integer', error.message
+        end
+
+        it "replaces those of the schema with those of the field, rather than add them" do
+          missing = schema_field({missingValues: ["NA"]}, type: "integer", missingValues: ["-99"])
+
+          assert_nil missing.cast("-99")
+          assert_raises(IOStreams::Errors::InvalidValue) { missing.cast("NA") }
+          assert_nil field(type: "integer", missingValues: ["", "N/A"]).cast("N/A")
+          assert_nil field(type: "integer", missingValues: ["", "N/A"]).cast("")
+        end
+
+        it "takes objects of a value and a label, which only describes it to people" do
+          missing = schema_field({missingValues: [{value: "-99", label: "Refused"}, {"value" => "-98"}]}, type: "integer")
+
+          assert_nil missing.cast("-99")
+          assert_nil missing.cast("-98")
+          assert_equal(-97, missing.cast("-97"))
+        end
+
+        it "never compares a value that is not text, such as a number of JSON" do
+          missing = schema_field({missingValues: ["-99", "0"]}, type: "integer")
+
+          assert_equal(-99, missing.cast(-99))
+          assert_equal 0, missing.cast(0)
+        end
+
+        it "raises for a required field, as it does for nil" do
+          required = schema_field({missingValues: ["NA"]}, type: "integer", constraints: {required: true})
+
+          error = assert_raises(IOStreams::Errors::InvalidValue) { required.cast("NA") }
+          assert_equal 'Field "value" is required, but has no value', error.message
+          assert_equal "NA", error.value
+        end
+
+        it "writes nil as the first missing value of the field in text, as frictionless-py does, and nil otherwise" do
+          integer = schema_field({missingValues: ["NA", "-"]}, type: "integer")
+
+          assert_equal "NA", integer.render(nil, :text)
+          assert_equal "NA", schema_field({missingValues: ["NA"]}, type: "string").render("NA", :text)
+          assert_equal "-99", schema_field({missingValues: ["NA"]}, type: "integer", missingValues: ["-99"]).render(nil, :text)
+          assert_nil integer.render(nil, :json)
+          assert_nil integer.render(nil, :typed)
+          assert_nil schema_field({missingValues: ["", "NA"]}, type: "integer").render(nil, :text)
+          assert_nil schema_field({missingValues: []}, type: "integer").render(nil, :text)
+          assert_nil field(type: "integer").render(nil, :text)
+        end
+
+        it "converts a value that a schema already read, or a store returned, without comparing it with them" do
+          number = schema_field({missingValues: ["", "-99", "0"]}, type: "number")
+
+          assert_nil number.cast("-99")
+          assert_equal BigDecimal("-99"), number.cast_typed(BigDecimal("-99"))
+          assert_equal BigDecimal("-99"), number.load(number.dump(BigDecimal("-99")))
+          assert_equal BigDecimal("0"), number.load(number.dump(BigDecimal("0")))
+          # Text that a typed source holds, such as a query, is text, which is compared.
+          assert_nil number.restore("0")
+          assert_equal "NA", schema_field({missingValues: ["NA"]}, type: "string").cast_typed("NA")
+          assert_nil number.cast_typed(nil)
+        end
+
+        it "keeps them as they were given, each object with Symbol keys, and compares fields by them" do
+          schema = IOStreams::Schema.new(missingValues: [{value: "-99", label: "Refused"}, {"value" => "-98"}],
+                                         fields:        [{name: "a", missingValues: [{"value" => "y", "label" => "Y"}]}])
+
+          assert_equal({missingValues: [{value: "-99", label: "Refused"}, {value: "-98"}],
+                        fields:        [{name: "a", missingValues: [{value: "y", label: "Y"}]}]}, schema.to_h)
+          assert_equal schema, IOStreams::Schema.new(JSON.parse(JSON.generate(schema.to_h)))
+          refute_equal schema_field({missingValues: ["NA"]}), schema_field({missingValues: ["-"]})
+          assert_equal schema_field({missingValues: ["NA"]}), schema_field({missingValues: ["NA"]})
+          assert_equal schema_field, field
+        end
+
+        it "leaves them to the schema of the file, which reads its own text" do
+          schema = IOStreams::Schema.new(missingValues: ["NA"], fields: [{name: "a", type: "integer", missingValues: ["x"]}])
+
+          assert_equal({fields: [{name: "a", type: "integer"}]}, schema.without_text.to_h)
+        end
+
+        it "raises for missing values that are not an Array of text, or of objects of a text value and label" do
+          [{missingValues: "NA"}, {missingValues: [1]}, {missingValues: [nil]}, {missingValues: [{label: "x"}]},
+           {missingValues: [{value: 1}]}, {missingValues: [{value: "x", label: 2}]}, {missingValues: [{value: "x", code: 1}]}].each do |schema|
+            assert_raises(ArgumentError, schema.inspect) { IOStreams::Schema.new(fields: [{name: "a"}], **schema) }
+            assert_raises(ArgumentError, schema.inspect) { field(**schema) }
+          end
+          error = assert_raises(ArgumentError) { field(missingValues: "NA") }
+          assert_equal 'Field "value": missingValues must be an Array of text, or of objects with a value: "NA"', error.message
+        end
+
+        it "raises for missing values that mix text and objects, as Frictionless requires one or the other" do
+          # The inspect of the list, which Ruby 3.3 writes as `{:value=>"-99"}`, and Ruby 3.4 as `{value: "-99"}`.
+          error = assert_raises(ArgumentError) { field(missingValues: ["NA", {value: "-99"}]) }
+          assert_equal 'Field "value": missingValues must be all text, or all objects with a value, not both: ' \
+                       "#{['NA', {value: '-99'}].inspect}", error.message
+          error = assert_raises(ArgumentError) { IOStreams::Schema.new(missingValues: [{value: "-99"}, ""], fields: [{name: "a"}]) }
+          assert_equal "The schema missingValues must be all text, or all objects with a value, not both: " \
+                       "#{[{value: '-99'}, ''].inspect}", error.message
+        end
+
+        it "raises for missing values that repeat a text, a value or a label, which Frictionless requires to be unique" do
+          error = assert_raises(ArgumentError) { field(missingValues: ["", "NA", "-", "NA"]) }
+          assert_equal 'Field "value": missingValues must not repeat a value: "NA"', error.message
+          error = assert_raises(ArgumentError) { IOStreams::Schema.new(missingValues: ["", ""], fields: [{name: "a"}]) }
+          assert_equal 'The schema missingValues must not repeat a value: ""', error.message
+          error = assert_raises(ArgumentError) { field(missingValues: [{value: "-99", label: "Refused"}, {"value" => "-99"}]) }
+          assert_equal 'Field "value": missingValues must not repeat a value: "-99"', error.message
+          error = assert_raises(ArgumentError) do
+            field(missingValues: [{value: "-99", label: "Refused"}, {"value" => "-98", "label" => "Refused"}])
+          end
+          assert_equal 'Field "value": missingValues must not repeat a label: "Refused"', error.message
+          assert_raises(ArgumentError) { Class.new(IOStreams::Contract) { missing_values %w[NA NA] } }
+
+          unlabeled = field(type: "integer", missingValues: [{value: "-99"}, {value: "-98"}, {value: "-97", label: "Refused"}])
+
+          assert_nil unlabeled.cast("-98")
+        end
+      end
+
+      describe "groupChar, decimalChar and bareNumber" do
+        it "removes the groupChar of a number or an integer wherever it is, and writes it between each 3 digits" do
+          grouped = field(type: "number", groupChar: ",")
+          integer = field(type: "integer", groupChar: " ")
+
+          assert_equal BigDecimal("1234567.5"), grouped.cast("1,234,567.5")
+          assert_equal BigDecimal("1234"), grouped.cast("12,34")
+          assert_equal "-1,234,567.50", field(type: "number", groupChar: ",", decimals: 2).render("-1234567.5", :text)
+          assert_equal "123.0", grouped.render("123", :text)
+          assert_equal 1_234_567, integer.cast("1 234 567")
+          assert_equal "1 234 567", integer.render(1_234_567, :text)
+          assert_equal "-1 234", integer.render(-1234, :text)
+        end
+
+        it "reads and writes the groupChar \".\" of an integer, which has no decimal point" do
+          integer = field(type: "integer", groupChar: ".")
+
+          assert_equal 1_234_567, integer.cast("1.234.567")
+          assert_equal "1.234.567", integer.render(1_234_567, :text)
+          assert_equal 12, field(type: "integer", groupChar: ",").cast("12.0")
+        end
+
+        it "reads and writes the decimalChar of a number, and raises for a point that is not it" do
+          european = field(type: "number", groupChar: ".", decimalChar: ",")
+          comma    = field(type: "number", decimalChar: ",")
+
+          assert_equal BigDecimal("1234.5"), european.cast("1.234,50")
+          assert_equal "1.234.567,5", european.render(BigDecimal("1234567.5"), :text)
+          assert_equal BigDecimal("12.5"), comma.cast("12,5")
+          assert_raises(IOStreams::Errors::InvalidValue) { comma.cast("12.5") }
+          assert_equal "12,5", comma.render(12.5, :text)
+          assert_equal "NaN", comma.render("NaN", :text)
+          assert_equal "12345678901234567890,5", comma.render(BigDecimal("12345678901234567890.5"), :text)
+        end
+
+        it "writes the plain number to JSON, which has neither a groupChar nor a decimalChar" do
+          european = field(type: "number", groupChar: ".", decimalChar: ",", decimals: 2)
+
+          assert_equal JSON::Fragment.new("1234.50"), european.render("1.234,5", :json)
+          assert_equal 1234, field(type: "integer", groupChar: ",").render("1,234", :json)
+          assert_equal "1234.50", european.dump(european.cast("1.234,5"))
+        end
+
+        it "reads a number of a format that holds numbers, such as JSON, as it is" do
+          assert_equal BigDecimal("1234.5"), field(type: "number", decimalChar: ",").cast(1234.5)
+          assert_equal 12, field(type: "integer", groupChar: ",", bareNumber: false).cast(12)
+        end
+
+        it "removes the text before and after the number with bareNumber: false, keeping its sign" do
+          number = field(type: "number", bareNumber: false)
+
+          {
+            "95%" => "95", "$12.50" => "12.5", "12abc" => "12", "EUR 95" => "95", "€ 1.5" => "1.5", "1e3 kg" => "1000",
+            "-$12.50" => "-12.5", "$-12" => "-12", "USD -12" => "-12", " 12 " => "12", "Rs. 50" => "50", ".5%" => "0.5",
+            "Rs.500" => "500", "No.5" => "5", "$.50" => "0.5", "-.5" => "-0.5", "95% (est.)" => "95"
+          }.each_pair do |text, value|
+            assert_equal BigDecimal(value), number.cast(text), text
+          end
+          assert_equal 95, field(type: "integer", bareNumber: false).cast("95%")
+          assert_equal 12, field(type: "integer", bareNumber: false).cast("$12.00")
+        end
+
+        it "reads parentheses around the number as a negative number with bareNumber: false, as accountants write it" do
+          number = field(type: "number", bareNumber: false, groupChar: ",")
+
+          assert_equal BigDecimal("-12.5"), number.cast("(12.50)")
+          assert_equal BigDecimal("-1234.5"), number.cast("($1,234.50)")
+          assert_equal(-7, field(type: "integer", bareNumber: false).cast("(7)"))
+        end
+
+        it "raises with bareNumber: false for text without a number, digits around it, or a sign twice" do
+          number = field(type: "number", bareNumber: false)
+
+          ["N/A", "abc", "12abc3", "1-2", "--12", "(-12)", "(-$12)", "+-12", "$", "()", "12-", "12 -", "(12.50", "12.50)",
+           "$(12)", "12) (", "(12.50) (est."].each do |text|
+            error = assert_raises(IOStreams::Errors::InvalidValue, text) { number.cast(text) }
+            assert_equal "Field \"value\": #{text.inspect} is not a valid number", error.message
+          end
+        end
+
+        it "finds the number with bareNumber: false before it checks the decimal point of its decimalChar" do
+          comma    = field(type: "number", bareNumber: false, decimalChar: ",")
+          european = field(type: "number", bareNumber: false, decimalChar: ",", groupChar: ".")
+
+          assert_equal BigDecimal("12.5"), comma.cast("ca. 12,50")
+          assert_equal BigDecimal("12.5"), comma.cast("12,50 Mio.")
+          assert_equal BigDecimal("1234.5"), european.cast("ca. 1.234,50 EUR")
+          assert_raises(IOStreams::Errors::InvalidValue) { comma.cast("12.50 EUR") }
+        end
+
+        it "reads the numbers that are not finite with bareNumber: false" do
+          assert_equal 1, field(type: "number", bareNumber: false).cast("INF").infinite?
+        end
+
+        it "raises without bareNumber: false for text around the number, as it does without these properties" do
+          ["$12.50", "95%", "(12.50)"].each do |text|
+            assert_raises(IOStreams::Errors::InvalidValue, text) { field(type: "number", bareNumber: true).cast(text) }
+          end
+        end
+
+        it "writes the number alone with bareNumber: false" do
+          assert_equal "-12.5", field(type: "number", bareNumber: false).render(BigDecimal("-12.5"), :text)
+        end
+
+        it "raises for a property that is not valid, or does not apply to the type" do
+          [
+            {type: "number", groupChar: ",", decimalChar: ","}, {type: "number", groupChar: ""}, {type: "number", groupChar: "1"},
+            {type: "number", decimalChar: "-"}, {type: "number", groupChar: 1}, {type: "number", bareNumber: "no"},
+            {type: "integer", decimalChar: ","}, {type: "string", groupChar: ","}, {type: "date", bareNumber: false},
+            {type: "number", groupChar: "e"}, {type: "number", decimalChar: "E"}, {type: "number", groupChar: "("},
+            {type: "integer", groupChar: ")"}, {type: "number", groupChar: "."}
+          ].each do |properties|
+            assert_raises(ArgumentError, properties.inspect) { field(**properties) }
+          end
+        end
+
+        it "keeps them as they were given, and leaves them to the schema of the file, which writes its own text" do
+          descriptor = {name: "pay", type: "number", groupChar: ",", decimalChar: ".", bareNumber: false}
+          schema     = IOStreams::Schema.new(fields: [descriptor])
+
+          assert_equal descriptor, schema.fields.first.to_h
+          assert_equal({name: "pay", type: "number"}, schema.without_text.fields.first.to_h)
         end
       end
 
@@ -972,9 +1623,18 @@ class SchemaTest < Minitest::Test
         end
 
         it "raises for other values" do
-          ["yes", "t", 1].each do |value|
+          ["yes", "t", 2, -1, 0.5, Float::NAN, BigDecimal("2"), 1r, :yes].each do |value|
             assert_raises(IOStreams::Errors::InvalidValue, value.inspect) { boolean.cast(value) }
           end
+        end
+
+        it "reads the number 1 as true and 0 as false, such as of JSON, a spreadsheet, a Parquet file or a query" do
+          [1, 1.0, BigDecimal("1"), BigDecimal("1.00")].each { |value| assert_same true, boolean.cast(value), value.inspect }
+          [0, 0.0, -0.0, BigDecimal("0")].each { |value| assert_same false, boolean.cast(value), value.inspect }
+          yes_no = field(type: "boolean", trueValues: %w[Y], falseValues: %w[N])
+
+          assert_same true, yes_no.cast(1)
+          assert_equal "N", yes_no.render(0, :text)
         end
 
         it "reads and writes the values that are set" do
@@ -1037,6 +1697,94 @@ class SchemaTest < Minitest::Test
           assert_equal "13/10/2026", pattern.render(Date.new(2026, 10, 13), :json)
         end
 
+        it "reads exactly 4 digits of a year with %Y, as Python's strptime does, rather than the year 26 of 2 digits" do
+          pattern = field(type: "date", format: "%d/%m/%Y")
+
+          ["31/10/26", "31/10/026", "31/10/20260", "31/10/+2026", "31/10/-2026"].each do |text|
+            error = assert_raises(IOStreams::Errors::InvalidValue, text) { pattern.cast(text) }
+            assert_equal "Field \"value\": #{text.inspect} is not a valid date", error.message
+          end
+          assert_equal Date.new(26, 10, 31), pattern.cast("31/10/0026")
+          assert_equal "31/10/0026", pattern.render(Date.new(26, 10, 31), :text)
+          assert_equal Date.new(2026, 10, 31), field(type: "date", format: "%d/%m/%y").cast("31/10/26")
+        end
+
+        it "reads 4 digits of a year with %Y that digits follow, as the start of a date without separators" do
+          pattern = field(type: "date", format: "%Y%m%d")
+
+          assert_equal Date.new(2026, 10, 13), pattern.cast("20261013")
+          assert_raises(IOStreams::Errors::InvalidValue) { pattern.cast("261013") }
+          assert_equal Date.new(2026, 10, 13), field(type: "date", format: "%d %m %Y").cast("13 10 2026")
+          assert_raises(IOStreams::Errors::InvalidValue) { field(type: "date", format: "%d %m %Y").cast("13 10 26") }
+        end
+
+        it "reads exactly 2 digits for %y, as Python's strptime does" do
+          pattern = field(type: "date", format: "%d/%m/%y")
+
+          assert_equal Date.new(2026, 10, 31), pattern.cast("31/10/26")
+          assert_equal Date.new(2005, 2, 1), pattern.cast("1/2/05")
+          ["1/2/5", "1/2/005", "1/2/2005"].each do |text|
+            assert_raises(IOStreams::Errors::InvalidValue, text) { pattern.cast(text) }
+          end
+          assert_equal Date.new(2026, 10, 31), field(type: "date", format: "%y%m%d").cast("261031")
+        end
+
+        it "reads exactly 4 digits for %G, the year of an ISO 8601 week" do
+          pattern = field(type: "date", format: "%G-W%V-%u")
+
+          assert_equal Date.new(2026, 10, 31), pattern.cast("2026-W44-6")
+          assert_raises(IOStreams::Errors::InvalidValue) { pattern.cast("26-W44-6") }
+        end
+
+        it "checks the digits of the year of a directive that reads several, and of one with a modifier" do
+          assert_equal Date.new(2026, 10, 31), field(type: "date", format: "%F").cast("2026-10-31")
+          assert_raises(IOStreams::Errors::InvalidValue) { field(type: "date", format: "%F").cast("26-10-31") }
+          assert_equal Date.new(2026, 10, 31), field(type: "date", format: "%D").cast("10/31/26")
+          assert_raises(IOStreams::Errors::InvalidValue) { field(type: "date", format: "%D").cast("10/31/6") }
+          assert_equal Date.new(2026, 10, 31), field(type: "date", format: "%x").cast("10/31/26")
+          assert_raises(IOStreams::Errors::InvalidValue) { field(type: "date", format: "%x").cast("10/31/2026") }
+          assert_equal Date.new(2026, 10, 31), field(type: "date", format: "%v").cast("31-Oct-2026")
+          assert_raises(IOStreams::Errors::InvalidValue) { field(type: "date", format: "%v").cast("31-Oct-26") }
+          assert_equal Date.new(2026, 10, 31), field(type: "date", format: "%EY-%m-%d").cast("2026-10-31")
+          assert_raises(IOStreams::Errors::InvalidValue) { field(type: "date", format: "%EY-%m-%d").cast("26-10-31") }
+          assert_raises(IOStreams::Errors::InvalidValue) { field(type: "date", format: "%d/%m/%Ey").cast("31/10/6") }
+          assert_equal "2026-10-31", field(type: "date", format: "%F").render(Date.new(2026, 10, 31), :text)
+        end
+
+        it "reads fmt:default as the default form, as frictionless-py does" do
+          pattern = field(type: "date", format: "fmt:default")
+
+          assert_equal Date.new(2026, 10, 31), pattern.cast("2026-10-31")
+          assert_raises(IOStreams::Errors::InvalidValue) { pattern.cast("31/10/2026") }
+          assert_equal "2026-10-31", pattern.render(Date.new(2026, 10, 31), :text)
+          assert_equal Time.utc(2026, 10, 31, 9, 30), field(type: "datetime", format: "fmt:default").cast("2026-10-31T09:30:00Z")
+        end
+
+        it "takes a %% as a percent sign, rather than a directive" do
+          pattern = field(type: "date", format: "%%Y %Y")
+
+          assert_equal Date.new(2026, 1, 1), pattern.cast("%Y 2026")
+          assert_raises(IOStreams::Errors::InvalidValue) { pattern.cast("%Y 26") }
+          assert_equal "%Y 2026", pattern.render(Date.new(2026, 10, 31), :text)
+        end
+
+        it "takes %%f as a percent sign followed by f, rather than microseconds" do
+          pattern = field(type: "date", format: "%%f %Y")
+
+          assert_equal Date.new(2026, 1, 1), pattern.cast("%f 2026")
+          assert_equal "%f 2026", pattern.render(Date.new(2026, 10, 31), :text)
+        end
+
+        it "removes the prefix fmt: of a format, the spelling of Data Package v0, and keeps the format as it was given" do
+          pattern = field(type: "date", format: "fmt:%d/%m/%Y")
+
+          assert_equal Date.new(2026, 10, 13), pattern.cast("13/10/2026")
+          assert_equal "13/10/2026", pattern.render(Date.new(2026, 10, 13), :text)
+          assert_equal "fmt:%d/%m/%Y", pattern.to_h[:format]
+          assert_raises(ArgumentError) { field(type: "date", format: "fmt:") }
+          assert_raises(ArgumentError) { field(type: "date", format: "fmt:dd/mm/yyyy") }
+        end
+
         it "renders ISO 8601" do
           assert_equal "2026-10-13", date.render(Date.new(2026, 10, 13), :text)
         end
@@ -1078,9 +1826,41 @@ class SchemaTest < Minitest::Test
         end
 
         it "raises for a date without a time, or another form" do
-          ["2026-10-13", "2026-10-13 09:30:00", "2026-10-13T25:00:00Z"].each do |text|
+          ["2026-10-13", "2026-10-13T25:00:00Z", "2026-10-13T09:30Z", "2026-10-13  09:30:00", "2026-10-13T09:30:00+5",
+           "2026-10-13T09:30:00+05:3", "2026-10-13T09:30:00 +05:30", "2026-10-13t09:30:00", "2026-10-13T09:30:00z"].each do |text|
             assert_raises(IOStreams::Errors::InvalidValue, text) { datetime.cast(text) }
           end
+        end
+
+        it "reads an offset of hours alone, such as +05, as PostgreSQL writes it, and -0000 as UTC" do
+          time = datetime.cast("2026-10-31 09:30:00+05")
+
+          assert_equal Time.utc(2026, 10, 31, 4, 30), time
+          assert_equal 18_000, time.utc_offset
+          assert_equal(-28_800, datetime.cast("2026-10-31T09:30:00.25-08").utc_offset)
+          assert_equal Time.utc(2026, 10, 31, 9, 30), datetime.cast("2026-10-31T09:30:00-0000")
+          assert_equal 0, datetime.cast("2026-10-31T09:30:00-0000").utc_offset
+          assert_predicate datetime.cast("2026-10-31T09:30:00-0000"), :utc?
+          assert_equal Time.new(2000, 1, 1, 9, 30, 0, "+05:00"), field(type: "time").cast("09:30:00+05")
+        end
+
+        it "raises for minutes of an offset, or seconds, of 60 or more, and for text after a line break" do
+          ["2026-10-13T09:30:00+0560", "2026-10-13T09:30:00+05:60", "2026-10-13T09:30:00+053", "2026-10-13T23:59:60Z",
+           "2026-10-13T09:30:00Z\njunk", "2026-10-13T09:30:00\njunk"].each do |text|
+            assert_raises(IOStreams::Errors::InvalidValue, text.inspect) { datetime.cast(text) }
+          end
+          assert_raises(IOStreams::Errors::InvalidValue) { field(type: "time").cast("09:30:00+0560") }
+        end
+
+        it "reads a space in place of the T, as databases write it, and an offset without a colon" do
+          assert_equal Time.utc(2026, 10, 13, 9, 30), datetime.cast("2026-10-13 09:30:00")
+          assert_predicate datetime.cast("2026-10-13 09:30:00"), :utc?
+          assert_equal Time.new(2026, 10, 13, 9, 30, 0.5r, "+05:30"), datetime.cast("2026-10-13 09:30:00.5+0530")
+          assert_equal(-18_000, datetime.cast("2026-10-13T09:30:00-0500").utc_offset)
+          assert_equal Time.utc(2026, 10, 13, 9, 30), datetime.cast("2026-10-13 09:30:00Z")
+          assert_raises(IOStreams::Errors::InvalidValue) { datetime.cast("2026-02-30 09:30:00") }
+          assert_equal "2026-10-13T09:30:00Z", datetime.render("2026-10-13 09:30:00", :text)
+          assert_equal "2026-10-13T09:30:00-05:00", datetime.render("2026-10-13 09:30:00-0500", :text)
         end
 
         it "raises for a date that does not exist, rather than move it into the next month" do
@@ -1118,6 +1898,64 @@ class SchemaTest < Minitest::Test
 
           assert_equal Time.utc(2026, 10, 13, 9, 30), pattern.cast("20261013093000+0000")
           assert_equal "20261013093000+0000", pattern.render(Time.utc(2026, 10, 13, 9, 30), :text)
+        end
+
+        it "reads the microseconds of %f, as Python's strptime does, 1 to 6 digits, and writes 6" do
+          pattern = field(type: "datetime", format: "%Y-%m-%d %H:%M:%S.%f")
+
+          assert_equal Time.utc(2026, 10, 13, 9, 30, 0.5r), pattern.cast("2026-10-13 09:30:00.5")
+          assert_equal Time.utc(2026, 10, 13, 9, 30, 0.123456r), pattern.cast("2026-10-13 09:30:00.123456")
+          ["2026-10-13 09:30:00.1234567", "2026-10-13 09:30:00.", "2026-10-13 09:30:00"].each do |text|
+            assert_raises(IOStreams::Errors::InvalidValue, text) { pattern.cast(text) }
+          end
+          assert_equal "2026-10-13 09:30:00.500000", pattern.render(Time.utc(2026, 10, 13, 9, 30, 0.5r), :text)
+          assert_equal "2026-10-13 09:30:00.000000", pattern.render(Time.utc(2026, 10, 13, 9, 30), :text)
+        end
+
+        it "reads whole seconds for %s, ignoring the fraction after it" do
+          assert_equal Time.utc(2026, 10, 13, 9, 30), field(type: "datetime", format: "%s.%f").cast("1791883800.5")
+        end
+
+        it "reads %c with exactly 4 digits for its year, and writes it as Ruby does" do
+          pattern = field(type: "datetime", format: "%c")
+
+          assert_equal Time.utc(2026, 10, 31, 9, 30), pattern.cast("Sat Oct 31 09:30:00 2026")
+          assert_raises(IOStreams::Errors::InvalidValue) { pattern.cast("Sat Oct 31 09:30:00 26") }
+          assert_equal "Sat Oct 31 09:30:00 2026", pattern.render(Time.utc(2026, 10, 31, 9, 30), :text)
+        end
+
+        it "reads the microseconds of %f right after the seconds" do
+          pattern = field(type: "datetime", format: "%Y%m%d%H%M%S%f")
+
+          assert_equal Time.utc(2026, 10, 31, 9, 30, 0.123r), pattern.cast("20261031093000123")
+          assert_equal "20261031093000123000", pattern.render(Time.utc(2026, 10, 31, 9, 30, 0.123r), :text)
+        end
+
+        it "reads the microseconds of %f right after the 2 digits of %y" do
+          pattern = field(type: "datetime", format: "%m/%d/%y%f")
+
+          assert_equal Time.utc(2026, 10, 31, 0, 0, 0.123r), pattern.cast("10/31/26123")
+          assert_equal "10/31/26123000", pattern.render(Time.utc(2026, 10, 31, 0, 0, 0.123r), :text)
+        end
+
+        it "reads %+ with exactly 4 digits for its year, and writes it as the strftime of a Date does" do
+          pattern = field(type: "datetime", format: "%+")
+
+          assert_equal Time.utc(2026, 10, 31, 9, 30), pattern.cast("Sat Oct 31 09:30:00 UTC 2026")
+          assert_equal Time.utc(2026, 10, 31, 13, 30), pattern.cast("Sat Oct 31 09:30:00 -04:00 2026")
+          assert_raises(IOStreams::Errors::InvalidValue) { pattern.cast("Sat Oct 31 09:30:00 UTC 26") }
+          assert_equal "Sat Oct 31 09:30:00 +00:00 2026", pattern.render(Time.utc(2026, 10, 31, 9, 30), :text)
+          assert_equal "Sat Oct 31 09:30:00 -04:00 2026", pattern.render(Time.new(2026, 10, 31, 9, 30, 0, "-04:00"), :text)
+        end
+
+        it "reads and writes Ruby's own directives, which are not portable, such as %N, %L and %s" do
+          nanoseconds = field(type: "datetime", format: "%Y-%m-%d %H:%M:%S.%N")
+          millis      = field(type: "datetime", format: "%Y-%m-%d %H:%M:%S.%L")
+
+          assert_equal Time.utc(2026, 10, 13, 9, 30, 0.123456789r), nanoseconds.cast("2026-10-13 09:30:00.123456789")
+          assert_equal "2026-10-13 09:30:00.123456789", nanoseconds.render(Time.utc(2026, 10, 13, 9, 30, 0.123456789r), :text)
+          assert_equal "2026-10-13 09:30:00.250", millis.render(Time.utc(2026, 10, 13, 9, 30, 0.25r), :text)
+          assert_equal Time.utc(2026, 10, 13, 9, 30), field(type: "datetime", format: "%s").cast("1791883800")
         end
 
         it "writes a time in UTC with a format without a zone, which reads it back as UTC, as the same time" do
@@ -1160,6 +1998,12 @@ class SchemaTest < Minitest::Test
           assert_equal Time.new(2000, 1, 1, 9, 30, 0.25r, "-05:00"), value
           assert_equal(-18_000, value.utc_offset)
           assert_equal "09:30:00.250", clock.render("09:30:00.250-05:00", :text)
+        end
+
+        it "reads an offset without a colon, as a datetime does" do
+          assert_equal Time.new(2000, 1, 1, 9, 30, 0, "+05:30"), clock.cast("09:30:00+0530")
+          assert_equal(-18_000, clock.cast("09:30:00.5-0500").utc_offset)
+          assert_raises(IOStreams::Errors::InvalidValue) { clock.cast("09:30:00+053") }
         end
 
         it "raises for another form, or a time that is not on a clock, rather than move it into the next day" do
@@ -1205,6 +2049,14 @@ class SchemaTest < Minitest::Test
           ["13:30 PM", "9:30", "9:30 PM extra"].each do |text|
             assert_raises(IOStreams::Errors::InvalidValue, text) { pattern.cast(text) }
           end
+        end
+
+        it "reads and writes the microseconds of %f" do
+          pattern = field(type: "time", format: "%H:%M:%S.%f")
+
+          assert_equal Time.utc(2000, 1, 1, 9, 30, 0.25r), pattern.cast("09:30:00.25")
+          assert_equal "09:30:00.250000", pattern.render(Time.utc(2000, 1, 1, 9, 30, 0.25r), :text)
+          assert_raises(IOStreams::Errors::InvalidValue) { pattern.cast("09:30:00.2500000") }
         end
 
         it "reads a zone of the format at its offset, raises for a zone whose offset is not known, and for 24:00" do
@@ -1320,14 +2172,81 @@ class SchemaTest < Minitest::Test
           assert_equal({"a" => 1, "b" => [1.5, "x", nil]}, object.cast(' {"a":1,"b":[1.5,"x",null]} '))
         end
 
-        it "keeps a Hash as it is" do
-          prefs = {"a" => 1}
+        it "keeps a Hash as it is, when it is what JSON holds" do
+          prefs = {"a" => 1, "b" => [1.5, "x", nil, true, {"c" => false}]}
 
           assert_same prefs, object.cast(prefs)
         end
 
-        it "reads blank text as nil" do
-          assert_nil object.cast("  ")
+        it "keeps a value of another class as it is, which can differ from the value that its JSON text reads" do
+          prefs = {"ratio" => Rational(1, 2)}
+
+          assert_equal({"ratio" => Rational(1, 2)}, object.cast(prefs))
+          assert_equal({"ratio" => "1/2"}, object.cast(object.render(prefs, :text)))
+        end
+
+        it "raises for Hashes and Arrays nested more than 100 deep, as JSON reads them, such as a Hash that holds itself" do
+          deep = 99.times.reduce({"a" => 1}) { |inner, _| {"a" => inner} }
+
+          assert_equal deep, object.cast(deep)
+          error = assert_raises(IOStreams::Errors::InvalidValue) { object.cast({"a" => deep}) }
+          assert_includes error.message, 'Field "value": '
+          assert_raises(IOStreams::Errors::InvalidValue) { object.cast({b: deep}) }
+          itself = {"a" => 1}
+          itself["b"] = itself
+          assert_raises(IOStreams::Errors::InvalidValue) { object.cast(itself) }
+          assert_raises(IOStreams::Errors::InvalidValue) { field(type: "array").cast([[deep]]) }
+        end
+
+        it "raises for Hashes and Arrays nested more than 100 deep when it writes them, with or without the json gem's coder" do
+          deep   = 99.times.reduce({"a" => 1}) { |inner, _| {"a" => inner} }
+          itself = {"a" => 1}
+          itself["b"] = itself
+
+          json_writers.each do |coder|
+            IOStreams::Tabular::Parser::Json.stub(:coder, coder) do
+              assert_equal JSON.generate(deep), object.render(deep, :text)
+              [{"a" => deep}, itself].each do |value|
+                %i[text json].each do |form|
+                  error = assert_raises(IOStreams::Errors::InvalidValue) { object.render(value, form) }
+                  assert_includes error.message, 'Field "value": '
+                end
+              end
+            end
+          end
+        end
+
+        it "reads a Hash or an Array read from JSON as it is, which JSON already holds, and converts one of any other form" do
+          prefs = {"limit" => 12.5, "tags" => ["a", {"b" => nil}]}
+          typed = {limit: BigDecimal("12.5")}
+
+          assert_same prefs, object.parse(prefs, :json)
+          assert_equal({"limit" => "12.5"}, object.parse(typed, :typed))
+          assert_equal({"a" => 1}, object.parse('{"a":1}', :json))
+          assert_nil object.parse("", :json)
+          assert_raises(IOStreams::Errors::InvalidValue) { object.parse([1], :json) }
+          assert_raises(IOStreams::Errors::InvalidValue) { field(type: "array").parse({"a" => 1}, :json) }
+        end
+
+        it "converts a Hash to what JSON holds of it, so that a :hash source reads what JSON does" do
+          prefs = {
+            :limit => BigDecimal("12.5"), "on" => Date.new(2026, 10, 13), "at" => Time.utc(2026, 10, 13, 9, 30),
+            "kind" => :gold, "tags" => [:a, {b: BigDecimal("1")}], 7 => "seven"
+          }
+          json = {
+            "limit" => "12.5", "on" => "2026-10-13", "at" => "2026-10-13T09:30:00Z", "kind" => "gold",
+            "tags" => ["a", {"b" => "1.0"}], "7" => "seven"
+          }
+
+          assert_equal json, object.cast(prefs)
+          assert_equal JSON.parse(object.render(prefs, :text)), object.cast(prefs)
+          assert_equal json, object.render(prefs, :typed)
+          assert_equal({limit: BigDecimal("12.5")}, prefs.slice(:limit), "the Hash supplied is not changed")
+        end
+
+        it "reads empty text as nil, and raises for text of only whitespace" do
+          assert_nil object.cast("")
+          assert_raises(IOStreams::Errors::InvalidValue) { object.cast("  ") }
         end
 
         it "raises for text that is not a JSON object, and for a value that is not a Hash" do
@@ -1343,13 +2262,13 @@ class SchemaTest < Minitest::Test
           prefs = {"limit" => BigDecimal("12.5"), "on" => Date.new(2026, 10, 13), "tags" => [1, nil]}
 
           assert_equal %({"limit":"12.5","on":"2026-10-13","tags":[1,null]}), object.render(prefs, :text)
-          # The JSON format writes each value within it, see `IOStreams::Tabular::Parser::Json.json_value`.
-          assert_same prefs, object.render(prefs, :json)
+          # Its JSON text, which JSON writes as it is, converted once, as the JSON format converts it.
+          assert_equal JSON::Fragment.new(%({"limit":"12.5","on":"2026-10-13","tags":[1,null]})), object.render(prefs, :json)
           json_writers.each do |coder|
             assert_equal %({"limit":"12.5","on":"2026-10-13","tags":[1,null]}),
                          IOStreams::Tabular::Parser::Json.generate(object.render(prefs, :json), coder)
           end
-          assert_same prefs, object.render(prefs, :typed)
+          assert_equal({"limit" => "12.5", "on" => "2026-10-13", "tags" => [1, nil]}, object.render(prefs, :typed))
         end
 
         it "raises for a format, which only a date or a datetime has" do
@@ -1362,6 +2281,13 @@ class SchemaTest < Minitest::Test
 
         it "reads the text of a JSON array" do
           assert_equal [1, "a", nil, {"b" => 2.5}], array.cast('[1,"a",null,{"b":2.5}]')
+        end
+
+        it "converts an Array to what JSON holds of it" do
+          list = [:a, BigDecimal("1.5"), Date.new(2026, 10, 13), {k: 1}]
+
+          assert_equal ["a", "1.5", "2026-10-13", {"k" => 1}], array.cast(list)
+          assert_equal [:a, BigDecimal("1.5"), Date.new(2026, 10, 13), {k: 1}], list
         end
 
         it "keeps an Array as it is, and raises for a Hash, or the text of a JSON object" do
@@ -1377,7 +2303,7 @@ class SchemaTest < Minitest::Test
           list = [BigDecimal("1.5"), Time.utc(2026, 10, 13, 9, 30), "x"]
 
           assert_equal %(["1.5","2026-10-13T09:30:00Z","x"]), array.render(list, :text)
-          assert_same list, array.render(list, :json)
+          assert_equal JSON::Fragment.new(%(["1.5","2026-10-13T09:30:00Z","x"])), array.render(list, :json)
           json_writers.each do |coder|
             assert_equal %(["1.5","2026-10-13T09:30:00Z","x"]), IOStreams::Tabular::Parser::Json.generate(array.render(list, :json), coder)
           end
@@ -1421,9 +2347,11 @@ class SchemaTest < Minitest::Test
           end
         end
 
-        it "raises for text that is only spaces, for a type that removes them" do
-          assert_raises(IOStreams::Errors::InvalidValue) { field(type: "integer", constraints: {required: true}).cast("  ") }
+        it "takes text that is only spaces as a value, which a string keeps, and any other type raises for" do
+          error = assert_raises(IOStreams::Errors::InvalidValue) { field(type: "integer", constraints: {required: true}).cast("  ") }
+          assert_equal 'Field "value": "  " is not a valid integer', error.message
           assert_equal "  ", field(type: "string", constraints: {required: true}).cast("  ")
+          assert_equal "  ", field(constraints: {required: true}).cast("  ")
         end
 
         it "accepts a value" do
@@ -1434,7 +2362,7 @@ class SchemaTest < Minitest::Test
 
         it "accepts no value for a field that is not required" do
           assert_nil field(type: "integer").cast("")
-          assert_equal "", field(type: "string").cast("")
+          assert_nil field(type: "string").cast("")
           assert_nil field.cast(nil)
         end
 
@@ -1445,8 +2373,11 @@ class SchemaTest < Minitest::Test
             assert_nil blank.cast(nil)
             assert_nil blank.render(nil, :text)
           end
-          assert_equal "", field(type: "string", constraints: {required: true}, allowBlank: true).cast("")
-          assert_nil field(type: "integer", constraints: {required: true}, allowBlank: true).cast("  ")
+          assert_nil field(type: "string", constraints: {required: true}, allowBlank: true).cast("")
+          assert_equal "  ", field(type: "string", constraints: {required: true}, allowBlank: true).cast("  ")
+          assert_raises(IOStreams::Errors::InvalidValue) do
+            field(type: "integer", constraints: {required: true}, allowBlank: true).cast("  ")
+          end
         end
       end
     end

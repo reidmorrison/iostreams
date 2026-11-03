@@ -52,6 +52,15 @@ class ContractRecordsTest < Minitest::Test
         assert_raises(IOStreams::Errors::InvalidValue) { order.amount = "N/A" }
       end
 
+      it "rounds a number that is set to the decimals of its field" do
+        order        = Order.new(id: 1, amount: "12.345")
+        rounded      = order.amount
+        order.amount = BigDecimal("-0.0049")
+
+        assert_equal BigDecimal("12.35"), rounded
+        assert_equal "0.0", order.amount.to_s
+      end
+
       it "reads a value by its name in Ruby or in the schema" do
         order = Order.new(id: 1, ordered_at: at)
 

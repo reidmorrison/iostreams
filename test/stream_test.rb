@@ -1409,6 +1409,113 @@ class StreamTest < Minitest::Test
         IOStreams::Row::HeaderRow.new(columns)
       end
 
+      it "writes a number that is not finite as NaN, INF or -INF, as Frictionless does, and JSON as valid text" do
+        values = {"a" => Float::INFINITY, "b" => BigDecimal("-Infinity"), "c" => Float::NAN}
+        schema = {fields: [{name: "a"}, {name: "b"}, {name: "c", type: "string"}]}
+
+        assert_equal "a,b,c\nINF,-INF,NaN\n", write([values], schema: schema)
+        assert_equal "a,b,c\nINF,-INF,NaN\n", write([values], schema: nil)
+        assert_equal %({"a":{"x":"INF"},"b":[1,"-INF"],"c":"NaN"}\n),
+                     write([values.merge("a" => {"x" => BigDecimal("Infinity")}, "b" => [1, BigDecimal("-Infinity")])],
+                           file_name: "people.json", schema: schema)
+        error = assert_raises(IOStreams::Errors::InvalidValue) { write([values], file_name: "people.json", schema: schema) }
+        assert_includes error.message, 'Field "a": JSON cannot hold a number that is not finite: INF'
+        assert_raises(IOStreams::Errors::InvalidValue) do
+          write([{"pay" => "INF"}], file_name: "people.json", schema: {fields: [{name: "pay", type: "number"}]})
+        end
+        assert_equal [{"pay" => BigDecimal("Infinity")}, {"pay" => BigDecimal("-Infinity")}],
+                     read("pay\nInfinity\n-infinity\n", schema: {fields: [{name: "pay", type: "number"}]})
+      end
+
+      it "rounds a negative number to zero, rather than -0.0, both when reading and when writing" do
+        schema = {fields: [{name: "pay", type: "number", decimals: 2}, {name: "rate", type: "number", floatNumber: true, decimals: 2}]}
+        record = read("pay,rate\n-0.001,-0.001\n", schema: schema).first
+
+        assert_equal ["0.0", "0.0"], record.values.map(&:to_s)
+        assert_equal "pay,rate\n0.00,0.00\n", write([{"pay" => BigDecimal("-0.001"), "rate" => -0.001}], schema: schema)
+      end
+
+      it "reads the missing values of the schema and of each field as nil, in every format of text" do
+        schema = {missingValues: ["", "NA"], fields: [{name: "name"}, {name: "age", type: "integer", missingValues: ["-99"]}]}
+
+        assert_equal [{"name" => nil, "age" => nil}, {"name" => "", "age" => 7}], read(%(name,age\nNA,-99\n"",7\n), schema: schema.merge(missingValues: ["NA"]))
+        assert_equal [{"name" => nil, "age" => nil}], read(%({"name":"NA","age":"-99"}\n), file_name: "a.json", schema: schema)
+        assert_raises(IOStreams::Errors::InvalidValue) { read(%(name,age\nJack,NA\n), schema: schema) }
+        assert_equal "name,age\n,-99\n", write([{"name" => nil, "age" => nil}], schema: schema)
+        assert_equal %({"name":null,"age":null}\n), write([{"name" => nil, "age" => nil}], file_name: "a.json", schema: schema)
+      end
+
+      it "writes a missing value as the first missing value of its field, which reads back as nil" do
+        schema = {
+          missingValues: ["NA"],
+          fields:        [{name: "name", width: 6}, {name: "age", type: "integer", width: 4}, {name: "pay", type: "number", width: 6}]
+        }
+        records = [{"name" => nil, "age" => nil, "pay" => nil}, {"name" => "Jack", "age" => 7, "pay" => BigDecimal("1.5")}]
+
+        psv = write(records, file_name: "a.psv", schema: schema)
+
+        assert_equal "name|age|pay\nNA|NA|NA\nJack|7|1.5\n", psv
+        assert_equal records, read(psv, file_name: "a.psv", schema: schema)
+
+        fixed = write(records, file_name: "a.fixed", schema: schema)
+
+        assert_equal "NA      NA    NA\nJack  00070001.5\n", fixed
+        assert_equal records, read(fixed, file_name: "a.fixed", schema: schema)
+
+        digits = schema.merge(missingValues: ["-99"])
+        fixed  = write(records, file_name: "a.fixed", schema: digits)
+
+        assert_equal "-99    -99   -99\nJack  00070001.5\n", fixed
+        assert_equal records, read(fixed, file_name: "a.fixed", schema: digits)
+      end
+
+      it "reads empty text as a value with missingValues [], apart from an empty value of CSV, which is nil" do
+        schema = {missingValues: [], fields: [{name: "name"}, {name: "city"}, {name: "age", type: "integer"}]}
+
+        assert_equal [{"name" => "", "city" => nil, "age" => 7}], read(%(name,city,age\n"",,7\n), schema: schema)
+        assert_equal [{"name" => "", "city" => "", "age" => 7}], read(%(name|city|age\n||7\n), file_name: "a.psv", schema: schema)
+        assert_equal [{"name" => "", "city" => nil, "age" => 7}],
+                     read(%({"name":"","city":null,"age":7}\n), file_name: "a.json", schema: schema)
+      end
+
+      it "reads and writes the text of numbers with groupChar, decimalChar and bareNumber, and JSON as plain numbers" do
+        schema = {
+          fields: [
+            {name: "pay", type: "number", groupChar: ".", decimalChar: ",", decimals: 2},
+            {name: "count", type: "integer", groupChar: ",", bareNumber: false}
+          ]
+        }
+
+        assert_equal [{"pay" => BigDecimal("1234.5"), "count" => -1200}], read(%(pay,count\n"1.234,50","(1,200 items)"\n), schema: schema)
+        assert_equal %(pay,count\n"1.234,50","1,200"\n), write([{"pay" => BigDecimal("1234.5"), "count" => 1200}], schema: schema)
+        assert_equal %({"pay":1234.50,"count":1200}\n),
+                     write([{"pay" => BigDecimal("1234.5"), "count" => 1200}], file_name: "pay.json", schema: schema)
+        assert_equal [{"pay" => BigDecimal("1234.5"), "count" => 1200}],
+                     read(%({"pay":1234.50,"count":1200}\n), file_name: "pay.json", schema: schema)
+      end
+
+      it "writes and reads back a fixed width file with groupChar and decimalChar, zero filled" do
+        schema = {
+          fields: [
+            {name: "pay", type: "number", groupChar: ".", decimalChar: ",", decimals: 2, width: 12},
+            {name: "count", type: "integer", groupChar: ",", width: 8}
+          ]
+        }
+        records = [{"pay" => BigDecimal("1234567.5"), "count" => 1200}, {"pay" => BigDecimal("-12.5"), "count" => -7}]
+        text = write(records, file_name: "pay.fixed", schema: schema)
+
+        assert_equal "1.234.567,500001,200\n-00000012,50-0000007\n", text
+        assert_equal records, read(text, file_name: "pay.fixed", schema: schema)
+      end
+
+      it "reads a number with decimals rounded to them, as it writes it, so that a record holds what is written" do
+        schema = {fields: [{name: "pay", type: "number", decimals: 2}]}
+
+        assert_equal [{"pay" => BigDecimal("12.35")}], read("pay\n12.345\n", schema: schema)
+        assert_equal [{"pay" => BigDecimal("12.35")}], read(%({"pay":12.345}\n), file_name: "pay.json", schema: schema)
+        assert_equal "pay\n12.35\n", write([{"pay" => BigDecimal("12.345")}], schema: schema)
+      end
+
       describe "object and array fields" do
         let(:accounts) do
           {
@@ -1434,6 +1541,21 @@ class StreamTest < Minitest::Test
 
           assert_equal %({"id":1,"prefs":{"theme":"dark","size":2},"tags":["a",1]}\n), json
           assert_equal [account], read(json, file_name: "accounts.json", schema: accounts)
+        end
+
+        it "reads the same record from a :hash source as from JSON, keyed by Strings, with BigDecimals and Dates as text" do
+          source = {"id" => 1, "prefs" => {theme: :dark, limit: BigDecimal("12.5"), on: Date.new(2026, 10, 13)}, "tags" => [:a, 1]}
+          json   = write([source], file_name: "accounts.json", schema: accounts)
+          rows   = []
+          IOStreams.stream(IOStreams::Slice.new([source], format: :hash)).schema(accounts).each(:hash) { |row| rows << row }
+
+          assert_equal %({"id":1,"prefs":{"theme":"dark","limit":"12.5","on":"2026-10-13"},"tags":["a",1]}\n), json
+          expected = [{"id" => 1, "prefs" => {"theme" => "dark", "limit" => "12.5", "on" => "2026-10-13"}, "tags" => ["a", 1]}]
+
+          assert_equal expected, read(json, file_name: "accounts.json", schema: accounts)
+          assert_equal expected, rows
+          assert_equal expected, read(write([source], :hash, file_name: "accounts.csv", schema: accounts),
+                                      file_name: "accounts.csv", schema: accounts)
         end
 
         it "raises for text that is not the JSON of the type of its field, naming the field" do
@@ -2349,9 +2471,9 @@ class StreamTest < Minitest::Test
             assert_raises(IOStreams::Errors::InvalidHeader) { read(%({"id":1}\n), file_name: "people.json", schema: schema) }
           end
 
-          it "writes a record without a value, and a blank record" do
+          it "writes a record without a value, empty text as a missing value, and a blank record" do
             assert_equal "id,email\n1,\n", write([{"id" => 1}], schema: schema)
-            assert_equal %({"id":1,"email":null}\n{"id":2,"email":""}\n),
+            assert_equal %({"id":1,"email":null}\n{"id":2,"email":null}\n),
                          write([{"id" => 1, "email" => nil}, {"id" => 2, "email" => ""}], file_name: "people.json", schema: schema)
             assert_equal "id,email\n\n", write([{}], schema: schema)
           end

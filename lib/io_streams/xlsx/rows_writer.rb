@@ -53,7 +53,8 @@ module IOStreams
 
       # Returns the value of the cell at the supplied position, in a form that `xlsxtream` writes as its type: a time in
       # UTC, as `IOStreams::Xlsx::Cells` reads the clock of a cell, since `xlsxtream` writes the clock of a time without
-      # its offset, and a number that a cell cannot hold, see #number, as its text.
+      # its offset, which for a field with a `timeZone` is already the clock of its zone, as the field renders it, see
+      # `IOStreams::Schema::Field#render`, and a number that a cell cannot hold, see #number, as its text.
       def cell(value, index)
         case value
         when DateTime then value.to_time.getutc
@@ -68,14 +69,10 @@ module IOStreams
       # Returns [Numeric|String] the number, as a number of Excel, a double of which it keeps 15 significant digits, or
       # its text when Excel would change it: a whole number of more than 15 digits, such as an identifier, which a
       # contract's `integer` or `number` field reads back whole, and NaN or an infinity, which Excel has no number for,
-      # as the text that a number field reads, such as "NaN" or "INF". A BigDecimal with a fraction is the double that
-      # Excel holds, as a number that Excel displays to 15 digits.
+      # as the text that a number field reads, such as "NaN" or "INF", see `IOStreams::Schema::Field.special_text`. A
+      # BigDecimal with a fraction is the double that Excel holds, as a number that Excel displays to 15 digits.
       def number(value)
-        unless value.finite?
-          return "NaN" if value.nan?
-
-          return value.positive? ? "INF" : "-INF"
-        end
+        return IOStreams::Schema::Field.special_text(value) unless value.finite?
         return value if value.is_a?(Float)
         return value.to_f unless value.is_a?(Integer) || value.frac.zero?
         return value.to_i.to_s if value.abs >= EXACT

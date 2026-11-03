@@ -9,16 +9,17 @@ module IOStreams
     # the data, such as `007` in one file of a feed and `7` in the next. It never knows a format: it is given the records
     # of the sample, as `each(:hash)` reads them without a schema, text or typed values.
     #
-    # Of the values of each column that are not blank, it drafts:
+    # Of the values of each column that are not missing, nil or empty text, it drafts:
     #   integer:  whole numbers, such as `1001` or `-12`, but not text with a leading zero, such as `01234` or `007`,
     #             which stays a string.
     #   number:   numbers with a fraction, such as `12.50`, with the most `decimals` seen.
     #   boolean:  `true` or `false`, in any case.
-    #   date, datetime and time: ISO 8601 text, such as `2026-10-25`, `2026-10-25T09:30:00Z` or `09:30:00`, or Dates and
-    #             Times.
+    #   date, datetime and time: ISO 8601 text, such as `2026-10-25`, `2026-10-25T09:30:00Z` or `09:30:00`, also with a
+    #             space in place of the T, or an offset without a colon, as a field reads them, or Dates and Times.
     #   date with a `format`: US dates, such as `10/25/2026`, see #us_date.
     #   object and array: Hashes and Arrays, such as those of JSON.
-    #   string:   any other text, or text of several of these types, such as numbers and dates.
+    #   string:   any other text, including text of only whitespace, which a field of any other type raises for, since it
+    #             is not a missing value, or text of several of these types, such as numbers and dates.
     #   any:      a column without a value in the sample, for a person to decide, or values of several types that are not
     #             all text.
     class Inference
@@ -121,7 +122,7 @@ module IOStreams
           @text ? "string" : "any"
         end
 
-        # Returns [Symbol|nil] the kind of the value, or nil when it is blank, which drafts nothing.
+        # Returns [Symbol|nil] the kind of the value, or nil when it is missing, nil or empty text, which drafts nothing.
         def kind_of(value)
           return text_kind(value) if value.is_a?(String)
           return if value.nil?
@@ -139,10 +140,14 @@ module IOStreams
           end
         end
 
-        # Returns [Symbol|nil] the kind of the text of a value.
+        # Returns [Symbol|nil] the kind of the text of a value, by its text without leading and trailing whitespace, as a
+        # field reads it, or nil when it is empty, a missing value. Text of only whitespace is text, since a field of any
+        # other type than a string raises for it.
         def text_kind(text)
-          text = text.strip
           return if text.empty?
+
+          text = text.strip
+          return :text if text.empty?
           return :integer if INTEGER.match?(text)
 
           if (fraction = NUMBER.match(text))

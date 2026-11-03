@@ -713,7 +713,8 @@ module IOStreams
     # width, which needs a schema that gives the position of each field, or `:text`, whose one column has no name.
     #
     # Raises `IOStreams::Errors::InvalidHeader` for two columns of a header row that are the same key once cleansed, such
-    # as `Amount ($)` and `Amount (€)`, since a schema cannot hold both.
+    # as `Amount ($)` and `Amount (€)`, since a record read without a schema cannot hold both, while a schema can have
+    # two fields of the same name, see `IOStreams::Schema#namesake`, which a person sets.
     #
     # With `sample:`, it drafts the types of a source that reports none, such as CSV, from a sample of its values, as a
     # tool to run once, whose draft a person reviews, and saves as a contract, see `IOStreams::Schema#to_contract`, or as
@@ -1287,7 +1288,9 @@ module IOStreams
       if stream_rows?
         reject_row_options!(tabular, delimiter: delimiter, buffer_size: buffer_size)
         decimals = (-> { tabular.decimal_positions } if tabular.schema&.decimals?)
-        return rows_stream(decimals: decimals).send(:stream_reader, &)
+        strings  = (-> { tabular.string_positions } if tabular.schema&.strings?)
+        missing  = (-> { tabular.missing_positions } if tabular.schema&.missing_text?)
+        return rows_stream(decimals: decimals, strings: strings, missing: missing).send(:stream_reader, &)
       end
 
       unless tabular.lines?
@@ -1563,7 +1566,8 @@ module IOStreams
     def tabular(**)
       return tabular_settings.tabular(file_name: file_name, text_format: text_format, **) unless stream_rows?
 
-      tabular_settings.tabular(file_name: file_name, text_format: nil, rows_format: builder.rows_format, **)
+      tabular_settings.tabular(file_name: file_name, text_format: nil, rows_format: builder.rows_format,
+                               value_form: builder.rows_value_form, **)
     end
 
     # Returns [Symbol|nil] the format of the rows, records and lines of this stream, see #format.
