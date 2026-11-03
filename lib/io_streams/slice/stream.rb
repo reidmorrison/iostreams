@@ -102,9 +102,20 @@ module IOStreams
       # file, such as those of its `primaryKey`, are not checked, since another slice may hold the same value, see
       # `part_of_file:` of `IOStreams::Tabular#initialize`: slicing the file with `validate: true` checks them across the
       # whole file, see `IOStreams::Stream#each`.
+      #
+      # The values of a slice of the cells of a source of typed values, such as a spreadsheet, are read as the text of
+      # such cells, the default text of the type of each field first, such as `1234.5` rather than with its `groupChar`,
+      # see `IOStreams::Slice#cell_text?`.
       def tabular(**)
         super(default_schema: io_stream.schema, blank_rows: io_stream.blank_rows?, headerless: !io_stream.header?,
-              typed: io_stream.typed?, part_of_file: true, **)
+              typed: io_stream.typed?, part_of_file: true, cell_text: cell_text?, **)
+      end
+
+      # Returns [true|false] whether the values of the rows of the slice are the cells of a source of typed values, such
+      # as a spreadsheet, see `IOStreams::Slice#cell_text?`, which the slices read from it carry too, see
+      # `IOStreams::Stream#cell_text?`.
+      def cell_text?
+        io_stream.cell_text?
       end
 
       # Returns [IOStreams::Schema] the schema of the values of the rows of the slice, see `IOStreams::Slice#schema`,
@@ -113,14 +124,12 @@ module IOStreams
         io_stream.schema || super
       end
 
-      # Returns [IOStreams::Schema|Hash|String|IOStreams::Stream|nil] the schema that a copy of the rows of a slice of
-      # typed values gives a target without one, see `IOStreams::Stream#rows_schema`: the schema that was set, otherwise
-      # that of the values of its rows, see `IOStreams::Slice#schema`, or nil for a slice of text, such as CSV, whose
-      # schema, when one is set, describes its text, as that of a file of text does.
+      # Returns [IOStreams::Schema|nil] the schema that a copy of the rows of a slice gives a target without one, see
+      # `IOStreams::Stream#rows_schema`: the schema that was set, without what says how the file writes the text of its
+      # values, see `IOStreams::Stream#copied_schema`, otherwise that of the values of the rows of a slice of typed
+      # values, see `IOStreams::Slice#schema`, or nil for a slice of text, such as CSV, whose types are never guessed.
       def rows_schema(_rows)
-        return unless io_stream.typed?
-
-        schema || io_stream.schema
+        copied_schema || (io_stream.schema if io_stream.typed?)
       end
 
       # Returns [IOStreams::Schema|nil] the schema of the values of the rows of the slice, which each slice of them

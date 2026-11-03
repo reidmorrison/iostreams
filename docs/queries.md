@@ -73,9 +73,9 @@ record has one value for each name: two columns of the same name raise `Argument
 the type that the database gives it, rather than that of an attribute, see
 [Keeping the types of the columns](#keeping-the-types-of-the-columns).
 
-A copy needs a mode, since a query holds rows rather than bytes, so `copy_from(relation)` without one raises
-`ArgumentError`. It returns the number of rows read, header row included, as the copy of a file returns the number of
-its lines.
+A copy without a mode copies the rows as the `:array` mode does, whatever the format of the target, since a query
+holds rows rather than bytes. It returns the number of rows read, header row included, as the copy of a file returns
+the number of its lines.
 
 A relation that is read as one query is opened, and its first rows are read, before the copy opens its target, so that
 a query that cannot run, such as on a database that cannot stream it, keeps an existing file as it was. A failure after

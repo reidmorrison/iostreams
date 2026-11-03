@@ -345,11 +345,14 @@ module IOStreams
     # for a field that the file does not have, as a contract reads them, see `IOStreams::Contract`, with `keys_vary`
     # a key that a record leaves out is a missing value, `form` is the form of the values read, see
     # `IOStreams::Schema::Columns#initialize`, with `read` the values read are those that the schema of the file
-    # already read, see `IOStreams::Schema::ContractColumns`, and with `part_of_file` the rows are only a part of the
-    # file, such as those of a slice, whose values that must be unique within the file are not checked.
-    def columns(typed: false, every_field: false, keys_vary: false, form: :typed, read: false, part_of_file: false)
+    # already read, see `IOStreams::Schema::ContractColumns`, with `part_of_file` the rows are only a part of the
+    # file, such as those of a slice, whose values that must be unique within the file are not checked, and with
+    # `cell_text` the text of the values read is the text of the cells of a source of typed values, such as a slice of a
+    # spreadsheet, see `IOStreams::Schema::Field#parse_cell_text`.
+    def columns(typed: false, every_field: false, keys_vary: false, form: :typed, read: false, part_of_file: false,
+                cell_text: false)
       Columns.new(self, typed: typed, every_field: every_field, keys_vary: keys_vary, form: form, read: read,
-                        part_of_file: part_of_file)
+                        part_of_file: part_of_file, cell_text: cell_text)
     end
 
     # Returns [Array<String>] the properties of this schema that lay out a file, see LAYOUT_PROPERTIES, each as it
@@ -377,6 +380,19 @@ module IOStreams
     # target of a copy that takes the types of its source writes its own text, see `IOStreams::Stream#copy_from`.
     def without_text
       self.class.new(to_h.except(*TEXT_PROPERTIES.map(&:to_sym)).merge(fields: fields.map(&:without_text_h)))
+    end
+
+    # Returns [IOStreams::Schema] the schema that the target of a copy takes from its source, when it has neither a
+    # schema nor a contract of its own, see `IOStreams::Stream#copy_from`: the same properties and fields, without what
+    # says how the file of the source is laid out, see #layout_properties, such as `header` and the `width` of a field,
+    # nor the fields that only hold the place of a column, whose values are not read, see
+    # `IOStreams::Schema::Field#skip?`, nor what says how it writes the text of its values, see #without_text, so that
+    # the target writes the values of the source by their types, such as with the `decimals` of a number and the
+    # `timeZone` of a time, in the layout and text of its own format.
+    def for_copy
+      descriptor = to_h.except(*(TEXT_PROPERTIES + LAYOUT_PROPERTIES).map(&:to_sym))
+      descriptor[:fields] = fields.reject(&:skip?).map(&:for_copy_h)
+      self.class.new(descriptor)
     end
 
     # Returns [String] the Ruby of a class that declares the contract of this schema, see #to_contract, for a person to

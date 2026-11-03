@@ -48,6 +48,18 @@ class SliceTest < Minitest::Test
                       "record_number" => 1, "jumps" => [[2, 5, 3]]}, numbered.to_h)
       end
 
+      it "holds cell_text: true for a slice of the cells of a spreadsheet, only then" do
+        cells = IOStreams::Slice.new([%w[Jack 1234.5]], header: %w[name amount].freeze, format: :array, cell_text: true)
+
+        assert_equal({"rows" => [%w[Jack 1234.5]], "header" => %w[name amount], "format" => "array",
+                      "cell_text" => true}, cells.to_h)
+        assert_predicate IOStreams.slice(cells.to_h), :cell_text?
+        assert_predicate cells.with_rows([%w[Jill 1.5]]), :cell_text?
+        refute_predicate IOStreams.slice(rows: []), :cell_text?
+        refute_equal cells, IOStreams::Slice.new([%w[Jack 1234.5]], header: %w[name amount].freeze, format: :array)
+        refute cells.same_file?(IOStreams::Slice.new([], header: %w[name amount].freeze, format: :array))
+      end
+
       it "holds blank_rows: false for a slice whose every row is a record, such as the rows of a query" do
         records = IOStreams::Slice.new([[nil, nil]], header: %w[name age].freeze, format: :array, blank_rows: false)
 
@@ -137,8 +149,8 @@ class SliceTest < Minitest::Test
 
       it "raises for a key that a slice does not have" do
         error = assert_raises(ArgumentError) { IOStreams.slice("rows" => [], "line" => 1) }
-        assert_equal 'Unknown key "line" of a slice. Valid keys: "rows", "header", "format", "blank_rows", "schema", ' \
-                     '"line_number", "record_number", "jumps"', error.message
+        assert_equal 'Unknown key "line" of a slice. Valid keys: "rows", "header", "format", "blank_rows", ' \
+                     '"cell_text", "schema", "line_number", "record_number", "jumps"', error.message
       end
 
       it "turns back the line that the first row starts on, once stored as JSON, or nil for a Hash without one" do
@@ -207,6 +219,12 @@ class SliceTest < Minitest::Test
       it "raises for a blank_rows that is not true or false" do
         error = assert_raises(ArgumentError) { IOStreams.slice("rows" => [], "blank_rows" => "false") }
         assert_equal 'The blank_rows of a slice must be true or false: "false"', error.message
+      end
+
+      it "raises for a cell_text that is not true or false" do
+        error = assert_raises(ArgumentError) { IOStreams.slice("rows" => [], "cell_text" => "true") }
+        assert_equal 'The cell_text of a slice must be true or false: "true"', error.message
+        assert_raises(ArgumentError) { IOStreams::Slice.new([], cell_text: nil) }
       end
 
       it "raises for a header row that is not an Array of Strings" do
@@ -303,6 +321,14 @@ class SliceTest < Minitest::Test
         error = assert_raises(IOStreams::Errors::InvalidValue) { IOStreams.slice(hash) }
 
         assert_equal [6, 8], [error.record_number, error.line_number]
+      end
+
+      it "raises for a time whose date does not exist when it is turned back, rather than read the next month" do
+        hash  = {"rows" => [{"at" => "2026-02-30T09:30:00Z"}], "format" => "hash",
+                 "schema" => {"fields" => [{"name" => "at", "type" => "datetime"}]}}
+        error = assert_raises(IOStreams::Errors::InvalidValue) { IOStreams.slice(hash) }
+
+        assert_equal "2026-02-30T09:30:00Z", error.value
       end
 
       it "makes slices that differ by it not equal" do
@@ -925,6 +951,21 @@ class SliceTest < Minitest::Test
         assert_equal numbered.to_h, numbered.as_json({})
         assert_equal numbered, IOStreams.slice(JSON.parse(numbered.to_json))
         assert_equal numbered, IOStreams.slice(JSON.parse(JSON.generate(numbered)))
+      end
+
+      it "raises InvalidValue naming the column, the key or the field of a number that is not finite, which JSON cannot hold" do
+        rows  = IOStreams::Slice.new([[1, {"a" => 2}], [2, {"a" => Float::NAN}]], header: %w[id prefs], format: :array,
+                                                                                 record_number: 1)
+        typed = IOStreams::Slice.new([{"id" => 1, "sizes" => [1.5, Float::INFINITY]}], format: :hash, record_number: 7,
+                                     schema: {fields: [{name: "id", type: "integer"}, {name: "sizes", type: "array"}]})
+        {rows => ["prefs", 2], typed => ["sizes", 7]}.each do |slice, (field, record)|
+          %i[to_json as_json].each do |method|
+            error = assert_raises(IOStreams::Errors::InvalidValue, method.to_s) { slice.public_send(method) }
+
+            assert_equal field, error.field
+            assert_equal record, error.record_number
+          end
+        end
       end
 
       it "raises for the options of as_json without ActiveSupport, which is what applies them, rather than ignore them" do

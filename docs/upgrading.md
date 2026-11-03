@@ -41,7 +41,10 @@ Start with the changes that apply to your application:
 | Writes a `Time` or `DateTime` through a `date` field of a schema | [A date field takes a time only at midnight](#a-date-field-takes-a-time-only-at-midnight) |
 | Reads JSON, fixed width or Parquet files with `each(:array)` or `reader(:array)`, or uploads them to Rocket Job in its `:array` mode | [Rows of JSON, fixed width and Parquet files are Arrays](#rows-of-json-fixed-width-and-parquet-files-are-arrays) |
 | Reads rows or records that can be blank, such as CSV exports with lines of only commas, or JSON records of only nulls | [Blank rows are the same in every format](#blank-rows-are-the-same-in-every-format) |
+| Reads records without a schema from files whose header row repeats a column, such as `a,a,b` | [Two columns of the same key raise `InvalidHeader`](#two-columns-of-the-same-key-raise-invalidheader) |
 | Supplies options to `#option`, `#stream`, `#reader`, `#writer` or the copy methods | [Reading, writing and options](#reading-writing-and-options) |
+| Copies a file into one of another format without a `mode:`, such as `.csv` into `.json` | [A copy without a mode converts the format](#a-copy-without-a-mode-converts-the-format) |
+| Copies the rows or records of a source with a schema into a target without one | [A copy hands the schema of its source to the target](#a-copy-hands-the-schema-of-its-source-to-the-target) |
 | Calls methods such as `#rewind`, `#pos` or `#size` on the IO that a block receives | [The stream of a reader block is not the reader of a gem](#the-stream-of-a-reader-block-is-not-the-reader-of-a-gem), and for S3 and HTTP [S3 objects are read without a temp file](#s3-objects-are-read-without-a-temp-file) and [S3 objects are written without a temp file](#s3-objects-are-written-without-a-temp-file) |
 | Reads or writes an IO supplied with `IOStreams.stream(io)` | [Gzip and `.enc` streams leave your IO open](#gzip-and-enc-streams-leave-your-io-open), [Text written with an encoding to your IO keeps it](#text-written-with-an-encoding-to-your-io-keeps-it), [BZip2 leaves your IO in its mode](#bzip2-leaves-your-io-in-its-mode), and [A failed write to your IO is not completed](#a-failed-write-to-your-io-is-not-completed) |
 | Reads or writes PGP files, or manages PGP keys | [PGP](#pgp) |
@@ -339,6 +342,22 @@ IOStreams.path("people.csv").each(:hash, skip_blanks: true) do |person|
 end
 ~~~
 
+#### Two columns of the same key raise `InvalidHeader`
+
+Reading records without a schema, with `each(:hash)` or a copy in the `:hash` mode, of a file whose header row has two
+columns that are the same key, such as `a,a,b`, or `First Name` and `first_name`, which cleanse to the same key, now
+raises `IOStreams::Errors::InvalidHeader` before the first record, naming both columns. Writing rows to JSON under a
+header row of two columns of exactly the same name, such as `a` and `a`, raises too, while `First Name` and
+`first_name` are written as two keys, since JSON keys are the columns as they are. Previously each record held only the
+value of the last of them, such as `{"a" => "2", "b" => "3"}` for the row `1,2,3`, without an error. v2.2 reports such
+a header row as deprecated, apart from two columns whose letters that are not ASCII differ only in case, such as `Né`
+and `NÉ`: v3.0 keeps those letters when it cleanses a header row, see
+[Cleansing a header row keeps letters that are not ASCII](#cleansing-a-header-row-keeps-letters-that-are-not-ascii),
+so both cleanse to `né` and raise, while v2.2 drops them, cleansing them to `n`, and so cannot report them.
+
+Fix: rename one of the columns, or read its rows with `each(:array)`, which keeps the value of each column, with or
+without a [schema](schemas), whose fields can be two fields of the same name.
+
 #### Hash keys match columns once cleansed
 
 When writing a hash, a key such as `"First Name"` now supplies the value of the column `first_name`, such as a column
@@ -539,8 +558,8 @@ as JSON in CSV, PSV, fixed width files and spreadsheets, the same as the JSON fo
 | `[1, 2]` | `[1,2]` | its `to_s`, `[1, 2]`, or in PSV its items as more columns |
 
 Its `to_s` is Ruby's inspect text, which other programs cannot read as JSON. A `Float` within it that JSON cannot
-hold, such as `NaN`, is handled as writing JSON handles it: it raises, or is written as `null` where ActiveSupport
-writes JSON, as in Rails.
+hold, such as `NaN`, raises `IOStreams::Errors::InvalidValue`, naming its column, as writing it to JSON does, also
+where ActiveSupport writes JSON, as in Rails, which wrote `null` for it.
 
 Fix: to write another form, convert the value to text before writing it.
 
@@ -890,6 +909,42 @@ option, instead of ignoring it. v2.2 reports such an option as deprecated. Optio
 
 Fix: remove the option, which had no effect. To configure a stream, use `#option` or `#stream`, for
 example `path.option(:pgp, passphrase: "secret").reader { |io| io.read }`.
+
+#### A copy without a mode converts the format
+
+`#copy_from` and `#copy_to` without a `mode:` now copy the rows of the source, as the `:array` mode does, when the
+source and target are in different tabular formats, as their file names or `#format` give them, such as `people.csv`
+into `people.json`, `people.psv` or `people.parquet`, so that the target is a file of its own format, and return the
+number of rows copied. Previously the copy wrote the text of the source into the target as it was, such as CSV text
+into a file named `.json`, which then did not read as JSON, and returned the number of bytes. A Parquet target needs a
+schema, as in the `:array` mode. A source or target whose format is not known, such as an IO or a `.txt` file, a
+source and target of the same format, and a spreadsheet to or from CSV are still copied as they are.
+
+A source or target read or written as it is stored, with `#raw`, and one whose rows are the text of each line,
+`format(:text)`, or Ruby objects, `format(:hash)` or `format(:array)`, are copied as they are too. The number of rows
+returned includes the header row of a CSV source. A source of rows rather than bytes, such as an Active Record relation
+or a slice, is copied as the `:array` mode copies it, whatever the format of the target, where it raised
+`ArgumentError`.
+
+Fix: nothing, unless the code relied on the copy keeping the text of the source, or on its number of bytes: then copy it
+with `mode: :line`, which keeps the text of each line and applies the streams of each, or set the format of the target
+to that of the source, such as `IOStreams.path("people.json").format(:csv).copy_from("people.csv")`. `convert: false`
+is not the same: it also drops the streams of both, so it copies the data as it is stored, such as the gzip bytes of a
+`.csv.gz` file into a `.json` file.
+
+#### A copy hands the schema of its source to the target
+
+A copy in the `:array` or `:hash` mode, or without a mode between two formats, gives a target with neither a schema nor
+a contract of its own the schema set on the source, also on a file of text, such as CSV or a spreadsheet, without
+what says how the source lays out its file and writes the text of its values, such as `header`, the `width` of a
+field, the `format` of a date and the missing values, so that the target writes each value by its field: a number with
+its `decimals`, such as `12.50` for `decimals: 2`, where `12.5` was written, and a `datetime` or `time` with a
+`timeZone` as the clock of that zone in each cell of a spreadsheet, such as `09:30` for `America/New_York`, where its
+clock in UTC, `13:30`, was written. Previously only a contract and a source of typed rows, such as a Parquet file or a
+query, handed their types on, and the target wrote each value of a file of text as its usual text.
+
+Fix: nothing, unless the code relied on the target writing the usual text of each value: then give the target a schema
+or a [contract](contracts) of its own, which it keeps.
 
 #### An option for a format applies to each of its extensions
 
@@ -1809,6 +1864,13 @@ for each one.
   the whole message.
 - Without a schema, a `Float` or `BigDecimal` that is not finite is written to CSV, and the other formats of text, as
   `INF` or `-INF`, as Frictionless spells them, where v2.1 wrote `Infinity` or `-Infinity`.
+- Without a schema, a `Float` that is not finite written to JSON, such as `{"rate" => Float::NAN}`, or within a
+  `Hash` or an `Array`, raises `IOStreams::Errors::InvalidValue`, naming its key, where v2.1 raised the json gem's
+  `JSON::GeneratorError`, or wrote `null` where ActiveSupport writes JSON, as in Rails. Rescue
+  `IOStreams::Errors::InvalidValue` instead.
+- Without a schema, a `DateTime` at an offset of zero is written with `Z`, as a `Time` in UTC is, such as
+  `2026-10-13T09:30:00Z`, to CSV, JSON, the other formats of text and `slice.to_h`, where v2.2 wrote
+  `2026-10-13T09:30:00+00:00`. v2.2 already writes `Z` for it through a field of a schema.
 
 ## Upgrading to v2.2
 
@@ -1839,8 +1901,9 @@ v2.2 and v3.0. Each still works, and gives the same result, as before. They are,
   `IOStreams.enforce_column_restrictions=`, see
   [Moving the column options to a schema](#moving-the-column-options-to-a-schema); those of them that only apply when
   reading, supplied to a writer or a copy; `embedded_within:` when reading rows and records; `each(:array)` of JSON or
-  fixed width without a schema; the rows and records of a `.text` file without `#format`; a format other than `:csv`
-  for a spreadsheet; the rows and records of a spreadsheet read without a type for each column, and `delimiter:` and an
+  fixed width without a schema; the rows and records of a `.text` file without `#format`; records read without a
+  schema from a header row of two columns that are the same key, such as `a,a,b`; a format other than `:csv` for a
+  spreadsheet; the rows and records of a spreadsheet read without a type for each column, and `delimiter:` and an
   encoding set with `#encoding` for them; and a `Time` or `DateTime` that is not at midnight converted by a `date`
   field.
 * [Reading, writing and options](#reading-writing-and-options): an option that neither the reader nor the writer of a

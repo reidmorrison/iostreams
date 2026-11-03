@@ -82,12 +82,36 @@ module IOStreams
         # JSON text of a Hash or an Array value in another format, see `IOStreams::Schema::Field.any_text`, is the same.
         #
         # Raises `IOStreams::Errors::InvalidEncoding` for text that is not valid, see .json_text.
+        # Raises `IOStreams::Errors::InvalidValue` for a number within the value that is not finite, such as NaN, which
+        # JSON cannot hold, see .finite_number, rather than the `JSON::GeneratorError` of the json gem.
         #
         # The coder, see .coder, writes it in one pass in the json gem, whose block converts only the text that the gem
         # hands it. Without one, IOStreams converts the value in Ruby first, see .json_value, which takes several times
         # as long as the json gem takes to write it, then writes it with `to_json`.
         def self.generate(value, coder = self.coder)
           coder ? coder.dump(value) : json_value(value).to_json
+        rescue ::JSON::GeneratorError
+          # The coder raises for a number that is not finite, which .json_value finds, and raises for, itself.
+          json_value(value)
+          raise
+        end
+
+        # Returns [IOStreams::Errors::InvalidValue] the supplied error, which a value of the supplied record raised, see
+        # .json_value, naming the key of that value as its field, such as of a record without a schema, or of a field
+        # of type "any", whose value the JSON format writes, see #render, or the error itself when it names one, or no
+        # key raises it.
+        def self.named_error(error, record)
+          return error if error.field || !record.is_a?(::Hash)
+
+          key, value = record.find do |_key, item|
+            json_value(item)
+            false
+          rescue IOStreams::Errors::InvalidValue
+            true
+          end
+          return error if key.nil?
+
+          IOStreams::Errors::InvalidValue.new("Field #{key.inspect}: #{error.reason}", field: key, value: value)
         end
 
         # Returns the record or value as the JSON format writes it: each of its keys, String values and Symbol values as
@@ -103,7 +127,8 @@ module IOStreams
           when ::Hash then json_hash(value, depth + 1)
           when ::Array then json_array(value, depth + 1)
           when String then json_text(value)
-          when Integer, Float, true, false, nil then value
+          when Integer, true, false, nil then value
+          when Float then finite_number(value)
           # JSON writes a Symbol as the text of its name.
           when Symbol then json_name(value)
           else
@@ -191,11 +216,27 @@ module IOStreams
         def self.plain?(value)
           case value
           when String then value.ascii_only?
-          when Integer, Float, true, false, nil then true
+          when Integer, true, false, nil then true
+          when Float then value.finite?
           else false
           end
         end
         private_class_method :plain?
+
+        # Returns [Float] the number, when it is finite.
+        #
+        # Raises `IOStreams::Errors::InvalidValue` for a number that is not finite, such as NaN, which JSON cannot hold,
+        # rather than write text that is not JSON, or the `JSON::GeneratorError` of the json gem, see .generate. A
+        # BigDecimal that is not finite is written as its text instead, see `IOStreams::Schema::Field.any_json`.
+        def self.finite_number(number)
+          return number if number.finite?
+
+          raise(IOStreams::Errors::InvalidValue.new(
+                  "JSON cannot hold a number that is not finite: #{IOStreams::Schema::Field.special_text(number)}",
+                  value: number
+                ))
+        end
+        private_class_method :finite_number
 
         # Returns the key or Symbol value itself, or the UTF-8 text of one whose text, which JSON writes, is not UTF-8,
         # see .json_text. JSON writes a Symbol as its name, and a key that is neither text nor a Symbol with `to_s`, such
@@ -256,8 +297,12 @@ module IOStreams
         #
         # Raises `IOStreams::Errors::InvalidEncoding` for text that is not valid, such as binary text that is not valid
         # UTF-8, rather than the `JSON::GeneratorError` of the json gem.
+        # Raises `IOStreams::Errors::InvalidValue` for a number that is not finite within a value of the record, naming
+        # its key, see .named_error.
         def render(row)
           self.class.generate(row, @coder)
+        rescue IOStreams::Errors::InvalidValue => e
+          raise(self.class.named_error(e, row))
         end
 
         def requires_header?

@@ -60,12 +60,12 @@ module IOStreams
         IOStreams::Schema.new(io_stream.columns.schema)
       end
 
-      # Returns [IOStreams::Schema|Hash|String|IOStreams::Stream] the schema of the rows: the schema that was set,
-      # otherwise that of the columns, see #declared_schema, since it describes the values that a copy writes, which are
-      # those of the query, so that a target without a schema writes them by their types, see
-      # `IOStreams::Stream#copy_from`.
+      # Returns [IOStreams::Schema] the schema of the rows: the schema that was set, without what says how a file writes
+      # the text of its values, see `IOStreams::Stream#copied_schema`, otherwise that of the columns, see
+      # #declared_schema, since it describes the values that a copy writes, which are those of the query, so that a
+      # target without a schema writes them by their types, see `IOStreams::Stream#copy_from`.
       def rows_schema(_rows)
-        schema || declared_schema
+        copied_schema || declared_schema
       end
 
       def source_name

@@ -56,8 +56,9 @@ module IOStreams
     #                 Writing an item whose text holds the delimiter raises, since it would not read back.
     #     "year":     an Integer from 0 to 9999, read from text of 4 digits, such as `2026`, or from a whole number, and
     #                 written as 4 digits.
-    #     "yearmonth": a Date on the first of its month, read from text such as `2026-10`, or from a Date on the first of
-    #                 its month, of a year up to 9999, and written as that text.
+    #     "yearmonth": a Date on the first of its month, read from text such as `2026-10`, or the ISO 8601 text of the
+    #                 first of a month, such as `2026-10-01`, the text of a cell of a spreadsheet that holds the date, or
+    #                 from a Date on the first of its month, of a year up to 9999, and written as `2026-10`.
     #     "geopoint": a point on the earth, `[lon, lat]`, two BigDecimals, read from and written in the form of its
     #                 `format`, see `IOStreams::Schema::Geopoint`.
     #     "any":      the value as it is read, without converting it, apart from empty text, which is nil.
@@ -249,6 +250,14 @@ module IOStreams
       # The text of a year and a month, see `yearmonth` above.
       YEARMONTH = /\A(\d{4})-(\d{2})\z/
 
+      # The ISO 8601 text of the first of a month, which a yearmonth also reads, see `yearmonth` above.
+      FIRST_OF_MONTH = /\A(\d{4})-(\d{2})-01\z/
+
+      # What #default_text_value returns for text that is not the default text of the type of the field, see
+      # #parse_cell_text, which nil, false and every other value can be.
+      OWN_TEXT = Object.new.freeze
+      private_constant :OWN_TEXT
+
       DEFAULT_TRUE_VALUES  = %w[true True TRUE 1].freeze
       DEFAULT_FALSE_VALUES = %w[false False FALSE 0].freeze
 
@@ -307,15 +316,20 @@ module IOStreams
       # `Float()` and `BigDecimal()` raise for before Ruby 3.4.
       BARE_POINT = /\.(?=[eE]|\z)/
       DATE     = /\A\d{4}-\d{2}-\d{2}\z/
-      # The text of a datetime without a format: ISO 8601 with seconds, below 60, with a T or a space between its date
-      # and its time, and an offset from UTC, Z, or the hours, with or without minutes, below 60, with or without a
-      # colon between them, such as `+05:30`, `+0530` or `+05`, as PostgreSQL writes it, or none, which is UTC. Its date,
-      # its time and its offset are captured.
-      DATETIME = /\A(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2}:[0-5]\d(?:\.\d+)?)(Z|[+-]\d{2}(?::?[0-5]\d)?)?\z/
+      # The text of a datetime without a format: ISO 8601 with seconds, on a clock, its hour below 24 and its minute and
+      # second below 60, as a time is, see #cast_time, rather than `24:00:00`, which `Time` reads as the midnight of the
+      # next day, with a T or a space between its date and its time, and an offset from UTC, Z, or the hours, with or
+      # without minutes, below 60, with or without a colon between them, such as `+05:30`, `+0530` or `+05`, as
+      # PostgreSQL writes it, or none, which is UTC. Its date, its time and its offset are captured.
+      DATETIME = /\A(\d{4}-\d{2}-\d{2})[T ]((?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d+)?)(Z|[+-]\d{2}(?::?[0-5]\d)?)?\z/
       # A time of day, with an offset from UTC as a datetime has one, see DATETIME, whose hour, minute and second are
       # checked, see #cast_time, since `Time` moves 24:00:00, and a leap second, into the next day. Its hour, minute,
       # second, fraction of a second and offset are captured.
       TIME     = /\A(\d{2}):(\d{2}):(\d{2})(\.\d+)?(Z|[+-]\d{2}(?::?[0-5]\d)?)?\z/
+      # The zones of text read with a format that are UTC, rather than an offset of zero, such as `+00:00` or `+0000`,
+      # which a time keeps, as `Time.iso8601` reads them, see #cast_datetime: `Z`, `UTC`, `UT`, and `-00:00`, `-0000` or
+      # `-00`, which RFC 3339 and RFC 2822 give a time in UTC whose local offset is not known.
+      UTC_ZONE = /\A(?:Z|UTC?|-00(?::?00)?)\z/i
 
       # Returns [String|Symbol] the name of the field, as it was given.
       attr_reader :name
@@ -381,6 +395,11 @@ module IOStreams
         @number_text  = number_text_of(descriptor)
         @true_values  = check_values("trueValues", descriptor["trueValues"], DEFAULT_TRUE_VALUES)
         @false_values = check_values("falseValues", descriptor["falseValues"], DEFAULT_FALSE_VALUES)
+        # Whether the field reads text in a form of its own rather than the default text of its type, see
+        # #parse_cell_text: a number with a `groupChar`, `decimalChar` or `bareNumber`, a date, datetime or time with a
+        # `format`, or a boolean with `trueValues` or `falseValues`.
+        @own_text     = !@number_text.nil? || !@format.nil? || !@true_values.equal?(DEFAULT_TRUE_VALUES) ||
+                        !@false_values.equal?(DEFAULT_FALSE_VALUES)
         @aliases      = check_values("aliases", descriptor["aliases"], [].freeze, empty: true)
         @missing      = own_missing_values(descriptor) || missing_values
         require_duration if @type == "duration"
@@ -424,6 +443,13 @@ module IOStreams
         to_h.except(*names)
       end
 
+      # Returns [Hash] the properties of this field without those that lay out a file, see LAYOUT_PROPERTIES, nor those
+      # that say how a file writes the text of its values, see #without_text_h, for the target of a copy, see
+      # `IOStreams::Schema#for_copy`.
+      def for_copy_h
+        without_text_h.except(*LAYOUT_PROPERTIES.map(&:to_sym))
+      end
+
       # Returns [true|false] whether the other is a field of the same properties, see #to_h, and missing values, which
       # can be those of its schema, see `missingValues` above.
       def ==(other)
@@ -448,12 +474,17 @@ module IOStreams
         "#<#{self.class.name} #{to_h.inspect}>"
       end
 
-      # Returns [Time] the time of the DateTime, at its offset from UTC.
+      # Returns [Time] the time of the DateTime, at its offset from UTC, in UTC when its offset is zero, since a DateTime
+      # does not tell UTC from another zone at that offset, so that it is written as a Time in UTC is, with `Z`.
       #
       # Unlike `DateTime#to_time` in ActiveSupport 7, which converts it to the local time zone of the server, unless
       # `ActiveSupport.to_time_preserves_timezone` is set.
       def self.time_of(datetime)
         seconds = datetime.sec + datetime.sec_fraction
+        if datetime.offset.zero?
+          return Time.utc(datetime.year, datetime.month, datetime.day, datetime.hour, datetime.minute, seconds)
+        end
+
         Time.new(datetime.year, datetime.month, datetime.day, datetime.hour, datetime.minute, seconds,
                  (datetime.offset * 86_400).to_i)
       end
@@ -483,8 +514,9 @@ module IOStreams
       # Formats of text, such as CSV, write each value that has no field this way, as they do every value of a file
       # without a schema.
       #
-      # A Hash or an Array that holds a value that JSON cannot hold, such as `Float::NAN`, is handled as writing it to a
-      # JSON file handles it: the json gem raises, while ActiveSupport, which replaces how Ruby writes JSON, writes null.
+      # A Hash or an Array that holds a value that JSON cannot hold, such as `Float::NAN`, raises
+      # `IOStreams::Errors::InvalidValue`, as writing it to a JSON file does, also where ActiveSupport replaces how Ruby
+      # writes JSON, see `IOStreams::Tabular::Parser::Json.generate`.
       def self.any_text(value)
         return value if value.is_a?(String)
         # The most common values first, so that they skip the checks below.
@@ -828,17 +860,18 @@ module IOStreams
       end
 
       # Returns the value of this field from the form that #dump gives it, in ISO 8601 whatever the `format` of the field,
+      # and a number as its plain digits whatever its `groupChar`, `decimalChar` and `bareNumber`, such as "1234.5",
       # or from any other form that a store returned it in, see #restore. Its text is not compared with the missing
-      # values, see #cast_typed, since it is the text that #dump gives a value, such as "-99" for the number -99.
+      # values, see #cast_typed, since it is the text that #dump gives a value, such as "-99" for the number -99, while
+      # it is checked as #cast checks it: a date that exists, a time on a clock, and the constraints of the field.
       #
       # Raises `IOStreams::Errors::InvalidValue` as #restore does.
       def load(value)
         return restore(value) unless value.is_a?(String)
 
         case type
-        when "date" then DATE.match?(value) ? cast_date_text(value) : cast_typed(value)
-        when "datetime" then (match = DATETIME.match(value)) ? iso_datetime(match) : cast_typed(value)
-        when "time" then (clock = TIME.match(value)) ? iso_clock(clock) : cast_typed(value)
+        when "number" then cast_typed(NUMBER.match?(value) ? number(value) : special_number(value))
+        when "date", "datetime", "time" then load_iso(value)
         else cast_typed(value)
         end
       rescue ArgumentError
@@ -881,6 +914,31 @@ module IOStreams
         value.is_a?(json_class) ? value : invalid(value)
       end
 
+      # Returns the value read from the cell of a source whose cells hold typed values, such as a spreadsheet, as #parse
+      # reads it, from text that is the text of such a cell, see `IOStreams::Tabular#cell_text?`: the default text of its
+      # type that IOStreams writes for a number, date, time or boolean cell, such as `1234.5`, `2026-07-01`,
+      # `2026-07-01T09:30:00Z` or `true`, see `IOStreams::Xlsx::Cells.text`, otherwise the text of a text cell, in the
+      # form of this field, such as `1.234,5` for `groupChar: "."` and `decimalChar: ","`, `01/07/2026` for
+      # `format: "%d/%m/%Y"`, or `Y` for `trueValues: ["Y"]`. So a slice of the cells of a spreadsheet reads them as the
+      # spreadsheet does, also once stored as text, see `IOStreams::Slice#cell_text?`. Text that is both, such as
+      # `1.234` for `groupChar: "."`, which a text cell may hold as one thousand two hundred and thirty four, is read as
+      # the default text, `1.234`. Its missing values, the `delimiter` of a list and the `timeZone` of a datetime or a
+      # time apply as they do to the cell.
+      #
+      # Only text that is not the default text of the type is read twice, so that the cells of a number, a date or a
+      # boolean cost no more than #parse.
+      #
+      # Raises `IOStreams::Errors::InvalidValue` as #cast does.
+      def parse_cell_text(value, form)
+        return parse(value, form) unless @own_text && value.is_a?(String)
+        return @constraints.no_value(value) if @missing.include?(value)
+
+        converted = default_text_value(value.strip)
+        return cast(value) if converted.equal?(OWN_TEXT)
+
+        @checks ? @constraints.check(converted, value) : converted
+      end
+
       # Returns the value converted to the type of this field, see #cast, in the form that the supplied format of
       # file writes it:
       #   :text   the text of the value, such as "12.50", for a format of text, such as CSV.
@@ -899,23 +957,46 @@ module IOStreams
       #
       # A value of nil, or a missing value, is nil in the `:typed` and `:json` forms, and in the `:text` form the first
       # missing value of the field, such as "NA" for `missingValues: ["NA"]`, as frictionless-py writes it, or nil when
-      # it is empty text, so that the format writes its own empty value.
+      # it is empty text, so that the format writes its own empty value. A field without missing values,
+      # `missingValues: []`, raises `IOStreams::Errors::InvalidValue` for it in the `:text` form, since no text of the
+      # file would read back as missing, not even its empty value, which it reads as empty text.
       #
-      # Raises `IOStreams::Errors::InvalidValue` when the value is not one of this type.
+      # Raises `IOStreams::Errors::InvalidValue` when the value is not one of this type, or when a Hash or an Array
+      # written as JSON holds a number that is not finite, such as NaN, which JSON cannot hold, naming this field.
       def render(value, form)
         return render_json_structure(value, form) if form != :typed && json_structure?(value)
 
         value = cast(value)
-        return (@missing.text if form == :text) if value.nil?
+        return missing_text(form) if value.nil?
         return value if form == :typed
         return json(value) if form == :json
         return clock_of(value) if form == :scalar && @zone
         return value if form == :scalar && !@scalar_text
 
         text(value)
+      rescue IOStreams::Errors::InvalidValue => e
+        raise if e.field
+
+        # The JSON of a Hash or an Array, which does not know the field, see `IOStreams::Tabular::Parser::Json.generate`.
+        raise(IOStreams::Errors::InvalidValue.new("Field #{name.inspect}: #{e.reason}", field: name, value: value))
       end
 
       protected
+
+      # Returns [String|nil] what the supplied form of #render writes for a missing value: in the `:text` form the first
+      # missing value of the field, or nil for empty text, which the format writes as its own empty value, otherwise nil.
+      #
+      # Raises `IOStreams::Errors::InvalidValue` in the `:text` form for a field without missing values, see #render.
+      def missing_text(form)
+        return unless form == :text
+        return @missing.text unless @missing.none?
+
+        raise(IOStreams::Errors::InvalidValue.new(
+                "Field #{name.inspect}: a missing value cannot be written as text, since the field has no missingValues, " \
+                "so no text reads back as missing: give it a value, or add the text of a missing value to missingValues",
+                field: name, value: nil
+              ))
+      end
 
       # Returns [Hash] the frozen properties of the field, for #== and #eql?, without the copy that #to_h makes.
       attr_reader :properties
@@ -1057,11 +1138,11 @@ module IOStreams
         year.between?(0, 9999) ? year : invalid(value)
       end
 
-      # Returns [Date] the first of the month of text such as `2026-10`, or of a Date on the first of its month, or a
-      # Time or DateTime at midnight on it, see `yearmonth` above.
+      # Returns [Date] the first of the month of text such as `2026-10` or `2026-10-01`, or of a Date on the first of its
+      # month, or a Time or DateTime at midnight on it, see `yearmonth` above.
       def cast_yearmonth(value)
         if value.is_a?(String)
-          parts = YEARMONTH.match(value)
+          parts = YEARMONTH.match(value) || FIRST_OF_MONTH.match(value)
           month = parts && parts[2].to_i
           return invalid(value) unless month&.between?(1, 12)
 
@@ -1511,6 +1592,13 @@ module IOStreams
         plain = @number_text ? @number_text.read(text) : text
         return number(plain, text) if plain && NUMBER.match?(plain)
 
+        special_number(text)
+      end
+
+      # Returns [BigDecimal|Float] the number that is not finite of the text, such as "INF", see SPECIAL_NUMBERS.
+      #
+      # Raises `IOStreams::Errors::InvalidValue` for any other text.
+      def special_number(text)
         special = SPECIAL_NUMBERS[text.downcase]
         return invalid(text) unless special
 
@@ -1634,11 +1722,7 @@ module IOStreams
         return invalid(value) unless value.is_a?(String)
         return parse_time(Time, value) if @format
 
-        match = DATETIME.match(value)
-        date  = match && match[1]
-        return invalid(value) unless date && Date.valid_date?(date[0, 4].to_i, date[5, 2].to_i, date[8, 2].to_i)
-
-        iso_datetime(match)
+        iso_datetime_text(value) || invalid(value)
       rescue TimeZone::SkippedClock => e
         invalid(value, "#{type}, since #{e.message}")
       rescue ArgumentError
@@ -1656,10 +1740,7 @@ module IOStreams
         return invalid(value) unless value.is_a?(String)
         return parse_time_of_day(value) if @format
 
-        clock = TIME.match(value)
-        return invalid(value) unless clock && clock_time?(clock[1].to_i, clock[2].to_i, clock[3].to_i)
-
-        iso_clock(clock)
+        iso_clock_text(value) || invalid(value)
       rescue TimeZone::SkippedClock => e
         invalid(value, "#{type}, since #{e.message}")
       rescue ArgumentError
@@ -1668,20 +1749,19 @@ module IOStreams
 
       # Returns [Time] the time of day of the text read with the strptime pattern of the format, see #parse_time.
       def parse_time_of_day(text)
-        parts = @format.parts(text)
-        return invalid(text) if parts.nil? || !clock_time?(parts.fetch(:hour, 0), parts.fetch(:min, 0), parts.fetch(:sec, 0))
-
-        self.class.time_of_day(parse_time(Time, text, parts))
+        self.class.time_of_day(parse_time(Time, text))
       end
 
-      # Returns [true|false] whether the hour, minute and second are those of a clock, from 00:00:00 to 23:59:59.
+      # Returns [true|false] whether the hour, minute and second of the text of a time without a format, see TIME, are
+      # those of a clock, from 00:00:00 to 23:59:59, while a format checks its own, see
+      # `IOStreams::Schema::Pattern#parts`.
       def clock_time?(hour, minute, second)
         hour < 24 && minute < 60 && second < 60
       end
 
-      # Returns [Date|Time] the text read with the strptime pattern of the format, which must match all of the text,
-      # and whose date must exist, see #cast_datetime, from its parts, see `IOStreams::Schema::Pattern#parts`, which
-      # are read unless the caller has already read them.
+      # Returns [Date|Time] the text read with the strptime pattern of the format, which must match all of the text, with
+      # a time on a clock, see `IOStreams::Schema::Pattern#parts`, and whose date must exist, see #cast_datetime, from
+      # its parts, which are read unless the caller has already read them.
       #
       # A time is at the offset from UTC that its zone gives, or in UTC without one, see #cast_datetime. A zone whose
       # offset is not known, such as "XYZ", raises, rather than be read in the time zone of the process.
@@ -1696,14 +1776,23 @@ module IOStreams
         # A DateTime reads text without an offset as UTC, and knows the offset of every zone that Date._strptime knows,
         # such as "CET", which `Time.strptime` reads in the time zone of the process, as it does text without an offset.
         # The seconds since 1970 of `%s` or `%Q` are a time whatever the zone, as an offset makes it one, in UTC.
+        # A DateTime at an offset of zero is a time in UTC, see .time_of, so a time keeps an offset of zero that the
+        # text says, such as `+0000`, see #zero_offset?, with `Time.at`, since JRuby's `getlocal(0)` of a time in UTC is
+        # in UTC.
         time = self.class.time_of(@format.datetime(text))
-        return time if parts[:offset]
+        return zero_offset?(parts) ? Time.at(time, in: "+00:00") : time if parts[:offset]
 
         parts[:seconds] ? time.utc : in_zone(time)
       rescue TimeZone::SkippedClock => e
         invalid(text, "#{type}, since #{e.message}")
       rescue ArgumentError
         invalid(text)
+      end
+
+      # Returns [true|false] whether the parts of text read with a format say an offset of zero that is not UTC, such as
+      # `+00:00` or `+0000`, which a time keeps, as it does without a format, see UTC_ZONE.
+      def zero_offset?(parts)
+        parts[:offset].zero? && !UTC_ZONE.match?(parts[:zone])
       end
 
       # Returns [Time] the time whose clock is that of the supplied time, which text without an offset from UTC gave, in
@@ -1743,16 +1832,98 @@ module IOStreams
         "#{clock}#{time.utc? ? 'Z' : time.strftime('%:z')}"
       end
 
+      # Returns the value of text that is the default text of the type of this field, see #parse_cell_text: the plain
+      # digits of a number, such as `1234.5`, of an integer, such as `1234` or `1234.0`, the ISO 8601 text of a date,
+      # datetime or time, and the default true and false values of a boolean, such as `true`, whatever the properties of
+      # the field that describe its own text, or OWN_TEXT for any other text.
+      #
+      # Raises `IOStreams::Errors::InvalidValue` for the default text of a datetime or time in a clock that the zone of
+      # the field skips, as #cast does.
+      def default_text_value(text)
+        case type
+        when "number" then NUMBER.match?(text) ? round(number(text)) : OWN_TEXT
+        when "integer" then default_integer(text)
+        when "boolean" then default_boolean(text)
+        else default_time(text)
+        end
+      end
+
+      # Returns [Integer] the whole number of plain digits, such as `1234` or `1234.0`, see #default_text_value, or
+      # OWN_TEXT.
+      def default_integer(text)
+        return Integer(text, 10) if INTEGER.match?(text)
+
+        whole = WHOLE.match(text)
+        whole ? Integer(whole[1], 10) : OWN_TEXT
+      end
+
+      # Returns [true|false] of a default true or false value, see #default_text_value, or OWN_TEXT.
+      def default_boolean(text)
+        return true if DEFAULT_TRUE_VALUES.include?(text)
+
+        DEFAULT_FALSE_VALUES.include?(text) ? false : OWN_TEXT
+      end
+
+      # Returns [Date|Time] the date, datetime or time of its ISO 8601 text, see #default_text_value, a date that exists
+      # and a clock of 00:00:00 to 23:59:59, as #iso_value checks them, or OWN_TEXT.
+      def default_time(text)
+        value =
+          case type
+          when "date" then cast_date_text(text) if DATE.match?(text)
+          when "datetime" then iso_datetime_text(text)
+          else iso_clock_text(text)
+          end
+        value.nil? ? OWN_TEXT : value
+      rescue TimeZone::SkippedClock => e
+        invalid(text, "#{type}, since #{e.message}")
+      rescue ArgumentError
+        OWN_TEXT
+      end
+
       # Returns [Date|Time|nil] the value of the ISO 8601 text of a date, datetime or time, whatever the format of the
-      # field, see #constraint_value, or nil when it is not such text.
+      # field, see #constraint_value and #load_iso, or nil when it is not such text, or not a date that exists or a time
+      # on a clock, which #cast checks too.
       def iso_value(text)
         case type
         when "date" then cast_date_text(text) if DATE.match?(text)
-        when "datetime" then (match = DATETIME.match(text)) && iso_datetime(match)
-        when "time" then (clock = TIME.match(text)) && iso_clock(clock)
+        when "datetime" then iso_datetime_text(text)
+        when "time" then iso_clock_text(text)
         end
       rescue ArgumentError
         nil
+      end
+
+      # Returns the value of a date, datetime or time from the ISO 8601 text that #dump gives it, whatever the format of
+      # the field, see #iso_value, or from its format otherwise, see #cast_typed, once its constraints are checked, as
+      # #cast_typed checks them, see #load.
+      #
+      # Raises `IOStreams::Errors::InvalidValue` for a date that does not exist, a time that is not on a clock, and a
+      # value that does not meet the constraints, as #cast does.
+      def load_iso(text)
+        value = iso_value(text)
+        return cast_typed(text) if value.nil?
+
+        @checks ? @constraints.check(value, text) : value
+      end
+
+      # Returns [Time|nil] the time of the ISO 8601 text of a datetime, see DATETIME, or nil for other text, or for a date
+      # that does not exist, such as 2026-02-30, which `Time` moves into the next month.
+      #
+      # Only a day after the 28th is checked, since `Time` raises for a day of 0, and for a month of 0 or after 12, and
+      # every month has 28 days.
+      def iso_datetime_text(text)
+        match = DATETIME.match(text)
+        return unless match
+
+        date = match[1]
+        iso_datetime(match) if date[8, 2] <= "28" || Date.valid_date?(date[0, 4].to_i, date[5, 2].to_i, date[8, 2].to_i)
+      end
+
+      # Returns [Time|nil] the time of day of the ISO 8601 text of a time, see TIME, or nil for other text, or for a time
+      # that is not on a clock, see #clock_time?, such as 24:00:00, which `Time` moves into the next day.
+      def iso_clock_text(text)
+        clock = TIME.match(text)
+        iso_clock(clock) if clock && clock_time?(clock[1].to_i, clock[2].to_i, clock[3].to_i)
       end
 
       # Returns [Time] the time of the text that DATETIME matched, in UTC without an offset, read with `Time.iso8601`,

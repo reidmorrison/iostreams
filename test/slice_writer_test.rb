@@ -33,6 +33,14 @@ class SliceWriterTest < Minitest::Test
         assert_equal csv, write(slices(csv))
       end
 
+      it "reads the default text of a slice that holds it, such as of a spreadsheet, and writes it by the schema" do
+        european = {"fields" => [{"name" => "name"}, {"name" => "amount", "type" => "number", "groupChar" => ".",
+                                                      "decimalChar" => ","}]}
+        cells    = IOStreams::Slice.new(["Jack,1234.5"], header: %w[name amount].freeze, format: :csv, cell_text: true)
+
+        assert_equal %(name,amount\nJack,"1.234,5"\n), write([cells], schema: european)
+      end
+
       it "matches the header row to the schema, and writes the rows without parsing them" do
         list = slices("first_name,age\nJack,abc\n")
 
@@ -227,8 +235,9 @@ class SliceWriterTest < Minitest::Test
         shown = {fields: [{name: "wait", type: "duration"}]}.inspect
 
         assert_equal "Every slice written is of the same file as the first: a slice with the header row nil, format " \
-                     ":hash, blank_rows #{other.blank_rows?} and schema #{other.schema&.to_h.inspect} cannot follow one " \
-                     "with the header row nil, format :hash, blank_rows true and schema #{shown}", error.message
+                     ":hash, blank_rows #{other.blank_rows?}, cell_text false and schema " \
+                     "#{other.schema&.to_h.inspect} cannot follow one with the header row nil, format :hash, blank_rows " \
+                     "true, cell_text false and schema #{shown}", error.message
       end
     end
 

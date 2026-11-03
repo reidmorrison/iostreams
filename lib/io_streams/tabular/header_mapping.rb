@@ -108,14 +108,13 @@ module IOStreams
       # file that it describes.
       #
       # Raises `IOStreams::Errors::InvalidHeader` for two columns that are the same key, such as `Amount ($)` and
-      # `Amount (€)`, which both cleanse to `amount_`, of which the records keep only one, since a schema cannot hold
-      # both.
+      # `Amount (€)`, which both cleanse to `amount_`, since neither a record nor a schema can hold both, see
+      # `IOStreams::Tabular::Header#record_columns`.
       def declared_schema(row)
         columns = Header.new
         columns.columns = row || []
         columns.cleanse! unless @keyed
-        named = columns.columns.each_with_index.reject { |key, _index| IOStreams::Utils.blank?(key) }
-        check_declared_keys(named, row)
+        named      = columns.record_columns
         type       = @parser.class.value_type
         descriptor = {fields: named.map { |key, _index| {name: key, type: type} }}
         descriptor = {fieldsMatch: "subset", **descriptor} if named.size < columns.columns.size
@@ -169,6 +168,9 @@ module IOStreams
 
       # Returns [Hash] the record of the line, by the columns, see `IOStreams::Tabular::Header#to_hash`, or nil when it
       # is blank.
+      #
+      # Raises `IOStreams::Errors::InvalidHeader` for two columns that are the same key, such as a header row of `a,a,b`,
+      # whose record would hold only one of their values, see `IOStreams::Tabular::Header#record_columns`.
       def record_parse(line)
         values = parse(line)
         header.to_hash(values) if values
@@ -185,7 +187,10 @@ module IOStreams
         # The columns of a format of keyed records, such as JSON, are known once the first row gives them, when the record
         # written has every one of them, otherwise its keys are its columns.
         record = @keyed && header.columns ? header.to_record(row) : row
-        @parser.render(@keyed ? header.to_hash(record) : header.to_array(row))
+        values = @keyed ? header.to_hash(record) : header.to_array(row)
+        @parser.render(values)
+      rescue IOStreams::Errors::InvalidValue => e
+        raise(named_error(e, values))
       end
 
       # Returns [String] the header row of the columns, once the columns supplied to it, if any, become the columns, such
@@ -210,6 +215,18 @@ module IOStreams
       end
 
       private
+
+      # Returns [IOStreams::Errors::InvalidValue] the supplied error of a value of the row that the parser cannot write,
+      # such as a number that is not finite within the Hash of a value written to CSV as JSON, see
+      # `IOStreams::Schema::Field.any_text`, naming the column of the value, see
+      # `IOStreams::Tabular::Parser::Json.named_error`, or the error itself when it names one, or no column is known.
+      def named_error(error, values)
+        return error if error.field || !values.is_a?(::Array) || header.columns.nil?
+
+        columns = header.columns
+        record  = values.each_with_index.to_h { |value, index| [columns[index] || index, value] }
+        IOStreams::Tabular::Parser::Json.named_error(error, record)
+      end
 
       # The plan of a record whose keys are the columns of the rows, in order, whose values are its row, see #row_plan.
       IN_ORDER = :in_order
@@ -292,22 +309,9 @@ module IOStreams
         raise(
           Errors::InvalidHeader,
           "The keys of a record do not match the columns of the rows, which are the keys of the first record: #{which}. " \
-          "Read the records with each(:hash), or describe the columns with a schema whose fields are every key, with " \
-          "fieldsMatch \"superset\" when a record can leave out a key"
+          "Read the records with each(:hash), or copy them with mode: :hash, or describe the columns with a schema " \
+          "whose fields are every key, with fieldsMatch \"superset\" when a record can leave out a key"
         )
-      end
-
-      # Raises `IOStreams::Errors::InvalidHeader` for two columns of the row that are the same key, see #declared_schema.
-      def check_declared_keys(named, row)
-        indexes = named.group_by(&:first).values.find { |pairs| pairs.size > 1 }
-        return unless indexes
-
-        labels = indexes.map { |_key, index| row[index].inspect }
-        raise(IOStreams::Errors::InvalidHeader,
-              "The columns #{labels.join(' and ')} are the same key, #{indexes.first.first.inspect}, once cleansed, which " \
-              "a record read without a schema cannot hold twice: rename one of them, or set a schema whose fields name " \
-              "each one, which can be two fields of the same name for a format whose columns are in order, such as CSV, " \
-              "read as rows")
       end
     end
   end

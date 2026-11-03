@@ -1469,13 +1469,52 @@ class StreamTest < Minitest::Test
         assert_equal records, read(fixed, file_name: "a.fixed", schema: digits)
       end
 
-      it "reads empty text as a value with missingValues [], apart from an empty value of CSV, which is nil" do
+      it "reads empty text as a value with missingValues [], also an empty value of CSV without quotes" do
         schema = {missingValues: [], fields: [{name: "name"}, {name: "city"}, {name: "age", type: "integer"}]}
 
-        assert_equal [{"name" => "", "city" => nil, "age" => 7}], read(%(name,city,age\n"",,7\n), schema: schema)
+        assert_equal [{"name" => "", "city" => "", "age" => 7}], read(%(name,city,age\n"",,7\n), schema: schema)
+        assert_equal [{"name" => "", "city" => "", "age" => 7}], read(%(name,city,age\n"",,7\n), schema: schema.merge(missingValues: ["NA"]))
+        # A line break within quotes, which the csv gem reads.
+        assert_equal [{"name" => "a\nb", "city" => "", "age" => 7}], read(%(name,city,age\n"a\nb",,7\n), schema: schema)
         assert_equal [{"name" => "", "city" => "", "age" => 7}], read(%(name|city|age\n||7\n), file_name: "a.psv", schema: schema)
         assert_equal [{"name" => "", "city" => nil, "age" => 7}],
                      read(%({"name":"","city":null,"age":7}\n), file_name: "a.json", schema: schema)
+        # The empty values at the end of a line of PSV too, as CSV reads them, while without a schema they are nil.
+        assert_equal [{"name" => "Jack", "city" => "", "age" => ""}],
+                     read(%(name|city|age\nJack||\n), file_name: "a.psv", schema: schema.merge(fields: [{name: "name"}, {name: "city"}, {name: "age"}]))
+        assert_equal [{"name" => "Jack", "city" => nil, "age" => nil}], read(%(name|city|age\nJack||\n), file_name: "a.psv", schema: nil)
+      end
+
+      it "raises for a missing value written as text with missingValues [], which no text would read back as" do
+        schema = {missingValues: [], fields: [{name: "name"}, {name: "city"}]}
+        error  = assert_raises(IOStreams::Errors::InvalidValue) do
+          IOStreams.stream(StringIO.new).format(:csv).schema(schema).writer(:hash) { |io| io << {"name" => "Jack", "city" => nil} }
+        end
+
+        assert_equal "city", error.field
+        assert_match(/a missing value cannot be written as text, since the field has no missingValues/, error.message)
+        json = StringIO.new
+        IOStreams.stream(json).format(:json).schema(schema).writer(:hash) { |io| io << {"name" => "Jack", "city" => nil} }
+
+        assert_equal %({"name":"Jack","city":null}\n), json.string
+        csv = StringIO.new
+        IOStreams.stream(csv).format(:csv).schema(schema).writer(:hash) { |io| io << {"name" => "Jack", "city" => ""} }
+
+        assert_equal [{"name" => "Jack", "city" => ""}], read(csv.string, schema: schema)
+      end
+
+      it "reads an empty value of CSV without quotes as a missing value by the default missing values, or without a schema" do
+        schema = {fields: [{name: "name"}, {name: "city"}, {name: "age", type: "integer"}]}
+
+        assert_equal [{"name" => "Jack", "city" => nil, "age" => nil}], read(%(name,city,age\nJack,,\n), schema: schema)
+        assert_equal [{"name" => "Jack", "city" => nil, "age" => nil}], read(%(name,city,age\nJack,,\n), schema: nil)
+        assert_equal [{"name" => "Jack", "age" => 7}],
+                     read(%(name,,age\nJack,x,7\n), schema: {fieldsMatch: "subset", fields: [{name: "name"}, {name: "age", type: "integer"}]})
+        error = assert_raises(IOStreams::Errors::InvalidValue) do
+          read(%(name,city,age\nJack,,\n), schema: schema.merge(missingValues: ["NA"]))
+        end
+
+        assert_equal "age", error.field
       end
 
       it "reads and writes the text of numbers with groupChar, decimalChar and bareNumber, and JSON as plain numbers" do
@@ -1805,9 +1844,10 @@ class StreamTest < Minitest::Test
           IOStreams.path(dir, "copy.json").schema(people).copy_from(source, mode: :array)
           IOStreams.path(dir, "plain.json").copy_from(source, mode: :array)
 
-          assert_equal "id,pay,joined,active\n42,12.5,2026-10-13,true\n", IOStreams.path(dir, "people.csv").read
+          # A target without a schema takes that of the source, so it writes each value by its field, such as 2 decimals.
+          assert_equal "id,pay,joined,active\n42,12.50,2026-10-13,true\n", IOStreams.path(dir, "people.csv").read
           assert_equal %({"id":42,"pay":12.50,"joined":"2026-10-13","active":true}\n), IOStreams.path(dir, "copy.json").read
-          assert_equal %({"id":42,"pay":"12.5","joined":"2026-10-13","active":true}\n), IOStreams.path(dir, "plain.json").read
+          assert_equal %({"id":42,"pay":12.50,"joined":"2026-10-13","active":true}\n), IOStreams.path(dir, "plain.json").read
         end
       end
 
@@ -2541,19 +2581,20 @@ class StreamTest < Minitest::Test
             IOStreams.path(dir, "plain.json").copy_from(source, mode: :array)
             IOStreams.path(dir, "copy.csv").schema(headerless).copy_from(source, mode: :array)
 
-            assert_equal "id,pay,joined,active\n42,12.5,2026-10-13,true\n", IOStreams.path(dir, "plain.csv").read
-            assert_equal %({"id":42,"pay":"12.5","joined":"2026-10-13","active":true}\n), IOStreams.path(dir, "plain.json").read
+            # A target without a schema takes that of the source without its header: false, so it has a header row.
+            assert_equal "id,pay,joined,active\n42,12.50,2026-10-13,true\n", IOStreams.path(dir, "plain.csv").read
+            assert_equal %({"id":42,"pay":12.50,"joined":"2026-10-13","active":true}\n), IOStreams.path(dir, "plain.json").read
             assert_equal "42,12.50,2026-10-13,true\n", IOStreams.path(dir, "copy.csv").read
           end
         end
 
-        it "copies typed values into a target without a schema as their usual text" do
+        it "copies typed values into a target without a schema by the fields of the schema of the source" do
           Dir.mktmpdir do |dir|
             source = IOStreams.path(dir, "people.csv").schema(headerless)
             source.write("0042,12.5,2026-10-13,true\n")
             IOStreams.path(dir, "people.json").copy_from(source, mode: :hash)
 
-            assert_equal %({"id":42,"pay":"12.5","joined":"2026-10-13","active":true}\n), IOStreams.path(dir, "people.json").read
+            assert_equal %({"id":42,"pay":12.50,"joined":"2026-10-13","active":true}\n), IOStreams.path(dir, "people.json").read
           end
         end
 
@@ -2646,7 +2687,8 @@ class StreamTest < Minitest::Test
             IOStreams.path(dir, "people.csv").copy_from(source, mode: :array)
             IOStreams.path(dir, "again.fixed").schema(fixed).copy_from(source, mode: :array)
 
-            assert_equal "name,zip,pay\nJack,12345,-12.5\n", IOStreams.path(dir, "people.csv").read
+            # The target takes the schema of the source without the widths of its fields, so it writes 2 decimals.
+            assert_equal "name,zip,pay\nJack,12345,-12.50\n", IOStreams.path(dir, "people.csv").read
             assert_equal "Jack    12345-0012.50   \n", IOStreams.path(dir, "again.fixed").read
           end
         end
@@ -3235,6 +3277,109 @@ class StreamTest < Minitest::Test
         target_path.copy_from(IOStreams.join("copy_test", "source.csv.gz"))
 
         assert_equal "Hello World", IOStreams.join("copy_test", "target.csv").read
+      end
+
+      it "copies the rows without a mode into a target of another format, as the :array mode does" do
+        source_path.write("name,age\nJack,21\n")
+        json = IOStreams.join("copy_test", "target.json")
+        psv  = IOStreams.join("copy_test", "target.psv")
+
+        assert_equal IOStreams.join("copy_test", "other.json").copy_from(source_path, mode: :array), json.copy_from(source_path)
+        assert_equal %({"name":"Jack","age":"21"}\n), json.read
+        source_path.copy_to(psv)
+
+        assert_equal "name|age\nJack|21\n", psv.read
+        IOStreams.join("copy_test", "back.csv").copy_from(json)
+
+        assert_equal "name,age\nJack,21\n", IOStreams.join("copy_test", "back.csv").read
+        # Parquet needs a schema, as for the :array mode.
+        error = assert_raises(ArgumentError) { IOStreams.join("copy_test", "target.parquet").copy_from(source_path) }
+        assert_match(/Parquet needs a schema/, error.message)
+        # A copy without a mode takes no options, also when it converts.
+        assert_raises(ArgumentError) { json.copy_from(source_path, validate: true) }
+        # A format that is not known, such as of an IO, or the same format, is copied as it is.
+        output = StringIO.new
+        IOStreams.stream(output).copy_from(source_path)
+
+        assert_equal "name,age\nJack,21\n", output.string
+      ensure
+        %w[target.json other.json target.psv back.csv target.parquet].each { |name| IOStreams.join("copy_test", name).delete }
+      end
+
+      it "converts the rows without a mode through the streams of each, and from spreadsheets" do
+        source_path.write("name,age\nJack,21\n")
+        plain = IOStreams.join("copy_test", "plain.csv")
+        plain.write("name,age\nJack,21\n")
+        json = IOStreams.join("copy_test", "target.json.gz")
+        json.copy_from(source_path)
+
+        assert_equal %({"name":"Jack","age":"21"}\n), json.read
+        IOStreams.join("copy_test", "people.xlsx").copy_from(plain)
+        IOStreams.join("copy_test", "cells.json").copy_from(IOStreams.join("copy_test", "people.xlsx"))
+
+        assert_equal %({"name":"Jack","age":"21"}\n), IOStreams.join("copy_test", "cells.json").read
+        # A fixed width file needs a schema, as in the :array mode, which raises before the target is written.
+        fixed = IOStreams.join("copy_test", "people.fixed")
+        assert_raises(ArgumentError) { fixed.copy_from(plain) }
+        refute_predicate fixed, :exist?
+      ensure
+        %w[plain.csv target.json.gz people.xlsx cells.json people.fixed].each do |name|
+          IOStreams.join("copy_test", name).delete
+        end
+      end
+
+      it "converts the rows of Parquet without a mode into CSV and JSON" do
+        skip "The parquet gem is a Rust extension, which JRuby cannot load" if defined?(JRuby)
+
+        Dir.mktmpdir do |dir|
+          IOStreams.path(dir, "plain.csv").write("name,age\nJack,21\n")
+          parquet = IOStreams.path(dir, "people.parquet").schema(fields: [{name: "name", type: "string"}, {name: "age", type: "integer"}])
+          parquet.copy_from(IOStreams.path(dir, "plain.csv"))
+          IOStreams.path(dir, "back.csv").copy_from(IOStreams.path(dir, "people.parquet"))
+
+          assert_equal "name,age\nJack,21\n", IOStreams.path(dir, "back.csv").read
+          IOStreams.path(dir, "people.json").copy_from(IOStreams.path(dir, "people.parquet"))
+
+          assert_equal %({"name":"Jack","age":21}\n), IOStreams.path(dir, "people.json").read
+        end
+      end
+
+      it "copies the data as it is without a mode, when either side is raw, of :text, or of rows of Ruby objects" do
+        source_path.write("name,age\nJack,21\n")
+        stored = File.binread(source_path.to_s)
+        raw    = IOStreams.join("copy_test", "raw.json.gz")
+
+        assert_equal stored.bytesize, raw.raw.copy_from(IOStreams.join("copy_test", "source.csv.gz").raw)
+        assert_equal stored, File.binread(raw.to_s)
+        IOStreams.join("copy_test", "text.json").raw.copy_from(source_path)
+
+        assert_equal "name,age\nJack,21\n", IOStreams.join("copy_test", "text.json").read
+        text = IOStreams.join("copy_test", "lines.out").format(:text)
+        text.copy_from(source_path)
+
+        assert_equal "name,age\nJack,21\n", text.read
+        IOStreams.join("copy_test", "from_text.json").copy_from(source_path.format(:text))
+
+        assert_equal "name,age\nJack,21\n", IOStreams.join("copy_test", "from_text.json").read
+        # The same format through other streams is copied as it is, returning the number of bytes.
+        assert_equal 17, IOStreams.join("copy_test", "copy.csv.bz2").copy_from(source_path)
+        assert_equal "name,age\nJack,21\n", IOStreams.join("copy_test", "copy.csv.bz2").read
+      ensure
+        %w[raw.json.gz text.json lines.out from_text.json copy.csv.bz2].each do |name|
+          IOStreams.join("copy_test", name).delete
+        end
+      end
+
+      it "copies the rows of a slice without a mode as the :array mode does, whatever the format of the target" do
+        slice = IOStreams::Slice.new(["Jack,21"], header: %w[name age].freeze, format: :csv)
+        csv   = StringIO.new
+        IOStreams.stream(csv).format(:csv).copy_from(IOStreams.stream(slice))
+
+        assert_equal "name,age\nJack,21\n", csv.string
+        json = StringIO.new
+        IOStreams.stream(json).format(:json).copy_from(IOStreams.stream(slice))
+
+        assert_equal %({"name":"Jack","age":"21"}\n), json.string
       end
 
       it "converts the text that the source reads into the encoding of the target" do

@@ -83,7 +83,12 @@ Without a [schema](schemas), every value is read as text, and written as its tex
 * `each(:hash)` keys each record by the columns of the header row, cleansed: lower case, with spaces and dashes
   replaced with `_`, and other punctuation removed, while letters and digits of any language are kept. So the column
   `First Name` is the key `first_name`, `Zip-Code` is `zip_code`, `Amount ($)` is `amount_`, and `Prénom` is `prénom`.
-  A column whose name has nothing left once cleansed, such as `#`, is skipped. JSON keys are used as they are.
+  A column whose name has nothing left once cleansed, such as `#`, is skipped. JSON keys are used as they are. Two
+  columns that are the same key once cleansed, such as a header row of `a,a,b`, or `First Name` and `first_name`, or
+  `Né` and `NÉ`, raise `IOStreams::Errors::InvalidHeader` before the first record, since a record cannot hold both,
+  rather than keep the value of only one of them. Writing rows to JSON, whose keys are the columns as they are, raises
+  only for two columns of exactly the same name, such as `a` and `a`, and writes `First Name` and `first_name` as two
+  keys. `each(:array)` still reads the rows, and a [schema](schemas) can name both, with two fields of the same name.
 * `each(:array)` yields the header row as it is, then each row of values. A JSON or Parquet file has no header row, so
   its first row is a header row of the keys of its first record, and each row after it the values of a record in
   that order, see [JSON files](#json-files). The header row is an `IOStreams::Row::HeaderRow`, an Array that says
@@ -118,7 +123,8 @@ IOStreams.path("example.psv").read
 ~~~
 
 In CSV, a value that is empty is read as `nil`, and a quoted empty value, `""`, as an empty String, unless a
-[schema](schemas#types) reads it, which reads empty text as `nil`, a missing value, as Frictionless does.
+[schema](schemas#types) reads it, which reads both as empty text, which is `nil`, a missing value, as Frictionless
+does, unless its [missing values](schemas#missing-values) say otherwise.
 
 ## JSON files
 
@@ -295,7 +301,9 @@ a field of its type reads it, and a number as the workbook holds it, such as `10
 shows. A number of a date
 or time format that is not a date that Excel holds, such as a negative number, which Excel shows as `####`, is its
 number, in the lines and in the rows. A field whose `missingValues` hold text other than empty text, such as `"-99"`,
-compares that text of each cell with them, whatever the type of the cell, see [Missing values](schemas#missing-values).
+compares that text of each cell with them, whatever the type of the cell, see [Missing values](schemas#missing-values),
+and reads a row whose every cell is a missing value as a record of missing values, as its CSV text reads, rather than
+as a blank row.
 A `datetime` or `time` field with a `timeZone` reads the clock of a cell of a date and time, or of a time of day, in its
 zone, since a cell holds no zone, such as `2026-07-01 09:30` as `13:30` UTC in `America/New_York`, see
 [Time zones](schemas#time-zones), while the lines, which have no schema, hold the clock as UTC, as above.
@@ -306,8 +314,20 @@ the number `1.5`, as a list of that one item, `[1.5]`, as the CSV text of the ce
 a `string` field does, such as `["2134"]`.
 
 The rows that `each(:slice)` reads are the values of the cells, in the `:array` format, and `slice.to_h` holds each
-`Date` and `Time` as its ISO 8601 text, which a schema or contract reads back. A `delimiter:` raises `ArgumentError` for
-the rows and records, which are cells rather than lines.
+`Date` and `Time` as its text, such as `2026-07-01`, and each number as JSON holds it, such as `1234.5`, as do the
+slices of the CSV text of a spreadsheet, copied to a [store of slices](background_jobs#a-store-of-slices) with
+`copy_from(path, mode: :line)`, as text. That text is the default text of each type, rather than the text that a schema
+describes, so the slices of a spreadsheet say that they hold its cells, `slice.cell_text?`, and `IOStreams.stream(slice)`
+reads each value as the spreadsheet reads its cell, also once the slice is stored: the default text of its type first,
+such as `1234.5`, `2026-07-01` or `true`, then the text that the field describes, with the `groupChar`, `decimalChar`
+and `bareNumber` of a number, the `trueValues` and `falseValues` of a boolean, and the `format` of a date, datetime or
+time, which a text cell can hold, such as `1.234,50` for `decimalChar: ","`, `01/07/2026` for `format: "%d/%m/%Y"`, or
+`Y` for `trueValues: ["Y"]`. Its missing values, the `delimiter` of a list and the `timeZone` of a datetime or time
+still apply. Text that is both, such as a text cell `1.234` with `groupChar: "."` and `decimalChar: ","`, is read as the
+default text in a slice, `1.234`, while the spreadsheet itself reads it by the schema, `1234`. Lines of the CSV text
+written to a store by hand, with `writer(:line)`, do not say that they hold cells, so a schema reads them as the text of
+a file, such as `1234.5` as `12345` with `groupChar: "."`: copy them with `copy_from(path, mode: :line)` instead. A
+`delimiter:` raises `ArgumentError` for the rows and records, which are cells rather than lines.
 
 Writing writes a workbook with one worksheet, with the `xlsxtream` gem. The rows and records are written as the types
 of their values, by the fields of a schema or contract when there is one, so that a number is a number cell, a `Date` a

@@ -138,17 +138,16 @@ missing. Writing writes `nil` as the first missing value of the field, such as `
 back as `nil`, or as an empty value when that is empty text, and as `null` in JSON. See
 [Missing values](schemas#missing-values).
 
-An empty CSV value without quotes, such as the middle value of `a,,b`, holds no text, so it is always `nil`, whatever
-the missing values. Of empty values, the missing values decide only what one within quotes, `""`, is: without `""`
-among them, a `string` or `any` field reads it as `""`, and the other types raise for it.
+An empty CSV value is empty text, with or without quotes, such as the middle value of `a,,b` or `a,"",b`, so the
+missing values decide what it is: without `""` among them, a `string` or `any` field reads it as `""`, and the other
+types raise for it. Without any missing values, `missingValues: []`, writing `nil` to a format of text, such as CSV,
+raises `IOStreams::Errors::InvalidValue`, since no text would read back as missing.
 
 **Compared with Frictionless**
 
 * The spec does not say how to write a missing value. IOStreams writes the first of the missing values, as
-  frictionless-py does, apart from JSON, which writes `null`.
-* frictionless-py reads an empty CSV value the same with or without quotes. Without `""` among the missing values, it
-  reads both as `""` for a `string` or `any`, and raises for the other types. IOStreams reads an empty value without
-  quotes as `nil`.
+  frictionless-py does, apart from JSON, which writes `null`, and raises for one without missing values, which
+  frictionless-py writes as an empty value that reads back as `""`.
 * frictionless-py compares the text of every value with the missing values, so the JSON number `-99` is missing for
   `["-99"]`. IOStreams compares only text, since the spec says that missing values are text, so the number is `-99`,
   apart from a cell of a spreadsheet, whose text it compares, so a cell that holds the number `-99` is missing.
@@ -544,14 +543,18 @@ end
 ### `datetime`
 
 * **Read as** a `Time`, from ISO 8601 with seconds, such as `2026-10-13T09:30:00Z`, `2026-10-13T09:30:00.250Z` or
-  `2026-10-13T09:30:00-05:00`. A date alone, or a time without seconds, raises.
+  `2026-10-13T09:30:00-05:00`. A date alone, a time without seconds, and a time that is not on a clock, such as
+  `2026-10-13T24:00:00`, raise, as for a `time`, also in its `format`.
 * **Also reads** a space in place of the `T`, such as `2026-10-13 09:30:00`, and an offset from UTC without a colon,
   or of hours alone, such as `+0530` or `+05`, as databases write them.
 * **Text without an offset** from UTC, such as `2026-10-13T09:30:00`, is read as UTC, so that a file reads the same on
   every server, or in the `timeZone` of the field, see [Time zones](#time-zones).
 * **Written as** ISO 8601 with its offset, such as `2026-10-13T09:30:00Z` for UTC or `2026-10-13T09:30:00+05:30`, or
   in its `format`. A fraction of a second is written in groups of 3 digits, as many as it needs, such as `.100`,
-  `.250` or `.123456`.
+  `.250` or `.123456`. A `DateTime` at an offset of zero is in UTC, written with `Z`, as a `Time` in UTC is, since a
+  `DateTime` does not tell UTC from another zone at that offset, while text that says an offset of zero, such as
+  `+00:00`, or `+0000` read with a `format` that has `%z`, keeps it, as a `Time` does, and `Z`, `UTC` or `-00:00` is
+  UTC.
 
 ~~~ruby
 IOStreams.path("visits.csv").write(<<~CSV)
@@ -591,6 +594,8 @@ puts path.read
   both also read a space for the `T`, and an offset such as `+0530` or `+05`.
 * frictionless-py reads any one character between the date and the time, such as `_` or a lower case `t`, a lower
   case `z`, and a comma before the fraction of a second, such as `09:30:00,5`. IOStreams raises for them.
+* frictionless-py reads `2026-10-13T24:00:00`, the end of a day, as the midnight of the next day, `2026-10-14T00:00:00`.
+  IOStreams raises for it, as for a `time` of `24:00:00`.
 * The spec does not give text without an offset a zone, and frictionless-py reads it as a time without one, which it
   writes without an offset. IOStreams reads it as UTC, or in the `timeZone` of the field, and writes it with its
   offset, such as `Z`.
@@ -728,7 +733,8 @@ See [Time zones](schemas#time-zones). Neither the spec nor frictionless-py has `
 
 ### `yearmonth`
 
-* **Read as** a `Date` on the first of its month, from `YYYY-MM`, such as `2026-10`.
+* **Read as** a `Date` on the first of its month, from `YYYY-MM`, such as `2026-10`, or from the date of the first of a
+  month, `2026-10-01`, the text of a spreadsheet's cell that holds that date.
 * **Written as** `2026-10`.
 
 ~~~ruby
@@ -756,7 +762,8 @@ end
   a zone, `2026Z`.
 * frictionless-py writes the year 26 as `26`, which it then cannot read, since it reads only 4 digits. IOStreams
   writes `0026`, or the number `26` in JSON.
-* frictionless-py reads a month of one digit, such as `2026-1`. The spec and IOStreams require `YYYY-MM`.
+* frictionless-py reads a month of one digit, such as `2026-1`. The spec and IOStreams require `YYYY-MM`, while
+  IOStreams also reads `2026-10-01`, and raises for any other day, such as `2026-10-02`.
 * frictionless-py reads a `yearmonth` as a pair of its year and month, `(2026, 10)`, where IOStreams reads a `Date` on
   the first of the month.
 * frictionless-py also reads a JSON array of the year and month, such as `[2026, 10]`, which IOStreams raises for.
@@ -798,7 +805,9 @@ end
 
 * **`object`** is read as a `Hash`, from the text of a JSON object, such as `{"theme":"dark"}`.
 * **`array`** is read as an `Array`, from the text of a JSON array, such as `[10,12]`.
-* **Written as** that JSON text. A JSON file holds the object or array itself.
+* **Written as** that JSON text. A JSON file holds the object or array itself. A `Float` within it that is not finite,
+  such as `NaN`, raises `IOStreams::Errors::InvalidValue`, naming the field, since JSON cannot hold it, while a
+  `BigDecimal` that is not finite is written as its text, such as `"NaN"`.
 * **From other sources** a `Hash` or an `Array` is read as JSON holds it: its keys become Strings, and a `Symbol`,
   `BigDecimal`, `Date` or `Time` within it becomes its text, so that a record reads the same from every source.
 
@@ -1094,7 +1103,6 @@ properties that IOStreams adds to the spec, such as `aliases` and `allowBlank`, 
 | Type | Text or value | The spec | frictionless-py 5.21 | IOStreams |
 |------|---------------|----------|----------------------|-----------|
 | every type | a missing value, written | not defined | the first of `missingValues`, such as `NA` | the first of `missingValues`, or `null` in JSON |
-| every type | an empty CSV value without quotes, such as in `a,,b`, with `missingValues: ["NA"]` | not defined | `""` for a `string` or `any`, otherwise raises | `nil` |
 | every type | the JSON number `-99`, with `missingValues: ["-99"]` | missing values are text | missing, `nil` | not missing, `-99` |
 | every type | `missingValues` that repeat a text, such as `["NA", "NA"]` | each one once | accepted | raises `ArgumentError` |
 | every type | `missingValues` of both text and objects | not allowed | rejects the schema | raises `ArgumentError` |
@@ -1137,11 +1145,13 @@ properties that IOStreams adds to the spec, such as `aliases` and `allowBlank`, 
 | `datetime` | a fraction of a second, written | optional milliseconds | left out | written, such as `.250` |
 | `time` | a fraction of a second, written | `hh:mm:ss`, no fraction | left out | written, such as `09:30:00.250` |
 | `datetime`, `time` | `timeZone` | not defined | ignored | the zone of text without an offset, and of the clock of a spreadsheet's cell |
+| `datetime` | `2026-10-13T24:00:00` | ISO 8601 | `2026-10-14T00:00:00` | raises |
 | `time` | `24:00:00` | `hh:mm:ss` | `00:00:00` | raises |
 | `time` | the offset of a time, written | not defined | written, such as `09:30:00-0500` | not written, unless its `format` writes it |
 | `year` | `-0044`, `12026` or `2026Z` | `gYear` reads them | raises | raises |
 | `year` | the year 26, written | not defined | `26` | `0026`, or the number `26` in JSON |
 | `yearmonth` | `2026-1` | raises | reads | raises |
+| `yearmonth` | `2026-10-01` | raises | raises | reads 2026-10-01 |
 | `yearmonth` | `2026-10`, read | not defined | a pair, `(2026, 10)` | a `Date`, 2026-10-01 |
 | `yearmonth` | the JSON array `[2026, 10]` | `YYYY-MM` | reads | raises |
 | `duration` | `minimum` and `maximum` | allowed | not supported | checked |

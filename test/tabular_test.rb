@@ -415,10 +415,18 @@ class TabularTest < Minitest::Test
         assert_equal({"first" => "1", "fourth" => "4"}, tabular.record_parse("1,2,3,4"))
       end
 
-      it "returns the value of the last column when two have the same name" do
-        tabular.header.columns = %w[a b a]
+      it "raises InvalidHeader for two columns that are the same key, rather than keep the value of only one of them" do
+        [%w[a b a], ["Amount", "b", "amount "]].each do |columns|
+          tabular.header.columns = columns
+          tabular.header.cleanse!
+          error = assert_raises(IOStreams::Errors::InvalidHeader) { tabular.record_parse("1,2,3") }
 
-        assert_equal({"a" => "3", "b" => "2"}, tabular.record_parse("1,2,3"))
+          assert_equal "The columns #{columns[0].inspect} and #{columns[2].inspect} are the same key, \"#{columns[0].downcase}\", " \
+                       "which a record without a schema cannot hold twice: rename one of them, or set a schema whose fields " \
+                       "name each one, which can be two fields of the same name for a format whose columns are in order, " \
+                       "such as CSV, read as rows", error.message
+          assert_equal %w[1 2 3], tabular.row_parse("1,2,3")
+        end
       end
 
       it "uses the columns set after a row is parsed" do
@@ -1429,12 +1437,12 @@ class TabularTest < Minitest::Test
       end
 
       it "writes CSV with the usual text of each value" do
-        assert_equal "12.5,2026-10-13T09:30:00.250Z,2026-10-13,2026-10-13T09:30:00+00:00,3,true,",
+        assert_equal "12.5,2026-10-13T09:30:00.250Z,2026-10-13,2026-10-13T09:30:00Z,3,true,",
                      with_columns(columns, format: :csv).render(values)
       end
 
       it "writes PSV with the usual text of each value" do
-        assert_equal "12.5|2026-10-13T09:30:00.250Z|2026-10-13|2026-10-13T09:30:00+00:00|3|true|",
+        assert_equal "12.5|2026-10-13T09:30:00.250Z|2026-10-13|2026-10-13T09:30:00Z|3|true|",
                      with_columns(columns, format: :psv).render(values)
       end
 
@@ -1465,7 +1473,7 @@ class TabularTest < Minitest::Test
       it "writes JSON with a BigDecimal, Date or Time as text, within a Hash or an Array too, and other values as they are" do
         record = values.merge("items" => [{"price" => BigDecimal("1.5")}, 2])
 
-        assert_equal %({"amount":"12.5","at":"2026-10-13T09:30:00.250Z","on":"2026-10-13","stamp":"2026-10-13T09:30:00+00:00",) +
+        assert_equal %({"amount":"12.5","at":"2026-10-13T09:30:00.250Z","on":"2026-10-13","stamp":"2026-10-13T09:30:00Z",) +
                      %("count":3,"ok":true,"none":null,"items":[{"price":"1.5"},2]}),
                      IOStreams::Tabular.new(format: :json).render(record)
         assert_equal BigDecimal("1.5"), record["items"].first["price"]
@@ -1485,7 +1493,7 @@ class TabularTest < Minitest::Test
         without_coder = IOStreams::Tabular::Parser::Json.stub(:coder, nil) { IOStreams::Tabular.new(format: :json).render(record) }
 
         assert_equal without_coder, with_coder
-        assert_equal '{"amount":"12.5","at":"2026-10-13T09:30:00.250Z","on":"2026-10-13","stamp":"2026-10-13T09:30:00+00:00",' \
+        assert_equal '{"amount":"12.5","at":"2026-10-13T09:30:00.250Z","on":"2026-10-13","stamp":"2026-10-13T09:30:00Z",' \
                      '"count":3,"ok":true,"none":null,"1":"integer key","symbol":"value","2026-01-02":"date key",' \
                      '"0.15e1":"number key","custom":{"custom":1},"nested":{"list":["1.25",{"on":"2026-01-02"},"text",4]}}',
                      with_coder
@@ -1625,7 +1633,7 @@ class TabularTest < Minitest::Test
         fields = columns.map { |name| name == "count" ? {name: name, type: "number", decimals: 1} : {name: name} }
         schema = IOStreams::Schema.new(fields: fields)
 
-        assert_equal "12.5,2026-10-13T09:30:00.250Z,2026-10-13,2026-10-13T09:30:00+00:00,3.0,true,",
+        assert_equal "12.5,2026-10-13T09:30:00.250Z,2026-10-13,2026-10-13T09:30:00Z,3.0,true,",
                      IOStreams::Tabular.new(format: :csv, schema: schema).render(values)
       end
     end

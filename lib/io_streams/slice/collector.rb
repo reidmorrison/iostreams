@@ -9,8 +9,9 @@ module IOStreams
     # The tabular reads the header row, and decides which row it is, see `IOStreams::Tabular#read_line`, so that the
     # header row is matched to the fields of the schema, and raises `IOStreams::Errors::InvalidHeader` when they do not
     # match, before the first slice is handed on. It is not a row of any slice: each slice carries it instead, see
-    # `IOStreams::Slice#header`, with the format of the rows and whether their blank rows are records, which the tabular
-    # says, see `IOStreams::Tabular#blank_rows?`.
+    # `IOStreams::Slice#header`, with the format of the rows, whether their blank rows are records, and whether their
+    # values are the cells of a source of typed values, which the tabular says, see `IOStreams::Tabular#blank_rows?` and
+    # `IOStreams::Tabular#cell_text?`.
     #
     # Each slice also holds the numbers of each of its rows, see `IOStreams::Slice#each`: the line of the file that it
     # starts on, which whoever adds the rows supplies when it knows it, and its record number, which whoever adds the
@@ -153,7 +154,8 @@ module IOStreams
           @record_number = number if number
           @count        += 1
           validate(text, line_number, number) if @validate
-          @slice ||= Slice.new(header: header, format: @tabular.format, blank_rows: @tabular.blank_rows?, schema: @schema)
+          @slice ||= Slice.new(header: header, format: @tabular.format, blank_rows: @tabular.blank_rows?,
+                               cell_text: @tabular.cell_text?, schema: @schema)
           @slice.add(text, line_number: line_number, record_number: number)
           flush if @slice.size >= @size
         end

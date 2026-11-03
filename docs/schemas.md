@@ -164,7 +164,7 @@ IOStreams.path("orders.csv").schema(IOStreams::Schema.new(JSON.parse(File.read("
 | `array` | an `Array`, from the text of a JSON array, such as `[1,2]`, or an `Array` as JSON holds it, see below | that JSON text, or in JSON an array |
 | `list` | an `Array` of items of its `itemType`, from text of the items separated by its `delimiter`, such as `a,b,c`, each in the default form of its type, or from an `Array`, or a single value that is not text as a list of that one item | the items separated by its `delimiter`, or in JSON an array |
 | `year` | an `Integer` from 0 to 9999, from text of 4 digits, such as `2026`, or a whole number | 4 digits, or in JSON a number |
-| `yearmonth` | a `Date` on the first of its month, from text such as `2026-10`, or a `Date` on the first of its month, up to the year 9999 | `2026-10` |
+| `yearmonth` | a `Date` on the first of its month, from text such as `2026-10` or `2026-10-01`, or a `Date` on the first of its month, up to the year 9999 | `2026-10` |
 | `geopoint` | a point on the earth, `[lon, lat]`, two `BigDecimal`s, from the form of its `format`: `default`, the text `90.50, 45.50`; `array`, a JSON array, such as `[90.50, 45.50]`, or its text; or `object`, a JSON object, such as `{"lon": 90.50, "lat": 45.50}`, or its text | the form of its `format` |
 | `any` | the value as it is read | the value, with a `BigDecimal`, `Date` or `Time` as its text, and in a format of text a `Hash` or an `Array` as JSON, see [Values without a field](#values-without-a-field) |
 
@@ -182,7 +182,8 @@ empty `bytea` or BLOB of a query, is `nil` too, where frictionless-py keeps empt
 
 A value that is not one of the type of its field, such as `N/A` for an `integer`, raises
 `IOStreams::Errors::InvalidValue`, naming the field and the value, both when reading and when writing. So does a `date`
-or `datetime` that does not exist, such as `2026-02-30`, and a `time` that is not on a clock, such as `24:00:00`.
+or `datetime` that does not exist, such as `2026-02-30`, and a `datetime` or `time` that is not on a clock, such as
+`24:00:00`.
 
 A `time` is written as the time of its own clock, as a Rails app shows it, so a shift that starts at 09:30 in New York
 is written as `09:30:00`, whatever time zone the server is in. A `time` read from text with an offset keeps it, such as
@@ -196,7 +197,8 @@ as the `:hash` format, a Parquet file or a query, gives the same record as JSON:
 such as `{theme: :dark, limit: BigDecimal("12.5")}` read as `{"theme" => "dark", "limit" => "12.5"}`, while any other
 value is kept as it is, such as a `Rational`, which can differ from the value that its JSON text reads. Frictionless
 keeps a dict as it is, so IOStreams adds this. Hashes and Arrays nested more than 100 deep, as JSON reads them, such as
-a Hash that holds itself, raise `IOStreams::Errors::InvalidValue`.
+a Hash that holds itself, raise `IOStreams::Errors::InvalidValue`, and so does writing a `Float` within one that is not
+finite, such as `NaN`, which JSON cannot hold, naming the field.
 
 JSON writes integers, numbers and booleans as JSON numbers and booleans, with all of the digits of a `number`, and the
 digits after the decimal point that its `decimals` give, such as `12.50`, the same as CSV, an `object` or an `array`
@@ -339,9 +341,10 @@ As Frictionless requires, a list holds either text or such objects, not both, an
 otherwise setting the schema raises `ArgumentError`, naming the text or label that it repeats.
 
 Without `""`, empty text is a value: a `string` or `any` field reads it as `""`, and every other type raises
-`IOStreams::Errors::InvalidValue` for it. An empty value of CSV without quotes, such as the second value of `a,,b`, is
-still `nil` whatever the missing values, since the CSV parser reads it as no value, while a quoted one, `""`, is empty
-text. A required field raises for a missing value, as it does for `nil`.
+`IOStreams::Errors::InvalidValue` for it. An empty value of CSV is empty text with a schema, with or without quotes,
+such as the second value of `a,,b`, as frictionless-py reads it, and so are the empty values at the end of a line of
+PSV, such as the last of `a|b|`, so the missing values decide them too. A required field
+raises for a missing value, as it does for `nil`.
 
 A value that is not text, such as a number of JSON, a Parquet file or a query, is never a missing value, apart from a
 cell of a spreadsheet, whose text is compared with them, as Frictionless compares the text of a value before it reads its
@@ -349,8 +352,10 @@ type, so a cell that holds the number `-99` is `nil` with `missingValues: ["-99"
 text of a cell is the text that the CSV of the spreadsheet holds, see [Excel spreadsheets](formats#excel-spreadsheets).
 
 Writing writes `nil`, and a missing value, as the first missing value of the field, such as `NA`, as frictionless-py
-does, so that it reads back as `nil`, or as an empty value when that is empty text, or there are none, and as `null` in
-JSON. A fixed width file writes such a value of a number as it is, space filled, rather than as zeros.
+does, so that it reads back as `nil`, or as an empty value when that is empty text, and as `null` in JSON. Without
+missing values, `missingValues: []`, a format of text, such as CSV, raises `IOStreams::Errors::InvalidValue` for `nil`,
+since no text would read back as missing, not even an empty value, which reads back as `""`, while JSON writes `null`.
+A fixed width file writes such a value of a number as it is, space filled, rather than as zeros.
 
 A [contract](contracts) read over the records of a schema of the file takes the values that the schema read from the
 text, so the missing values of the contract do not apply to them: only those of the schema, which reads the text.
@@ -455,9 +460,10 @@ Writing writes the text of each number with its `groupChar` between each group o
 writes plain numbers, such as `1234.50`, since a JSON number has neither, and reads its numbers as they are. A number
 that is not finite is written as `NaN`, `INF` or `-INF`.
 
-The slices of a spreadsheet, see [Background Jobs](background_jobs), hold the CSV text of its cells, with a number as
-the workbook holds it, such as `1234.5`, rather than in the form that these properties describe. So read them with a
-schema without `groupChar`, `decimalChar` and `bareNumber`, since `groupChar: "."` would read `1234.5` as `12345`.
+The slices of a spreadsheet, see [Background Jobs](background_jobs), hold the text of its number cells as the workbook
+holds it, such as `1234.5`, rather than in the form that these properties describe, so a slice says so, and a number
+of its rows is read as that text first, then with `groupChar`, `decimalChar` and `bareNumber`, which a text cell can
+hold, as the spreadsheet reads its cells, see [Excel spreadsheets](formats#excel-spreadsheets).
 
 ### Formats of dates and times
 
@@ -470,6 +476,7 @@ IOStreams reads as Python does:
 | `%Y` | the year, exactly 4 digits, such as `2026`, so that `31/10/26` raises `IOStreams::Errors::InvalidValue` for `%d/%m/%Y`, rather than read the year 26, as does `%G`, the year of an ISO 8601 week | 4 digits |
 | `%y` | the year of the century, exactly 2 digits, such as `26` for 2026, so that `1/2/5` raises for `%d/%m/%y` | 2 digits |
 | `%f` | the microseconds of the second, 1 to 6 digits, such as `5` for half a second | 6 digits, such as `500000` |
+| `%H`, `%S` | the hour, `00` to `23`, and the second, `00` to `59`, so that the time of a `date`, `datetime` or `time` is on a clock: the hour `24`, such as `24:00`, and a leap second, `60`, raise, rather than read the next day, or the second before it, or be ignored by a `date`, as Ruby reads them | 2 digits |
 
 A directive that reads several, such as `%F`, which is `%Y-%m-%d`, or `%c`, reads its year as they do, and so does a
 directive with the modifier `E` or `O`, such as `%EY`. A `format` that starts with `fmt:`, as Data Package v0 wrote it,
@@ -989,8 +996,8 @@ A value of a file without a schema, or of a field without a type, is written as 
 | Value | Written as |
 |-------|------------|
 | `BigDecimal` | a plain decimal, such as `12.5`, rather than `0.125e2` |
-| `Float` or `BigDecimal` that is not finite | `NaN`, `INF` or `-INF`, as the Frictionless spec spells them, rather than Ruby's `Infinity`, while JSON, which cannot hold one, raises `IOStreams::Errors::InvalidValue`, apart from a `BigDecimal` inside a `Hash` or an `Array`, which it writes as that text |
-| `Time` or `DateTime` | ISO 8601, such as `2026-10-13T09:30:00Z`, with its fraction of a second in groups of 3 digits, as many as it needs, such as `.100`, `.250` or `.123456` |
+| `Float` or `BigDecimal` that is not finite | `NaN`, `INF` or `-INF`, as the Frictionless spec spells them, rather than Ruby's `Infinity`, while JSON, which cannot hold one, raises `IOStreams::Errors::InvalidValue`, naming its key, also a `Float` inside a `Hash` or an `Array` written as JSON in any format, naming its column, apart from a `BigDecimal` inside one, which it writes as that text |
+| `Time` or `DateTime` | ISO 8601, such as `2026-10-13T09:30:00Z`, with its fraction of a second in groups of 3 digits, as many as it needs, such as `.100`, `.250` or `.123456`, and `Z` for a `Time` in UTC, or a `DateTime` at an offset of zero |
 | `Date` | ISO 8601, such as `2026-10-13` |
 | `Hash` or `Array` | JSON, such as `{"a":1}` or `[1,2]`, as the JSON format writes it |
 | any other value | its `to_s`, such as `42` or `true` |

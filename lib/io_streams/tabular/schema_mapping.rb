@@ -50,6 +50,11 @@ module IOStreams
       #     `IOStreams::Schema::Field#parse` and `IOStreams::Schema::Field#render`.
       #     Default: nil, the form of the format, see `IOStreams::Tabular::Parser::Base.value_form`.
       #
+      #   cell_text: [true|false]
+      #     Whether the text of the values read is the text of the cells of a source whose cells hold typed values, such
+      #     as a slice of a spreadsheet, which the fields of the schema read, see `IOStreams::Schema::Columns#initialize`.
+      #     Default: false
+      #
       #   See `IOStreams::Tabular::Mapping#initialize` for the others.
       #
       # Raises ArgumentError when the rows of a format with a header row, such as CSV, have none, and the schema cannot
@@ -57,7 +62,7 @@ module IOStreams
       # JSON, or a contract meets the records of the schema, also in the `:array` mode, which two fields of the same key
       # cannot be, see `IOStreams::Schema#check_record_keys`.
       def initialize(schema, header:, parser:, format:, blank_rows: true, headerless: nil, typed: false, every_field: false,
-                     contract: nil, part_of_file: false, value_form: nil)
+                     contract: nil, part_of_file: false, value_form: nil, cell_text: false)
         super(header: header, parser: parser, format: format, blank_rows: blank_rows)
         schema.check_record_keys if parser.class.keyed? || contract
         @schema          = schema
@@ -69,14 +74,15 @@ module IOStreams
         @columns         =
           if contract
             IOStreams::Schema::ContractColumns.new(
-              schema.columns(typed: typed, every_field: true, form: @form, part_of_file: part_of_file),
+              schema.columns(typed: typed, every_field: true, form: @form, part_of_file: part_of_file,
+                             cell_text: cell_text),
               contract.columns(every_field: true, form: @form, read: true, part_of_file: part_of_file)
             )
           else
             # A contract reads a key that a record leaves out as a missing value, while a schema of the file keeps the
             # rule of `fieldsMatch` for each record, as in v2.2.
             schema.columns(typed: typed, every_field: every_field, keys_vary: every_field && parser.class.keys_vary?,
-                           form: @form, part_of_file: part_of_file)
+                           form: @form, part_of_file: part_of_file, cell_text: cell_text)
           end
         @requires_header = parser.requires_header? && (headerless.nil? ? schema.header? : !headerless)
         # Whether each row is a record whose keys are its columns, such as JSON, rather than the values in the order of

@@ -2921,7 +2921,12 @@ Without a [schema](schemas), every value is read as text, and written as its tex
 * `each(:hash)` keys each record by the columns of the header row, cleansed: lower case, with spaces and dashes
   replaced with `_`, and other punctuation removed, while letters and digits of any language are kept. So the column
   `First Name` is the key `first_name`, `Zip-Code` is `zip_code`, `Amount ($)` is `amount_`, and `Prénom` is `prénom`.
-  A column whose name has nothing left once cleansed, such as `#`, is skipped. JSON keys are used as they are.
+  A column whose name has nothing left once cleansed, such as `#`, is skipped. JSON keys are used as they are. Two
+  columns that are the same key once cleansed, such as a header row of `a,a,b`, or `First Name` and `first_name`, or
+  `Né` and `NÉ`, raise `IOStreams::Errors::InvalidHeader` before the first record, since a record cannot hold both,
+  rather than keep the value of only one of them. Writing rows to JSON, whose keys are the columns as they are, raises
+  only for two columns of exactly the same name, such as `a` and `a`, and writes `First Name` and `first_name` as two
+  keys. `each(:array)` still reads the rows, and a [schema](schemas) can name both, with two fields of the same name.
 * `each(:array)` yields the header row as it is, then each row of values. A JSON or Parquet file has no header row, so
   its first row is a header row of the keys of its first record, and each row after it the values of a record in
   that order, see [JSON files](#json-files). The header row is an `IOStreams::Row::HeaderRow`, an Array that says
@@ -2956,7 +2961,8 @@ IOStreams.path("example.psv").read
 ~~~
 
 In CSV, a value that is empty is read as `nil`, and a quoted empty value, `""`, as an empty String, unless a
-[schema](schemas#types) reads it, which reads empty text as `nil`, a missing value, as Frictionless does.
+[schema](schemas#types) reads it, which reads both as empty text, which is `nil`, a missing value, as Frictionless
+does, unless its [missing values](schemas#missing-values) say otherwise.
 
 ## JSON files
 
@@ -3133,7 +3139,9 @@ a field of its type reads it, and a number as the workbook holds it, such as `10
 shows. A number of a date
 or time format that is not a date that Excel holds, such as a negative number, which Excel shows as `####`, is its
 number, in the lines and in the rows. A field whose `missingValues` hold text other than empty text, such as `"-99"`,
-compares that text of each cell with them, whatever the type of the cell, see [Missing values](schemas#missing-values).
+compares that text of each cell with them, whatever the type of the cell, see [Missing values](schemas#missing-values),
+and reads a row whose every cell is a missing value as a record of missing values, as its CSV text reads, rather than
+as a blank row.
 A `datetime` or `time` field with a `timeZone` reads the clock of a cell of a date and time, or of a time of day, in its
 zone, since a cell holds no zone, such as `2026-07-01 09:30` as `13:30` UTC in `America/New_York`, see
 [Time zones](schemas#time-zones), while the lines, which have no schema, hold the clock as UTC, as above.
@@ -3144,8 +3152,20 @@ the number `1.5`, as a list of that one item, `[1.5]`, as the CSV text of the ce
 a `string` field does, such as `["2134"]`.
 
 The rows that `each(:slice)` reads are the values of the cells, in the `:array` format, and `slice.to_h` holds each
-`Date` and `Time` as its ISO 8601 text, which a schema or contract reads back. A `delimiter:` raises `ArgumentError` for
-the rows and records, which are cells rather than lines.
+`Date` and `Time` as its text, such as `2026-07-01`, and each number as JSON holds it, such as `1234.5`, as do the
+slices of the CSV text of a spreadsheet, copied to a [store of slices](background_jobs#a-store-of-slices) with
+`copy_from(path, mode: :line)`, as text. That text is the default text of each type, rather than the text that a schema
+describes, so the slices of a spreadsheet say that they hold its cells, `slice.cell_text?`, and `IOStreams.stream(slice)`
+reads each value as the spreadsheet reads its cell, also once the slice is stored: the default text of its type first,
+such as `1234.5`, `2026-07-01` or `true`, then the text that the field describes, with the `groupChar`, `decimalChar`
+and `bareNumber` of a number, the `trueValues` and `falseValues` of a boolean, and the `format` of a date, datetime or
+time, which a text cell can hold, such as `1.234,50` for `decimalChar: ","`, `01/07/2026` for `format: "%d/%m/%Y"`, or
+`Y` for `trueValues: ["Y"]`. Its missing values, the `delimiter` of a list and the `timeZone` of a datetime or time
+still apply. Text that is both, such as a text cell `1.234` with `groupChar: "."` and `decimalChar: ","`, is read as the
+default text in a slice, `1.234`, while the spreadsheet itself reads it by the schema, `1234`. Lines of the CSV text
+written to a store by hand, with `writer(:line)`, do not say that they hold cells, so a schema reads them as the text of
+a file, such as `1234.5` as `12345` with `groupChar: "."`: copy them with `copy_from(path, mode: :line)` instead. A
+`delimiter:` raises `ArgumentError` for the rows and records, which are cells rather than lines.
 
 Writing writes a workbook with one worksheet, with the `xlsxtream` gem. The rows and records are written as the types
 of their values, by the fields of a schema or contract when there is one, so that a number is a number cell, a `Date` a
@@ -4086,7 +4106,7 @@ IOStreams.path("orders.csv").schema(IOStreams::Schema.new(JSON.parse(File.read("
 | `array` | an `Array`, from the text of a JSON array, such as `[1,2]`, or an `Array` as JSON holds it, see below | that JSON text, or in JSON an array |
 | `list` | an `Array` of items of its `itemType`, from text of the items separated by its `delimiter`, such as `a,b,c`, each in the default form of its type, or from an `Array`, or a single value that is not text as a list of that one item | the items separated by its `delimiter`, or in JSON an array |
 | `year` | an `Integer` from 0 to 9999, from text of 4 digits, such as `2026`, or a whole number | 4 digits, or in JSON a number |
-| `yearmonth` | a `Date` on the first of its month, from text such as `2026-10`, or a `Date` on the first of its month, up to the year 9999 | `2026-10` |
+| `yearmonth` | a `Date` on the first of its month, from text such as `2026-10` or `2026-10-01`, or a `Date` on the first of its month, up to the year 9999 | `2026-10` |
 | `geopoint` | a point on the earth, `[lon, lat]`, two `BigDecimal`s, from the form of its `format`: `default`, the text `90.50, 45.50`; `array`, a JSON array, such as `[90.50, 45.50]`, or its text; or `object`, a JSON object, such as `{"lon": 90.50, "lat": 45.50}`, or its text | the form of its `format` |
 | `any` | the value as it is read | the value, with a `BigDecimal`, `Date` or `Time` as its text, and in a format of text a `Hash` or an `Array` as JSON, see [Values without a field](#values-without-a-field) |
 
@@ -4104,7 +4124,8 @@ empty `bytea` or BLOB of a query, is `nil` too, where frictionless-py keeps empt
 
 A value that is not one of the type of its field, such as `N/A` for an `integer`, raises
 `IOStreams::Errors::InvalidValue`, naming the field and the value, both when reading and when writing. So does a `date`
-or `datetime` that does not exist, such as `2026-02-30`, and a `time` that is not on a clock, such as `24:00:00`.
+or `datetime` that does not exist, such as `2026-02-30`, and a `datetime` or `time` that is not on a clock, such as
+`24:00:00`.
 
 A `time` is written as the time of its own clock, as a Rails app shows it, so a shift that starts at 09:30 in New York
 is written as `09:30:00`, whatever time zone the server is in. A `time` read from text with an offset keeps it, such as
@@ -4118,7 +4139,8 @@ as the `:hash` format, a Parquet file or a query, gives the same record as JSON:
 such as `{theme: :dark, limit: BigDecimal("12.5")}` read as `{"theme" => "dark", "limit" => "12.5"}`, while any other
 value is kept as it is, such as a `Rational`, which can differ from the value that its JSON text reads. Frictionless
 keeps a dict as it is, so IOStreams adds this. Hashes and Arrays nested more than 100 deep, as JSON reads them, such as
-a Hash that holds itself, raise `IOStreams::Errors::InvalidValue`.
+a Hash that holds itself, raise `IOStreams::Errors::InvalidValue`, and so does writing a `Float` within one that is not
+finite, such as `NaN`, which JSON cannot hold, naming the field.
 
 JSON writes integers, numbers and booleans as JSON numbers and booleans, with all of the digits of a `number`, and the
 digits after the decimal point that its `decimals` give, such as `12.50`, the same as CSV, an `object` or an `array`
@@ -4261,9 +4283,10 @@ As Frictionless requires, a list holds either text or such objects, not both, an
 otherwise setting the schema raises `ArgumentError`, naming the text or label that it repeats.
 
 Without `""`, empty text is a value: a `string` or `any` field reads it as `""`, and every other type raises
-`IOStreams::Errors::InvalidValue` for it. An empty value of CSV without quotes, such as the second value of `a,,b`, is
-still `nil` whatever the missing values, since the CSV parser reads it as no value, while a quoted one, `""`, is empty
-text. A required field raises for a missing value, as it does for `nil`.
+`IOStreams::Errors::InvalidValue` for it. An empty value of CSV is empty text with a schema, with or without quotes,
+such as the second value of `a,,b`, as frictionless-py reads it, and so are the empty values at the end of a line of
+PSV, such as the last of `a|b|`, so the missing values decide them too. A required field
+raises for a missing value, as it does for `nil`.
 
 A value that is not text, such as a number of JSON, a Parquet file or a query, is never a missing value, apart from a
 cell of a spreadsheet, whose text is compared with them, as Frictionless compares the text of a value before it reads its
@@ -4271,8 +4294,10 @@ type, so a cell that holds the number `-99` is `nil` with `missingValues: ["-99"
 text of a cell is the text that the CSV of the spreadsheet holds, see [Excel spreadsheets](formats#excel-spreadsheets).
 
 Writing writes `nil`, and a missing value, as the first missing value of the field, such as `NA`, as frictionless-py
-does, so that it reads back as `nil`, or as an empty value when that is empty text, or there are none, and as `null` in
-JSON. A fixed width file writes such a value of a number as it is, space filled, rather than as zeros.
+does, so that it reads back as `nil`, or as an empty value when that is empty text, and as `null` in JSON. Without
+missing values, `missingValues: []`, a format of text, such as CSV, raises `IOStreams::Errors::InvalidValue` for `nil`,
+since no text would read back as missing, not even an empty value, which reads back as `""`, while JSON writes `null`.
+A fixed width file writes such a value of a number as it is, space filled, rather than as zeros.
 
 A [contract](contracts) read over the records of a schema of the file takes the values that the schema read from the
 text, so the missing values of the contract do not apply to them: only those of the schema, which reads the text.
@@ -4377,9 +4402,10 @@ Writing writes the text of each number with its `groupChar` between each group o
 writes plain numbers, such as `1234.50`, since a JSON number has neither, and reads its numbers as they are. A number
 that is not finite is written as `NaN`, `INF` or `-INF`.
 
-The slices of a spreadsheet, see [Background Jobs](background_jobs), hold the CSV text of its cells, with a number as
-the workbook holds it, such as `1234.5`, rather than in the form that these properties describe. So read them with a
-schema without `groupChar`, `decimalChar` and `bareNumber`, since `groupChar: "."` would read `1234.5` as `12345`.
+The slices of a spreadsheet, see [Background Jobs](background_jobs), hold the text of its number cells as the workbook
+holds it, such as `1234.5`, rather than in the form that these properties describe, so a slice says so, and a number
+of its rows is read as that text first, then with `groupChar`, `decimalChar` and `bareNumber`, which a text cell can
+hold, as the spreadsheet reads its cells, see [Excel spreadsheets](formats#excel-spreadsheets).
 
 ### Formats of dates and times
 
@@ -4392,6 +4418,7 @@ IOStreams reads as Python does:
 | `%Y` | the year, exactly 4 digits, such as `2026`, so that `31/10/26` raises `IOStreams::Errors::InvalidValue` for `%d/%m/%Y`, rather than read the year 26, as does `%G`, the year of an ISO 8601 week | 4 digits |
 | `%y` | the year of the century, exactly 2 digits, such as `26` for 2026, so that `1/2/5` raises for `%d/%m/%y` | 2 digits |
 | `%f` | the microseconds of the second, 1 to 6 digits, such as `5` for half a second | 6 digits, such as `500000` |
+| `%H`, `%S` | the hour, `00` to `23`, and the second, `00` to `59`, so that the time of a `date`, `datetime` or `time` is on a clock: the hour `24`, such as `24:00`, and a leap second, `60`, raise, rather than read the next day, or the second before it, or be ignored by a `date`, as Ruby reads them | 2 digits |
 
 A directive that reads several, such as `%F`, which is `%Y-%m-%d`, or `%c`, reads its year as they do, and so does a
 directive with the modifier `E` or `O`, such as `%EY`. A `format` that starts with `fmt:`, as Data Package v0 wrote it,
@@ -4911,8 +4938,8 @@ A value of a file without a schema, or of a field without a type, is written as 
 | Value | Written as |
 |-------|------------|
 | `BigDecimal` | a plain decimal, such as `12.5`, rather than `0.125e2` |
-| `Float` or `BigDecimal` that is not finite | `NaN`, `INF` or `-INF`, as the Frictionless spec spells them, rather than Ruby's `Infinity`, while JSON, which cannot hold one, raises `IOStreams::Errors::InvalidValue`, apart from a `BigDecimal` inside a `Hash` or an `Array`, which it writes as that text |
-| `Time` or `DateTime` | ISO 8601, such as `2026-10-13T09:30:00Z`, with its fraction of a second in groups of 3 digits, as many as it needs, such as `.100`, `.250` or `.123456` |
+| `Float` or `BigDecimal` that is not finite | `NaN`, `INF` or `-INF`, as the Frictionless spec spells them, rather than Ruby's `Infinity`, while JSON, which cannot hold one, raises `IOStreams::Errors::InvalidValue`, naming its key, also a `Float` inside a `Hash` or an `Array` written as JSON in any format, naming its column, apart from a `BigDecimal` inside one, which it writes as that text |
+| `Time` or `DateTime` | ISO 8601, such as `2026-10-13T09:30:00Z`, with its fraction of a second in groups of 3 digits, as many as it needs, such as `.100`, `.250` or `.123456`, and `Z` for a `Time` in UTC, or a `DateTime` at an offset of zero |
 | `Date` | ISO 8601, such as `2026-10-13` |
 | `Hash` or `Array` | JSON, such as `{"a":1}` or `[1,2]`, as the JSON format writes it |
 | any other value | its `to_s`, such as `42` or `true` |
@@ -5147,17 +5174,16 @@ missing. Writing writes `nil` as the first missing value of the field, such as `
 back as `nil`, or as an empty value when that is empty text, and as `null` in JSON. See
 [Missing values](schemas#missing-values).
 
-An empty CSV value without quotes, such as the middle value of `a,,b`, holds no text, so it is always `nil`, whatever
-the missing values. Of empty values, the missing values decide only what one within quotes, `""`, is: without `""`
-among them, a `string` or `any` field reads it as `""`, and the other types raise for it.
+An empty CSV value is empty text, with or without quotes, such as the middle value of `a,,b` or `a,"",b`, so the
+missing values decide what it is: without `""` among them, a `string` or `any` field reads it as `""`, and the other
+types raise for it. Without any missing values, `missingValues: []`, writing `nil` to a format of text, such as CSV,
+raises `IOStreams::Errors::InvalidValue`, since no text would read back as missing.
 
 **Compared with Frictionless**
 
 * The spec does not say how to write a missing value. IOStreams writes the first of the missing values, as
-  frictionless-py does, apart from JSON, which writes `null`.
-* frictionless-py reads an empty CSV value the same with or without quotes. Without `""` among the missing values, it
-  reads both as `""` for a `string` or `any`, and raises for the other types. IOStreams reads an empty value without
-  quotes as `nil`.
+  frictionless-py does, apart from JSON, which writes `null`, and raises for one without missing values, which
+  frictionless-py writes as an empty value that reads back as `""`.
 * frictionless-py compares the text of every value with the missing values, so the JSON number `-99` is missing for
   `["-99"]`. IOStreams compares only text, since the spec says that missing values are text, so the number is `-99`,
   apart from a cell of a spreadsheet, whose text it compares, so a cell that holds the number `-99` is missing.
@@ -5553,14 +5579,18 @@ end
 ### `datetime`
 
 * **Read as** a `Time`, from ISO 8601 with seconds, such as `2026-10-13T09:30:00Z`, `2026-10-13T09:30:00.250Z` or
-  `2026-10-13T09:30:00-05:00`. A date alone, or a time without seconds, raises.
+  `2026-10-13T09:30:00-05:00`. A date alone, a time without seconds, and a time that is not on a clock, such as
+  `2026-10-13T24:00:00`, raise, as for a `time`, also in its `format`.
 * **Also reads** a space in place of the `T`, such as `2026-10-13 09:30:00`, and an offset from UTC without a colon,
   or of hours alone, such as `+0530` or `+05`, as databases write them.
 * **Text without an offset** from UTC, such as `2026-10-13T09:30:00`, is read as UTC, so that a file reads the same on
   every server, or in the `timeZone` of the field, see [Time zones](#time-zones).
 * **Written as** ISO 8601 with its offset, such as `2026-10-13T09:30:00Z` for UTC or `2026-10-13T09:30:00+05:30`, or
   in its `format`. A fraction of a second is written in groups of 3 digits, as many as it needs, such as `.100`,
-  `.250` or `.123456`.
+  `.250` or `.123456`. A `DateTime` at an offset of zero is in UTC, written with `Z`, as a `Time` in UTC is, since a
+  `DateTime` does not tell UTC from another zone at that offset, while text that says an offset of zero, such as
+  `+00:00`, or `+0000` read with a `format` that has `%z`, keeps it, as a `Time` does, and `Z`, `UTC` or `-00:00` is
+  UTC.
 
 ~~~ruby
 IOStreams.path("visits.csv").write(<<~CSV)
@@ -5600,6 +5630,8 @@ puts path.read
   both also read a space for the `T`, and an offset such as `+0530` or `+05`.
 * frictionless-py reads any one character between the date and the time, such as `_` or a lower case `t`, a lower
   case `z`, and a comma before the fraction of a second, such as `09:30:00,5`. IOStreams raises for them.
+* frictionless-py reads `2026-10-13T24:00:00`, the end of a day, as the midnight of the next day, `2026-10-14T00:00:00`.
+  IOStreams raises for it, as for a `time` of `24:00:00`.
 * The spec does not give text without an offset a zone, and frictionless-py reads it as a time without one, which it
   writes without an offset. IOStreams reads it as UTC, or in the `timeZone` of the field, and writes it with its
   offset, such as `Z`.
@@ -5737,7 +5769,8 @@ See [Time zones](schemas#time-zones). Neither the spec nor frictionless-py has `
 
 ### `yearmonth`
 
-* **Read as** a `Date` on the first of its month, from `YYYY-MM`, such as `2026-10`.
+* **Read as** a `Date` on the first of its month, from `YYYY-MM`, such as `2026-10`, or from the date of the first of a
+  month, `2026-10-01`, the text of a spreadsheet's cell that holds that date.
 * **Written as** `2026-10`.
 
 ~~~ruby
@@ -5765,7 +5798,8 @@ end
   a zone, `2026Z`.
 * frictionless-py writes the year 26 as `26`, which it then cannot read, since it reads only 4 digits. IOStreams
   writes `0026`, or the number `26` in JSON.
-* frictionless-py reads a month of one digit, such as `2026-1`. The spec and IOStreams require `YYYY-MM`.
+* frictionless-py reads a month of one digit, such as `2026-1`. The spec and IOStreams require `YYYY-MM`, while
+  IOStreams also reads `2026-10-01`, and raises for any other day, such as `2026-10-02`.
 * frictionless-py reads a `yearmonth` as a pair of its year and month, `(2026, 10)`, where IOStreams reads a `Date` on
   the first of the month.
 * frictionless-py also reads a JSON array of the year and month, such as `[2026, 10]`, which IOStreams raises for.
@@ -5807,7 +5841,9 @@ end
 
 * **`object`** is read as a `Hash`, from the text of a JSON object, such as `{"theme":"dark"}`.
 * **`array`** is read as an `Array`, from the text of a JSON array, such as `[10,12]`.
-* **Written as** that JSON text. A JSON file holds the object or array itself.
+* **Written as** that JSON text. A JSON file holds the object or array itself. A `Float` within it that is not finite,
+  such as `NaN`, raises `IOStreams::Errors::InvalidValue`, naming the field, since JSON cannot hold it, while a
+  `BigDecimal` that is not finite is written as its text, such as `"NaN"`.
 * **From other sources** a `Hash` or an `Array` is read as JSON holds it: its keys become Strings, and a `Symbol`,
   `BigDecimal`, `Date` or `Time` within it becomes its text, so that a record reads the same from every source.
 
@@ -6103,7 +6139,6 @@ properties that IOStreams adds to the spec, such as `aliases` and `allowBlank`, 
 | Type | Text or value | The spec | frictionless-py 5.21 | IOStreams |
 |------|---------------|----------|----------------------|-----------|
 | every type | a missing value, written | not defined | the first of `missingValues`, such as `NA` | the first of `missingValues`, or `null` in JSON |
-| every type | an empty CSV value without quotes, such as in `a,,b`, with `missingValues: ["NA"]` | not defined | `""` for a `string` or `any`, otherwise raises | `nil` |
 | every type | the JSON number `-99`, with `missingValues: ["-99"]` | missing values are text | missing, `nil` | not missing, `-99` |
 | every type | `missingValues` that repeat a text, such as `["NA", "NA"]` | each one once | accepted | raises `ArgumentError` |
 | every type | `missingValues` of both text and objects | not allowed | rejects the schema | raises `ArgumentError` |
@@ -6146,11 +6181,13 @@ properties that IOStreams adds to the spec, such as `aliases` and `allowBlank`, 
 | `datetime` | a fraction of a second, written | optional milliseconds | left out | written, such as `.250` |
 | `time` | a fraction of a second, written | `hh:mm:ss`, no fraction | left out | written, such as `09:30:00.250` |
 | `datetime`, `time` | `timeZone` | not defined | ignored | the zone of text without an offset, and of the clock of a spreadsheet's cell |
+| `datetime` | `2026-10-13T24:00:00` | ISO 8601 | `2026-10-14T00:00:00` | raises |
 | `time` | `24:00:00` | `hh:mm:ss` | `00:00:00` | raises |
 | `time` | the offset of a time, written | not defined | written, such as `09:30:00-0500` | not written, unless its `format` writes it |
 | `year` | `-0044`, `12026` or `2026Z` | `gYear` reads them | raises | raises |
 | `year` | the year 26, written | not defined | `26` | `0026`, or the number `26` in JSON |
 | `yearmonth` | `2026-1` | raises | reads | raises |
+| `yearmonth` | `2026-10-01` | raises | raises | reads 2026-10-01 |
 | `yearmonth` | `2026-10`, read | not defined | a pair, `(2026, 10)` | a `Date`, 2026-10-01 |
 | `yearmonth` | the JSON array `[2026, 10]` | `YYYY-MM` | reads | raises |
 | `duration` | `minimum` and `maximum` | allowed | not supported | checked |
@@ -6566,7 +6603,8 @@ file name, so a copy can also convert the file:
 
 * from one storage location to another, such as from SFTP to S3;
 * from one compression or encryption to another, such as from `.gz` to `.pgp`;
-* from one format to another, such as from CSV to JSON or Parquet.
+* from one format to another, such as from CSV to JSON or Parquet, see
+  [Converting rows and records](#converting-rows-and-records).
 
 ## Copying a file
 
@@ -6600,6 +6638,25 @@ IOStreams.path("xyz.csv.pgp").option(:pgp, recipient: "receiver@example.org").co
 ~~~
 
 A copy without a mode returns the number of bytes copied, as written to the target before its streams.
+
+A copy without a mode into a file of another format, such as `people.csv` into `people.json` or `people.parquet`,
+copies the rows, as the `:array` mode does, see [Converting rows and records](#converting-rows-and-records), so that
+the target is a file of its own format, rather than CSV text in a JSON or Parquet file, and returns the number of rows
+copied, the header row of a CSV source included. A Parquet or fixed width target needs a schema for that, its own or
+one that the source declares, as in the `:array` mode. These are copied as they are:
+
+* a source or target whose format is not known, such as an IO or a `.txt` file;
+* a source and target of the same format, such as `people.csv` into `people.csv.pgp`;
+* a spreadsheet to or from CSV, since its text is CSV;
+* a source or target read or written as it is stored, with `#raw`;
+* a source or target whose rows are the text of each line as it is, `format(:text)`, or Ruby objects, `format(:hash)`
+  or `format(:array)`.
+
+To keep the text of the source in a file of another format, copy it with `mode: :line`, which keeps the streams of
+each, or set the format of the target to that of the source, such as `IOStreams.path("people.json").format(:csv)`.
+
+The source of a copy that holds rows rather than bytes, such as an Active Record relation or a slice, is always copied
+as the `:array` mode copies it, whatever the format of the target.
 
 The source of a copy in the `:array` or `:hash` mode can also be an Active Record relation, whose rows are read with
 one query, and written by the types of its columns, see [Exporting queries](queries):
@@ -6646,7 +6703,10 @@ IOStreams.path("people.csv").copy_from("people.json", mode: :array)
 
 Use `:hash` for JSON whose records do not all have the same keys, since a row has no column for a key that the first
 record does not have, so the `:array` mode raises `IOStreams::Errors::InvalidHeader` for it. A blank row of the
-source, such as an empty line or a line of only commas, is skipped, see [Blank rows](streams#blank-rows).
+source, such as an empty line or a line of only commas, is skipped, see [Blank rows](streams#blank-rows). Each row is
+written in the format of the target, so a value of a row beyond its header row, such as the `3` of `1,2,3` under the
+header row `a,b`, is not written to JSON, whose records are keyed by the header row, and PSV writes a line break within
+a value as a space, and a `|` within it as `:`, since PSV does not quote its values.
 
 ## Choosing the columns
 
@@ -6680,10 +6740,11 @@ IOStreams.path("people.json").copy_from(source, mode: :hash)
 ~~~
 
 A target with neither a schema nor a [contract](contracts) of its own takes the types of the rows that the copy reads,
-when the source has them: the contract that the source is read through, otherwise the schema of a source of typed rows,
-such as a Parquet file, an [Active Record query](queries#keeping-the-types-of-the-columns), or a slice of typed values.
-So a Parquet file copied to another keeps the type of each column that holds values of one type, and CSV writes each
-number with its decimals:
+when the source has them: the contract that the source is read through, otherwise the schema set on the source, also
+on a file of text, such as CSV or a spreadsheet, otherwise the schema of a source of typed rows, such as a Parquet file,
+an [Active Record query](queries#keeping-the-types-of-the-columns), or a slice of typed values. So a Parquet file
+copied to another keeps the type of each column that holds values of one type, CSV writes each number with its
+decimals, and a spreadsheet writes the clock of the `timeZone` of a field to each cell:
 
 ~~~ruby
 # The source's contract gives the Parquet columns their types.
@@ -6699,14 +6760,31 @@ IOStreams.path("orders.parquet").copy_from(source, mode: :hash)
 IOStreams.path("archive/orders.parquet").copy_from("orders.parquet", mode: :hash)
 ~~~
 
-A file of text, such as CSV, or of values that each have their own type, such as JSON or a spreadsheet, gives nothing,
-since its types are never guessed, so a Parquet target needs a schema or a contract, and raises `ArgumentError` before
-it is opened without one, so that an existing file is kept.
+~~~ruby
+source = IOStreams.path("ny.xlsx").schema(
+  fields: [
+    {name: "at", type: "datetime", timeZone: "America/New_York"},
+    {name: "amount", type: "number", decimals: 2}
+  ]
+)
+# Each cell holds the clock of New York, such as 09:30, as the source's cell does.
+IOStreams.path("copy.xlsx").copy_from(source, mode: :hash)
+# 2026-07-01T09:30:00-04:00,12.50
+IOStreams.path("copy.csv").copy_from(source, mode: :hash)
+~~~
 
-* The contract is handed on without what says how the source writes its text, the `format` of a date and the
-  `trueValues` and `falseValues` of a boolean, so that the target writes its own, such as a date in ISO 8601. It keeps
-  the `timeZone` of a `datetime` or `time`, which says which clock its values are, so that a spreadsheet target writes
-  the clock of the zone to each cell, as the source read it, see [Time zones](schemas#time-zones).
+A file of text, such as CSV, or of values that each have their own type, such as JSON or a spreadsheet, without a
+schema gives nothing, since its types are never guessed, so a Parquet target needs a schema or a contract, and raises
+`ArgumentError` before it is opened without one, so that an existing file is kept.
+
+* The contract or schema is handed on without what says how the source writes its text, such as the `format` of a
+  date, the `trueValues` and `falseValues` of a boolean, the `groupChar` of a number and the missing values, so that
+  the target writes its own, such as a date in ISO 8601. It keeps the `timeZone` of a `datetime` or `time`, which says
+  which clock its values are, so that a spreadsheet target writes the clock of the zone to each cell, as the source
+  read it, see [Time zones](schemas#time-zones).
+* A schema set on the source is handed on without what lays out its file, `header` and the `width` and `start` of a
+  field, and without the fields that only hold the place of a column, `skip: true`, so that the target writes its own
+  layout, such as a header row of the names of the fields to a CSV file copied from one without a header row.
 * A column of a Parquet file of lists, maps or structs is an `array` or `object`, which another Parquet file holds as
   JSON text, and a column of binary values is of type `any`, which Parquet cannot write without a schema on the target
   that gives its type.
@@ -6818,9 +6896,9 @@ record has one value for each name: two columns of the same name raise `Argument
 the type that the database gives it, rather than that of an attribute, see
 [Keeping the types of the columns](#keeping-the-types-of-the-columns).
 
-A copy needs a mode, since a query holds rows rather than bytes, so `copy_from(relation)` without one raises
-`ArgumentError`. It returns the number of rows read, header row included, as the copy of a file returns the number of
-its lines.
+A copy without a mode copies the rows as the `:array` mode does, whatever the format of the target, since a query
+holds rows rather than bytes. It returns the number of rows read, header row included, as the copy of a file returns
+the number of its lines.
 
 A relation that is read as one query is opened, and its first rows are read, before the copy opens its target, so that
 a query that cannot run, such as on a database that cannot stream it, keeps an existing file as it was. A failure after
@@ -7546,6 +7624,12 @@ slice.to_h
   as a Time is a Date. A value of a field of type `any`, such as a computed column of a query, is held as JSON holds it,
   a time, a date or a BigDecimal as its text, which comes back as text. To replace the rows of a slice with others in
   the same form, `slice.with_rows(rows)` returns a new slice that keeps everything else that the slice says.
+* The slices of an Excel spreadsheet hold `"cell_text" => true`, those of its cells from `each(:slice)`, and those of
+  its CSV text from `copy_from(path, mode: :line)`, since they hold each number, date and boolean cell as its default
+  text, such as `1234.5`, rather than the text of a file that a schema describes, such as `1.234,5`.
+  `IOStreams.stream(slice)` reads that text first, then the text that the field describes, which a text cell can hold,
+  as the spreadsheet reads its cells, see [Excel spreadsheets](formats#excel-spreadsheets). Lines of its CSV text
+  written to a store with `writer(:line)` do not say so, so copy them with `copy_from` instead.
 
 ### Choosing the size of a slice
 
@@ -8161,7 +8245,10 @@ A slice holds its rows, and is responsible for them and their numbers, so it is 
   for a record before its first row or after the one after its last.
 * Slices are equal when they hold the same rows, with the same numbers, header row and format.
 * `slice.to_json` writes the Hash that `slice.to_h` returns, which `IOStreams.slice(JSON.parse(json))` turns back into
-  the slice.
+  the slice. `slice.to_json` and `slice.as_json` raise `IOStreams::Errors::InvalidValue` for a `Float` that is not
+  finite, such as `NaN`, within a value of a row, such as the `Hash` of an `object` field, naming its column and
+  record, since JSON cannot hold it, rather than the json gem's `JSON::GeneratorError`, or the `null` that
+  ActiveSupport writes, which would come back as `nil`.
 
 When a row does not follow the row before it, such as the row after a quoted value that holds line breaks, the Hash of
 the slice lists it under `"jumps"`, as `[index, line_number, record_number]`, and numbers the rows after it from it:
@@ -8379,7 +8466,9 @@ IOStreams raises these classes itself:
     does not allow, or is missing a required field, or a row has values after its last column that the schema does not
     skip, and when writing, the keys of a record, or the columns or values of a row, that the schema does not skip.
     `#contract_errors` lists the problems of the columns before any row is read, see
-    [Checking a source](contracts#checking-a-source-before-the-work-starts).
+    [Checking a source](contracts#checking-a-source-before-the-work-starts). Without a schema, it is also raised for
+    a header row of two columns that are the same key of a record, such as `a,a,b`, when its records are read, see
+    [Records and rows without a schema](formats#records-and-rows-without-a-schema).
   * `IOStreams::Errors::IncompatibleType`: a column whose type its source declares, such as a Parquet file, a query or
     the schema of a file, can never be the type of its field in a [contract](contracts), such as a boolean for a
     number. It is raised when the stream opens, before the first row, and is not an `InvalidHeader`, so that code that
@@ -10093,7 +10182,10 @@ Start with the changes that apply to your application:
 | Writes a `Time` or `DateTime` through a `date` field of a schema | [A date field takes a time only at midnight](#a-date-field-takes-a-time-only-at-midnight) |
 | Reads JSON, fixed width or Parquet files with `each(:array)` or `reader(:array)`, or uploads them to Rocket Job in its `:array` mode | [Rows of JSON, fixed width and Parquet files are Arrays](#rows-of-json-fixed-width-and-parquet-files-are-arrays) |
 | Reads rows or records that can be blank, such as CSV exports with lines of only commas, or JSON records of only nulls | [Blank rows are the same in every format](#blank-rows-are-the-same-in-every-format) |
+| Reads records without a schema from files whose header row repeats a column, such as `a,a,b` | [Two columns of the same key raise `InvalidHeader`](#two-columns-of-the-same-key-raise-invalidheader) |
 | Supplies options to `#option`, `#stream`, `#reader`, `#writer` or the copy methods | [Reading, writing and options](#reading-writing-and-options) |
+| Copies a file into one of another format without a `mode:`, such as `.csv` into `.json` | [A copy without a mode converts the format](#a-copy-without-a-mode-converts-the-format) |
+| Copies the rows or records of a source with a schema into a target without one | [A copy hands the schema of its source to the target](#a-copy-hands-the-schema-of-its-source-to-the-target) |
 | Calls methods such as `#rewind`, `#pos` or `#size` on the IO that a block receives | [The stream of a reader block is not the reader of a gem](#the-stream-of-a-reader-block-is-not-the-reader-of-a-gem), and for S3 and HTTP [S3 objects are read without a temp file](#s3-objects-are-read-without-a-temp-file) and [S3 objects are written without a temp file](#s3-objects-are-written-without-a-temp-file) |
 | Reads or writes an IO supplied with `IOStreams.stream(io)` | [Gzip and `.enc` streams leave your IO open](#gzip-and-enc-streams-leave-your-io-open), [Text written with an encoding to your IO keeps it](#text-written-with-an-encoding-to-your-io-keeps-it), [BZip2 leaves your IO in its mode](#bzip2-leaves-your-io-in-its-mode), and [A failed write to your IO is not completed](#a-failed-write-to-your-io-is-not-completed) |
 | Reads or writes PGP files, or manages PGP keys | [PGP](#pgp) |
@@ -10391,6 +10483,22 @@ IOStreams.path("people.csv").each(:hash, skip_blanks: true) do |person|
 end
 ~~~
 
+#### Two columns of the same key raise `InvalidHeader`
+
+Reading records without a schema, with `each(:hash)` or a copy in the `:hash` mode, of a file whose header row has two
+columns that are the same key, such as `a,a,b`, or `First Name` and `first_name`, which cleanse to the same key, now
+raises `IOStreams::Errors::InvalidHeader` before the first record, naming both columns. Writing rows to JSON under a
+header row of two columns of exactly the same name, such as `a` and `a`, raises too, while `First Name` and
+`first_name` are written as two keys, since JSON keys are the columns as they are. Previously each record held only the
+value of the last of them, such as `{"a" => "2", "b" => "3"}` for the row `1,2,3`, without an error. v2.2 reports such
+a header row as deprecated, apart from two columns whose letters that are not ASCII differ only in case, such as `Né`
+and `NÉ`: v3.0 keeps those letters when it cleanses a header row, see
+[Cleansing a header row keeps letters that are not ASCII](#cleansing-a-header-row-keeps-letters-that-are-not-ascii),
+so both cleanse to `né` and raise, while v2.2 drops them, cleansing them to `n`, and so cannot report them.
+
+Fix: rename one of the columns, or read its rows with `each(:array)`, which keeps the value of each column, with or
+without a [schema](schemas), whose fields can be two fields of the same name.
+
 #### Hash keys match columns once cleansed
 
 When writing a hash, a key such as `"First Name"` now supplies the value of the column `first_name`, such as a column
@@ -10591,8 +10699,8 @@ as JSON in CSV, PSV, fixed width files and spreadsheets, the same as the JSON fo
 | `[1, 2]` | `[1,2]` | its `to_s`, `[1, 2]`, or in PSV its items as more columns |
 
 Its `to_s` is Ruby's inspect text, which other programs cannot read as JSON. A `Float` within it that JSON cannot
-hold, such as `NaN`, is handled as writing JSON handles it: it raises, or is written as `null` where ActiveSupport
-writes JSON, as in Rails.
+hold, such as `NaN`, raises `IOStreams::Errors::InvalidValue`, naming its column, as writing it to JSON does, also
+where ActiveSupport writes JSON, as in Rails, which wrote `null` for it.
 
 Fix: to write another form, convert the value to text before writing it.
 
@@ -10942,6 +11050,42 @@ option, instead of ignoring it. v2.2 reports such an option as deprecated. Optio
 
 Fix: remove the option, which had no effect. To configure a stream, use `#option` or `#stream`, for
 example `path.option(:pgp, passphrase: "secret").reader { |io| io.read }`.
+
+#### A copy without a mode converts the format
+
+`#copy_from` and `#copy_to` without a `mode:` now copy the rows of the source, as the `:array` mode does, when the
+source and target are in different tabular formats, as their file names or `#format` give them, such as `people.csv`
+into `people.json`, `people.psv` or `people.parquet`, so that the target is a file of its own format, and return the
+number of rows copied. Previously the copy wrote the text of the source into the target as it was, such as CSV text
+into a file named `.json`, which then did not read as JSON, and returned the number of bytes. A Parquet target needs a
+schema, as in the `:array` mode. A source or target whose format is not known, such as an IO or a `.txt` file, a
+source and target of the same format, and a spreadsheet to or from CSV are still copied as they are.
+
+A source or target read or written as it is stored, with `#raw`, and one whose rows are the text of each line,
+`format(:text)`, or Ruby objects, `format(:hash)` or `format(:array)`, are copied as they are too. The number of rows
+returned includes the header row of a CSV source. A source of rows rather than bytes, such as an Active Record relation
+or a slice, is copied as the `:array` mode copies it, whatever the format of the target, where it raised
+`ArgumentError`.
+
+Fix: nothing, unless the code relied on the copy keeping the text of the source, or on its number of bytes: then copy it
+with `mode: :line`, which keeps the text of each line and applies the streams of each, or set the format of the target
+to that of the source, such as `IOStreams.path("people.json").format(:csv).copy_from("people.csv")`. `convert: false`
+is not the same: it also drops the streams of both, so it copies the data as it is stored, such as the gzip bytes of a
+`.csv.gz` file into a `.json` file.
+
+#### A copy hands the schema of its source to the target
+
+A copy in the `:array` or `:hash` mode, or without a mode between two formats, gives a target with neither a schema nor
+a contract of its own the schema set on the source, also on a file of text, such as CSV or a spreadsheet, without
+what says how the source lays out its file and writes the text of its values, such as `header`, the `width` of a
+field, the `format` of a date and the missing values, so that the target writes each value by its field: a number with
+its `decimals`, such as `12.50` for `decimals: 2`, where `12.5` was written, and a `datetime` or `time` with a
+`timeZone` as the clock of that zone in each cell of a spreadsheet, such as `09:30` for `America/New_York`, where its
+clock in UTC, `13:30`, was written. Previously only a contract and a source of typed rows, such as a Parquet file or a
+query, handed their types on, and the target wrote each value of a file of text as its usual text.
+
+Fix: nothing, unless the code relied on the target writing the usual text of each value: then give the target a schema
+or a [contract](contracts) of its own, which it keeps.
 
 #### An option for a format applies to each of its extensions
 
@@ -11861,6 +12005,13 @@ for each one.
   the whole message.
 - Without a schema, a `Float` or `BigDecimal` that is not finite is written to CSV, and the other formats of text, as
   `INF` or `-INF`, as Frictionless spells them, where v2.1 wrote `Infinity` or `-Infinity`.
+- Without a schema, a `Float` that is not finite written to JSON, such as `{"rate" => Float::NAN}`, or within a
+  `Hash` or an `Array`, raises `IOStreams::Errors::InvalidValue`, naming its key, where v2.1 raised the json gem's
+  `JSON::GeneratorError`, or wrote `null` where ActiveSupport writes JSON, as in Rails. Rescue
+  `IOStreams::Errors::InvalidValue` instead.
+- Without a schema, a `DateTime` at an offset of zero is written with `Z`, as a `Time` in UTC is, such as
+  `2026-10-13T09:30:00Z`, to CSV, JSON, the other formats of text and `slice.to_h`, where v2.2 wrote
+  `2026-10-13T09:30:00+00:00`. v2.2 already writes `Z` for it through a field of a schema.
 
 ## Upgrading to v2.2
 
@@ -11891,8 +12042,9 @@ v2.2 and v3.0. Each still works, and gives the same result, as before. They are,
   `IOStreams.enforce_column_restrictions=`, see
   [Moving the column options to a schema](#moving-the-column-options-to-a-schema); those of them that only apply when
   reading, supplied to a writer or a copy; `embedded_within:` when reading rows and records; `each(:array)` of JSON or
-  fixed width without a schema; the rows and records of a `.text` file without `#format`; a format other than `:csv`
-  for a spreadsheet; the rows and records of a spreadsheet read without a type for each column, and `delimiter:` and an
+  fixed width without a schema; the rows and records of a `.text` file without `#format`; records read without a
+  schema from a header row of two columns that are the same key, such as `a,a,b`; a format other than `:csv` for a
+  spreadsheet; the rows and records of a spreadsheet read without a type for each column, and `delimiter:` and an
   encoding set with `#encoding` for them; and a `Time` or `DateTime` that is not at midnight converted by a `date`
   field.
 * [Reading, writing and options](#reading-writing-and-options): an option that neither the reader nor the writer of a

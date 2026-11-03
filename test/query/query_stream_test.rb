@@ -669,6 +669,21 @@ class QueryStreamTest < Minitest::Test
                        "\"notes\":\"first, \\\"quoted\\\"\",\"data\":{\"x\":1}}\n", output.string
         end
 
+        it "copies the rows without a mode as the :array mode does, whatever the format of the target" do
+          %i[csv json psv].each do |format|
+            expected = StringIO.new
+            IOStreams.stream(expected).format(format).copy_from(orders.select(:id, :name), mode: :array)
+            output = StringIO.new
+            IOStreams.stream(output).format(format).copy_from(orders.select(:id, :name))
+
+            assert_equal expected.string, output.string, format
+          end
+          output = StringIO.new
+          IOStreams.stream(output).format(:csv).copy_from(orders.select(:name))
+
+          assert_equal "name\na\nb\nc\n", output.string
+        end
+
         it "writes the batches of a relation" do
           output = StringIO.new
           IOStreams.stream(output).format(:csv).copy_from(db.order.select(:id, :name).in_batches(of: 2), mode: :array)
@@ -728,13 +743,6 @@ class QueryStreamTest < Minitest::Test
           end
 
           assert_empty names
-        end
-
-        it "raises without a mode, since a query holds rows rather than bytes" do
-          error = assert_raises(ArgumentError) { IOStreams.stream(StringIO.new).copy_from(orders) }
-
-          assert_equal "A query is read in the :array, :hash, :record or :slice mode, not :stream, since it holds rows rather " \
-                       "than bytes or lines", error.message
         end
       end
 

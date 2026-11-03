@@ -77,6 +77,15 @@ module IOStreams
       :typed
     end
 
+    # Returns [true|false] whether the rows of this format are cells that hold typed values, such as a number, a date or
+    # a boolean, whose text, see #text_format, is the default text of each value, such as `1234.5`, `2026-07-01` and
+    # `true`, rather than the text of a file that a schema describes, such as with a `groupChar`, so that the slices of
+    # its rows say so, see `IOStreams::Slice#cell_text?`, and are read as its cells are, also once stored. False for a
+    # format whose data is the text, such as gzip.
+    def cell_text?
+      false
+    end
+
     # Returns [Array<Symbol>] the options whose values must not be displayed, such as a passphrase, as declared
     # by the reader and the writer with `sensitive_option_names`.
     def sensitive_option_names

@@ -214,6 +214,15 @@ class XlsxRowsTest < Minitest::Test
 
         assert_equal [{"score" => nil, "note" => "x"}, {"score" => 3, "note" => "y"}], read(IOStreams.path(file_name).schema(schema))
       end
+
+      it "read a row whose every cell is a missing value as a record, as its CSV text reads" do
+        workbook(%w[score note], [-99, "NA"], [3, "y"])
+        schema = {missingValues: ["NA"], fields: [{name: "score", type: "integer", missingValues: ["-99"]}, {name: "note"}]}
+        rows   = [{"score" => nil, "note" => nil}, {"score" => 3, "note" => "y"}]
+
+        assert_equal rows, read(IOStreams.path(file_name).schema(schema))
+        assert_equal rows, read(IOStreams.path(file_name).format(:csv).schema(schema))
+      end
     end
 
     describe "cells of each kind" do

@@ -1413,8 +1413,18 @@ class SchemaTest < Minitest::Test
           assert_nil integer.render(nil, :json)
           assert_nil integer.render(nil, :typed)
           assert_nil schema_field({missingValues: ["", "NA"]}, type: "integer").render(nil, :text)
-          assert_nil schema_field({missingValues: []}, type: "integer").render(nil, :text)
           assert_nil field(type: "integer").render(nil, :text)
+        end
+
+        it "raises for nil written as text without missing values, which no text would read back as, and not otherwise" do
+          none  = schema_field({missingValues: []}, type: "integer")
+          error = assert_raises(IOStreams::Errors::InvalidValue) { none.render(nil, :text) }
+
+          assert_equal "value", error.field
+          assert_nil none.render(nil, :json)
+          assert_nil none.render(nil, :typed)
+          assert_nil none.render(nil, :scalar)
+          assert_equal "", schema_field({missingValues: []}, type: "string").render("", :text)
         end
 
         it "converts a value that a schema already read, or a store returned, without comparing it with them" do
@@ -1528,6 +1538,48 @@ class SchemaTest < Minitest::Test
           assert_equal JSON::Fragment.new("1234.50"), european.render("1.234,5", :json)
           assert_equal 1234, field(type: "integer", groupChar: ",").render("1,234", :json)
           assert_equal "1234.50", european.dump(european.cast("1.234,5"))
+        end
+
+        it "reads the plain number that #dump writes, without its groupChar and decimalChar, as a slice stores it" do
+          european = field(type: "number", groupChar: ".", decimalChar: ",")
+          grouped  = field(type: "number", groupChar: ",", bareNumber: false)
+
+          assert_equal BigDecimal("1234.5"), european.load(european.dump(european.cast("1.234,5")))
+          assert_equal BigDecimal("-1234.5"), grouped.load(grouped.dump(grouped.cast("($1,234.50)")))
+          assert_predicate european.load(european.dump(BigDecimal("Infinity"))), :infinite?
+          assert_raises(IOStreams::Errors::InvalidValue) { european.load("1.234,5") }
+        end
+
+        it "reads the text of a cell as the default text of its type first, then in the form of the field" do
+          european = field(type: "number", groupChar: ".", decimalChar: ",", missingValues: ["NA"])
+          count    = field(type: "integer", groupChar: ".")
+          paid     = field(type: "date", format: "%d/%m/%Y")
+          at       = field(type: "datetime", format: "%d/%m/%Y %H:%M", timeZone: "America/New_York")
+          done     = field(type: "boolean", trueValues: ["Y"], falseValues: ["N"])
+
+          assert_equal BigDecimal("1234.5"), european.parse_cell_text("1234.5", :text)
+          assert_equal BigDecimal("1234.5"), european.parse_cell_text("1.234,5", :text)
+          assert_equal BigDecimal("1.234"), european.parse_cell_text("1.234", :text)
+          assert_nil european.parse_cell_text("NA", :text)
+          assert_equal BigDecimal("12.5"), european.parse_cell_text(12.5, :scalar)
+          assert_equal 1234, count.parse_cell_text("1234.0", :text)
+          assert_equal 1234, count.parse_cell_text("1.234", :text)
+          assert_equal Date.new(2026, 7, 1), paid.parse_cell_text("2026-07-01", :text)
+          assert_equal Date.new(2026, 7, 1), paid.parse_cell_text("01/07/2026", :text)
+          assert_equal Time.utc(2026, 7, 1, 13, 30), at.parse_cell_text("2026-07-01T09:30:00", :text)
+          assert_equal Time.utc(2026, 7, 1, 13, 30), at.parse_cell_text("01/07/2026 09:30", :text)
+          assert done.parse_cell_text("true", :text)
+          refute done.parse_cell_text("N", :text)
+        end
+
+        it "raises for the text of a cell that is neither the default text of its type nor in the form of the field" do
+          paid  = field(type: "date", format: "%d/%m/%Y")
+          error = assert_raises(IOStreams::Errors::InvalidValue) { paid.parse_cell_text("2026-02-30", :text) }
+
+          assert_equal "2026-02-30", error.value
+          assert_raises(IOStreams::Errors::InvalidValue) do
+            field(type: "boolean", trueValues: ["Y"], falseValues: ["N"]).parse_cell_text("yes", :text)
+          end
         end
 
         it "reads a number of a format that holds numbers, such as JSON, as it is" do
@@ -1697,6 +1749,16 @@ class SchemaTest < Minitest::Test
           assert_equal "13/10/2026", pattern.render(Date.new(2026, 10, 13), :json)
         end
 
+        it "raises for a time in its format that is not on a clock, the hour 24 or a leap second, as Python's strptime does" do
+          pattern = field(type: "date", format: "%Y-%m-%d %H:%M:%S")
+
+          assert_raises(IOStreams::Errors::InvalidValue) { pattern.cast("2026-10-13 24:00:00") }
+          assert_raises(IOStreams::Errors::InvalidValue) { pattern.cast("2026-10-13 23:59:60") }
+          assert_equal Date.new(2026, 10, 13), pattern.cast("2026-10-13 23:59:59")
+          assert_raises(IOStreams::Errors::InvalidValue) { field(type: "time", format: "%H:%M:%S").cast("23:59:60") }
+          assert_raises(IOStreams::Errors::InvalidValue) { field(type: "time", format: "%H:%M").cast("24:00") }
+        end
+
         it "reads exactly 4 digits of a year with %Y, as Python's strptime does, rather than the year 26 of 2 digits" do
           pattern = field(type: "date", format: "%d/%m/%Y")
 
@@ -1852,6 +1914,20 @@ class SchemaTest < Minitest::Test
           assert_raises(IOStreams::Errors::InvalidValue) { field(type: "time").cast("09:30:00+0560") }
         end
 
+        it "raises for an hour of 24, as a time does, rather than read the midnight of the next day" do
+          pattern = field(type: "datetime", format: "%Y-%m-%d %H:%M:%S")
+          ["2026-10-13T24:00:00", "2026-10-13T24:00:00Z", "2026-12-31 24:00:00+05:00", "2026-10-13T23:60:00Z"].each do |text|
+            assert_raises(IOStreams::Errors::InvalidValue, text.inspect) { datetime.cast(text) }
+            assert_raises(IOStreams::Errors::InvalidValue, text.inspect) { datetime.load(text) }
+          end
+          ["2026-10-13 24:00:00", "2026-10-13 23:59:60"].each do |text|
+            assert_raises(IOStreams::Errors::InvalidValue, text.inspect) { pattern.cast(text) }
+          end
+          assert_equal Time.utc(2026, 10, 13, 23, 59, 59), pattern.cast("2026-10-13 23:59:59")
+          assert_equal Time.utc(2026, 10, 13, 23, 59, 59), datetime.cast("2026-10-13T23:59:59Z")
+          assert_equal Time.utc(2026, 10, 13, 21, 30), field(type: "datetime", format: "%Y-%m-%d %I:%M %p").cast("2026-10-13 09:30 PM")
+        end
+
         it "reads a space in place of the T, as databases write it, and an offset without a colon" do
           assert_equal Time.utc(2026, 10, 13, 9, 30), datetime.cast("2026-10-13 09:30:00")
           assert_predicate datetime.cast("2026-10-13 09:30:00"), :utc?
@@ -1891,6 +1967,18 @@ class SchemaTest < Minitest::Test
           assert_equal "2026-10-13T09:30:00Z", datetime.render(Time.utc(2026, 10, 13, 9, 30), :text)
           assert_equal "2026-10-13T09:30:00.250Z", datetime.render(Time.utc(2026, 10, 13, 9, 30, 0.25r), :text)
           assert_equal "2026-10-13T09:30:00.000001Z", datetime.render(Time.utc(2026, 10, 13, 9, 30, 0.000001r), :text)
+        end
+
+        it "writes a DateTime at UTC with Z, as a Time in UTC, since a DateTime does not tell UTC from an offset of 0" do
+          value = DateTime.new(2026, 10, 13, 9, 30, 0.25r)
+
+          assert_equal "2026-10-13T09:30:00.250Z", datetime.render(value, :text)
+          assert_equal "2026-10-13T09:30:00.250Z", datetime.render(value, :json)
+          assert_equal "2026-10-13T09:30:00.250Z", datetime.dump(value)
+          assert_equal "2026-10-13T09:30:00.250Z", field(type: "any").render(value, :text)
+          assert_predicate datetime.cast(value), :utc?
+          assert_equal "09:30:00Z", field(type: "time").dump(field(type: "time").cast(DateTime.new(2026, 10, 13, 9, 30)))
+          assert_equal "2026-10-13T09:30:00+05:30", datetime.render(DateTime.new(2026, 10, 13, 9, 30, 0, "+05:30"), :text)
         end
 
         it "reads and writes the format" do
@@ -1958,6 +2046,31 @@ class SchemaTest < Minitest::Test
           assert_equal Time.utc(2026, 10, 13, 9, 30), field(type: "datetime", format: "%s").cast("1791883800")
         end
 
+        it "keeps an offset of zero that the text says with a format, such as +0000, while Z and -0000 are UTC, as without a format" do
+          pattern = field(type: "datetime", format: "%Y-%m-%d %H:%M %z")
+
+          ["+0000", "+00:00"].each do |zone|
+            time = pattern.cast("2026-10-13 09:30 #{zone}")
+
+            assert_equal Time.utc(2026, 10, 13, 9, 30), time
+            refute_predicate time, :utc?, zone
+            assert_equal 0, time.utc_offset
+            assert_equal "2026-10-13T09:30:00+00:00", datetime.render(time, :text)
+          end
+          ["Z", "-0000", "-00:00", "UTC"].each do |zone|
+            time = pattern.cast("2026-10-13 09:30 #{zone}")
+
+            assert_equal Time.utc(2026, 10, 13, 9, 30), time
+            assert_predicate time, :utc?, zone
+          end
+          %w[+0000 -0000 Z].each do |zone|
+            assert_equal datetime.cast("2026-10-13T09:30:00#{zone}").utc?, pattern.cast("2026-10-13 09:30 #{zone}").utc?, zone
+          end
+          assert_equal 19_800, pattern.cast("2026-10-13 09:30 +0530").utc_offset
+          assert_predicate field(type: "datetime", format: "%Y-%m-%d %H:%M").cast("2026-10-13 09:30"), :utc?
+          assert_equal "09:30:00+00:00", field(type: "time", format: "%H:%M %z").dump(field(type: "time", format: "%H:%M %z").cast("09:30 +0000"))
+        end
+
         it "writes a time in UTC with a format without a zone, which reads it back as UTC, as the same time" do
           pattern = field(type: "datetime", format: "%Y-%m-%d %H:%M")
           time    = Time.new(2026, 10, 13, 9, 30, 0, "-04:00")
@@ -1972,6 +2085,40 @@ class SchemaTest < Minitest::Test
           assert_equal "2026-10-13 09:30 -0400", field(type: "datetime", format: "%Y-%m-%d %H:%M %z").render(time, :text)
           assert_equal "2026-10-13 09:30 -04:00", field(type: "datetime", format: "%Y-%m-%d %H:%M %:z").render(time, :text)
           assert_equal "100% 2026-10-13 13:30", field(type: "datetime", format: "100%% %Y-%m-%d %H:%M").render(time, :text)
+        end
+      end
+
+      describe "#load" do
+        it "raises for a date that does not exist, or a time that is not on a clock, as #cast does" do
+          datetime = field(type: "datetime", format: "%d/%m/%Y %H:%M")
+          clock    = field(type: "time", format: "%H.%M")
+          date     = field(type: "date", format: "%d/%m/%Y")
+          {
+            datetime => ["2026-02-30T09:30:00Z", "2026-04-31T09:30:00+05:00", "2026-10-13T24:00:00Z", "2026-10-13T23:59:60Z"],
+            clock    => ["24:00:00", "23:59:60Z", "23:60:00+05:00"]
+          }.each do |field, texts|
+            texts.each do |text|
+              assert_raises(IOStreams::Errors::InvalidValue, text) { field.load(text) }
+            end
+          end
+
+          assert_equal Time.utc(2026, 2, 28, 9, 30), datetime.load("2026-02-28T09:30:00Z")
+          assert_equal Time.utc(2028, 2, 29, 9, 30), datetime.load("2028-02-29T09:30:00Z")
+          assert_raises(IOStreams::Errors::InvalidValue) { datetime.load("2026-10-00T09:30:00Z") }
+          assert_raises(IOStreams::Errors::InvalidValue) { datetime.load("2026-13-01T09:30:00Z") }
+          assert_equal Time.new(2000, 1, 1, 23, 59, 59, "+05:00"), clock.load("23:59:59+05:00")
+          assert_equal Date.new(2026, 2, 28), date.load("2026-02-28")
+        end
+
+        it "checks the constraints of a date, datetime or time, as for any other type" do
+          {
+            field(type: "date", constraints: {maximum: "2026-01-01"})               => "2026-06-01",
+            field(type: "datetime", constraints: {maximum: "2026-01-01T00:00:00Z"}) => "2026-06-01T00:00:00Z",
+            field(type: "time", constraints: {maximum: "12:00:00"})                 => "13:00:00Z"
+          }.each do |field, text|
+            error = assert_raises(IOStreams::Errors::InvalidValue, text) { field.load(text) }
+            assert_match(/more than its maximum/, error.message)
+          end
         end
       end
 
@@ -2211,6 +2358,51 @@ class SchemaTest < Minitest::Test
                   error = assert_raises(IOStreams::Errors::InvalidValue) { object.render(value, form) }
                   assert_includes error.message, 'Field "value": '
                 end
+              end
+            end
+          end
+        end
+
+        it "raises InvalidValue naming the field for a number within it that is not finite, which JSON cannot hold" do
+          array = field(type: "array")
+          any   = field(type: "any")
+
+          json_writers.each do |coder|
+            IOStreams::Tabular::Parser::Json.stub(:coder, coder) do
+              [[object, {"a" => Float::NAN}], [array, [1, Float::INFINITY]], [any, [-Float::INFINITY]]].each do |field, value|
+                forms = field == any ? %i[text] : %i[text json scalar]
+                forms.each do |form|
+                  error = assert_raises(IOStreams::Errors::InvalidValue) { field.render(value, form) }
+                  assert_equal "value", error.field
+                  assert_match(/\AField "value": JSON cannot hold a number that is not finite: (NaN|INF|-INF)\z/, error.message)
+                end
+              end
+              # A BigDecimal within it is written as its text, as JSON holds it.
+              assert_equal '{"a":"NaN"}', object.render({"a" => BigDecimal("NaN")}, :text)
+            end
+          end
+        end
+
+        it "raises InvalidValue naming the key for a number that is not finite within a record written to JSON" do
+          json_writers.each do |coder|
+            IOStreams::Tabular::Parser::Json.stub(:coder, coder) do
+              [nil, {"fields" => [{"name" => "id"}, {"name" => "sizes"}]}].each do |schema|
+                stream = IOStreams.stream(StringIO.new).format(:json)
+                stream.schema(schema) if schema
+                error = assert_raises(IOStreams::Errors::InvalidValue) do
+                  stream.writer(:hash) { |io| io << {"id" => 1, "sizes" => [1.5, Float::NAN]} }
+                end
+
+                assert_equal "sizes", error.field
+                assert_equal 'Field "sizes": JSON cannot hold a number that is not finite: NaN', error.reason
+              end
+              %i[csv psv].each do |format|
+                error = assert_raises(IOStreams::Errors::InvalidValue) do
+                  IOStreams.stream(StringIO.new).format(format).writer(:hash) { |io| io << {"id" => 1, "sizes" => [Float::NAN]} }
+                end
+
+                assert_equal "sizes", error.field
+                assert_equal 'Field "sizes": JSON cannot hold a number that is not finite: NaN', error.reason
               end
             end
           end

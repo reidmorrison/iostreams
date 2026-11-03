@@ -2,6 +2,7 @@
 
 require_relative "test_helper"
 require "json"
+require "tmpdir"
 
 class CopySchemaTest < Minitest::Test
   class Order < IOStreams::Contract
@@ -30,6 +31,43 @@ class CopySchemaTest < Minitest::Test
 
       it "gives nothing to a target from a file of text, whose types are never guessed" do
         assert_equal csv, copy_to_csv(IOStreams.stream(StringIO.new(csv)).format(:csv))
+      end
+
+      it "gives a target the schema set on a file of text, without its layout and how it writes its text" do
+        schema = {
+          header: false,
+          fields: [
+            {name: "on", type: "date", format: "%m/%d/%Y"},
+            {name: "amount", type: "number", decimals: 2, groupChar: ","},
+            {name: "filler", skip: true},
+            {name: "ok", type: "boolean", trueValues: ["Y"], falseValues: ["N"]}
+          ]
+        }
+        source = IOStreams.stream(StringIO.new(%(10/25/2026,"1,234.5",x,Y\n))).format(:csv).schema(schema)
+
+        assert_equal "on,amount,ok\n2026-10-25,1234.50,true\n", copy_to_csv(source)
+      end
+
+      it "gives a target the timeZone of a field, so that a spreadsheet keeps the clock of its zone" do
+        Dir.mktmpdir do |dir|
+          schema = {fields: [{name: "at", type: "datetime", timeZone: "America/New_York"}, {name: "amount", type: "number", decimals: 2}]}
+          IOStreams.path(dir, "ny.xlsx").writer(:array) do |io|
+            io << %w[at amount]
+            io << [Time.utc(2026, 7, 1, 9, 30), 12.5]
+          end
+          source = IOStreams.path(dir, "ny.xlsx").schema(schema)
+          IOStreams.path(dir, "copy.xlsx").copy_from(source, mode: :hash)
+          rows = []
+          IOStreams.path(dir, "copy.xlsx").each(:array) { |row| rows << row }
+
+          assert_equal [%w[at amount], [Time.utc(2026, 7, 1, 9, 30), 12.5]], rows
+          IOStreams.path(dir, "copy.csv").copy_from(source, mode: :hash)
+
+          assert_equal "at,amount\n2026-07-01T09:30:00-04:00,12.50\n", IOStreams.path(dir, "copy.csv").read
+          IOStreams.path(dir, "copy.json").copy_from(source)
+
+          assert_equal %({"at":"2026-07-01T09:30:00-04:00","amount":12.50}\n), IOStreams.path(dir, "copy.json").read
+        end
       end
 
       it "keeps a contract of the target" do
@@ -63,11 +101,12 @@ class CopySchemaTest < Minitest::Test
         assert_equal "id,name\n1,Jack\n", out.string
       end
 
-      it "gives nothing from a slice of text, whose schema describes its text" do
-        slice  = IOStreams::Slice.new(["1,10/25/2026"], header: %w[id on], format: :csv)
-        source = IOStreams.stream(slice).schema(fields: [{name: "id"}, {name: "on", type: "date", format: "%m/%d/%Y"}])
+      it "gives the schema set on a slice of text without how it writes its text, and nothing without one" do
+        slice  = IOStreams::Slice.new(["1,10/25/2026,12.5"], header: %w[id on amount], format: :csv)
+        fields = [{name: "id"}, {name: "on", type: "date", format: "%m/%d/%Y"}, {name: "amount", type: "number", decimals: 2}]
 
-        assert_equal "id,on\n1,2026-10-25\n", copy_to_csv(source)
+        assert_equal "id,on,amount\n1,2026-10-25,12.50\n", copy_to_csv(IOStreams.stream(slice).schema(fields: fields))
+        assert_equal "id,on,amount\n1,10/25/2026,12.5\n", copy_to_csv(IOStreams.stream(slice))
       end
 
       it "gives a target the schema that a typed slice carries" do

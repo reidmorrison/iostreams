@@ -140,6 +140,12 @@ slice.to_h
   as a Time is a Date. A value of a field of type `any`, such as a computed column of a query, is held as JSON holds it,
   a time, a date or a BigDecimal as its text, which comes back as text. To replace the rows of a slice with others in
   the same form, `slice.with_rows(rows)` returns a new slice that keeps everything else that the slice says.
+* The slices of an Excel spreadsheet hold `"cell_text" => true`, those of its cells from `each(:slice)`, and those of
+  its CSV text from `copy_from(path, mode: :line)`, since they hold each number, date and boolean cell as its default
+  text, such as `1234.5`, rather than the text of a file that a schema describes, such as `1.234,5`.
+  `IOStreams.stream(slice)` reads that text first, then the text that the field describes, which a text cell can hold,
+  as the spreadsheet reads its cells, see [Excel spreadsheets](formats#excel-spreadsheets). Lines of its CSV text
+  written to a store with `writer(:line)` do not say so, so copy them with `copy_from` instead.
 
 ### Choosing the size of a slice
 
@@ -755,7 +761,10 @@ A slice holds its rows, and is responsible for them and their numbers, so it is 
   for a record before its first row or after the one after its last.
 * Slices are equal when they hold the same rows, with the same numbers, header row and format.
 * `slice.to_json` writes the Hash that `slice.to_h` returns, which `IOStreams.slice(JSON.parse(json))` turns back into
-  the slice.
+  the slice. `slice.to_json` and `slice.as_json` raise `IOStreams::Errors::InvalidValue` for a `Float` that is not
+  finite, such as `NaN`, within a value of a row, such as the `Hash` of an `object` field, naming its column and
+  record, since JSON cannot hold it, rather than the json gem's `JSON::GeneratorError`, or the `null` that
+  ActiveSupport writes, which would come back as `nil`.
 
 When a row does not follow the row before it, such as the row after a quoted value that holds line breaks, the Hash of
 the slice lists it under `"jumps"`, as `[index, line_number, record_number]`, and numbers the rows after it from it:

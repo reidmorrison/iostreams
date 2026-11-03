@@ -67,8 +67,9 @@ module IOStreams
     # they are only a part of a file, such as the rows of a slice, see `IOStreams::Slice::Stream`, and the format of the
     # text that its streams decide, such as the CSV of a spreadsheet, see `IOStreams::Tabular::Settings#tabular`, and the
     # form in which its rows hold the values of a schema, such as the cells of a spreadsheet, see
-    # `IOStreams::StreamFormat#rows_value_form`.
-    SOURCE_OPTION_NAMES = %i[blank_rows headerless typed part_of_file text_format value_form].freeze
+    # `IOStreams::StreamFormat#rows_value_form`, and whether the text of its values is the text of the cells of a source
+    # whose cells hold typed values, such as a slice of a spreadsheet, see `IOStreams::Slice#cell_text?`.
+    SOURCE_OPTION_NAMES = %i[blank_rows headerless typed part_of_file text_format value_form cell_text].freeze
 
     # Parse a delimited data source.
     #
@@ -155,10 +156,21 @@ module IOStreams
     #     reads or writes rows.
     #     Default: nil, the form of the format, see `IOStreams::Tabular::Parser::Base.value_form`.
     #
-    # Raises ArgumentError for a `headerless` that is not true, false or nil, or a `typed` or `part_of_file` that is not
-    # true or false.
+    #   cell_text: [true|false]
+    #     Whether the text of the values of the rows is the text of the cells of a source whose cells hold typed values,
+    #     such as the CSV text of a spreadsheet, or a slice of its cells once stored, see `IOStreams::Slice#cell_text?`:
+    #     the default text that IOStreams writes for a number, date, time or boolean cell, such as `1234.5`, or the text
+    #     of a text cell, so that the schema and the contract read the default text of the type of each field first,
+    #     before the text that the field describes, such as with a `groupChar`, see
+    #     `IOStreams::Schema::Field#parse_cell_text`, and the slices of the rows carry it. Not an option of a call that
+    #     reads or writes rows.
+    #     Default: false
+    #
+    # Raises ArgumentError for a `headerless` that is not true, false or nil, or a `typed`, `part_of_file` or
+    # `cell_text` that is not true or false.
     def initialize(format: nil, file_name: nil, schema: nil, contract: nil, default_format: :csv, row_format_options: nil,
-                   blank_rows: true, headerless: nil, typed: false, part_of_file: false, text_format: nil, value_form: nil)
+                   blank_rows: true, headerless: nil, typed: false, part_of_file: false, text_format: nil, value_form: nil,
+                   cell_text: false)
       @format = file_name && format.nil? ? self.class.format_from_file_name(file_name) : format
       @format ||= default_format
       raise(Errors::UnknownFormat, "The format cannot be inferred from the file name: #{file_name}") unless @format
@@ -169,7 +181,9 @@ module IOStreams
       unless [true, false].include?(part_of_file)
         raise(ArgumentError, "part_of_file must be true or false: #{part_of_file.inspect}")
       end
+      raise(ArgumentError, "cell_text must be true or false: #{cell_text.inspect}") unless [true, false].include?(cell_text)
 
+      @cell_text          = cell_text
       @file_schema        = schema
       @contract           = contract
       @schema             = schema || contract
@@ -184,13 +198,14 @@ module IOStreams
     # Returns [IOStreams::Tabular] a new tabular with the same schema that reads the rows of the supplied format, such as
     # those of a slice that a writer of slices writes in the format of this one, see `IOStreams::Slice::Writer`: whether
     # they have no header row, whether a row whose every value is blank is a blank row, and whether their values are
-    # already those of the fields, are as the slice says, see `IOStreams::Slice#header?`, `IOStreams::Slice#blank_rows?`
-    # and `IOStreams::Slice#typed?`, whatever the schema says of the file, see
+    # already those of the fields, and whether the text of their values is the text of cells, are as the slice says, see
+    # `IOStreams::Slice#header?`, `IOStreams::Slice#blank_rows?`, `IOStreams::Slice#typed?` and
+    # `IOStreams::Slice#cell_text?`, whatever the schema says of the file, see
     # `headerless:` of #initialize. Without a schema, nothing names the columns of rows that have no header row, see
     # #unnamed_columns?, so the writer checks that this tabular can write them, see #check_unnamed_rows.
-    def for_format(format, headerless:, blank_rows: true, typed: false)
+    def for_format(format, headerless:, blank_rows: true, typed: false, cell_text: false)
       self.class.new(format: format, schema: @file_schema, contract: @contract, blank_rows: blank_rows,
-                     headerless: headerless, typed: typed)
+                     headerless: headerless, typed: typed, cell_text: cell_text)
     end
 
     # Returns [IOStreams::Tabular::Header] the columns of the file: the header row read, or the keys of the first record,
@@ -247,6 +262,13 @@ module IOStreams
     # the types of their fields where the slice is read.
     def typed?
       @typed
+    end
+
+    # Returns [true|false] whether the text of the values of the rows read is the text of cells, see `cell_text:` of
+    # #initialize, so that a slice of the rows carries it, see `IOStreams::Slice#cell_text?`, and its values are read
+    # the same way where the slice is read.
+    def cell_text?
+      @cell_text
     end
 
     # Returns [true|false] whether the rows and records that this tabular renders hold the values of the fields of its
@@ -709,6 +731,24 @@ module IOStreams
       !format.nil? && parser_class(format).value_form == :typed
     end
 
+    # Returns [true|false] whether a copy without a mode converts the rows of the registered format `source` into the
+    # format `target`, see `IOStreams::Stream#copy_mode_to`, rather than copy the data as it is: when both are known,
+    # they differ, and each is the format of a file of its own, see .file_format?.
+    def self.converts?(source, target)
+      return false if source.nil? || target.nil? || source == target
+
+      file_format?(source) && file_format?(target)
+    end
+
+    # Returns [true|false] whether the rows of the registered format are those of a file of its own, which a copy
+    # converts to and from, see .converts?: lines of text, such as CSV or JSON, or the layout of a format whose rows are
+    # not lines, such as Parquet, see .lines?, but not the text of each row as it is, see
+    # `IOStreams::Tabular::Parser::Base.verbatim?`, such as `:text`, nor lines of Ruby objects, see .lines_of_text?,
+    # such as `:hash` and `:array`, whose text would be Ruby's inspect text.
+    def self.file_format?(format)
+      !parser_class(format).verbatim? && (!lines?(format) || lines_of_text?(format))
+    end
+
     # Returns [Symbol|nil] the format of the lines that the rows of the supplied registered format are split from, decoded
     # from and written to: that of the supplied format of the text, when a stream decides it, see
     # `IOStreams::Builder#text_format`, and the rows hold that text as it is, see .verbatim_text?, such as `:csv` for
@@ -792,14 +832,15 @@ module IOStreams
     # schema, otherwise by the header row, which it cleanses. A row whose every value is blank is a blank row unless
     # `blank_rows` is false, the rows have no header row as `headerless` says, the schema restores the values read
     # from the forms that a store returned them in when `typed`, and does not check the values that must be unique
-    # within the file when the rows are only a part of it, `part_of_file`, see #initialize.
+    # within the file when the rows are only a part of it, `part_of_file`, and reads the text of cells by the default
+    # text of each type first when `cell_text`, see #initialize.
     def build_mapping(blank_rows, headerless, typed, part_of_file)
       header = Header.new
       if @schema
         SchemaMapping.new(@schema, header: header, parser: parser, format: format, blank_rows: blank_rows,
                                    headerless: headerless, typed: typed, every_field: !@contract.nil?,
                                    contract: (@contract if @file_schema), part_of_file: part_of_file,
-                                   value_form: @value_form)
+                                   value_form: @value_form, cell_text: @cell_text)
       else
         HeaderMapping.new(header: header, parser: parser, format: format, blank_rows: blank_rows, headerless: headerless)
       end

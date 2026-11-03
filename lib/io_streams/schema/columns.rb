@@ -74,12 +74,19 @@ module IOStreams
       #     `IOStreams::Schema#uniqueness`, since they may be those of another part of it, while the whole file, such as
       #     when it is sliced with `validate: true`, checks them.
       #     Default: false
+      #
+      #   cell_text: [true|false]
+      #     Whether the text of the values read is the text of the cells of a source whose cells hold typed values, such
+      #     as a slice of a spreadsheet, see `IOStreams::Slice#cell_text?`, which each field reads as the default text of
+      #     its type first, see `IOStreams::Schema::Field#parse_cell_text`.
+      #     Default: false
       def initialize(schema, typed: false, every_field: false, keys_vary: false, form: :typed, read: false,
-                     part_of_file: false)
+                     part_of_file: false, cell_text: false)
         @schema       = schema
         @typed        = typed
         @form         = form
         @read         = read
+        @cell_text    = cell_text
         @every_field  = every_field
         @keys_vary    = keys_vary
         # The column that each field matched, by the field, see #match, so that a contract that reads the records of
@@ -487,12 +494,13 @@ module IOStreams
       end
 
       # Returns the value of the supplied field read from a row or record, converted to the type of the field from the
-      # form of the values read, see `IOStreams::Schema::Field#parse`, or, when the values read are those of the fields,
-      # see #initialize, restored to it from the form that a store returned it in, see
-      # `IOStreams::Schema::Field#restore`, or, when the schema of the file already read them, converted without its
-      # missing values, see `IOStreams::Schema::Field#cast_typed`.
+      # form of the values read, see `IOStreams::Schema::Field#parse`, or from the text of a cell, see `cell_text` of
+      # #initialize, or, when the values read are those of the fields, see #initialize, restored to it from the form
+      # that a store returned it in, see `IOStreams::Schema::Field#restore`, or, when the schema of the file already read
+      # them, converted without its missing values, see `IOStreams::Schema::Field#cast_typed`.
       def read_value(field, value)
-        return field.parse(value, @form) unless @typed || @read
+        return field.parse(value, @form) unless @typed || @read || @cell_text
+        return field.parse_cell_text(value, @form) unless @typed || @read
 
         @typed ? field.restore(value) : field.cast_typed(value)
       end

@@ -135,7 +135,9 @@ IOStreams raises these classes itself:
     does not allow, or is missing a required field, or a row has values after its last column that the schema does not
     skip, and when writing, the keys of a record, or the columns or values of a row, that the schema does not skip.
     `#contract_errors` lists the problems of the columns before any row is read, see
-    [Checking a source](contracts#checking-a-source-before-the-work-starts).
+    [Checking a source](contracts#checking-a-source-before-the-work-starts). Without a schema, it is also raised for
+    a header row of two columns that are the same key of a record, such as `a,a,b`, when its records are read, see
+    [Records and rows without a schema](formats#records-and-rows-without-a-schema).
   * `IOStreams::Errors::IncompatibleType`: a column whose type its source declares, such as a Parquet file, a query or
     the schema of a file, can never be the type of its field in a [contract](contracts), such as a boolean for a
     number. It is raised when the stream opens, before the first row, and is not an `InvalidHeader`, so that code that

@@ -156,9 +156,11 @@ module IOStreams
         #   missing: [#call|nil]
         #     Returns the positions of the values of the rows whose text can be a missing value other than empty text,
         #     such as "-99", with what answers whether the text of a cell is one of them, `#call(text)`, so that such a
-        #     cell is nil, whatever Excel holds, such as the number -99, as Frictionless compares the text of a value with
-        #     its missing values before it reads its type, or nil until they are known, as for `decimals`. The text of a
-        #     cell is the text that the CSV text of the worksheet holds, see `IOStreams::Xlsx::Cells.text`.
+        #     cell is that text, whatever Excel holds, such as the number -99, which its field reads as a missing value,
+        #     as Frictionless compares the text of a value with its missing values before it reads its type, or nil until
+        #     they are known, as for `decimals`. The text of a cell is the text that the CSV text of the worksheet holds,
+        #     see `IOStreams::Xlsx::Cells.text`. So a row whose every cell is a missing value is not blank, and is read as
+        #     a record whose every value is missing, as its CSV text is.
         #     Default: nil, no cell is compared.
         def initialize(file_name, display_name, decimals: nil, strings: nil, missing: nil)
           @file_name    = file_name
@@ -222,8 +224,9 @@ module IOStreams
         # see `missing` in #initialize, until #read_cells reads the row.
         Cell = Struct.new(:value, :text)
 
-        # Replaces each cell of the row with its value, or nil when its text is a missing value of the field of its
-        # position, see `missing` in #initialize, forgetting the clock of a time that is missing, see #type_cells.
+        # Replaces each cell of the row with its value, or its text when that is a missing value of the field of its
+        # position, see `missing` in #initialize, which the field reads as missing, forgetting the clock of a time that is
+        # missing, see #type_cells.
         def read_cells(row, missing, clocks)
           row.each_with_index do |cell, index|
             next unless cell.is_a?(Cell)
@@ -231,7 +234,7 @@ module IOStreams
             missing_value = missing&.[](index)
             if missing_value&.call(cell.text)
               clocks.delete(cell.value)
-              row[index] = nil
+              row[index] = cell.text
             else
               row[index] = cell.value
             end

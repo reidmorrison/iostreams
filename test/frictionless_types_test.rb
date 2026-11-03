@@ -191,11 +191,16 @@ class FrictionlessTypesTest < Minitest::Test
         assert_equal Date.new(2026, 10, 1), month.cast("2026-10")
         assert_equal Date.new(2026, 10, 1), month.cast(Date.new(2026, 10, 1))
         assert_equal Date.new(2026, 10, 1), month.cast(Time.utc(2026, 10, 1))
-        ["2026-13", "2026-1", "2026-10-01", "10/2026"].each do |text|
+        ["2026-13", "2026-1", "2026-10-02", "2026-13-01", "10/2026"].each do |text|
           assert_raises(IOStreams::Errors::InvalidValue, text) { month.cast(text) }
         end
         assert_raises(IOStreams::Errors::InvalidValue) { month.cast(Date.new(2026, 10, 2)) }
         assert_raises(IOStreams::Errors::InvalidValue) { month.cast(Date.new(10_000, 1, 1)) }
+      end
+
+      it "reads the ISO 8601 text of the first of a month, such as the text of a cell of a spreadsheet that holds the date" do
+        assert_equal Date.new(2026, 10, 1), month.cast("2026-10-01")
+        assert_equal Date.new(2026, 10, 1), month.load("2026-10-01")
       end
 
       it "writes the year and month, and keeps its Date in the :hash format" do
