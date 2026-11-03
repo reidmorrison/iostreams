@@ -447,6 +447,22 @@ module IOStreams
       format_from_file_name(file_name) || DEFAULT_FORMAT if last == "text"
     end
 
+    # Returns [true|false] whether the rows of the registered format are lines of text, such as those of CSV or JSON,
+    # rather than Ruby objects, such as those of `:array` and `:hash`, see `Parser::Base.value_form`, so that IOStreams
+    # v3.0 converts a copy without a mode between it and another format, see `IOStreams::Builder#copy_format`.
+    def self.text_rows?(format)
+      parser_class(format).value_form != :typed
+    end
+
+    # Returns [:array|:hash] the mode of a copy that converts the rows of a file in one registered format into a file in
+    # another, as IOStreams v3.0 converts them in a copy without a mode, see `IOStreams::Stream#warn_copy_format`:
+    # `:hash` when the rows of either one are records, such as those of JSON, see `Parser::Base.keyed?`, since the rows
+    # of a file of records are read as records without a schema, and a writer of records takes records, otherwise
+    # `:array`, which keeps the columns of the header row as they are, where the keys of records are cleansed.
+    def self.conversion_mode(source, target)
+      parser_class(source).keyed? || parser_class(target).keyed? ? :hash : :array
+    end
+
     # Returns the parser class for the registered format.
     def self.parser_class(format)
       @formats[format&.to_sym] ||

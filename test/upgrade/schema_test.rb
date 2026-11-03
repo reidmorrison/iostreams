@@ -358,12 +358,23 @@ class UpgradeSchemaTest < Minitest::Test
           assert_equal "at\n2026-10-31 09:30:00.500000\n", write([{"at" => Time.utc(2026, 10, 31, 9, 30, 0.5r)}], schema: schema)
         end
 
-        it "reads a datetime whose format has no date, or only part of one, on 1900-01-01, as Python's strptime does" do
-          schema = {fields: [{name: "at", type: "datetime", format: "%H:%M"}, {name: "on", type: "datetime", format: "%m/%d %H:%M"}]}
+        it "reads a format without a year on 1900-01-01, as Python's strptime does, ignoring a weekday" do
+          schema = {fields: [{name: "at", type: "datetime", format: "%H:%M"}, {name: "in", type: "datetime", format: "%m %H:%M"},
+                             {name: "on", type: "date", format: "%j"}, {name: "day", type: "datetime", format: "%a %I:%M %p"}]}
 
-          assert_equal [{"at" => Time.utc(1900, 1, 1, 9, 30), "on" => Time.utc(1900, 7, 1, 9, 30)}],
-                       read("at,on\n09:30,07/01 09:30\n", schema: schema)
-          assert_raises(IOStreams::Errors::InvalidValue) { read("at,on\n09:30,02/29 09:30\n", schema: schema) }
+          assert_equal [{"at" => Time.utc(1900, 1, 1, 9, 30), "in" => Time.utc(1900, 7, 1, 9, 30), "on" => Date.new(1900, 3, 1),
+                         "day" => Time.utc(1900, 1, 1, 21, 30)}],
+                       read("at,in,on,day\n09:30,07 09:30,060,Wed 09:30 PM\n", schema: schema)
+        end
+
+        it "raises ArgumentError for a format with a day of the month without a year, which cannot read February 29" do
+          ["%m/%d", "%m/%d %H:%M", "%e %b"].each do |format|
+            %w[date datetime].each do |type|
+              assert_raises(ArgumentError, format) { read("on\n07/01\n", schema: {fields: [{name: "on", type: type, format: format}]}) }
+            end
+          end
+
+          assert_equal [{"on" => Date.new(2024, 2, 29)}], read("on\n02/29/2024\n", schema: {fields: [{name: "on", type: "date", format: "%m/%d/%Y"}]})
         end
 
         it "keeps an offset of zero that the text says, such as +0000, as without a format, while Z is UTC" do

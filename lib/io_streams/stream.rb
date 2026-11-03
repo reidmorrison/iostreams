@@ -362,10 +362,16 @@ module IOStreams
     # Examples:
     #
     # # Copy and convert streams based on file extensions
-    # IOStreams.path("target_file.json").copy_from("source_file_name.csv.gz")
+    # IOStreams.path("target_file.csv").copy_from("source_file_name.csv.gz")
+    #
+    # # Copy the rows of a file into a file of another format, converting them
+    # IOStreams.path("target_file.psv").copy_from("source_file_name.csv.gz", mode: :array)
+    #
+    # # Copy the records of a file into JSON, whose rows are records
+    # IOStreams.path("target_file.json").copy_from("source_file_name.csv.gz", mode: :hash)
     #
     # # Copy "as-is" without any automated stream conversions
-    # IOStreams.path("target_file.json").copy_from("source_file_name.csv.gz", convert: false)
+    # IOStreams.path("target_file.csv.gz").copy_from("source_file_name.csv.gz", convert: false)
     #
     # # Advanced copy with custom stream conversions on source and target.
     # source = IOStreams.path("source_file").encoding("BINARY")
@@ -381,7 +387,9 @@ module IOStreams
     #   path does whenever a write fails.
     #
     # Supplying options to a copy without a `mode:`, which ignores them, is deprecated, as is supplying `mode:` or
-    # other options to a copy with `convert: false`. Each reports a deprecation warning, see `IOStreams::Deprecation`.
+    # other options to a copy with `convert: false`. So is a copy without a `mode:` from a source in another tabular
+    # format than this stream, such as CSV into JSON, whose text it copies as it is, since v3.0 converts its rows, see
+    # #warn_copy_format. Each reports a deprecation warning, see `IOStreams::Deprecation`.
     def copy_from(source, convert: true, mode: nil, **args)
       if convert
         validate_copy_mode!(mode)
@@ -398,6 +406,7 @@ module IOStreams
           end
         else
           warn_ignored_options(args.keys, "when copying without a `mode:`")
+          warn_copy_format(stream)
           stream.internal_reader do |src|
             internal_writer { |target| copy_data(src, target) }
           end
@@ -649,6 +658,13 @@ module IOStreams
       names = args.keys
       names.unshift(:mode) unless mode.nil?
       warn_ignored_options(names, "for a copy with convert: false")
+    end
+
+    # Returns [Symbol|nil] the tabular format of the data that a copy without a mode reads from or writes to this
+    # stream, when IOStreams v3.0 converts the rows of such a copy between it and another format, otherwise nil, see
+    # `IOStreams::Builder#copy_format`, which the stream at the other end of a copy asks for, see #warn_copy_format.
+    def copy_format
+      builder.copy_format
     end
 
     private
@@ -924,6 +940,31 @@ module IOStreams
       words = Deprecation::Words.new(names)
       Deprecation.warn("#{words.keywords} #{words.are} deprecated #{where}, which ignores #{words.them}, so remove " \
                        "#{words.them}")
+    end
+
+    # A copy without a `mode:` from a source in another tabular format than this stream, see #copy_format, such as CSV
+    # into JSON or PSV, is deprecated, since IOStreams v3.0 converts the rows of the source into the format of this
+    # stream, as the `:array` mode does, rather than copy its text as it is, as this version still does. The warning
+    # names the mode that converts them in both versions, see `IOStreams::Tabular.conversion_mode`, and `:line`, which
+    # copies the text as it is in both.
+    #
+    # A source or target whose format is not known, such as an IO without a file name or a `.txt` file, one read or
+    # written as it is stored, see #raw, and a source and target of the same format, such as a spreadsheet, whose text is
+    # CSV, and a CSV file, are copied as they are in both versions, so they are not reported. None is looked for while
+    # deprecation warnings are off, see `IOStreams::Deprecation.on?`, since finding the format of a spreadsheet builds
+    # its pipeline.
+    def warn_copy_format(source)
+      return unless Deprecation.on?
+
+      from = source.copy_format
+      to   = copy_format
+      return if from.nil? || to.nil? || from == to
+
+      mode = IOStreams::Tabular.conversion_mode(from, to)
+      Deprecation.warn("a copy without mode: from #{from.inspect} into #{to.inspect} is deprecated, since v3.0 " \
+                       "converts the rows of the source into #{to.inspect}, as mode: :array does, rather than copy its " \
+                       "text as it is: supply mode: #{mode.inspect} to convert its #{mode == :hash ? 'records' : 'rows'}, " \
+                       "or mode: :line to copy its text as it is in both versions")
     end
 
     # The rows and records of a file named `.text` without a format, such as `ids.text`, are deprecated, since IOStreams

@@ -74,6 +74,13 @@ IOStreams.path("target_file.json").copy_from(source, mode: :hash)
 Notes:
 * `mode` accepts `:line`, `:array`, or `:hash`, and only applies when `convert` is `true`. Any other mode raises
   `ArgumentError` before the source or the target is opened.
+* Without a `mode`, a copy into a file of another format, such as `people.csv` into `people.json` or `people.psv`,
+  copies the text of the source as it is, so that the target holds CSV text. This is deprecated, and reports a
+  deprecation warning, since IOStreams 3.0 converts the rows of such a copy into the format of the target, as the
+  `:array` mode does: supply `mode: :array` to convert the rows, or `mode: :hash` when either file is JSON, whose rows
+  are records, or `mode: :line` to copy the text as it is, which give the same result in both versions. A copy within
+  a format, such as `.csv.gz` into `.csv`, from or to a file whose format is not known, such as an IO or a `.txt` file,
+  or with `#raw`, is copied as it is in both, and so is a spreadsheet into CSV, since its text is CSV.
 
 ## When a copy fails
 

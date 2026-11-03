@@ -2727,10 +2727,15 @@ and `#copy_to`, whose options only apply to the target.
   as `%F` and `%c`, while `%y` reads exactly 2 digits, the time of a `date` or a `datetime` must be on a clock, so
   that the hour `24` of `%H`, such as `24:00`, and a leap second, `60` of `%S`, raise, rather than read the next day
   or the second before it, or be ignored by a `date`, and `%f` reads 1 to 6 digits of microseconds, such as `5` for
-  half a second, and writes 6, such as `500000`. A `datetime` whose pattern reads no date, or only part of one, such
-  as `%H:%M` or `%m/%d %H:%M`, is on 1900-01-01, the year, month and day that Python gives the parts that it leaves
-  out, such as `1900-07-01 09:30` for `07/01 09:30`, rather than on the day that it is read. A pattern that starts
-  with `fmt:`, as Data Package v0 wrote it, such as `"fmt:%d/%m/%Y"`, has that prefix removed, so that
+  half a second, and writes 6, such as `500000`. Nothing is read on the day that it is read, as Ruby's strptime
+  reads the parts of a date that the text leaves out: a pattern that reads a day of the month, `%d` or `%e`, without
+  a year, `%Y`, `%y` or `%G`, such as `%m/%d`, raises `ArgumentError` when the schema is created, as Python's strptime
+  does from 3.15, since it cannot read February 29: add a year to it, and to the text. So does one that reads an ISO
+  8601 week without its year, `%G`, its week, `%V`, and a weekday, such as `%u`, which give its date together. Text
+  without a year, such as that of `%H:%M`, `%m %H:%M` or `%I:%M %p`, is on 1900-01-01, the year, month and day that
+  Python gives the parts that it leaves out, such as `1900-07-01 09:30` for `07 09:30` with `%m %H:%M`, the day of
+  the year of `%j` counts from 1900-01-01, and a weekday or a week, such as `%a` or `%U`, is ignored. A pattern that
+  starts with `fmt:`, as Data Package v0 wrote it, such as `"fmt:%d/%m/%Y"`, has that prefix removed, so that
   `"fmt:default"` is the default form. Ruby's own directives, such as `%N`, `%L` and `%s`, also work, but other
   Frictionless tools do not read them, and `%s` reads whole seconds, ignoring a fraction after it, such as that of
   `%s.%f`. Default: ISO 8601.
@@ -2930,6 +2935,13 @@ IOStreams.path("target_file.json").copy_from(source, mode: :hash)
 Notes:
 * `mode` accepts `:line`, `:array`, or `:hash`, and only applies when `convert` is `true`. Any other mode raises
   `ArgumentError` before the source or the target is opened.
+* Without a `mode`, a copy into a file of another format, such as `people.csv` into `people.json` or `people.psv`,
+  copies the text of the source as it is, so that the target holds CSV text. This is deprecated, and reports a
+  deprecation warning, since IOStreams 3.0 converts the rows of such a copy into the format of the target, as the
+  `:array` mode does: supply `mode: :array` to convert the rows, or `mode: :hash` when either file is JSON, whose rows
+  are records, or `mode: :line` to copy the text as it is, which give the same result in both versions. A copy within
+  a format, such as `.csv.gz` into `.csv`, from or to a file whose format is not known, such as an IO or a `.txt` file,
+  or with `#raw`, is copied as it is in both, and so is a spreadsheet into CSV, since its text is CSV.
 
 ## When a copy fails
 
@@ -3665,6 +3677,7 @@ deprecation warning that names another way to write it, which gives the same res
 | The rows and records of a file named `.text`, such as `ids.text`, which are read and written as CSV, where v3.0 reads and writes them in its `:text` format, as the text of each line | `format(:csv)`, or the format of an extension before `.text`, such as `format(:json)` for `people.json.text` |
 | `each(:array)` and `reader(:array)` of JSON without a schema, which yield each record as a Hash, where v3.0 yields each row as an Array, after a header row of the keys of the first record | `each(:hash)` to read the records, or a schema, with which v2.2 reads the rows as v3.0 does |
 | Records read without a schema, by `each(:hash)`, `reader(:hash)` or a copy in the `:hash` mode, from a header row whose columns are the same key, such as `a,a,b`, or `A` and `a`, which are cleansed to the same key, and rows written to JSON under an `IOStreams::Row::HeaderRow` whose columns are the same key, each record of which holds the value of only the last of them, where v3.0 raises `IOStreams::Errors::InvalidHeader` | Columns of names of their own, or `each(:array)`, which reads every column, in both |
+| A copy without a `mode:`, by `#copy_from` or `#copy_to`, between two formats, such as `people.csv` into `people.json` or `people.psv`, which copies the text of the source as it is, where v3.0 converts its rows into the format of the target, as the `:array` mode does | `mode: :array` to convert the rows, or `mode: :hash` when either file is JSON, whose rows are records, or `mode: :line` to copy the text as it is |
 | The rows and records of a spreadsheet read without a type for each column, by `#each`, `#reader` or a copy in the `:array` or `:hash` mode: without a schema, or with a field of type `any`, or with `extraColumns: "keep"`, which read the text of each cell, such as `"1001.0"` without a schema, or `"1001"` with one, where v3.0 reads its value, as Excel typed it, such as the `Float` `1001.0`, a `Date` or `true` | A schema that gives each column that is read a type, such as `{name: "id", type: "integer"}`, which reads `1001` in both, `{name: "zip", type: "string"}` for the text of a column such as `01234`, or of a number, such as `2134`, which both read as the number that the cell holds, rather than `2134.0`, `{name: "ok", type: "boolean"}`, `{name: "at", type: "datetime"}` for a cell of a date and time, which both read at the time of its clock in UTC, or `{name: "opens", type: "string"}` for a cell of a time of day, which both read as the time of its clock, such as `09:30:00` |
 | A `Time` or `DateTime` that is not at midnight, by its own clock, such as `Time.now`, converted by a `date` field of a schema, which drops its time of day, where v3.0 raises `IOStreams::Errors::InvalidValue` for it, while it takes one at midnight as its date. It is reported once for each field | A `Date`, converted in the time zone that the time belongs to, such as `time.to_date`, or the type `datetime` for the field, to keep its time |
 | An SFTP or HTTP(S) url without a path, such as `sftp://host` or `https://host?a=1`, to which v3.0 adds a `/`, which changes its `#to_s` and `#path`, and the directory that SFTP `#each_child` lists, from the login directory to `/` | The url with the `/`, such as `sftp://host/` or `https://host/?a=1` |

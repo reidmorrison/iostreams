@@ -331,5 +331,38 @@ class UpgradeResultsTest < Minitest::Test
         assert_equal "a,b\n", Zlib.gunzip(File.binread(path.to_s))
       end
     end
+
+    # A copy without a mode converts the format in 3.0.
+    describe "a copy into another format with a mode" do
+      let(:csv) { "name,age\nJack,21\n" }
+
+      let(:source) do
+        File.write(File.join(@dir, "people.csv"), csv)
+        IOStreams.path(@dir, "people.csv")
+      end
+
+      it "converts the rows with mode: :array, and the records with mode: :hash" do
+        assert_equal 2, IOStreams.path(@dir, "people.psv").copy_from(source, mode: :array)
+        assert_equal 2, IOStreams.path(@dir, "people.json").copy_from(source, mode: :hash)
+        assert_equal 1, IOStreams.path(@dir, "copy.csv").copy_from(IOStreams.path(@dir, "people.json"), mode: :hash)
+
+        assert_equal "name|age\nJack|21\n", File.read(File.join(@dir, "people.psv"))
+        assert_equal %({"name":"Jack","age":"21"}\n), File.read(File.join(@dir, "people.json"))
+        assert_equal csv, File.read(File.join(@dir, "copy.csv"))
+      end
+
+      it "copies the text as it is with mode: :line" do
+        assert_equal 2, IOStreams.path(@dir, "people.json").copy_from(source, mode: :line)
+        assert_equal csv, File.read(File.join(@dir, "people.json"))
+      end
+
+      it "copies the data without a mode within a format, or into a file whose format is not known" do
+        assert_equal csv.bytesize, IOStreams.path(@dir, "copy.csv.gz").copy_from(source)
+        assert_equal csv.bytesize, IOStreams.path(@dir, "people.txt").copy_from(source)
+
+        assert_equal csv, Zlib.gunzip(File.binread(File.join(@dir, "copy.csv.gz")))
+        assert_equal csv, File.read(File.join(@dir, "people.txt"))
+      end
+    end
   end
 end

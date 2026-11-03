@@ -679,10 +679,15 @@ and `#copy_to`, whose options only apply to the target.
   as `%F` and `%c`, while `%y` reads exactly 2 digits, the time of a `date` or a `datetime` must be on a clock, so
   that the hour `24` of `%H`, such as `24:00`, and a leap second, `60` of `%S`, raise, rather than read the next day
   or the second before it, or be ignored by a `date`, and `%f` reads 1 to 6 digits of microseconds, such as `5` for
-  half a second, and writes 6, such as `500000`. A `datetime` whose pattern reads no date, or only part of one, such
-  as `%H:%M` or `%m/%d %H:%M`, is on 1900-01-01, the year, month and day that Python gives the parts that it leaves
-  out, such as `1900-07-01 09:30` for `07/01 09:30`, rather than on the day that it is read. A pattern that starts
-  with `fmt:`, as Data Package v0 wrote it, such as `"fmt:%d/%m/%Y"`, has that prefix removed, so that
+  half a second, and writes 6, such as `500000`. Nothing is read on the day that it is read, as Ruby's strptime
+  reads the parts of a date that the text leaves out: a pattern that reads a day of the month, `%d` or `%e`, without
+  a year, `%Y`, `%y` or `%G`, such as `%m/%d`, raises `ArgumentError` when the schema is created, as Python's strptime
+  does from 3.15, since it cannot read February 29: add a year to it, and to the text. So does one that reads an ISO
+  8601 week without its year, `%G`, its week, `%V`, and a weekday, such as `%u`, which give its date together. Text
+  without a year, such as that of `%H:%M`, `%m %H:%M` or `%I:%M %p`, is on 1900-01-01, the year, month and day that
+  Python gives the parts that it leaves out, such as `1900-07-01 09:30` for `07 09:30` with `%m %H:%M`, the day of
+  the year of `%j` counts from 1900-01-01, and a weekday or a week, such as `%a` or `%U`, is ignored. A pattern that
+  starts with `fmt:`, as Data Package v0 wrote it, such as `"fmt:%d/%m/%Y"`, has that prefix removed, so that
   `"fmt:default"` is the default form. Ruby's own directives, such as `%N`, `%L` and `%s`, also work, but other
   Frictionless tools do not read them, and `%s` reads whole seconds, ignoring a fraction after it, such as that of
   `%s.%f`. Default: ISO 8601.
