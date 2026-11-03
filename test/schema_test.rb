@@ -1290,6 +1290,7 @@ class SchemaTest < Minitest::Test
 
           assert_equal Date.new(2026, 10, 13), pattern.cast("13/10/2026")
           assert_raises(IOStreams::Errors::InvalidValue) { pattern.cast("13/10/2026 extra") }
+          assert_raises(IOStreams::Errors::InvalidValue) { pattern.cast("30/02/2026") }
           assert_equal "13/10/2026", pattern.render(Date.new(2026, 10, 13), :text)
           assert_equal "13/10/2026", pattern.render(Date.new(2026, 10, 13), :json)
         end
@@ -1448,26 +1449,65 @@ class SchemaTest < Minitest::Test
           assert_equal Time.utc(2026, 10, 13, 23, 30), field(type: "datetime", format: "%Y-%m-%d %I:%M %p").cast("2026-10-13 11:30 PM")
         end
 
-        it "reads a format without a date, or only part of one, on 1900-01-01, as Python's strptime does, rather than today" do
+        it "reads a format without a year on 1900-01-01, as Python's strptime does, rather than in the year it is read" do
           clock = field(type: "datetime", format: "%H:%M")
-          day   = field(type: "datetime", format: "%m/%d %H:%M")
 
           assert_equal Time.utc(1900, 1, 1, 9, 30), clock.cast("09:30")
           assert_predicate clock.cast("09:30"), :utc?
           assert_equal Time.utc(1900, 1, 1, 21, 30), field(type: "datetime", format: "%I:%M %p").cast("09:30 PM")
           assert_equal Time.utc(1900, 1, 1, 9, 30, 0.25r), field(type: "datetime", format: "%H:%M:%S.%f").cast("09:30:00.25")
           assert_equal Time.new(1900, 1, 1, 9, 30, 0, "+05:00"), field(type: "datetime", format: "%H:%M %z").cast("09:30 +0500")
-          assert_equal Time.utc(1900, 7, 1, 9, 30), day.cast("07/01 09:30")
-          assert_equal Time.utc(1900, 1, 13, 9, 30), field(type: "datetime", format: "%d %H:%M").cast("13 09:30")
-          assert_equal Time.utc(2026, 1, 1, 9, 30), field(type: "datetime", format: "%Y %H:%M").cast("2026 09:30")
-          # 1900 is not a leap year, whichever year it is read in.
-          Time.stub(:now, Time.utc(2028, 1, 1)) do
-            assert_raises(IOStreams::Errors::InvalidValue) { day.cast("02/29 09:30") }
-          end
+          # The month that it reads, on its first day.
+          assert_equal Time.utc(1900, 7, 1, 9, 30), field(type: "datetime", format: "%m %H:%M").cast("07 09:30")
+          assert_equal Date.new(1900, 7, 1), field(type: "date", format: "%B").cast("July")
           assert_equal "09:30", clock.render(clock.cast("09:30"), :text)
-          # A date read some other way, by its day of the year or the seconds since 1970, is unchanged.
+        end
+
+        it "reads the day of the year of %j from 1900-01-01 without a year, and ignores a weekday or a week" do
+          # 1900 is not a leap year.
+          assert_equal Date.new(1900, 2, 1), field(type: "date", format: "%j").cast("032")
+          assert_equal Date.new(1901, 1, 1), field(type: "date", format: "%j").cast("366")
+          assert_equal Time.utc(1900, 3, 1, 9, 30), field(type: "datetime", format: "%j %H:%M").cast("060 09:30")
+          # A weekday or a week without a year is ignored.
+          assert_equal Time.utc(1900, 1, 1, 9, 30), field(type: "datetime", format: "%a %H:%M").cast("Wed 09:30")
+          assert_equal Time.utc(1900, 1, 1, 9, 30), field(type: "datetime", format: "%u %H:%M").cast("3 09:30")
+          assert_equal Date.new(1900, 1, 1), field(type: "date", format: "%U %w").cast("05 1")
+          assert_equal Date.new(1900, 1, 1), field(type: "date", format: "%W").cast("05")
+        end
+
+        it "reads a year, the day of a year, an ISO 8601 week, or the seconds since 1970, as before" do
+          assert_equal Time.utc(2026, 1, 1, 9, 30), field(type: "datetime", format: "%Y %H:%M").cast("2026 09:30")
+          assert_equal Date.new(2026, 7, 1), field(type: "date", format: "%m/%Y").cast("07/2026")
           assert_equal Time.utc(2026, 7, 1, 9, 30), field(type: "datetime", format: "%Y %j %H:%M").cast("2026 182 09:30")
           assert_equal Time.utc(2026, 10, 13, 9, 30), field(type: "datetime", format: "%s").cast("1791883800")
+          assert_equal Date.new(2020, 7, 1), field(type: "date", format: "%G-W%V-%u").cast("2020-W27-3")
+        end
+
+        it "raises ArgumentError for a format with a day of the month without a year, which cannot read February 29" do
+          ["%m/%d", "%d", "%e %b", "%m/%d %H:%M", "%-d/%m", "%Od.%m", "%b %e"].each do |format|
+            %w[date datetime].each do |type|
+              error = assert_raises(ArgumentError, format) { field(type: type, format: format) }
+              assert_equal %(Field "value": the format #{format.inspect} reads a day of the month without a year, which ) \
+                           "cannot read February 29, as Python's strptime raises for it: add a year, such as %Y", error.message
+            end
+          end
+          error = assert_raises(ArgumentError) { field(type: "date", format: "fmt:%m/%d") }
+          assert_match(%r{the format "%m/%d" reads a day of the month without a year}, error.message)
+          # A year, also of a directive that reads several, and a literal %d, are accepted.
+          assert_equal Date.new(2024, 2, 29), field(type: "date", format: "%d/%m/%Y").cast("29/02/2024")
+          assert_equal Date.new(2024, 2, 29), field(type: "date", format: "%d/%m/%y").cast("29/02/24")
+          assert_equal Date.new(2024, 2, 29), field(type: "date", format: "%D").cast("02/29/24")
+          assert_equal Date.new(2024, 2, 29), field(type: "date", format: "%v").cast("29-Feb-2024")
+          assert_equal Date.new(2024, 2, 29), field(type: "date", format: "%c").cast("Thu Feb 29 09:30:00 2024")
+          assert_equal Date.new(2024, 1, 1), field(type: "date", format: "%%d %Y").cast("%d 2024")
+        end
+
+        it "raises ArgumentError for an ISO 8601 week without its year, week and weekday, as Python's strptime does" do
+          ["%V %u", "%G-%m-%d", "%G %V", "%G %U %w", "%Y %V %u", "%G %j", "%G %V %u %j"].each do |format|
+            error = assert_raises(ArgumentError, format) { field(type: "date", format: format) }
+            assert_match(/\AField "value": the format #{Regexp.escape(format.inspect)} reads (an ISO 8601 week|the day of the year)/, error.message)
+          end
+          assert_equal Date.new(2020, 7, 1), field(type: "date", format: "%G %V %a").cast("2020 27 Wed")
         end
 
         it "reads a space in place of the T" do

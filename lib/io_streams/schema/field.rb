@@ -600,6 +600,9 @@ module IOStreams
       # Returns [IOStreams::Schema::Pattern|nil] the strptime pattern of a date or datetime, without the prefix `fmt:`
       # that Data Package v0 wrote before it, or nil for the default form, also after that prefix, as frictionless-py
       # reads `fmt:default`.
+      #
+      # Raises ArgumentError, naming the field, for a pattern that cannot read every date, such as one that reads a day of
+      # the month without a year, see `IOStreams::Schema::Pattern#initialize`.
       def check_format(format)
         pattern = format.is_a?(String) ? format.delete_prefix("fmt:") : format
         return if pattern.nil? || pattern == "default"
@@ -608,7 +611,11 @@ module IOStreams
           raise(ArgumentError, "Field #{name.inspect}: the format #{format.inspect} is not supported for a #{type} field")
         end
 
-        Pattern.new(pattern)
+        begin
+          Pattern.new(pattern)
+        rescue ArgumentError => e
+          raise(ArgumentError, "Field #{name.inspect}: #{e.message}")
+        end
       end
 
       def check_width(width)
@@ -839,17 +846,16 @@ module IOStreams
       end
 
       # Returns [Date|Time] the text read with the strptime pattern of the format, which must match all of the text, with
-      # a time on a clock, see `IOStreams::Schema::Pattern#parts`, and whose date must exist, see #cast_datetime.
+      # a time on a clock, see `IOStreams::Schema::Pattern#parts`, and whose date must exist, which the pattern checks,
+      # raising `Date::Error`, see `IOStreams::Schema::Pattern#date` and `#datetime`, on the date that Python's strptime
+      # gives text without a year, rather than on the day that it is read.
       #
       # A time is at the offset from UTC that its zone gives, or in UTC without one, see #cast_datetime. A zone whose
       # offset is not known, such as "XYZ", raises, rather than be read in the time zone of the process.
       def parse_time(klass, text)
         parts = @format.parts(text)
         return invalid(text) if parts.nil?
-        if parts[:mon] && parts[:mday] && !Date.valid_date?(parts.fetch(:year, Time.now.year), parts[:mon], parts[:mday])
-          return invalid(text)
-        end
-        return @format.date(text) if klass == Date
+        return @format.date(text, parts) if klass == Date
         return invalid(text) if parts.key?(:zone) && parts[:offset].nil?
 
         # A DateTime reads text without an offset as UTC, and knows the offset of every zone that Date._strptime knows,
