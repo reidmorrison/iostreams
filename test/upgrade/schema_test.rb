@@ -211,6 +211,32 @@ class UpgradeSchemaTest < Minitest::Test
         assert_equal "pay,rate\n0.00,0.00\n", write([{"pay" => BigDecimal("-0.001"), "rate" => -0.001}], schema: schema)
       end
 
+      describe "whole numbers" do
+        let(:numbers) do
+          {fields: [{name: "a", type: "number"}, {name: "b", type: "number"}, {name: "c", type: "number", floatNumber: true},
+                    {name: "d", type: "number"}, {name: "e", type: "number", decimals: 2}]}
+        end
+
+        let(:record) { {"a" => 42, "b" => "3", "c" => 42.0, "d" => 1.5, "e" => 42} }
+
+        it "writes a whole number of a number field without a decimal point, unless the field has decimals" do
+          assert_equal "a,b,c,d,e\n42,3,42,1.5,42.00\n", write([record], schema: numbers)
+          assert_equal "a|b|c|d|e\n42|3|42|1.5|42.00\n", write([record], file_name: "people.psv", schema: numbers)
+          assert_equal %({"a":42,"b":3,"c":42,"d":1.5,"e":42.00}\n), write([record], file_name: "people.json", schema: numbers)
+        end
+
+        it "reads back the numbers written" do
+          written = write([record], schema: numbers)
+
+          assert_equal [{"a" => BigDecimal("42"), "b" => BigDecimal("3"), "c" => 42.0, "d" => BigDecimal("1.5"), "e" => BigDecimal("42")}],
+                       read(written, schema: numbers)
+        end
+
+        it "writes every digit of a large whole number" do
+          assert_equal "a\n100000000000000000000\n", write([{"a" => BigDecimal("1E20")}], schema: {fields: [{name: "a", type: "number"}]})
+        end
+      end
+
       it "reads the number 1 of a boolean field as true and 0 as false" do
         schema = {fields: [{name: "id", type: "integer"}, {name: "active", type: "boolean"}]}
         json   = %({"id":1,"active":1}\n{"id":2,"active":0}\n{"id":3,"active":1.0}\n{"id":4,"active":0.0}\n)
@@ -1267,6 +1293,14 @@ class UpgradeSchemaTest < Minitest::Test
         it "writes a number right justified and zero filled, and a missing number as zero" do
           assert_equal "Jack    12345-0012.50   \nJill    0000000000.00   \n",
                        write_fixed({"name" => "Jack", "zip" => 12_345, "pay" => BigDecimal("-12.5")}, {name: "Jill"})
+        end
+
+        it "writes a whole number of a number field without decimals right justified and zero filled, without a decimal point" do
+          schema = {fields: [{name: "a", type: "number", width: 6}, {name: "b", type: "number", width: 6, decimals: 2}]}
+
+          assert_equal "000042042.00\n-00003000.00\n000000000.00\n",
+                       write_fixed({"a" => 42, "b" => 42.0}, {"a" => "-3"}, {"a" => nil}, schema: schema)
+          assert_equal [{"a" => BigDecimal("42"), "b" => BigDecimal("42")}], read_fixed("000042042.00\n", schema: schema)
         end
 
         it "raises for a string that is too long, unless its field truncates it" do

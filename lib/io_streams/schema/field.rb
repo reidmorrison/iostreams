@@ -26,6 +26,7 @@ module IOStreams
     #                 `Infinity` and `-Infinity`, as Ruby and JavaScript write them, are read too, whatever their case,
     #                 as frictionless-py also reads them, while one that is not finite is written as the Frictionless
     #                 spec spells it, `NaN`, `INF` or `-INF`, except to JSON, which cannot hold it, so that it raises.
+    #                 A whole number is written without a decimal point, such as `42`, unless `decimals` is set.
     #     "boolean":  true or false, see `trueValues` and `falseValues`, or the number 1 or 0, or 1.0 or 0.0, of JSON,
     #                 which IOStreams adds, since Frictionless reads only text, and true or false.
     #     "date":     a Date, written as `2026-10-13` unless `format` is set. A Time or DateTime is its date, dropping its
@@ -875,10 +876,13 @@ module IOStreams
         parts[:offset]&.zero? && !UTC_ZONE.match?(parts[:zone])
       end
 
+      # Returns [String] the text of the number: with the decimals of the field, such as "42.00", or else with the digits
+      # that it has, so that a whole number has no decimal point, such as "42" for the Integer 42, the text "3" or the
+      # Float 42.0, as frictionless-py writes it, rather than the "42.0" of `BigDecimal#to_s("F")` and `Float#to_s`.
       def number_text(value)
         return self.class.special_text(value) unless value.finite?
-        return (@decimals ? float_text(value) : value.to_s) if value.is_a?(Float)
-        return value.to_s("F") unless @decimals
+        return (@decimals ? float_text(value) : plain_float_text(value)) if value.is_a?(Float)
+        return value.to_s("F").delete_suffix(".0") unless @decimals
         # The value is already rounded to the decimals, see #cast.
         return value.to_i.to_s if @decimals.zero?
 
@@ -890,6 +894,15 @@ module IOStreams
       # reads, a Float whose text ends in 5 to the even digit, whatever its binary value, see #round.
       def float_text(value)
         format("%.#{@decimals}f", value)
+      end
+
+      # Returns [String] the text of a finite Float without decimals, as `Float#to_s` writes it, without the ".0" of a
+      # whole number, such as "42" for 42.0, nor of the digits before an exponent, such as "1e+20" for 1.0e+20.
+      def plain_float_text(value)
+        text = value.to_s
+        return text.delete_suffix(".0") if text.end_with?(".0")
+
+        text.include?(".0e") ? text.sub(".0e", "e") : text
       end
 
       def json(value)
@@ -916,12 +929,10 @@ module IOStreams
 
       # Returns the number as JSON writes it: its text, see #number_text, which JSON writes as it is, see
       # `IOStreams::Schema::JsonNumber.fragment`, so that a BigDecimal keeps all of its digits, and the digits after the
-      # decimal point that the field gives are written, such as `12.50`, the same as in CSV. A Float without `decimals`
-      # is itself, which JSON writes with the same digits. A number that is not finite, such as NaN, raises, see
-      # #not_finite_json.
+      # decimal point that the field gives are written, such as `12.50`, and a whole number without a decimal point,
+      # such as `42`, the same as in CSV. A number that is not finite, such as NaN, raises, see #not_finite_json.
       def number_json(value)
         return not_finite_json(value) unless value.finite?
-        return value if @decimals.nil? && value.is_a?(Float)
 
         JsonNumber.fragment(number_text(value))
       end

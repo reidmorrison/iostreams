@@ -2353,7 +2353,7 @@ valid UTF-8, unless an encoding is set, which writes it instead, as it does with
 |------|---------|------------|
 | `string` | a `String`, such as the number of a cell of a spreadsheet, `2134` rather than `2134.0`, see below | the text, or the text of any other value, except a `Hash` or an `Array`, which raise |
 | `integer` | an `Integer`, from text such as `42`, `-12` or `0042`, or a whole number with a decimal point, such as `12.0`, as a spreadsheet stores it | `42` |
-| `number` | a `BigDecimal`, from text such as `12.5`, `-1.5E3`, `NaN`, `INF` or `-INF`, or `Infinity` or `-Infinity`, as Ruby and JavaScript write them, and frictionless-py also reads them, whatever their case, or a number, including a `Rational`, or a `Float` with `floatNumber: true` | `12.5`, or `12.50` with `decimals: 2`, and a number that is not finite as `NaN`, `INF` or `-INF`, except to JSON, which cannot hold it, so that it raises `IOStreams::Errors::InvalidValue` |
+| `number` | a `BigDecimal`, from text such as `12.5`, `-1.5E3`, `NaN`, `INF` or `-INF`, or `Infinity` or `-Infinity`, as Ruby and JavaScript write them, and frictionless-py also reads them, whatever their case, or a number, including a `Rational`, or a `Float` with `floatNumber: true` | `12.5`, a whole number without a decimal point, such as `42` for `42`, `42.0` or the text `42.0`, or `12.50` and `42.00` with `decimals: 2`, and a number that is not finite as `NaN`, `INF` or `-INF`, except to JSON, which cannot hold it, so that it raises `IOStreams::Errors::InvalidValue` |
 | `boolean` | `true` or `false`, from one of its `trueValues` or `falseValues`, or the number `1` or `0`, such as a number of JSON, also `1.0` or `0.0`, while any other number raises | the first of its `trueValues` or `falseValues` |
 | `date` | a `Date`, from `2026-10-13`, or text in its `format`, or the date of a `Time` or `DateTime`, which is deprecated for one that is not at midnight, since v3.0 raises for it, see [Deprecated, and what replaces it](upgrading#deprecated-and-what-replaces-it) | `2026-10-13`, or text in its `format` |
 | `datetime` | a `Time`, from ISO 8601 with seconds, such as `2026-10-13T09:30:00Z`, also with a space in place of the `T`, such as `2026-10-13 09:30:00`, and with an offset from UTC without a colon, such as `+0530`, or of hours alone, such as `+05`, or text in its `format`. Text without an offset from UTC is read as UTC, as is `Z`, while an offset of zero that the text says, such as `+00:00`, or `+0000` with a `format`, is kept. The hour `24`, which ISO 8601 allows for the end of a day, such as `2026-10-13T24:00:00`, raises | ISO 8601, such as `2026-10-13T09:30:00+05:30`, or `2026-10-13T09:30:00Z` for a time in UTC, also a `DateTime` at an offset of zero, which does not tell UTC from another zone at that offset, or text in its `format` |
@@ -2404,12 +2404,13 @@ A value that is not one of the type of its field, such as `N/A` for an `integer`
 or `datetime` that does not exist, such as `2026-02-30`.
 
 JSON writes integers, numbers and booleans as JSON numbers and booleans, with all of the digits of a `number`, and the
-digits after the decimal point that its `decimals` give, such as `12.50`, the same as CSV, an `object` or an `array`
-as itself, and every other value as text, such as a date, including in an application that uses ActiveSupport, as
-Rails does, which replaces how Ruby writes JSON. Reading JSON keeps all of the digits of a `number` too, rather than
-reading it through a `Float`, rounded to its `decimals` when it has them, while the numbers of the other fields are a
-`Float`, as they are without a schema. The `:hash` and `:array` formats keep the values themselves, apart from a
-`number` with `decimals`, which is rounded to them, both when reading and when writing.
+digits after the decimal point that its `decimals` give, such as `12.50`, or none for a whole number without
+`decimals`, such as `42`, the same as CSV, an `object` or an `array` as itself, and every other value as text, such as
+a date, including in an application that uses ActiveSupport, as Rails does, which replaces how Ruby writes JSON.
+Reading JSON keeps all of the digits of a `number` too, rather than reading it through a `Float`, rounded to its
+`decimals` when it has them, while the numbers of the other fields are a `Float`, as they are without a schema. The
+`:hash` and `:array` formats keep the values themselves, apart from a `number` with `decimals`, which is rounded to
+them, both when reading and when writing.
 
 A `number` field needs the `bigdecimal` gem, which is a bundled gem from Ruby 3.4, so add `gem "bigdecimal"` to the
 Gemfile, or set `floatNumber: true` to read a `Float` instead.
@@ -2832,10 +2833,11 @@ length raises `IOStreams::Errors::InvalidLineLength`.
 
 When reading, each value is the text of its field without its leading and trailing spaces, converted to the type of
 its field, so that a field of only spaces is empty text, a missing value, `nil`, see [Types](#types). When writing, a
-number is right justified and zero filled, and a missing number is written as zero, as the specifications of most
-fixed width files require. A number that is not finite, such as `NaN` or `-INF`, is space filled instead, so that it
-can be read back. Any other value is left justified and space filled, with each line break replaced with a space, so
-that a value cannot add records. The characters that no field covers, such as a filler, are spaces.
+number is right justified and zero filled, such as `000042` for `42` without `decimals`, or `042.00` with
+`decimals: 2`, and a missing number is written as zero, as the specifications of most fixed width files require. A
+number that is not finite, such as `NaN` or `-INF`, is space filled instead, so that it can be read back. Any other
+value is left justified and space filled, with each line break replaced with a space, so that a value cannot add
+records. The characters that no field covers, such as a filler, are spaces.
 
 ### Schemas in IOStreams 2.2 and 3.0
 
@@ -3776,6 +3778,8 @@ What writes differently:
   JSON text, such as `{"a":1}`, give the field the type `object` or `array`.
 * A `number` field with `decimals` writes a negative number that rounds to zero, such as `-0.001` with `decimals: 2`,
   as zero, without a minus sign, where the layout writes one, such as `-0000.00`.
+* A `number` field that takes the remainder of the line, without `decimals`, writes a whole number without a decimal
+  point, such as `12`, where the layout writes `12.0`.
 * A `number` field writes infinity as `INF`, where the layout writes `Inf`, and a `string` field writes a `Float` that
   is not finite as `NaN`, `INF` or `-INF`, where the layout writes `NaN`, `Infinity` or `-Infinity`.
 * A filler is written as spaces, also where the layout gives it a `type:` of `:integer` or `:float`, which writes
