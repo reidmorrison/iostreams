@@ -1972,7 +1972,12 @@ module IOStreams
       # Returns [String] the text of a finite Float without decimals, as `Float#to_s` writes it, without the ".0" of a
       # whole number, such as "42" for 42.0, nor of the digits before an exponent, such as "1e+20" for 1.0e+20.
       def plain_float_text(value)
-        text = value.to_s
+        plain_digits(value.to_s)
+      end
+
+      # Returns [String] the text of a Float, see #plain_float_text, without the ".0" of a whole number, or the text
+      # itself, the same String, when it has none.
+      def plain_digits(text)
         return text.delete_suffix(".0") if text.end_with?(".0")
 
         text.include?(".0e") ? text.sub(".0e", "e") : text
@@ -2011,8 +2016,19 @@ module IOStreams
       # such as `42`, the same as in CSV. A number that is not finite, such as NaN, raises, see #not_finite_json.
       def number_json(value)
         return not_finite_json(value) unless value.finite?
+        return float_json(value) if @decimals.nil? && value.is_a?(Float)
 
         JsonNumber.fragment(number_text(value))
+      end
+
+      # Returns [Float|JSON::Fragment] a Float of a field without decimals as JSON writes it, see #number_json: the Float
+      # itself, which JSON writes with the digits of `Float#to_s`, unless that text has a ".0" that #plain_float_text
+      # leaves out, such as 42.0, whose text without it, "42", is written as it is, so that most Floats are written
+      # without a fragment.
+      def float_json(value)
+        text  = value.to_s
+        plain = plain_digits(text)
+        plain.equal?(text) ? value : JsonNumber.fragment(plain)
       end
 
       # Raises `IOStreams::Errors::InvalidValue` for a number that is not finite, such as NaN, which JSON cannot hold,

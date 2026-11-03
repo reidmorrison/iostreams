@@ -1103,6 +1103,9 @@ class SchemaTest < Minitest::Test
           float = field(type: "number", floatNumber: true, decimals: 2)
 
           assert_equal "12.5", json(field(type: "number", floatNumber: true), "12.50")
+          # A Float whose text has no ".0" to leave out is itself, which JSON writes with the same digits.
+          assert_instance_of Float, field(type: "number", floatNumber: true).render("12.50", :json)
+          refute_instance_of Float, field(type: "number", floatNumber: true).render(42.0, :json)
           assert_equal "12.50", json(float, 12.5)
           ["12.345", 0.125, 1.005, 2.675].each do |value|
             assert_equal float.render(value, :text), json(float, value), value.inspect
