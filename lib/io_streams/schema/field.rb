@@ -1834,19 +1834,15 @@ module IOStreams
       end
 
       # Returns [Date|Time] the date, datetime or time of its ISO 8601 text, see #default_text_value, a date that exists
-      # and a clock of 00:00:00 to 23:59:59, or OWN_TEXT.
+      # and a clock of 00:00:00 to 23:59:59, as #iso_value checks them, or OWN_TEXT.
       def default_time(text)
-        case type
-        when "date" then return cast_date_text(text) if DATE.match?(text)
-        when "datetime"
-          match = DATETIME.match(text)
-          date  = match && match[1]
-          return iso_datetime(match) if date && Date.valid_date?(date[0, 4].to_i, date[5, 2].to_i, date[8, 2].to_i)
-        else
-          clock = TIME.match(text)
-          return iso_clock(clock) if clock && clock_time?(clock[1].to_i, clock[2].to_i, clock[3].to_i)
-        end
-        OWN_TEXT
+        value =
+          case type
+          when "date" then cast_date_text(text) if DATE.match?(text)
+          when "datetime" then iso_datetime_text(text)
+          else iso_clock_text(text)
+          end
+        value.nil? ? OWN_TEXT : value
       rescue TimeZone::SkippedClock => e
         invalid(text, "#{type}, since #{e.message}")
       rescue ArgumentError
@@ -1881,10 +1877,15 @@ module IOStreams
 
       # Returns [Time|nil] the time of the ISO 8601 text of a datetime, see DATETIME, or nil for other text, or for a date
       # that does not exist, such as 2026-02-30, which `Time` moves into the next month.
+      #
+      # Only a day after the 28th is checked, since `Time` raises for a day of 0, and for a month of 0 or after 12, and
+      # every month has 28 days.
       def iso_datetime_text(text)
         match = DATETIME.match(text)
-        date  = match && match[1]
-        iso_datetime(match) if date && Date.valid_date?(date[0, 4].to_i, date[5, 2].to_i, date[8, 2].to_i)
+        return unless match
+
+        date = match[1]
+        iso_datetime(match) if date[8, 2] <= "28" || Date.valid_date?(date[0, 4].to_i, date[5, 2].to_i, date[8, 2].to_i)
       end
 
       # Returns [Time|nil] the time of day of the ISO 8601 text of a time, see TIME, or nil for other text, or for a time

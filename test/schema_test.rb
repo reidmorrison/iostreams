@@ -2084,9 +2084,8 @@ class SchemaTest < Minitest::Test
           clock    = field(type: "time", format: "%H.%M")
           date     = field(type: "date", format: "%d/%m/%Y")
           {
-            datetime => ["2026-02-30T09:30:00Z", "2026-10-13T24:00:00Z", "2026-10-13T23:59:60Z"],
-            clock    => ["24:00:00", "23:59:60Z", "23:60:00+05:00"],
-            date     => ["2026-02-30"]
+            datetime => ["2026-02-30T09:30:00Z", "2026-04-31T09:30:00+05:00", "2026-10-13T24:00:00Z", "2026-10-13T23:59:60Z"],
+            clock    => ["24:00:00", "23:59:60Z", "23:60:00+05:00"]
           }.each do |field, texts|
             texts.each do |text|
               assert_raises(IOStreams::Errors::InvalidValue, text) { field.load(text) }
@@ -2094,6 +2093,9 @@ class SchemaTest < Minitest::Test
           end
 
           assert_equal Time.utc(2026, 2, 28, 9, 30), datetime.load("2026-02-28T09:30:00Z")
+          assert_equal Time.utc(2028, 2, 29, 9, 30), datetime.load("2028-02-29T09:30:00Z")
+          assert_raises(IOStreams::Errors::InvalidValue) { datetime.load("2026-10-00T09:30:00Z") }
+          assert_raises(IOStreams::Errors::InvalidValue) { datetime.load("2026-13-01T09:30:00Z") }
           assert_equal Time.new(2000, 1, 1, 23, 59, 59, "+05:00"), clock.load("23:59:59+05:00")
           assert_equal Date.new(2026, 2, 28), date.load("2026-02-28")
         end
