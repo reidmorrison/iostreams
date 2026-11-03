@@ -531,14 +531,65 @@ class FrictionlessTypesTest < Minitest::Test
         error = assert_raises(IOStreams::Errors::InvalidValue) do
           read(IOStreams.path(dir, "cells.xlsx").schema(fields: [{name: "at", type: "datetime", timeZone: "America/New_York"}]))
         end
-        assert_includes error.message, "is no time in America/New_York, whose clocks skip it"
+        assert_equal 'Field "at": 2026-03-08 02:30:00 is not a valid datetime, since 2026-03-08 02:30:00 is no time in ' \
+                     "America/New_York, whose clocks skip it, in record 1", error.message
       end
 
-      it "is kept by a contract, and left out of the schema that the target of a copy takes, which writes its own" do
+      it "writes the clock of its zone of a winter date to a spreadsheet's cell, which reads back, also through a contract" do
+        schema = {fields: [{name: "at", type: "datetime", timeZone: "America/New_York"}]}
+        path   = write("winter.xlsx", schema, [{"at" => Time.utc(2026, 12, 1, 14, 30)}])
+
+        assert_equal [{"at" => Time.utc(2026, 12, 1, 9, 30)}], read(IOStreams.path(dir, "winter.xlsx"))
+        assert_equal [{"at" => Time.utc(2026, 12, 1, 14, 30)}], read(path)
+        assert_equal [{"at" => Time.utc(2026, 12, 1, 14, 30)}], read(IOStreams.path(dir, "winter.xlsx").as(schema))
+        assert_equal(-18_000, read(IOStreams.path(dir, "winter.xlsx").as(schema)).first["at"].utc_offset)
+      end
+
+      it "writes both times of a clock that its zone has twice as the same cell, which reads back as the first" do
+        # 01:30 in New York on 2026-11-01 is 05:30 UTC, at -04:00, and an hour later 06:30 UTC, at -05:00, once its
+        # clocks move back. A cell holds the clock alone, so the second reads back as the first, while CSV keeps the offset.
+        schema = {fields: [{name: "at", type: "datetime", timeZone: "America/New_York"}]}
+        times   = [Time.utc(2026, 11, 1, 5, 30), Time.utc(2026, 11, 1, 6, 30)]
+        records = times.map { |time| {"at" => time} }
+        cells   = read(write("twice.xlsx", schema, records)).map { |record| record["at"].getutc }
+        texts   = read(write("twice.csv", schema, records)).map { |record| record["at"].getutc }
+
+        assert_equal [{"at" => Time.utc(2026, 11, 1, 1, 30)}] * 2, read(IOStreams.path(dir, "twice.xlsx"))
+        assert_equal [times.first] * 2, cells
+        assert_equal times, texts
+      end
+
+      it "is kept by a contract, and by the schema that the target of a copy takes, which writes the clocks of its zone" do
         schema = IOStreams::Schema.new(fields: [{name: "at", type: "datetime", timeZone: "America/New_York"}])
 
         assert_equal [{name: "at", type: "datetime", timeZone: "America/New_York"}], schema.to_contract.fields.map(&:to_h)
-        assert_equal [{name: "at", type: "datetime"}], schema.without_text.fields.map(&:to_h)
+        assert_equal [{name: "at", type: "datetime", timeZone: "America/New_York"}], schema.without_text.fields.map(&:to_h)
+        assert_equal [{name: "at", type: "datetime", timeZone: "America/New_York"}],
+                     IOStreams::Schema.new(fields: [{name: "at", type: "datetime", format: "%m/%d/%Y %H:%M", timeZone: "America/New_York"}]).
+                       without_text.fields.map(&:to_h)
+      end
+
+      it "writes the clocks of its zone when a contract's records are copied to a spreadsheet, while CSV keeps their offsets" do
+        contract = {fields: [{name: "at", type: "datetime", timeZone: "America/New_York"}]}
+        File.write(File.join(dir, "visits.csv"), "at\n2026-07-01 09:30:00\n2026-07-01T13:30:00Z\n")
+        source = IOStreams.path(dir, "visits.csv").as(contract)
+        IOStreams.path(dir, "visits.xlsx").copy_from(source, mode: :hash)
+        IOStreams.path(dir, "copy.csv").copy_from(source, mode: :hash)
+
+        assert_equal [{"at" => Time.utc(2026, 7, 1, 9, 30)}] * 2, read(IOStreams.path(dir, "visits.xlsx"))
+        assert_equal [{"at" => Time.utc(2026, 7, 1, 13, 30)}] * 2, read(IOStreams.path(dir, "visits.xlsx").as(contract))
+        assert_equal "at\n2026-07-01T09:30:00-04:00\n2026-07-01T13:30:00Z\n", File.read(File.join(dir, "copy.csv"))
+      end
+
+      it "writes the clock of its zone to Parquet when a contract's times of day are copied, which reads back the same" do
+        skip "The parquet gem is a Rust extension, which JRuby cannot load" if defined?(JRuby)
+
+        contract = {fields: [{name: "opens", type: "time", timeZone: "America/New_York"}]}
+        File.write(File.join(dir, "shops.csv"), "opens\n09:30:00\n14:30:00Z\n")
+        IOStreams.path(dir, "shops.parquet").copy_from(IOStreams.path(dir, "shops.csv").as(contract), mode: :hash)
+
+        assert_equal [{"opens" => Time.utc(2000, 1, 1, 9, 30)}] * 2, read(IOStreams.path(dir, "shops.parquet"))
+        assert_equal [{"opens" => Time.new(2000, 1, 1, 9, 30, 0, "-05:00")}] * 2, read(IOStreams.path(dir, "shops.parquet").as(contract))
       end
 
       it "reads a time of day without an offset in its zone on 2000-01-01, and writes the clock of the zone" do

@@ -210,9 +210,10 @@ module IOStreams
       LAYOUT_PROPERTIES = %w[width start truncate skip].freeze
 
       # The properties of a field that say how a file writes the text of its values, which the target of a copy does not
-      # take from its source, since it writes its own, see `IOStreams::Schema#without_text`.
-      TEXT_PROPERTIES = %w[format trueValues falseValues groupChar decimalChar bareNumber missingValues delimiter
-                           timeZone].freeze
+      # take from its source, since it writes its own, see `IOStreams::Schema#without_text`. The `timeZone` of a datetime
+      # or time is not one of them, since it says which clock its values are, also those of a spreadsheet's cells or of a
+      # Parquet column of times of day, which hold the clock without a zone, so a copy keeps it.
+      TEXT_PROPERTIES = %w[format trueValues falseValues groupChar decimalChar bareNumber missingValues delimiter].freeze
 
       # The types whose values a cell that holds one value, such as that of a spreadsheet, holds as their text, see
       # #render's `:scalar` form: those that are not one value, and a yearmonth, whose text, such as `2026-10`, is not
@@ -733,7 +734,8 @@ module IOStreams
 
         type == "time" ? self.class.time_of_day(time) : time.getutc
       rescue TimeZone::SkippedClock => e
-        invalid(time, "#{type}, since #{e.message}")
+        clock = time.strftime(type == "time" ? "%H:%M:%S" : "%Y-%m-%d %H:%M:%S")
+        invalid(time, "#{type}, since #{e.message}", clock)
       end
 
       # Returns [Time] the clock that the zone of this datetime or time field shows at the time, see `timeZone` above, as
@@ -1822,9 +1824,10 @@ module IOStreams
       end
 
       # Raises `IOStreams::Errors::InvalidValue` for a value that is not a valid one of the type of this field, or of
-      # what the supplied text names, such as the format "email" of a string.
-      def invalid(value, what = type)
-        text = value.inspect
+      # what the supplied text names, such as the format "email" of a string, showing the value in its message as its
+      # inspect, unless the caller supplies the text that shows it, such as the clock of a Time that holds no zone, see
+      # #time_of_clock.
+      def invalid(value, what = type, text = value.inspect)
         text = "#{text[0, 60]}..." if text.length > 63
         raise(IOStreams::Errors::InvalidValue.new("Field #{name.inspect}: #{text} is not a valid #{what}", field: name,
                                                                                                            value: value))

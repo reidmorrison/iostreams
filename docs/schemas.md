@@ -398,8 +398,14 @@ end
   and reads the clock in UTC. The lines of a spreadsheet, its CSV text, have no schema, so they hold the clock of a
   date and time as UTC, such as `2026-07-01T09:30:00Z`, which a field reads as that time, whatever its `timeZone`, so
   read the rows of a spreadsheet, rather than its lines, with a field that has one.
-* A [contract](contracts) keeps the `timeZone` of a field, while the target of a copy that takes the types of its
-  source writes in its own, UTC unless its schema says otherwise.
+* A spreadsheet's cell holds the clock alone, so both times of a clock that the zone has twice, such as `01:30` on
+  2026-11-01 in New York, which is `05:30` UTC, at `-04:00`, and an hour later `06:30` UTC, at `-05:00`, are written as
+  the cell `2026-11-01 01:30`, which reads back as the first, `05:30` UTC, while CSV writes each time with its offset.
+* A [contract](contracts) keeps the `timeZone` of a field, and so does the target of a copy that takes the types of its
+  source, see [Converting rows and records](copy_files#converting-rows-and-records), since the zone says which clock
+  the values are, so that a copy to a spreadsheet writes the clock of the zone to each cell, and a copy to Parquet the
+  clock of the zone of each time of day, which read back as the same times, while CSV and JSON write each time with its
+  offset, as before.
 * The name of a zone needs the tzinfo gem, which Rails includes, and the IANA time zone database, which Linux and macOS
   have, while Windows and some slim container images need the `tzinfo-data` gem, otherwise setting the schema raises
   `ArgumentError`, as it does for a zone that is not one, or an offset of more than 23 hours or 59 minutes. An offset
