@@ -294,6 +294,16 @@ module IOStreams
         end
       end
 
+      # Returns [Hash<Integer, Symbol>|nil] the position of each value of a row read whose field reads the cell of a time
+      # of day otherwise than as the Time that it holds, with how, see `IOStreams::Schema::Field#time_cell`, such as
+      # `:clock`, as #decimal_positions finds them.
+      def time_cell_positions(in_order: false)
+        read_fields(in_order)&.each_with_object({}) do |(field, index), positions|
+          form = field.time_cell
+          positions[index] = form if form
+        end
+      end
+
       # Returns [Array<Integer>] the position of each value of a row rendered whose field is a `string`, see #render: every
       # field, in order, a field that only holds the place of a column included.
       def text_positions

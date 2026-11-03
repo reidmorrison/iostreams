@@ -182,6 +182,13 @@ module IOStreams
         {}
       end
 
+      # Returns [Hash<Integer, Symbol>|nil] the positions of the values of the rows read whose field reads the cell of a
+      # time of day otherwise than as its Time, with how, see `IOStreams::Tabular#time_cell_positions`: none without a
+      # schema, whose values have no type.
+      def time_cell_positions
+        {}
+      end
+
       # Returns [Array<Integer>] the positions of the values of the rows rendered whose field is a `string`, see
       # `IOStreams::Tabular#text_positions`: none without a schema, whose values have no type.
       def text_positions

@@ -364,16 +364,163 @@ class XlsxWriterTest < Minitest::Test
         assert_equal "09:30:00.500", strings.first["starts"]
       end
 
-      it "raises before it writes for a version of xlsxtream that writes the styles of its cells otherwise" do
-        style = ::Xlsxtream::Row::TIME_STYLE
-        ::Xlsxtream::Row.send(:remove_const, :TIME_STYLE)
-        ::Xlsxtream::Row.const_set(:TIME_STYLE, 9)
-        error = assert_raises(IOStreams::Errors::Error) { write { |io| io << "a\n" } }
+      it "writes a time of day below 8.64 seconds, which Ruby writes with an exponent, and midnight, as a time of day" do
+        path  = IOStreams.path(file_name).schema(schema.merge(fieldsMatch: "subset"))
+        times = [Time.utc(2000, 1, 1), Time.utc(2000, 1, 1, 0, 0, 1), Time.utc(2000, 1, 1, 0, 0, 0.001r)]
+        path.writer(:hash) do |io|
+          times.each { |time| io << {"starts" => time} }
+        end
+        xml = worksheet_xml(File.binread(file_name))
 
-        assert_match(/xlsxtream .* no longer writes the styles of its cells/, error.message)
-      ensure
-        ::Xlsxtream::Row.send(:remove_const, :TIME_STYLE)
-        ::Xlsxtream::Row.const_set(:TIME_STYLE, style)
+        assert_match(/<c r="A3" s="3"><v>1\.\d+e-05</, xml)
+        assert_match(/<c r="A4" s="3"><v>1\.\d+e-08</, xml)
+        assert_equal 3, xml.scan('s="3"').size
+        records = []
+        path.each(:hash) { |record| records << record["starts"] }
+
+        assert_equal times, records
+        lines = []
+        IOStreams.path(file_name).each(:line) { |line| lines << line }
+
+        assert_equal(["00:00:00", "00:00:01", "00:00:00.001"], lines.drop(1).map { |line| line.split(",").first })
+      end
+
+      it "writes a date and time before 1899-12-31, whose number would be that of a time of day, as its text" do
+        path = IOStreams.path(file_name).schema(schema.merge(fields: schema[:fields] + [{name: "any", type: "any"}]))
+        path.option(:xlsx, auto_format: true).writer(:hash) do |io|
+          io << {"starts" => Time.utc(2000, 1, 1, 12), "ny" => nil, "at" => Time.utc(1899, 12, 30, 12),
+                 "any" => "1899-12-30T06:00:00"}
+          io << {"starts" => nil, "ny" => nil, "at" => Time.utc(1899, 12, 31), "any" => Time.utc(1899, 12, 29, 6)}
+        end
+        xml = worksheet_xml(File.binread(file_name))
+
+        assert_match(%r{<c r="A2" s="3"><v>0\.5</v>}, xml)
+        assert_includes xml, "<t>1899-12-30T12:00:00Z</t>"
+        assert_includes xml, "<t>1899-12-30T06:00:00</t>"
+        assert_includes xml, "<t>1899-12-29T06:00:00Z</t>"
+        assert_match(%r{<c r="C3" s="2"><v>1\.0</v>}, xml)
+        records = []
+        path.each(:hash) { |record| records << record.slice("at") }
+
+        assert_equal [{"at" => Time.utc(1899, 12, 30, 12)}, {"at" => Time.utc(1899, 12, 31)}], records
+      end
+
+      it "writes the time of day of a time field with shared strings and auto_format" do
+        path = IOStreams.path(file_name).schema(fields: [{name: "starts", type: "time"}, {name: "notes", type: "any"}])
+        path.option(:xlsx, use_shared_strings: true, auto_format: true).writer(:array) do |io|
+          io << [Time.utc(2000, 1, 1, 9, 30), "1.5"]
+        end
+        data = File.binread(file_name)
+
+        assert_match(/<c r="A2" s="3"><v>0\.39/, worksheet_xml(data))
+        assert_includes worksheet_xml(data), '<c r="B2" t="n"><v>1.5</v>'
+        assert_includes worksheet_xml(data, "xl/sharedStrings.xml"), "<t>starts</t>"
+        records = []
+        path.each(:hash) { |record| records << record }
+
+        assert_equal [{"starts" => Time.utc(2000, 1, 1, 9, 30), "notes" => 1.5}], records
+      end
+
+      it "writes a workbook without a time of day with the workbook of xlsxtream, whose styles it leaves as they are" do
+        IOStreams.path(file_name).schema(fields: [{name: "at", type: "datetime"}]).writer(:array) do |io|
+          io << [Time.utc(2026, 7, 1, 9, 30)]
+        end
+
+        assert_includes worksheet_xml(File.binread(file_name), "xl/styles.xml"), '<cellXfs count="3">'
+        refute_includes worksheet_xml(File.binread(file_name), "xl/styles.xml"), 'numFmtId="21"'
+      end
+
+      describe "a version of xlsxtream whose styles it does not know" do
+        # The gem that each test changes, which IOStreams loads only once it writes a spreadsheet.
+        before { require "xlsxtream" }
+
+        # Checks the version of xlsxtream again within the block, which the workbook otherwise checks once.
+        def recheck
+          IOStreams::Xlsx::Workbook.instance_variable_set(:@problem, nil)
+          yield
+        ensure
+          IOStreams::Xlsx::Workbook.instance_variable_set(:@problem, nil)
+        end
+
+        # Writes a time of day to the existing file, which raises before it is opened, so that the file is untouched.
+        def assert_raises_before_writing(pattern)
+          File.write(file_name, "existing")
+          error = assert_raises(IOStreams::Errors::Error) do
+            IOStreams.path(file_name).schema(schema).writer(:hash) { |io| io << {"starts" => Time.utc(2000, 1, 1, 9, 30)} }
+          end
+
+          assert_match(pattern, error.message)
+          assert_equal "existing", File.read(file_name)
+        end
+
+        it "raises before it writes for a style of a date and time other than 2" do
+          style = ::Xlsxtream::Row::TIME_STYLE
+          ::Xlsxtream::Row.send(:remove_const, :TIME_STYLE)
+          ::Xlsxtream::Row.const_set(:TIME_STYLE, 9)
+
+          recheck { assert_raises_before_writing(/xlsxtream .* no longer writes the styles of its cells/) }
+        ensure
+          ::Xlsxtream::Row.send(:remove_const, :TIME_STYLE)
+          ::Xlsxtream::Row.const_set(:TIME_STYLE, style)
+        end
+
+        it "raises before it writes for styles of other cells" do
+          ::Xlsxtream::Workbook.alias_method(:iostreams_test_write_styles, :write_styles)
+          ::Xlsxtream::Workbook.define_method(:write_styles) do
+            @writer << %(<styleSheet><cellXfs count="4"><xf/></cellXfs></styleSheet>)
+          end
+
+          recheck { assert_raises_before_writing(/no longer writes the styles of its cells/) }
+        ensure
+          ::Xlsxtream::Workbook.alias_method(:write_styles, :iostreams_test_write_styles)
+          ::Xlsxtream::Workbook.send(:remove_method, :iostreams_test_write_styles)
+          ::Xlsxtream::Workbook.send(:private, :write_styles)
+        end
+
+        it "raises before it writes without the styles that xlsxtream writes, or its writer" do
+          ::Xlsxtream::Workbook.alias_method(:iostreams_test_write_styles, :write_styles)
+          ::Xlsxtream::Workbook.send(:remove_method, :write_styles)
+
+          recheck { assert_raises_before_writing(/no longer writes the styles of its cells/) }
+          # xlsxtream 2.x names its writer @io.
+          ::Xlsxtream::Workbook.define_method(:write_styles) { @io << %(<cellXfs count="3"></cellXfs>) }
+
+          recheck { assert_raises_before_writing(/no longer writes the styles of its cells/) }
+        ensure
+          ::Xlsxtream::Workbook.alias_method(:write_styles, :iostreams_test_write_styles)
+          ::Xlsxtream::Workbook.send(:remove_method, :iostreams_test_write_styles)
+          ::Xlsxtream::Workbook.send(:private, :write_styles)
+        end
+
+        it "raises before it writes for a version other than 3" do
+          version = ::Xlsxtream::VERSION
+          ::Xlsxtream.send(:remove_const, :VERSION)
+          ::Xlsxtream.const_set(:VERSION, "2.4.0")
+
+          recheck { assert_raises_before_writing(/xlsxtream 2\.4\.0 is not a version .* xlsxtream >= 3\.0, < 4/) }
+        ensure
+          ::Xlsxtream.send(:remove_const, :VERSION)
+          ::Xlsxtream.const_set(:VERSION, version)
+        end
+
+        it "still writes a workbook without a time of day" do
+          version = ::Xlsxtream::VERSION
+          ::Xlsxtream.send(:remove_const, :VERSION)
+          ::Xlsxtream.const_set(:VERSION, "2.4.0")
+          recheck do
+            IOStreams.path(file_name).schema(fields: [{name: "at", type: "datetime"}]).writer(:array) do |io|
+              io << [Time.utc(2026, 7, 1, 9, 30)]
+            end
+          end
+
+          records = []
+          IOStreams.path(file_name).each(:hash) { |record| records << record }
+
+          assert_equal [{"at" => Time.utc(2026, 7, 1, 9, 30)}], records
+        ensure
+          ::Xlsxtream.send(:remove_const, :VERSION)
+          ::Xlsxtream.const_set(:VERSION, version)
+        end
       end
     end
 

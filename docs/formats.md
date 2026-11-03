@@ -282,7 +282,7 @@ does:
 | A number, without a date format | a `Float`, as Excel holds it, such as `1001.0` |
 | A number of a date format, such as `yyyy-mm-dd` | a `Date` |
 | A number of a date and time format | a `Time` in UTC, with the time of the clock of the cell, since Excel has no time zone |
-| A number of a time format, such as `h:mm` | a time of day, a `Time` on 2000-01-01 in UTC |
+| A number of a time format, such as `h:mm` | a time of day, a `Time` on 2000-01-01 in UTC, which only a `time` field and a field of type `any` read as a time, while a field of another type reads the text of its clock, such as `09:30:00`, as the lines hold it, so that a `date` or `datetime` field raises `IOStreams::Errors::InvalidValue` for it |
 | A boolean | `true` or `false` |
 | An empty cell, or an error, such as `#N/A` | `nil` |
 | A formula | its cached value, typed as above |
@@ -333,7 +333,8 @@ Writing writes a workbook with one worksheet, with the `xlsxtream` gem. The rows
 of their values, by the fields of a schema or contract when there is one, so that a number is a number cell, a `Date` a
 date, a `Time` a date and time, holding its clock in UTC, or in the `timeZone` of its field, the value of a `time`
 field a time of day, of Excel's time format `h:mm:ss`, holding its own clock, or that of the `timeZone` of its field,
-and text, such as `"01234"`, is text. A `BigDecimal` is written as the `Float` that Excel
+and text, such as `"01234"`, is text. A date and time before 1899-12-31, which no cell of a date and time holds, is
+written as its text, such as `1899-12-30T12:00:00Z`, which a `datetime` field reads back. A `BigDecimal` is written as the `Float` that Excel
 holds, shown without the `decimals` of its field, see [Limitations](#spreadsheet-limitations). A field whose value is
 not one value, a `list`, `geopoint`, `array` or `object`, and a `yearmonth`, is written as its text, as CSV writes it,
 such as `a,b` or `2026-10`, and a `Hash` or an `Array` of a field of type `any`, or without a schema, as its JSON:
@@ -371,6 +372,9 @@ Notes:
 
 * Reading ignores `auto_format` and `use_shared_strings`, since the workbook records them, and raises for `sheet_name`,
   since it always reads the first worksheet.
+* Writing the value of a `time` field as a time of day needs `xlsxtream` 3.0 or later, below 4, since IOStreams adds
+  the style of a time of day to the styles that `xlsxtream` writes. Another version raises `IOStreams::Errors::Error`
+  before the file is opened, for a schema or contract with a `time` field.
 * Reading a spreadsheet needs a local file, so one stored elsewhere, or within another stream, is copied into a temp
   file first. Its lines, and its bytes, are converted into CSV in a second temp file, since the `creek` gem returns them
   to a block, while its rows and records are read straight from the workbook. Writing streams the workbook, without a temp file, see [When temp files are used](config#when-temp-files-are-used).
@@ -404,7 +408,8 @@ Give the column the type `time`, so that its cells are times of day, whose lines
 A cell of an elapsed time format, such as `[h]:mm:ss`, is read as a time, rather than as the length of time that Excel
 shows. One of less than a day, such as `9:00:00`, is a time of day, and one of a day or more, such as `36:00:00`, is
 the date and time that many days after 1899-12-30, `1899-12-31 12:00:00 UTC`, whose text in the lines of the
-spreadsheet is the time of its clock, `12:00:00`, without its days.
+spreadsheet is that date and time, `1899-12-31T12:00:00Z`. A cell of a time format without brackets, such as `h:mm`,
+that holds a date too is the date and time in the rows, and the time of its clock in the lines, which Excel shows.
 
 Excel counts 1900 as a leap year, so a date before 1900-03-01 is read a day early, in the rows and the lines alike, such
 as `1899-12-31` for the 1900-01-01 that Excel shows, and Excel's 1900-02-29, which does not exist, as `1900-02-28`.

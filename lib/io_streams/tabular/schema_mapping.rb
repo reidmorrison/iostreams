@@ -220,6 +220,13 @@ module IOStreams
         @columns.missing_positions(in_order: !@requires_header)
       end
 
+      # Returns [Hash<Integer, Symbol>|nil] the positions of the values of the rows read whose field reads the cell of a
+      # time of day otherwise than as its Time, with how, see `IOStreams::Schema::Columns#time_cell_positions`, as for
+      # #decimal_positions.
+      def time_cell_positions
+        @columns.time_cell_positions(in_order: !@requires_header)
+      end
+
       # Returns [Array<Integer>] the positions of the values of the rows rendered whose field is a `string` of bytes, see
       # `IOStreams::Schema::Columns#binary_positions`.
       def binary_positions

@@ -264,7 +264,9 @@ class XlsxRowsTest < Minitest::Test
 
       it "classifies a format code by what its sections in brackets leave, also one whose brackets never close" do
         assert_equal :date, IOStreams::Xlsx::Cells.custom_format("[$-409][Blue]mmmm d, yyyy")
-        assert_equal :time, IOStreams::Xlsx::Cells.custom_format("[h]:mm:ss")
+        assert_equal :elapsed, IOStreams::Xlsx::Cells.custom_format("[h]:mm:ss")
+        assert_equal :elapsed, IOStreams::Xlsx::Cells.custom_format("[Red][mm]")
+        assert_equal :time, IOStreams::Xlsx::Cells.custom_format("[Red]h:mm")
         assert_nil IOStreams::Xlsx::Cells.custom_format("[>=100]0;0")
         assert_nil IOStreams::Xlsx::Cells.custom_format("[" * 40_000)
       end
@@ -412,6 +414,36 @@ class XlsxRowsTest < Minitest::Test
 
         assert_equal "00:00:00", read(IOStreams.path(file_name), :line).last
         assert_equal [Time.utc(2000, 1, 1)], read(IOStreams.path(file_name), :array).last
+      end
+
+      it "is the date and time that the rows read for an elapsed time of a day or more, and the clock of one below a day" do
+        format_cells([["wait", 46, nil, "1.5"], ["short", 46, nil, "0.0625"], ["custom", 169, "[hh]:mm:ss", "1.5"],
+                      ["clock", 20, nil, "1.5"]])
+        strings = IOStreams.path(file_name).schema(fields: %w[wait short custom clock].map { |name| {name: name, type: "string"} })
+
+        assert_equal "1899-12-31T12:00:00Z,01:30:00,1899-12-31T12:00:00Z,12:00:00", read(IOStreams.path(file_name), :line).last
+        assert_equal [Time.utc(1899, 12, 31, 12), Time.utc(2000, 1, 1, 1, 30), Time.utc(1899, 12, 31, 12),
+                      Time.utc(1899, 12, 31, 12)], read(IOStreams.path(file_name), :array).last
+        assert_equal [{"wait" => "1899-12-31T12:00:00Z", "short" => "01:30:00", "custom" => "1899-12-31T12:00:00Z",
+                       "clock" => "1899-12-31T12:00:00Z"}], read(strings)
+      end
+
+      it "raises for a cell of a time of day in a field of a date or a date and time, as for its CSV text" do
+        format_cells([["clock", 20, nil, "0.39583333333333331"], ["midnight", 21, nil, "0"]])
+
+        %w[datetime date integer].each do |type|
+          path  = IOStreams.path(file_name).schema(fields: [{name: "clock", type: type}, {name: "midnight", type: "time"}])
+          error = assert_raises(IOStreams::Errors::InvalidValue, type) { read(path) }
+
+          assert_equal "09:30:00", error.value, type
+          csv = File.join(dir, "copy.csv")
+          IOStreams.path(csv).copy_from(file_name)
+
+          assert_raises(IOStreams::Errors::InvalidValue, type) { read(IOStreams.path(csv).schema(path.infer_schema)) }
+        end
+        times = IOStreams.path(file_name).schema(fields: [{name: "clock", type: "time"}, {name: "midnight", type: "any"}])
+
+        assert_equal [{"clock" => Time.utc(2000, 1, 1, 9, 30), "midnight" => Time.utc(2000, 1, 1)}], read(times)
       end
 
       it "is the number as the workbook holds it, also for a format of a whole number, which Excel shows rounded" do

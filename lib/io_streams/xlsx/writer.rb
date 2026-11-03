@@ -25,8 +25,10 @@ module IOStreams
       end
 
       # Raises ArgumentError for a `sheet_name` that Excel rejects, which would make it report the workbook as corrupt,
-      # and LoadError when the `xlsxtream` gem is not installed, so that they raise before a path opens its output, which
-      # would replace an existing file, see `IOStreams::StreamFormat#check_stream`.
+      # LoadError when the `xlsxtream` gem is not installed, and `IOStreams::Errors::Error` for columns of times of day,
+      # `time_columns`, when the version of `xlsxtream` does not write the styles that `IOStreams::Xlsx::Workbook` adds
+      # the style of a time of day to, see `IOStreams::Xlsx::Workbook.check`, so that they raise before a path opens its
+      # output, which would replace an existing file, see `IOStreams::StreamFormat#check_stream`.
       #
       # Excel rejects a name that is empty, longer than 31 characters, contains any of `[ ] : * ? / \`, or starts or
       # ends with an apostrophe.
@@ -34,7 +36,7 @@ module IOStreams
       def self.check(sheet_name: "Sheet1", auto_format: false, use_shared_strings: false, rows: false, text_columns: nil,
                      time_columns: nil)
         Utils.load_soft_dependency("xlsxtream", "Xlsx") unless defined?(Xlsxtream::Workbook)
-        Workbook.check
+        Workbook.check if time_columns&.any?
 
         problem = sheet_name_problem(sheet_name)
         raise(ArgumentError, "Invalid sheet_name #{sheet_name.inspect}: #{problem}") if problem
@@ -93,7 +95,7 @@ module IOStreams
       #   time_columns: [Array<Integer>]
       #     With `rows: true`, the positions of the columns whose values are times of day by their field of a schema or
       #     contract, a `time`, whose cells are written as times of day, of Excel's time format `h:mm:ss`, rather than as
-      #     dates and times, see `IOStreams::Xlsx::Workbook`.
+      #     dates and times, see `IOStreams::Xlsx::Workbook`, which needs `xlsxtream` 3.0 or later, see .check.
       #     Default: none
       #
       # The stream supplied to the block responds to the methods of an IO that write, see `IOStreams::Writable`, and
@@ -106,10 +108,13 @@ module IOStreams
       # that the output is not a workbook that can be read.
       def self.stream(output_stream, sheet_name: "Sheet1", auto_format: false, use_shared_strings: false, rows: false,
                       text_columns: nil, time_columns: nil)
-        check(sheet_name: sheet_name, auto_format: auto_format, use_shared_strings: use_shared_strings)
+        check(sheet_name: sheet_name, auto_format: auto_format, use_shared_strings: use_shared_strings,
+              time_columns: time_columns)
 
         # Rows hold their types, so only the values of the columns whose type is not known are formatted, see RowsWriter.
-        workbook  = Workbook.new(output_stream, auto_format: auto_format && !rows, use_shared_strings: use_shared_strings)
+        # Only a workbook with a column of times of day adds their style to those of `xlsxtream`, see Workbook.
+        workbook  = (time_columns&.any? ? Workbook : Xlsxtream::Workbook).
+                    new(output_stream, auto_format: auto_format && !rows, use_shared_strings: use_shared_strings)
         # Rather than the block form, which ends the worksheet after its block without an `ensure`.
         worksheet = workbook.add_worksheet(name: sheet_name)
         writer    =

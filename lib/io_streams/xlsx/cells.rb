@@ -12,7 +12,8 @@ module IOStreams
     #   Number, without a date format  | a Float, as Excel stores it
     #   Number, of a date format       | a Date
     #   Number, of a date and time     | a Time, in UTC, with the time of the clock of the cell, since Excel has no zone
-    #   Number, of a time format       | a Time on 2000-01-01, in UTC, as a time of day, see `IOStreams::Schema::Field`
+    #   Number, of a time format       | a Time on 2000-01-01, in UTC, as a time of day, see `IOStreams::Schema::Field`,
+    #                                  | or of a day or more, a date and time, as above, also of an elapsed time
     #   Boolean                        | true or false
     #   Empty                          | nil
     #   Error, such as #N/A            | nil
@@ -32,11 +33,18 @@ module IOStreams
       # The number of the day after the last date that Excel holds, 9999-12-31, since 1899-12-30.
       LAST_DAY = 2_958_466
 
-      # The built-in number formats of Excel of dates, times of day, and dates with times, by their ids.
+      # The built-in number formats of Excel of dates, times of day, elapsed times, and dates with times, by their ids.
       BUILT_IN_FORMATS = {
         14 => :date, 15 => :date, 16 => :date, 17 => :date, 18 => :time, 19 => :time, 20 => :time, 21 => :time,
-        22 => :date_time, 45 => :time, 46 => :time, 47 => :time
+        22 => :date_time, 45 => :time, 46 => :elapsed, 47 => :time
       }.freeze
+
+      # The classes of the number formats of a time, see .number_formats: of a time of day, whose clock Excel shows, and
+      # of an elapsed time, whose hours Excel shows, such as `36:00:00` for a day and a half.
+      TIME_FORMATS = %i[time elapsed].freeze
+
+      # The part of a custom format code that shows an elapsed time, such as `[h]` or `[mm]`.
+      ELAPSED = /\[[hms]+\]/i
 
       # The parts of a custom format code that are not its tokens: quoted text, an escaped character, and a section in
       # brackets other than an elapsed time, such as a color or a locale. A section never holds another `[`, so a match
@@ -44,8 +52,8 @@ module IOStreams
       LITERALS = /"[^"]*"|\\.|_.|\*.|\[(?![hms]+\])[^\[\]]*\]/i
 
       # Returns [Array<Symbol|nil>] the class of the number format of each style of a workbook, by the index of the style,
-      # as a cell names it with its `s` attribute: `:date`, `:time` or `:date_time`, or nil for a number, from Excel's own
-      # number formats, see BUILT_IN_FORMATS and .custom_format, rather than as creek finds them.
+      # as a cell names it with its `s` attribute: `:date`, `:time`, `:elapsed` or `:date_time`, or nil for a number,
+      # from Excel's own number formats, see BUILT_IN_FORMATS and .custom_format, rather than as creek finds them.
       #
       # Parameters:
       #   styles: [Nokogiri::XML::Document|nil]
@@ -63,14 +71,17 @@ module IOStreams
       end
 
       # Returns [Symbol|nil] the class of a custom format code, by the first of its sections: `:date` with only a year,
-      # month or day, `:time` with only hours, minutes or seconds, `:date_time` with both, otherwise nil, for a number.
-      # An `m` is minutes after hours or before seconds, otherwise the month.
+      # month or day, `:time` with only hours, minutes or seconds, `:elapsed` with an elapsed time, such as `[h]:mm:ss`,
+      # `:date_time` with a date and a time, otherwise nil, for a number. An `m` is minutes after hours or before seconds,
+      # or within brackets, otherwise the month.
       def self.custom_format(code)
-        tokens = code.split(";").first.to_s.gsub(LITERALS, "")
-        time   = tokens.match?(%r{[hs]|am/pm|a/p}i)
-        date   = tokens.match?(/[yd]/i) || (!time && tokens.match?(/m/i))
+        tokens  = code.split(";").first.to_s.gsub(LITERALS, "")
+        elapsed = tokens.match?(ELAPSED)
+        time    = elapsed || tokens.match?(%r{[hs]|am/pm|a/p}i)
+        date    = tokens.match?(/[yd]/i) || (!time && tokens.match?(/m/i))
         if date && time then :date_time
         elsif date then :date
+        elsif elapsed then :elapsed
         elsif time then :time
         end
       end
@@ -97,6 +108,8 @@ module IOStreams
       #   a date                   in ISO 8601, such as "2026-01-02"
       #   a date and time          its time in UTC, such as "2026-01-02T09:30:00Z", with its milliseconds when it has any
       #   a time                   the time of its clock, such as "09:30:00", which Excel shows, as a `time` field writes it
+      #   an elapsed time          the time of its clock below a day, otherwise the date and time that .value reads, such
+      #                            as "1899-12-31T12:00:00Z" for `36:00:00` of the format `[h]:mm:ss`, whose hours Excel shows
       #   any other number         as the workbook holds it, such as "1001" or "12.5"
       #   text                     as it is
       #   a boolean                "true" or "false"
@@ -122,7 +135,7 @@ module IOStreams
       #
       # Parameters are those of .value, without its options.
       def self.clock(text, type, style)
-        return unless style == :time && (type.nil? || type == "n") && text && !text.empty?
+        return unless TIME_FORMATS.include?(style) && (type.nil? || type == "n") && text && !text.empty?
 
         days = days(text)
         time_of_day_field.render(time_of_day(days), :text) if days && days < 1
@@ -138,7 +151,7 @@ module IOStreams
         case style
         when :date then base_date + days.floor
         when :date_time then date_time(days, base_date)
-        when :time then days < 1 ? time_of_day(days) : date_time(days, base_date)
+        when :time, :elapsed then days < 1 ? time_of_day(days) : date_time(days, base_date)
         end
       rescue ArgumentError, ZeroDivisionError
         text
@@ -149,6 +162,8 @@ module IOStreams
         days = days(text) if style
         return text unless days
 
+        return elapsed_text(days, base_date) if style == :elapsed
+
         case style
         when :date then (base_date + days.floor).iso8601
         when :date_time then Schema::Field.any_text(date_time(days, base_date))
@@ -156,6 +171,15 @@ module IOStreams
         end
       rescue ArgumentError, ZeroDivisionError
         text
+      end
+
+      # Returns [String] the text of a cell of an elapsed time, see .text: the time of its clock below a day, otherwise
+      # the date and time that .value reads, rather than the time of its clock without its days, which Excel does not
+      # show for an elapsed time.
+      def self.elapsed_text(days, base_date)
+        return time_of_day_field.render(time_of_day(days), :text) if days < 1
+
+        Schema::Field.any_text(date_time(days, base_date))
       end
 
       # Returns [Rational|nil] the days since the first day of the workbook of the text of a number, or nil for one
@@ -188,7 +212,7 @@ module IOStreams
       def self.seconds(days)
         ((days - days.floor) * DAY).round(3)
       end
-      private_class_method :number, :number_text, :days, :time_of_day_field, :date_time, :time_of_day, :seconds
+      private_class_method :number, :number_text, :elapsed_text, :days, :time_of_day_field, :date_time, :time_of_day, :seconds
     end
   end
 end

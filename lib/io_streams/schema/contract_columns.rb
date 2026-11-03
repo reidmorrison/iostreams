@@ -76,6 +76,13 @@ module IOStreams
         @source.missing_positions(in_order: in_order)
       end
 
+      # Returns [Hash<Integer, Symbol>|nil] the positions of the values of the rows of the file whose field of the schema
+      # of the file reads the cell of a time of day otherwise than as its Time, with how, see
+      # `IOStreams::Schema::Columns#time_cell_positions`.
+      def time_cell_positions(in_order: false)
+        @source.time_cell_positions(in_order: in_order)
+      end
+
       # Returns [Array<Integer>] the positions of the values of the rows of the file rendered whose field of the schema of
       # the file is a `string`, see `IOStreams::Schema::Columns#text_positions`.
       def text_positions

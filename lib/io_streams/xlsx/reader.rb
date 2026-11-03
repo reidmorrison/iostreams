@@ -12,7 +12,7 @@ module IOStreams
 
       # Returns [Array<Symbol>] the arguments of the rows that a stream reads, see .file, which are not options.
       def self.argument_names
-        %i[rows decimals strings missing]
+        %i[rows decimals strings missing times]
       end
 
       # Returns [Array<Symbol>] the options of the writer that reading raises for: `sheet_name`, since a caller could
@@ -44,10 +44,12 @@ module IOStreams
       # .failure_kind, and `IOStreams::Errors::StreamFailure`, tagged the same way, for a part of the spreadsheet that is
       # damaged, see .verify, naming the spreadsheet by its `display_name`, see .takes_display_name?, otherwise by the name
       # of the local file.
-      def self.file(file_name, display_name: nil, rows: false, decimals: nil, strings: nil, missing: nil, &block)
+      def self.file(file_name, display_name: nil, rows: false, decimals: nil, strings: nil, missing: nil, times: nil,
+                    &block)
         name = display_name || file_name
         verify(file_name, name)
-        return yield(Rows.new(file_name, name, decimals: decimals, strings: strings, missing: missing)) if rows
+        arguments = {decimals: decimals, strings: strings, missing: missing, times: times}
+        return yield(Rows.new(file_name, name, **arguments)) if rows
 
         # Stream into a temp file as csv
         Utils.private_temp_file("iostreams_csv", purpose: "the rows of the spreadsheet as CSV") do |temp_file_name|
@@ -148,10 +150,9 @@ module IOStreams
         #   strings: [#call|nil]
         #     Returns the positions of the values of the rows that are text, such as those of a `string` field, so that
         #     each number of the column is the text of the number that the cell holds, to the digits that Excel displays,
-        #     see `decimals`, such as `2134` for the zip code that Excel holds as the Float `2134.0`, and each cell of a
-        #     time of day the time of its clock, such as `09:30:00`, see `IOStreams::Xlsx::Cells.clock`, or nil until
-        #     they are known, as for `decimals`.
-        #     Default: nil, every number is a Float, and every time of day a Time.
+        #     see `decimals`, such as `2134` for the zip code that Excel holds as the Float `2134.0`, or nil until they
+        #     are known, as for `decimals`.
+        #     Default: nil, every number is a Float.
         #
         #   missing: [#call|nil]
         #     Returns the positions of the values of the rows whose text can be a missing value other than empty text,
@@ -162,12 +163,21 @@ module IOStreams
         #     see `IOStreams::Xlsx::Cells.text`. So a row whose every cell is a missing value is not blank, and is read as
         #     a record whose every value is missing, as its CSV text is.
         #     Default: nil, no cell is compared.
-        def initialize(file_name, display_name, decimals: nil, strings: nil, missing: nil)
+        #
+        #   times: [#call|nil]
+        #     Returns the positions of the values of the rows whose field reads the cell of a time of day otherwise than as
+        #     the Time that it holds, with how, see `IOStreams::Schema::Field#time_cell`: `:clock`, as the text of its
+        #     clock, such as `09:30:00`, as the CSV text of the cell holds it, see `IOStreams::Xlsx::Cells.clock`, such as
+        #     a `string` field, which reads that text, or a `date` or `datetime` field, which raises for it, as it does for
+        #     the CSV text, or nil until they are known, as for `decimals`.
+        #     Default: nil, every time of day is a Time.
+        def initialize(file_name, display_name, decimals: nil, strings: nil, missing: nil, times: nil)
           @file_name    = file_name
           @display_name = display_name
           @decimals     = decimals
           @strings      = strings
           @missing      = missing
+          @times        = times
         end
 
         # Yields [Array] each row, as an Array of the values of its cells, from the first, the header row of a worksheet
@@ -180,31 +190,38 @@ module IOStreams
 
           sheet     = Reader.tag_failure(@display_name) { Reader.new(@file_name).worksheet }
           clocks    = type_cells(sheet)
-          positions = nil
-          texts     = nil
-          missing   = nil
+          positions = {}
           each_row(sheet) do |row|
-            if @missing
-              missing ||= @missing.call
-              read_cells(row, missing, clocks)
-            end
-            positions ||= @decimals&.call
-            texts     ||= @strings&.call
-            positions&.each { |index| row[index] = displayed(row[index]) }
-            texts&.each { |index| row[index] = clocks[row[index]] || displayed_text(row[index]) }
-            row.each { |value| clocks.delete(value) } unless clocks.empty?
+            read_row(row, positions, clocks)
             yield(row)
           end
         end
 
         private
 
+        # Reads the values of the row as the fields of their positions read them, see #initialize, which are known once
+        # the header row is read, and kept in the supplied Hash, and forgets the clocks of its cells, see #type_cells.
+        def read_row(row, positions, clocks)
+          read_cells(row, known(positions, :missing, @missing), clocks) if @missing
+          times = known(positions, :times, @times)
+          read_times(row, times, clocks) if times && !clocks.empty?
+          known(positions, :decimals, @decimals)&.each { |index| row[index] = displayed(row[index]) }
+          known(positions, :strings, @strings)&.each { |index| row[index] = displayed_text(row[index]) }
+          row.each { |value| clocks.delete(value) } unless clocks.empty?
+        end
+
+        # Returns the positions of the supplied kind, which the source returns once they are known, see #initialize,
+        # kept in the Hash, or nil without a source, or until they are known.
+        def known(positions, kind, source)
+          positions[kind] ||= source&.call
+        end
+
         # Types the cells of the worksheet by Excel's own cell type and number format, see `IOStreams::Xlsx::Cells.value`.
         #
         # Returns [Hash] the time of the clock of each cell of a time of day, by the Time that the cell holds, itself,
         # rather than its value, since a cell of a date and time can hold the same time, see
-        # `IOStreams::Xlsx::Cells.clock`, which a `string` field reads, see #initialize, filled as the worksheet is read,
-        # and only when a field is a `string`.
+        # `IOStreams::Xlsx::Cells.clock`, which a field that reads it as that text reads, see `times` in #initialize,
+        # filled as the worksheet is read, and only when there are such fields.
         #
         # When the text of a cell can be a missing value, see `missing` in #initialize, each cell is its value with its
         # text, a Cell, until #read_cells reads the row.
@@ -213,7 +230,7 @@ module IOStreams
           clocks  = {}.compare_by_identity
           Reader.convert_cells(sheet) do |text, type, style, options|
             value = Cells.value(text, type, formats[style], options)
-            clock = @strings && Cells.clock(text, type, formats[style])
+            clock = @times && Cells.clock(text, type, formats[style])
             clocks[value] = clock if clock
             @missing ? Cell.new(value, Cells.text(text, type, formats[style], options)) : value
           end
@@ -238,6 +255,15 @@ module IOStreams
             else
               row[index] = cell.value
             end
+          end
+        end
+
+        # Replaces the Time of each cell of a time of day of the row whose field reads it as the text of its clock, see
+        # `times` in #initialize, with that text, and forgets it, see #type_cells.
+        def read_times(row, times, clocks)
+          times.each_key do |index|
+            clock = clocks.delete(row[index])
+            row[index] = clock if clock
           end
         end
 

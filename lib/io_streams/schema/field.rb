@@ -187,6 +187,9 @@ module IOStreams
       # The types of the items of a list, see `itemType` above.
       ITEM_TYPES = %w[string integer boolean number datetime date time].freeze
 
+      # The types that read the cell of a time of day as the Time that it holds, see #time_cell.
+      TIME_CELL_TYPES = %w[time any].freeze
+
       # The properties of a list of numbers that apply to each of its items, see `itemType` above.
       NUMBER_ITEM_PROPERTIES = %w[decimals floatNumber].freeze
 
@@ -385,6 +388,9 @@ module IOStreams
         build_forms(descriptor)
         @zone         = TimeZone.new(descriptor["timeZone"], @name) if descriptor.key?("timeZone")
         @in_zone      = writes_in_zone?
+        # Whether a cell that holds one value holds the clock of a time, see #render's `:scalar` form and #clock_of: of
+        # a datetime or time with a zone, or of a time of day, whose own clock is its text.
+        @scalar_clock = !@zone.nil? || type == "time"
         @width        = check_width(descriptor["width"])
         @start        = check_positive("start", descriptor["start"])
         @truncate     = check_flag("truncate", descriptor["truncate"])
@@ -697,6 +703,15 @@ module IOStreams
         @item
       end
 
+      # Returns [Symbol|nil] how this field reads the cell of a time of day of a format whose cells are typed, such as a
+      # spreadsheet, which holds it as a Time on 2000-01-01, see `IOStreams::Xlsx::Cells`: `:clock`, as the text of its
+      # clock, such as "09:30:00", as the CSV text of the cell holds it, for every type but a time of day and any value,
+      # so that a `string` field reads that text, and a `date` or `datetime` field raises for it, since a time of day is
+      # neither a date nor a date and time, or nil, as the Time, for a `time` or `any` field.
+      def time_cell
+        :clock unless TIME_CELL_TYPES.include?(type)
+      end
+
       # Returns [true|false] whether the values of this field are bytes, a string with `format: "binary"`, which a format
       # that holds only text writes as their base64 text.
       def binary?
@@ -793,7 +808,7 @@ module IOStreams
       # 09:30 for 09:30 at +05:00, rather than 04:30.
       def clock_of(time)
         unless @zone
-          return time.getutc unless type == "time"
+          return time.getutc unless @scalar_clock
 
           return Time.utc(2000, 1, 1, time.hour, time.min, time.sec + time.subsec)
         end
@@ -980,7 +995,7 @@ module IOStreams
         return missing_text(form) if value.nil?
         return value if form == :typed
         return json(value) if form == :json
-        return clock_of(value) if form == :scalar && (@zone || type == "time")
+        return clock_of(value) if form == :scalar && @scalar_clock
         return value if form == :scalar && !@scalar_text
 
         text(value)

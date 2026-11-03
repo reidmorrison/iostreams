@@ -1364,7 +1364,8 @@ module IOStreams
         decimals = (-> { tabular.decimal_positions } if tabular.schema&.decimals?)
         strings  = (-> { tabular.string_positions } if tabular.schema&.strings?)
         missing  = (-> { tabular.missing_positions } if tabular.schema&.missing_text?)
-        return rows_stream(decimals: decimals, strings: strings, missing: missing).send(:stream_reader, &)
+        times    = (-> { tabular.time_cell_positions } if tabular.schema)
+        return rows_stream(decimals: decimals, strings: strings, missing: missing, times: times).send(:stream_reader, &)
       end
 
       unless tabular.lines?

@@ -385,7 +385,7 @@ gems of the features that your application uses:
 | bzip2 | `bzip2-ffi` |
 | Zip | `rubyzip` to read, `zip_kit` to write |
 | Zstandard | `zstd-ruby`, or on JRuby the zstd-jni jar, see [Compression and encryption](extensions#zstandard) |
-| Excel spreadsheets | `creek` to read, `xlsxtream` to write |
+| Excel spreadsheets | `creek` to read, `xlsxtream` 3.0 or later to write |
 | PGP | The `gpg` program of GnuPG 2.1 or later, see [PGP](pgp#installation) |
 | Symmetric Encryption | `symmetric-encryption` |
 | Parquet | `parquet`, which is not available on JRuby |
