@@ -415,7 +415,10 @@ spreadsheet is the time of its clock, `12:00:00`, without its days.
 
 Excel counts 1900 as a leap year, so a date before 1900-03-01 is read a day early, in the rows and the lines alike, such
 as `1899-12-31` for the 1900-01-01 that Excel shows, and Excel's 1900-02-29, which does not exist, as `1900-02-28`.
-The `creek` gem reads them the same way.
+The `creek` gem reads them the same way. Likewise, a date before 1900-03-01 that IOStreams writes, such as the
+1900-01-01 of a `datetime` whose `format` reads no date, such as `%H:%M`, is a cell that Excel shows a day later, as
+1900-01-02, while IOStreams reads it back as 1900-01-01, so read and write a time of day with a `time` field, rather
+than a `datetime`.
 
 ## Schema
 

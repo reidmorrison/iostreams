@@ -479,10 +479,24 @@ IOStreams reads as Python does:
 | `%H`, `%S` | the hour, `00` to `23`, and the second, `00` to `59`, so that the time of a `date`, `datetime` or `time` is on a clock: the hour `24`, such as `24:00`, and a leap second, `60`, raise, rather than read the next day, or the second before it, or be ignored by a `date`, as Ruby reads them | 2 digits |
 
 A directive that reads several, such as `%F`, which is `%Y-%m-%d`, or `%c`, reads its year as they do, and so does a
-directive with the modifier `E` or `O`, such as `%EY`. A `datetime` whose `format` reads no date, or only part of one, such as `%H:%M` or
-`%m/%d %H:%M`, is on 1900-01-01, the year, month and day that Python gives the parts that it leaves out, rather than
-on the day that it is read. A `format` that starts with `fmt:`, as Data Package v0 wrote it,
-such as `"fmt:%d/%m/%Y"`, has the prefix removed, as Frictionless requires, so `"fmt:default"` is the default form.
+directive with the modifier `E` or `O`, such as `%EY`. A `format` that starts with `fmt:`, as Data Package v0 wrote
+it, such as `"fmt:%d/%m/%Y"`, has the prefix removed, as Frictionless requires, so `"fmt:default"` is the default form.
+
+Nothing is read on the day that it is read, as Ruby's strptime reads the parts of a date that the text leaves out, so
+that a file reads the same on every day. As Python reads them:
+
+* A `format` that reads a day of the month, `%d` or `%e`, without a year, `%Y`, `%y` or `%G`, such as `%m/%d` or
+  `%m/%d %H:%M`, raises `ArgumentError` when the schema is created, as Python's strptime does from 3.15, since it cannot
+  read February 29: add a year to it, and to the text. So does one that reads an ISO 8601 week without its year, `%G`,
+  its week, `%V`, and a weekday, such as `%u`, which give its date together, or with the day of the year, `%j`.
+* Text without a year, such as that of `%H:%M`, `%m %H:%M` or `%I:%M %p`, is on 1900-01-01, the year, month and day
+  that Python gives the parts that it leaves out, such as `1900-07-01 09:30` for `07 09:30` with `%m %H:%M`, the day of
+  the year of `%j` counts from 1900-01-01, such as `1900-03-01` for `060`, and a weekday or a week without a year, such
+  as `%a` or `%U`, is ignored.
+* A `datetime` without a date in a `timeZone` is on 1900-01-01 in that zone, at the offset that the zone had then,
+  often its local mean time, such as `+05:21:10` for `Asia/Kolkata`, which IOStreams writes in UTC, such as
+  `1900-01-01T04:08:50Z`, since ISO 8601 cannot write the seconds of an offset. Read a time of day with a `time` field,
+  which is on 2000-01-01, rather than a `datetime`.
 
 Ruby's own directives also work, such as `%N` and `%L` for the fraction of a second, and `%s` for the seconds since
 1970, which reads whole seconds, ignoring a fraction after it, such as that of `%s.%f`, but other Frictionless tools do

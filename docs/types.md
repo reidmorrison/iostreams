@@ -673,10 +673,13 @@ end
 ~~~
 
 Ruby's patterns are almost the same as Python's. IOStreams reads these as Python does: `%Y` is exactly 4 digits, so
-`31/10/26` raises for `%d/%m/%Y`, `%y` is exactly 2 digits, and `%f` is the microseconds, which Ruby does not have. A
-`datetime` whose `format` reads no date, or only part of one, such as `%H:%M` or `%m/%d %H:%M`, is on 1900-01-01, the
-year, month and day that Python gives the parts that it leaves out, such as `1900-07-01 09:30` for `07/01 09:30`,
-rather than on the day that it is read, as Ruby reads it. A `time` is on 2000-01-01 anyway. A `format` that starts with
+`31/10/26` raises for `%d/%m/%Y`, `%y` is exactly 2 digits, and `%f` is the microseconds, which Ruby does not have.
+Nothing is read on the day that it is read, as Ruby reads it: a `format` that reads a day of the month, `%d` or `%e`,
+without a year, such as `%m/%d`, raises `ArgumentError` when the schema is created, as Python's strptime does from
+3.15, since it cannot read February 29, while text without a year, such as that of `%H:%M` or `%m %H:%M`, is on
+1900-01-01, the year, month and day that Python gives the parts that it leaves out, such as `1900-07-01 09:30` for
+`07 09:30` with `%m %H:%M`. A `time` is on 2000-01-01 anyway, so read a time of day with a `time` field, rather than a
+`datetime`, whose 1900-01-01 a `timeZone` reads at the offset that the zone had then. A `format` that starts with
 `fmt:`, as an old version of the spec wrote it, has the prefix removed, as the spec requires.
 See [Formats of dates and times](schemas#formats-of-dates-and-times).
 
@@ -685,6 +688,8 @@ See [Formats of dates and times](schemas#formats-of-dates-and-times).
 * IOStreams also reads Ruby's own directives, such as `%s` for the seconds since 1970, and `%N` and `%L` for the
   fraction of a second. Python, so frictionless-py, does not. Use the directives of Python in a schema that other
   tools read.
+* Python's strptime reads the date of a week without a year, such as `10 Mon` with `%U %a`, in 1900. IOStreams
+  ignores it, as it ignores a weekday without a year, as Python does.
 
 ### Time zones
 

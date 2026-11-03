@@ -1914,20 +1914,59 @@ class SchemaTest < Minitest::Test
           assert_raises(IOStreams::Errors::InvalidValue) { field(type: "time").cast("09:30:00+0560") }
         end
 
-        it "reads a format without a date, or without its year, on 1900-01-01, as Python's strptime does, not today" do
+        it "reads a format without a year in 1900, on 1900-01-01 without a day, as Python's strptime does, not today" do
           clock = field(type: "datetime", format: "%H:%M")
-          day   = field(type: "datetime", format: "%m/%d %H:%M")
 
           assert_equal Time.utc(1900, 1, 1, 9, 30), clock.cast("09:30")
           assert_equal Time.utc(1900, 1, 1, 21, 30), field(type: "datetime", format: "%I:%M %p").cast("09:30 PM")
           assert_equal Time.new(1900, 1, 1, 9, 30, 0, "+05:00"), field(type: "datetime", format: "%H:%M %z").cast("09:30 +0500")
-          assert_equal Time.utc(1900, 7, 1, 9, 30), day.cast("07/01 09:30")
-          assert_raises(IOStreams::Errors::InvalidValue) { day.cast("02/29 09:30") }
+          assert_equal Time.utc(1900, 7, 1, 9, 30), field(type: "datetime", format: "%m %H:%M").cast("07 09:30")
+          assert_equal Time.utc(1900, 7, 1, 9, 30), field(type: "datetime", format: "%j %H:%M").cast("182 09:30")
+          assert_equal Time.utc(1901, 1, 1), field(type: "datetime", format: "%j").cast("366")
+          assert_equal Date.new(1900, 3, 1), field(type: "date", format: "%j").cast("060")
+          # A weekday, or a week, without a year is ignored.
+          assert_equal Time.utc(1900, 1, 1, 9, 30), field(type: "datetime", format: "%U %a %H:%M").cast("10 Mon 09:30")
+          assert_equal Time.utc(1900, 1, 1, 9, 30), field(type: "datetime", format: "%a %H:%M").cast("Tue 09:30")
+          assert_equal Date.new(1900, 7, 1), field(type: "date", format: "%m").cast("07")
+          assert_equal Date.new(1900, 7, 1), field(type: "date", format: "%B").cast("July")
           assert_equal Time.new(1900, 1, 1, 9, 30, 0, "-05:00"),
                        field(type: "datetime", format: "%H:%M", timeZone: "America/New_York").cast("09:30")
-          # A date read some other way, and a time of day, are unchanged.
+          # A date with a year, or read some other way, and a time of day, are unchanged.
           assert_equal Time.utc(2026, 7, 1, 9, 30), field(type: "datetime", format: "%Y %j %H:%M").cast("2026 182 09:30")
+          assert_equal Time.utc(2026, 3, 2), field(type: "datetime", format: "%G %V %u").cast("2026 10 1")
           assert_equal Time.utc(2000, 1, 1, 9, 30), field(type: "time", format: "%H:%M").cast("09:30")
+        end
+
+        it "writes a time whose offset has seconds, such as a zone's local mean time of 1900, in UTC, which reads back" do
+          kolkata = field(type: "datetime", format: "%H:%M", timeZone: "Asia/Kolkata")
+          time    = kolkata.cast("09:30")
+
+          assert_equal 19_270, time.utc_offset
+          assert_equal "1900-01-01T04:08:50Z", kolkata.dump(time)
+          assert_equal time, kolkata.load(kolkata.dump(time))
+          assert_equal "1900-01-01T04:08:50Z", field(type: "datetime").render(time, :text)
+          assert_equal "2026-07-01T09:30:00+05:30", field(type: "datetime").render(Time.new(2026, 7, 1, 9, 30, 0, "+05:30"), :text)
+        end
+
+        it "raises when the schema is built for a format of a day of the month without a year, as Python 3.15 does" do
+          ["%m/%d", "%d %H:%M", "%e %b", "%Od/%m %H:%M", "%-d.%m."].each do |format|
+            %w[date datetime time].each do |type|
+              error = assert_raises(ArgumentError, format) { field(type: type, format: format) }
+
+              assert_match(/\AField "value": the format #{Regexp.escape(format.inspect)} reads a day of the month without a year.* add a year/,
+                           error.message)
+            end
+          end
+          # An ISO 8601 week without its year, week and weekday, or with the day of the year, as Python raises for it.
+          ["%V %u", "%G-%m-%d", "%Y %V %u", "%G %V", "%G %j"].each do |format|
+            error = assert_raises(ArgumentError, format) { field(type: "date", format: format) }
+
+            assert_match(/ISO 8601 week/, error.message, format)
+          end
+          # A year of any kind, or a composite that reads one, such as %D, which is %m/%d/%y.
+          ["%d/%m/%Y", "%d/%m/%y", "%D", "%x", "%G %V %u %d"].each do |format|
+            assert_kind_of IOStreams::Schema::Field, field(type: "date", format: format), format
+          end
         end
 
         it "raises for an hour of 24, as a time does, rather than read the midnight of the next day" do
