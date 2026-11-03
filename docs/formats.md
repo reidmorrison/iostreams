@@ -297,6 +297,11 @@ or time format that is not a date that Excel holds, such as a negative number, w
 number, in the lines and in the rows. A field whose `missingValues` hold text other than empty text, such as `"-99"`,
 compares that text of each cell with them, whatever the type of the cell, see [Missing values](schemas#missing-values).
 
+A `list` field reads a cell that holds its text, such as `1.5,2`, as its items, and a cell that holds one value, such as
+the number `1.5`, as a list of that one item, `[1.5]`, as the CSV text of the cell reads, see
+[Lists, years, months and points](schemas#lists-years-months-and-points). A `list` of `string` items reads a number as
+a `string` field does, such as `["2134"]`.
+
 The rows that `each(:slice)` reads are the values of the cells, in the `:array` format, and `slice.to_h` holds each
 `Date` and `Time` as its ISO 8601 text, which a schema or contract reads back. A `delimiter:` raises `ArgumentError` for
 the rows and records, which are cells rather than lines.
@@ -539,6 +544,13 @@ IOStreams.path("jobs.parquet").schema(schema).each(:hash) do |job|
 end
 # {"id" => 1, "wait" => 8 hours and 30 minutes, "tags" => ["a", "b"], "address" => {"zip" => "01234"}}
 ~~~
+
+A `list` is written as a Parquet list of the type of its items, but the `parquet` gem does not report the type of the
+items of a list column, so without a schema it is read as an `Array` of its values, and `#infer_schema` gives the
+column the type `array`. A copy of the file without a schema then writes it as an `array`, whose numbers are written
+as their digits, without the `decimals` of the list, such as `["1.5","2.25"]` for the items `1.50` and `2.25` of a list
+with `decimals: 2`. Read it with the schema or contract that wrote it to keep the type of its items and their
+`decimals`.
 
 ## Fixed width files
 

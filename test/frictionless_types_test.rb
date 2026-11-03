@@ -55,7 +55,16 @@ class FrictionlessTypesTest < Minitest::Test
         error = assert_raises(IOStreams::Errors::InvalidValue) { list.cast("1,x") }
         assert_equal 'Field "value": "1,x" is not a valid list of integer items', error.message
         assert_raises(IOStreams::Errors::InvalidValue) { list.cast("[[1]]") }
-        assert_raises(IOStreams::Errors::InvalidValue) { list.cast(5) }
+        assert_raises(IOStreams::Errors::InvalidValue) { list.cast({"a" => 1}) }
+      end
+
+      it "reads a single value that is not text as a list of that one item, which IOStreams adds" do
+        assert_equal [5], list.cast(5)
+        assert_equal [BigDecimal("1.50")], field(type: "list", itemType: "number", decimals: 2).cast(1.5)
+        assert_equal [true], field(type: "list", itemType: "boolean").cast(true)
+        assert_equal [Date.new(2026, 1, 2)], field(type: "list", itemType: "date").cast(Date.new(2026, 1, 2))
+        assert_equal ["42"], field(type: "list").cast(42)
+        assert_raises(IOStreams::Errors::InvalidValue) { list.cast(1.5) }
       end
 
       it "writes the items separated by its delimiter, as an Array in JSON and the :hash format" do
@@ -125,6 +134,16 @@ class FrictionlessTypesTest < Minitest::Test
         assert_equal({fields: [{name: "scores", type: "list", itemType: "number", decimals: 2}]}, contract.to_h)
         assert_includes schema.to_dsl("Scores"), %(field :scores, :list, item_type: "number", decimals: 2)
         assert_equal [BigDecimal("1.26")], contract.new(scores: "1.255").scores
+      end
+
+      it "gives decimals and floatNumber to the field of its items, which owns them, rather than hold them itself" do
+        numbers = field(type: "list", itemType: "number", decimals: 2, floatNumber: true)
+
+        assert_nil numbers.decimals
+        refute_predicate numbers, :float?
+        assert_equal 2, numbers.item_field.decimals
+        assert_predicate numbers.item_field, :float?
+        assert_equal({name: "value", type: "list", itemType: "number", decimals: 2, floatNumber: true}, numbers.to_h)
       end
     end
 
@@ -323,6 +342,63 @@ class FrictionlessTypesTest < Minitest::Test
         assert_equal %("a,b",1;2,2026,2026-10,"90.5, 45.5","[1.5,-2]"), lines.last
       end
 
+      it "writes a list of numbers with decimals to a spreadsheet as its text, with its decimals, which reads back" do
+        numbers = {fields: [{name: "rates", type: "list", itemType: "number", decimals: 2}]}
+        path    = write("rates.xlsx", numbers, [{"rates" => [1.5, BigDecimal("2.255")]}])
+        lines   = []
+        IOStreams.path(dir, "rates.xlsx").each(:line) { |line| lines << line }
+
+        assert_equal ["rates", %("1.50,2.26")], lines
+        assert_equal [{"rates" => [BigDecimal("1.50"), BigDecimal("2.26")]}], read(path)
+      end
+
+      it "reads a number cell of a spreadsheet into a list as a list of that number, as the CSV text of the sheet reads" do
+        IOStreams.path(dir, "cells.xlsx").writer(:array) do |io|
+          io << %w[rates tags]
+          io << [1.5, 42]
+          io << ["1.5,2", "a,b"]
+        end
+        lists = {
+          fields: [
+            {name: "rates", type: "list", itemType: "number", decimals: 2},
+            {name: "tags", type: "list"}
+          ]
+        }
+        rows = [
+          {"rates" => [BigDecimal("1.50")], "tags" => ["42"]},
+          {"rates" => [BigDecimal("1.50"), BigDecimal("2.00")], "tags" => %w[a b]}
+        ]
+
+        assert_equal rows, read(IOStreams.path(dir, "cells.xlsx").schema(lists))
+        lines = []
+        IOStreams.path(dir, "cells.xlsx").each(:line) { |line| lines << line }
+        IOStreams.path(dir, "cells.csv").writer(:line) { |io| lines.each { |line| io << line } }
+
+        assert_equal rows, read(IOStreams.path(dir, "cells.csv").schema(lists))
+      end
+
+      it "reads a JSON number into a list as a list of that number, and an array as its items" do
+        File.write(File.join(dir, "rates.json"), %({"rates":1.5}\n{"rates":[1.5,2]}\n{"rates":"1.5,2"}\n))
+        records = read(IOStreams.path(dir, "rates.json").schema(fields: [{name: "rates", type: "list", itemType: "number"}]))
+        rates   = records.map { |record| record["rates"] }
+
+        assert_equal [[BigDecimal("1.5")], [BigDecimal("1.5"), BigDecimal("2")], [BigDecimal("1.5"), BigDecimal("2")]], rates
+      end
+
+      it "reads a Parquet column of numbers into a list as a list of that number, also through a contract" do
+        skip "The parquet gem is a Rust extension, which JRuby cannot load" if defined?(JRuby)
+
+        write("rates.parquet", {fields: [{name: "rates", type: "number", decimals: 2}]}, [{"rates" => BigDecimal("1.5")}])
+        lists = {fields: [{name: "rates", type: "list", itemType: "number"}]}
+
+        assert_equal [{"rates" => [BigDecimal("1.5")]}], read(IOStreams.path(dir, "rates.parquet").schema(lists))
+        assert_equal [{"rates" => [BigDecimal("1.5")]}], read(IOStreams.path(dir, "rates.parquet").as(lists))
+        error = assert_raises(IOStreams::Errors::IncompatibleType) do
+          read(IOStreams.path(dir, "rates.parquet").as(fields: [{name: "rates", type: "list", itemType: "date"}]))
+        end
+        assert_includes error.message, "which the list field \"rates\" never accepts"
+      end
+
       it "writes Parquet, a list as a Parquet list, the text of a yearmonth and a geopoint, and an int64 of a year" do
         skip "The parquet gem is a Rust extension, which JRuby cannot load" if defined?(JRuby)
 
@@ -377,6 +453,22 @@ class FrictionlessTypesTest < Minitest::Test
 
         assert_equal [[BigDecimal, NilClass], [Float, NilClass]], [rows.first["rates"].map(&:class).uniq, rows.first["ratios"].map(&:class).uniq]
         assert_equal [BigDecimal("1.50"), BigDecimal("2.26"), nil], rows.first["rates"]
+      end
+
+      it "writes the decimals of a list of numbers as the scale of its Parquet decimals" do
+        skip "The parquet gem is a Rust extension, which JRuby cannot load" if defined?(JRuby)
+
+        # The parquet gem reports the type of the items of a list only in the Arrow schema that it stores in the file,
+        # whose Decimal holds its scale and precision as two little-endian Int32s.
+        [2, 3].each do |decimals|
+          path   = write("rates#{decimals}.parquet", {fields: [{name: "rates", type: "list", itemType: "number", decimals: decimals}]},
+                         [{"rates" => [BigDecimal("1.5")]}])
+          stored = ::Parquet.metadata(path.to_s)["key_value_metadata"].find { |pair| pair["key"] == "ARROW:schema" }
+          arrow  = stored["value"].unpack1("m")
+
+          assert_includes arrow, [decimals, 38].pack("l<l<")
+          refute_includes arrow, [5 - decimals, 38].pack("l<l<")
+        end
       end
 
       it "raises for a list of numbers written to Parquet without decimals or floatNumber, as for a number" do

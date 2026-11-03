@@ -250,7 +250,7 @@ module IOStreams
       @loose        = build_loose { |name| self.class.match_key(name) }
       @cleansed     = build_loose { |name| self.class.match_key(self.class.cleansed(name)) }
       @decimals     = @fields.any?(&:decimal?)
-      @strings      = @fields.any? { |field| field.type == "string" }
+      @strings      = @fields.any?(&:string?)
       @missing_text = @fields.any?(&:missing_text?)
       @properties   = properties_of(descriptor)
       @hash         = [self.class, @properties, @fields].hash
@@ -294,8 +294,9 @@ module IOStreams
       @decimals
     end
 
-    # Returns [true|false] whether a field is a `string`, so that a format that reads its numbers as Floats, such as a
-    # spreadsheet, reads as text the number that each cell holds, to the digits that Excel displays, see
+    # Returns [true|false] whether a field holds text, a `string` or a `list` of strings, see
+    # `IOStreams::Schema::Field#string?`, so that a format that reads its numbers as Floats, such as a spreadsheet, reads
+    # as text the number that each cell holds, to the digits that Excel displays, see
     # `IOStreams::Tabular#string_positions`.
     def strings?
       @strings

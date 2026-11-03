@@ -231,7 +231,8 @@ module IOStreams
       # converts only when nothing is lost, see #cast, such as a whole number to an integer, or a time at midnight to a
       # date. A field of type "any" takes every value, and text, of type "string", is parsed, or a value of type "any"
       # checked, as each one is read, so a field of any type takes them too, apart from a string, which raises for a
-      # Hash or an Array, so takes neither an object nor an array.
+      # Hash or an Array, so takes neither an object nor an array. A list also takes a value of a type that its items
+      # convert, as a list of that one item, see #converts?.
       CONVERTED_TYPES = {
         "string"    => %w[string any integer number boolean date datetime time duration year],
         "integer"   => %w[integer number],
@@ -292,7 +293,8 @@ module IOStreams
       # Returns [Integer|nil] the position of the first character of the field in a fixed width file, counting from 1.
       attr_reader :start
 
-      # Returns [Integer|nil] for a number, the number of digits after the decimal point, see `decimals` above.
+      # Returns [Integer|nil] for a number, the number of digits after the decimal point, see `decimals` above, and nil
+      # for a list of numbers, whose `decimals` the field of its items holds, see #item_field.
       attr_reader :decimals
 
       # Returns [Array<String>] the other names of the column of this field, see `aliases` above.
@@ -336,8 +338,11 @@ module IOStreams
         @width        = check_width(descriptor["width"])
         @start        = check_positive("start", descriptor["start"])
         @truncate     = check_flag("truncate", descriptor["truncate"])
-        @float        = check_flag("floatNumber", descriptor["floatNumber"])
-        @decimals     = check_decimals(descriptor["decimals"])
+        # The `decimals` and `floatNumber` of a list of numbers belong to the field of its items, which reads and writes
+        # each number, see #build_item_field, so the list itself holds neither.
+        numbers       = @type == "list" ? {} : descriptor
+        @float        = check_flag("floatNumber", numbers["floatNumber"])
+        @decimals     = check_decimals(numbers["decimals"])
         @number_text  = number_text_of(descriptor)
         @true_values  = check_values("trueValues", descriptor["trueValues"], DEFAULT_TRUE_VALUES)
         @false_values = check_values("falseValues", descriptor["falseValues"], DEFAULT_FALSE_VALUES)
@@ -570,6 +575,8 @@ module IOStreams
       # such as a boolean for a number, raises before the first row, see `IOStreams::Schema#check_types`.
       def converts?(source_type)
         return true if type == "any" || (%w[string any].include?(source_type) && type != "string")
+        # A list reads a single value that its items convert as a list of that one item, see #cast_list.
+        return true if type == "list" && @item.converts?(source_type)
 
         CONVERTED_TYPES.fetch(type).include?(source_type)
       end
@@ -591,6 +598,18 @@ module IOStreams
         end
       end
 
+      # Returns [true|false] whether the values of this field are, or hold, text: a string field, and a list of strings,
+      # so that a format that reads its numbers as Floats, such as a spreadsheet, reads as text the number that each cell
+      # holds, to the digits that Excel displays, see `IOStreams::Schema::Columns#string_positions`, as the text of the
+      # file gives it.
+      def string?
+        case type
+        when "string" then true
+        when "list" then @item.string?
+        else false
+        end
+      end
+
       # Returns [IOStreams::Schema::Field|nil] the field of each item of a list, of its `itemType`, in the default form of
       # that type, or nil for any other type, so that a format that holds lists itself, such as Parquet, writes each
       # item as that field's type.
@@ -604,7 +623,8 @@ module IOStreams
         @truncate
       end
 
-      # Returns [true|false] whether a number is a Float rather than a BigDecimal, see `floatNumber` above.
+      # Returns [true|false] whether a number is a Float rather than a BigDecimal, see `floatNumber` above, and false for
+      # a list of numbers, whose `floatNumber` the field of its items holds, see #item_field.
       def float? = @float
 
       # Returns [true|false] whether the field only holds the place of its column, see `skip` above.
@@ -922,13 +942,16 @@ module IOStreams
 
       # Returns [Array] the items of a list, each read by the field of its `itemType` in its default form, see
       # #item_field, from an Array, or text of the items separated by the delimiter, which is split as it is, so that a
-      # string item keeps its spaces. An empty item is a missing value, nil.
+      # string item keeps its spaces. An empty item is a missing value, nil. A single value that is neither text, an
+      # Array nor a Hash, such as the number of a spreadsheet's cell, of a Parquet column or of JSON, is a list of that
+      # one item, which IOStreams adds to Frictionless, so that the rows of a spreadsheet read as its CSV text does.
       def cast_list(value)
         items =
-          if value.is_a?(::Array)
-            value
-          elsif value.is_a?(String)
-            value.split(@split, -1)
+          case value
+          when ::Array then value
+          when String then value.split(@split, -1)
+          when ::Hash then nil
+          else [value]
           end
         return invalid(value) if items.nil?
 

@@ -267,10 +267,10 @@ module IOStreams
         read_positions(in_order, &:decimal?)
       end
 
-      # Returns [Array<Integer>|nil] the position of each value of a row read whose field is a `string`, as
-      # #decimal_positions finds them.
+      # Returns [Array<Integer>|nil] the position of each value of a row read whose field holds text, a `string` or a
+      # `list` of strings, see `IOStreams::Schema::Field#string?`, as #decimal_positions finds them.
       def string_positions(in_order: false)
-        read_positions(in_order) { |field| field.type == "string" }
+        read_positions(in_order, &:string?)
       end
 
       # Returns [Hash<Integer, #call>|nil] the position of each value of a row read whose field has a missing value of
