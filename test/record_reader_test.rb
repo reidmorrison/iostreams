@@ -29,7 +29,7 @@ class RecordReaderTest < Minitest::Test
 
     describe "#each" do
       it "raises InvalidHeader for a header row of two columns that are the same key, which a record cannot hold" do
-        ["a,a,b\n1,2,3\n", "First Name,first_name,b\n1,2,3\n"].each do |csv|
+        ["a,a,b\n1,2,3\n", "First Name,first_name,b\n1,2,3\n", "Né,NÉ,b\n1,2,3\n"].each do |csv|
           source = -> { IOStreams.stream(StringIO.new(csv)).format(:csv) }
           error  = assert_raises(IOStreams::Errors::InvalidHeader) { source.call.each(:hash) { |_record| nil } }
           assert_match(/\AThe columns ".*" and ".*" are the same key/, error.message)
@@ -46,10 +46,22 @@ class RecordReaderTest < Minitest::Test
         IOStreams.stream(output).format(:csv).copy_from(IOStreams.stream(StringIO.new("a,a,b\n1,2,3\n")).format(:csv), mode: :array)
 
         assert_equal "a,a,b\n1,2,3\n", output.string
-        assert_raises(IOStreams::Errors::InvalidHeader) do
+        error = assert_raises(IOStreams::Errors::InvalidHeader) do
           IOStreams.stream(StringIO.new).format(:json).copy_from(IOStreams.stream(StringIO.new("a,a,b\n1,2,3\n")).format(:csv),
                                                                  mode: :array)
         end
+
+        assert_equal 'The columns "a" and "a" are the same key, "a", which a record written to a format whose rows are ' \
+                     "records, such as JSON, cannot hold twice: rename one of them, or write the rows to a format whose " \
+                     "columns are in order, such as CSV", error.message
+        # JSON keys are written as they are, so only columns of exactly the same name are the same key.
+        written = StringIO.new
+        IOStreams.stream(written).format(:json).writer(:array) do |io|
+          io << ["First Name", "first_name", "A", "a"]
+          io << [1, 2, 3, 4]
+        end
+
+        assert_equal %({"First Name":1,"first_name":2,"A":3,"a":4}\n), written.string
       end
 
       it "csv file" do

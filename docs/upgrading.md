@@ -344,9 +344,14 @@ end
 
 Reading records without a schema, with `each(:hash)` or a copy in the `:hash` mode, of a file whose header row has two
 columns that are the same key, such as `a,a,b`, or `First Name` and `first_name`, which cleanse to the same key, now
-raises `IOStreams::Errors::InvalidHeader` before the first record, naming both columns, and so does writing rows to
-JSON under such a header row. Previously each record held only the value of the last of them, such as
-`{"a" => "2", "b" => "3"}` for the row `1,2,3`, without an error. v2.2 reports such a header row as deprecated.
+raises `IOStreams::Errors::InvalidHeader` before the first record, naming both columns. Writing rows to JSON under a
+header row of two columns of exactly the same name, such as `a` and `a`, raises too, while `First Name` and
+`first_name` are written as two keys, since JSON keys are the columns as they are. Previously each record held only the
+value of the last of them, such as `{"a" => "2", "b" => "3"}` for the row `1,2,3`, without an error. v2.2 reports such
+a header row as deprecated, apart from two columns whose letters that are not ASCII differ only in case, such as `Né`
+and `NÉ`: v3.0 keeps those letters when it cleanses a header row, see
+[Cleansing a header row keeps letters that are not ASCII](#cleansing-a-header-row-keeps-letters-that-are-not-ascii),
+so both cleanse to `né` and raise, while v2.2 drops them, cleansing them to `n`, and so cannot report them.
 
 Fix: rename one of the columns, or read its rows with `each(:array)`, which keeps the value of each column, with or
 without a [schema](schemas), whose fields can be two fields of the same name.
@@ -1858,8 +1863,9 @@ v2.2 and v3.0. Each still works, and gives the same result, as before. They are,
   `IOStreams.enforce_column_restrictions=`, see
   [Moving the column options to a schema](#moving-the-column-options-to-a-schema); those of them that only apply when
   reading, supplied to a writer or a copy; `embedded_within:` when reading rows and records; `each(:array)` of JSON or
-  fixed width without a schema; the rows and records of a `.text` file without `#format`; a format other than `:csv`
-  for a spreadsheet; the rows and records of a spreadsheet read without a type for each column, and `delimiter:` and an
+  fixed width without a schema; the rows and records of a `.text` file without `#format`; records read without a
+  schema from a header row of two columns that are the same key, such as `a,a,b`; a format other than `:csv` for a
+  spreadsheet; the rows and records of a spreadsheet read without a type for each column, and `delimiter:` and an
   encoding set with `#encoding` for them; and a `Time` or `DateTime` that is not at midnight converted by a `date`
   field.
 * [Reading, writing and options](#reading-writing-and-options): an option that neither the reader nor the writer of a
