@@ -40,8 +40,10 @@ define, so that files from other tools read too. This page shows how each type c
 where IOStreams differs from the spec or from frictionless-py 5.21.
 
 How to set a schema on a path, how the columns of a file are matched to its fields, and every property, are in
-[Schemas](schemas). A [contract](contracts), the fields that a program needs, declared in Ruby, has the same types and
-properties, with the names of its properties written as Ruby writes them, such as
+[Schemas](schemas). A property that is not valid, or that IOStreams does not support, raises `ArgumentError` when the
+schema is read: a schema in a Hash when it is set, and a schema file, set by its path or url, the first time that a
+reader or writer needs it. A [contract](contracts), the fields that a program needs, declared in Ruby, has the same
+types and properties, with the names of its properties written as Ruby writes them, such as
 `field :paid, :boolean, true_values: ["Y"]` for `{name: "paid", type: "boolean", trueValues: ["Y"]}`.
 
 A schema keeps a property that IOStreams does not know, such as one of another tool, as the spec allows, and it has no
@@ -151,7 +153,7 @@ among them, a `string` or `any` field reads it as `""`, and the other types rais
   `["-99"]`. IOStreams compares only text, since the spec says that missing values are text, so the number is `-99`,
   apart from a cell of a spreadsheet, whose text it compares, so a cell that holds the number `-99` is missing.
 * The spec requires the missing values to be all text, or all objects of a `value` and a `label`, with each text, and
-  each label, only once. IOStreams raises `ArgumentError` for a list that is not, when the schema is set, naming the
+  each label, only once. IOStreams raises `ArgumentError` for a list that is not, when the schema is read, naming the
   text or label that it repeats. frictionless-py raises for a list that mixes text and objects, or that repeats the
   `value` or `label` of an object, but accepts text repeated, such as `["NA", "NA"]`.
 
@@ -269,7 +271,7 @@ base64, and reading ignores the line breaks within it, such as those of MIME bas
 a Parquet binary column or a query, holds the bytes themselves, as a binary `String`. Writing writes a binary `String`,
 such as one that `File.binread` or `data.b` returns, as base64, and takes any other `String` as base64 text already, so
 `"hello"` raises, while `"hello".b` is written as `aGVsbG8=`. The `minLength` and `maxLength` of a `binary` field count
-its bytes, and a `pattern` raises `ArgumentError` when the schema is set, since bytes are not text. See
+its bytes, and a `pattern` raises `ArgumentError` when the schema is read, since bytes are not text. See
 [Formats of strings](schemas#formats-of-strings).
 
 **Compared with Frictionless**
@@ -289,7 +291,7 @@ its bytes, and a `pattern` raises `ArgumentError` when the schema is set, since 
   characters of its base64 text, such as 8 for `aGVsbG8=`, where IOStreams counts its bytes, 5, and frictionless-py
   matches a `pattern` with the base64 text, which IOStreams raises `ArgumentError` for.
 * frictionless-py also reads the `format` `wkt`, a shape in Well-Known Text, which the spec does not define. IOStreams
-  raises `ArgumentError` for it when the schema is set.
+  raises `ArgumentError` for it when the schema is read.
 
 ## Numbers
 
@@ -536,7 +538,7 @@ end
 * frictionless-py reads a month or day of one digit, such as `2026-1-5`, since Python's `%m` and `%d` read one or two
   digits. The spec and IOStreams require `YYYY-MM-DD`.
 * The spec defines the `format` `any`, for any text that a tool can read as a date, and does not recommend it.
-  frictionless-py reads it. IOStreams raises `ArgumentError` for it when the schema is set, for a `date`, `datetime`
+  frictionless-py reads it. IOStreams raises `ArgumentError` for it when the schema is read, for a `date`, `datetime`
   or `time`.
 
 ### `datetime`
@@ -710,6 +712,11 @@ offset does. So a field with a `timeZone` writes the clock of its zone to a cell
 UTC in New York, and reads the clock of a cell in its zone, so the cell `2026-07-01 09:30` is 13:30 UTC, while a field
 without one writes and reads the clock in UTC. See [Excel spreadsheets](formats#excel-spreadsheets).
 
+A copy keeps the `timeZone` of a field in the schema that it gives its target, such as the records of a
+[contract](contracts) copied to a spreadsheet, since the zone says which clock the values are. So the cells of the
+spreadsheet hold the clocks of the zone, as the source read them, and read back as the same times, while CSV and JSON
+write each time with its offset.
+
 See [Time zones](schemas#time-zones). Neither the spec nor frictionless-py has `timeZone`.
 
 ### `year`
@@ -838,7 +845,10 @@ A `list` holds several values of one type, its `itemType`, in one text, separate
 * **`delimiter`** is the text between the items. Default: `,`. A `string` item keeps its spaces, so give the list
   `a, b` the delimiter `", "`.
 * **From other sources** an `Array` is read as its items, such as an array of JSON, or a list column of Parquet. Text is
-  always read as delimited text, so the text of a JSON array, such as `["a","b"]`, is the items `["a"` and `"b"]`.
+  always read as delimited text, so the text of a JSON array, such as `["a","b"]`, is the items `["a"` and `"b"]`. A
+  single value that is not text, such as a number of JSON, a number cell of a spreadsheet, or a column of numbers of
+  Parquet, is a list of that one item, such as `[1.5]`, so that the rows of a spreadsheet read as its CSV text does, and
+  a `list` of `string` items reads a number cell as a `string` field does, such as `["2134"]`.
 * **Written as** its items separated by its `delimiter`, also to a spreadsheet, whose cells hold the same text. A JSON
   file holds an array, and Parquet a list column. Writing an item whose text holds the `delimiter` raises, since it
   would read back as two items.
@@ -873,6 +883,8 @@ end
 * The spec does not say what an empty item is. frictionless-py reads it as `""` for a `string` item, and raises for
   the other types. IOStreams reads it as `nil`.
 * JSON writes a list as an array of its items, where frictionless-py writes its delimited text.
+* The spec defines a list only as delimited text, and frictionless-py reads only text or an array, raising for any
+  other value, such as the number `1.5` of JSON, which IOStreams reads as the list `[1.5]`.
 * Neither the spec nor frictionless-py gives `decimals` or `floatNumber` to a list. frictionless-py ignores them, so it
   reads each number of `1.005,2.5` as a `Decimal` of its own digits, and writes each one as its digits, `1.5,2.25`.
 
@@ -925,7 +937,7 @@ whatever its `format`.
   since Python's JSON cannot write the `Decimal`s of the point. IOStreams writes `[90.5,45.5]` and
   `{"lon":90.5,"lat":45.5}`, as above.
 * The spec also defines the type `geojson`, a shape in GeoJSON, which frictionless-py reads. IOStreams does not
-  support it yet, so it raises `ArgumentError` when the schema is set.
+  support it yet, so it raises `ArgumentError` when the schema is read.
 
 ## `any`
 
@@ -1050,8 +1062,10 @@ end
 
 Each read and each write of a file checks its own records, and remembers up to 1,000,000 values of each field and key,
 which `uniqueLimit`, a property of the schema that IOStreams adds, changes. A slice is only a part of a file, so reading
-one, as a background job does, does not check them, since another slice may hold the same value, while slicing the
-file with `each(:slice, validate: true)` checks them across the whole file. See
+one, as a background job does, does not check them, since another slice may hold the same value, and neither does a
+write into a store of slices without `validate: true`, such as the results of a job. With `validate: true`, slicing the
+file with `each(:slice)`, a write into a store of slices, such as the upload of a file, and `writer(:slice)` check them
+across every row that they read or write. See
 [Required fields](schemas#required-fields), [Constraints](schemas#constraints) and [Unique values](schemas#unique-values).
 
 **Compared with Frictionless**
@@ -1065,9 +1079,9 @@ file with `each(:slice, validate: true)` checks them across the whole file. See
 * The spec says that each value must be one of the `categories` of its field. frictionless-py does not check them, so
   it reads a value that is not one of them. IOStreams raises for it.
 * The constraint `jsonSchema` is in the spec. Neither IOStreams nor frictionless-py supports it: IOStreams raises
-  `ArgumentError` when the schema is set.
+  `ArgumentError` when the schema is read.
 * `foreignKeys`, which link the values of a field to those of another table, are in the spec, and frictionless-py
-  checks them. IOStreams does not support them yet, so it raises `ArgumentError` when the schema is set.
+  checks them. IOStreams does not support them yet, so it raises `ArgumentError` when the schema is read.
 
 ## Summary of the differences
 
@@ -1136,6 +1150,7 @@ properties that IOStreams adds to the spec, such as `aliases` and `allowBlank`, 
 | `list` | an item that holds the `delimiter`, written | not defined | written as it is | raises |
 | `list` | written to JSON | not defined | the delimited text, `"a,b"` | an array, `["a","b"]` |
 | `list` | `decimals` and `floatNumber` of `number` items | not defined | ignored | as for a `number` |
+| `list` | a single value that is not text, such as the number `1.5` of JSON | not defined | raises | `[1.5]` |
 | `geopoint` | the `default` format, written | `lon, lat` | `90.50,45.50` | `90.5, 45.5` |
 | `geopoint` | `1e1, 45` | not defined | reads | raises |
 | `geopoint` | the `array` or `object` format, written | a JSON array or object | raises `TypeError` for a point that it read | `[90.5,45.5]` or `{"lon":90.5,"lat":45.5}` |
