@@ -92,6 +92,20 @@ module IOStreams
         Tabular.text_file_format(file_name)
       end
 
+      # Returns [Symbol|nil] the tabular format of the data that a copy without a mode reads from these streams, or
+      # writes to them, when IOStreams v3.0 converts the rows of such a copy between it and another format, see
+      # `IOStreams::Stream#warn_copy_format`: the format of the text that the streams read, see #text_format, such as
+      # `:csv` for a spreadsheet, otherwise #format. Returns nil when v3.0 copies the data as it is: when the format is
+      # not known, such as for an IO without a file name or a `.txt` file, when the data is read and written as it is
+      # stored, see #raw, for a file that v3.0 reads in its `:text` format, see #text_file_format, and for a format whose
+      # rows are Ruby objects rather than lines of text, such as `:array` and `:hash`, see `IOStreams::Tabular.text_rows?`.
+      def copy_format
+        return if raw? || text_file_format
+
+        format = text_format || self.format
+        format if format && Tabular.text_rows?(format)
+      end
+
       private
 
       # Reports a deprecation warning for supplying `:none`, see #raw, or for setting the encode stream, see #encoding,

@@ -491,5 +491,91 @@ class ResultDeprecationTest < Minitest::Test
         end
       end
     end
+
+    describe "a copy without a mode between two formats" do
+      let(:csv) { "name,age\nJack,21\n" }
+
+      let(:source) do
+        File.write(File.join(@dir, "people.csv"), csv)
+        IOStreams.path(@dir, "people.csv")
+      end
+
+      # Returns [Regexp] the deprecation warning of a copy from the format into the other, naming the mode that converts
+      # it in both versions.
+      def copy_pattern(source, target, mode)
+        /test\.rb:\d+: warning: IOStreams: a copy without mode: from :#{source} into :#{target} is deprecated, since v3\.0 converts the rows of the source into :#{target}, as mode: :array does, rather than copy its text as it is: supply mode: :#{mode} to convert its #{mode == :hash ? 'records' : 'rows'}, or mode: :line to copy its text as it is in both versions\n\z/
+      end
+
+      it "copies the text as it is, and reports that v3.0 converts the rows, naming the mode that converts them in both" do
+        psv  = IOStreams.path(@dir, "people.psv")
+        json = IOStreams.path(@dir, "people.json")
+
+        assert_equal csv.bytesize, assert_deprecated(copy_pattern(:csv, :psv, :array)) { psv.copy_from(source) }
+        assert_equal csv, File.read(psv.to_s)
+        assert_equal csv.bytesize, assert_deprecated(copy_pattern(:csv, :json, :hash)) { source.copy_to(json) }
+        assert_equal csv, File.read(json.to_s)
+        assert_deprecated(copy_pattern(:psv, :csv, :array)) { IOStreams.path(@dir, "copy.csv").copy_from(psv) }
+        assert_deprecated(copy_pattern(:json, :csv, :hash)) { json.copy_to(IOStreams.path(@dir, "copy.csv")) }
+      end
+
+      it "reports the format of the text that the streams read, such as that of a compressed file, or of a spreadsheet" do
+        IOStreams.path(@dir, "people.csv.gz").write(csv)
+        assert_deprecated(copy_pattern(:csv, :json, :hash)) do
+          IOStreams.path(@dir, "people.json.gz").copy_from(IOStreams.path(@dir, "people.csv.gz"))
+        end
+        assert_equal csv, IOStreams.path(@dir, "people.json.gz").read
+
+        spreadsheet = IOStreams.path(__dir__, "files", "spreadsheet.xlsx")
+        assert_deprecated(copy_pattern(:csv, :json, :hash)) { spreadsheet.copy_to(IOStreams.path(@dir, "sheet.json")) }
+        assert_deprecated(copy_pattern(:csv, :psv, :array)) { spreadsheet.copy_to(IOStreams.path(@dir, "sheet.psv")) }
+        assert_equal spreadsheet.read, IOStreams.path(@dir, "sheet.psv").read
+      end
+
+      it "reports formats that are set, such as on an IO" do
+        output = StringIO.new
+        assert_deprecated(copy_pattern(:csv, :psv, :array)) { IOStreams.stream(output).format(:psv).copy_from(source) }
+        assert_equal csv, output.string
+      end
+
+      it "does not report a mode, the same format, a format that is not known, or data as it is stored" do
+        refute_deprecated do
+          assert_equal 2, IOStreams.path(@dir, "lines.json").copy_from(source, mode: :line)
+          assert_equal csv, File.read(File.join(@dir, "lines.json"))
+          assert_equal 2, IOStreams.path(@dir, "records.json").copy_from(source, mode: :hash)
+          assert_equal 2, IOStreams.path(@dir, "rows.psv").copy_from(source, mode: :array)
+          assert_equal csv.bytesize, IOStreams.path(@dir, "copy.csv").copy_from(source)
+          assert_equal csv.bytesize, IOStreams.path(@dir, "copy.csv.gz").copy_from(source)
+          assert_equal csv.bytesize, IOStreams.path(@dir, "people.txt").copy_from(source)
+          assert_equal csv.bytesize, IOStreams.path(@dir, "people").copy_from(source)
+          output = StringIO.new
+          IOStreams.stream(output).copy_from(source)
+
+          assert_equal csv, output.string
+          IOStreams.path(@dir, "people.txt").copy_to(IOStreams.path(@dir, "from_text.json"))
+          IOStreams.path(@dir, "raw.json").raw.copy_from(source)
+          IOStreams.path(@dir, "from_raw.json").copy_from(IOStreams.path(@dir, "people.csv").raw)
+          IOStreams.path(@dir, "unconverted.json").copy_from(source, convert: false)
+
+          assert_equal csv, File.read(File.join(@dir, "raw.json"))
+          assert_equal csv, File.read(File.join(@dir, "from_raw.json"))
+        end
+      end
+
+      it "does not report a spreadsheet copied to CSV, whose text is CSV" do
+        spreadsheet = IOStreams.path(__dir__, "files", "spreadsheet.xlsx")
+        refute_deprecated { spreadsheet.copy_to(IOStreams.path(@dir, "sheet.csv")) }
+        assert_equal spreadsheet.read, File.read(File.join(@dir, "sheet.csv"))
+      end
+
+      it "does not report a file that v3.0 reads in its :text format, or a format whose rows are Ruby objects" do
+        refute_deprecated do
+          IOStreams.path(@dir, "people.json.text").copy_from(source)
+          IOStreams.path(@dir, "people.hash").copy_from(source)
+          IOStreams.path(@dir, "people.array").copy_from(source)
+        end
+        assert_equal csv, File.read(File.join(@dir, "people.json.text"))
+        assert_equal csv, File.read(File.join(@dir, "people.hash"))
+      end
+    end
   end
 end
