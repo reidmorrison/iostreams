@@ -80,6 +80,7 @@ class InferSampleTest < Minitest::Test
         assert_equal "datetime", drafted("v\n2026-10-25 09:30:00\n2026-10-25T09:30:00+0530\n", "v")[:type]
         assert_equal "time", drafted("v\n09:30:00-0500\n", "v")[:type]
         assert_equal "string", drafted("v\n2026-10-25T25:00:00\n", "v")[:type]
+        assert_equal "string", drafted("v\n2026-10-25T24:00:00\n", "v")[:type]
       end
 
       it "drafts a string for text of several types, or that is no type" do

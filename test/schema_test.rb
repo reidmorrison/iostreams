@@ -1739,6 +1739,16 @@ class SchemaTest < Minitest::Test
           assert_equal "13/10/2026", pattern.render(Date.new(2026, 10, 13), :json)
         end
 
+        it "raises for a time in its format that is not on a clock, the hour 24 or a leap second, as Python's strptime does" do
+          pattern = field(type: "date", format: "%Y-%m-%d %H:%M:%S")
+
+          assert_raises(IOStreams::Errors::InvalidValue) { pattern.cast("2026-10-13 24:00:00") }
+          assert_raises(IOStreams::Errors::InvalidValue) { pattern.cast("2026-10-13 23:59:60") }
+          assert_equal Date.new(2026, 10, 13), pattern.cast("2026-10-13 23:59:59")
+          assert_raises(IOStreams::Errors::InvalidValue) { field(type: "time", format: "%H:%M:%S").cast("23:59:60") }
+          assert_raises(IOStreams::Errors::InvalidValue) { field(type: "time", format: "%H:%M").cast("24:00") }
+        end
+
         it "reads exactly 4 digits of a year with %Y, as Python's strptime does, rather than the year 26 of 2 digits" do
           pattern = field(type: "date", format: "%d/%m/%Y")
 
@@ -1900,7 +1910,7 @@ class SchemaTest < Minitest::Test
             assert_raises(IOStreams::Errors::InvalidValue, text.inspect) { datetime.cast(text) }
             assert_raises(IOStreams::Errors::InvalidValue, text.inspect) { datetime.load(text) }
           end
-          ["2026-10-13 24:00:00", "2026-10-13 23:60:00", "2026-10-13 23:59:60"].each do |text|
+          ["2026-10-13 24:00:00", "2026-10-13 23:59:60"].each do |text|
             assert_raises(IOStreams::Errors::InvalidValue, text.inspect) { pattern.cast(text) }
           end
           assert_equal Time.utc(2026, 10, 13, 23, 59, 59), pattern.cast("2026-10-13 23:59:59")

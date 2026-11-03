@@ -156,7 +156,7 @@ module IOStreams
           end
           return :boolean if BOOLEANS.key?(text)
           return :date if iso?(text, Field::DATE)
-          return :datetime if iso?(text, Field::DATETIME) && clock?(text[11, 8])
+          return :datetime if iso?(text, Field::DATETIME)
           return :time if Field::TIME.match?(text) && clock?(text)
 
           slashed_date(text) || :text
@@ -179,6 +179,9 @@ module IOStreams
           pattern.match?(text) && Date.valid_date?(text[0, 4].to_i, text[5, 2].to_i, text[8, 2].to_i)
         end
 
+        # Returns [true|false] whether the text of a time of day, see `IOStreams::Schema::Field::TIME`, is on a clock,
+        # from 00:00:00 to 23:59:59, as a time field reads it, while `IOStreams::Schema::Field::DATETIME` limits the
+        # clock of a datetime itself.
         def clock?(text)
           hour, minute, second = text[0, 8].split(":").map(&:to_i)
           hour < 24 && minute < 60 && second < 60

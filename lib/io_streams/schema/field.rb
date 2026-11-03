@@ -1729,15 +1729,16 @@ module IOStreams
         self.class.time_of_day(parse_time(Time, text))
       end
 
-      # Returns [true|false] whether the hour, minute and second are those of a clock, from 00:00:00 to 23:59:59.
+      # Returns [true|false] whether the hour, minute and second of the text of a time without a format, see TIME, are
+      # those of a clock, from 00:00:00 to 23:59:59, while a format checks its own, see
+      # `IOStreams::Schema::Pattern#parts`.
       def clock_time?(hour, minute, second)
         hour < 24 && minute < 60 && second < 60
       end
 
-      # Returns [Date|Time] the text read with the strptime pattern of the format, which must match all of the text,
-      # whose date must exist, see #cast_datetime, and whose time must be on a clock, see #clock_time?, since `DateTime`
-      # moves 24:00:00 into the next day, and reads a leap second as the second before it, from its parts, see
-      # `IOStreams::Schema::Pattern#parts`, which are read unless the caller has already read them.
+      # Returns [Date|Time] the text read with the strptime pattern of the format, which must match all of the text, with
+      # a time on a clock, see `IOStreams::Schema::Pattern#parts`, and whose date must exist, see #cast_datetime, from
+      # its parts, which are read unless the caller has already read them.
       #
       # A time is at the offset from UTC that its zone gives, or in UTC without one, see #cast_datetime. A zone whose
       # offset is not known, such as "XYZ", raises, rather than be read in the time zone of the process.
@@ -1747,7 +1748,6 @@ module IOStreams
           return invalid(text)
         end
         return @format.date(text) if klass == Date
-        return invalid(text) unless clock_time?(parts.fetch(:hour, 0), parts.fetch(:min, 0), parts.fetch(:sec, 0))
         return invalid(text) if parts.key?(:zone) && parts[:offset].nil?
 
         # A DateTime reads text without an offset as UTC, and knows the offset of every zone that Date._strptime knows,
