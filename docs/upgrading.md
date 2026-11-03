@@ -628,8 +628,9 @@ cell of a date and time as the same text. Its rows and records hold the cells th
 only a cell of a built-in date format of Excel, such as its short date, was `2026-01-02`. A cell of a custom date
 format, such as `yyyy-mm-dd`, or of a time, was the text of a `Time` in the local time zone of the process, such as
 `2026-01-02 00:00:00 -0500` or `2026-01-02 09:30:00 -0500`, a time of day was on 1899-12-30, and a number of a custom
-format with a letter in its text, such as `0" items"`, was a date. A number is the text that the workbook holds, such
-as `1001` or `12.5`, where a cell with the type of a number was `1001.0`, a format of a whole number, such as `0` or
+format with a letter in its text, such as `0" items"`, was a date. A number is the digits that Excel displays, its 15
+most significant, such as `1001`, `12.5`, or `0.3` for the `0.30000000000000004` that the workbook holds, where a cell
+with the type of a number was `1001.0`, a format of a whole number, such as `0` or
 `#,##0`, dropped the fraction of `12.5`, and a decimal cell that the `creek` gem returns as a `BigDecimal` was
 `0.125e2`.
 
@@ -858,8 +859,8 @@ Fix: set the format of the file with `#format`, such as `format(:psv)` for a pip
 
 #### Rows of a spreadsheet are the values of its cells
 
-`each(:array)`, `each(:hash)` and `each(:slice)` of a spreadsheet return the value of each cell as Excel typed it, rather
-than its text: a number is a `Float`, such as `1001.0` where it was `"1001.0"`, a cell of a date format a `Date`, of a
+`each(:array)` and `each(:hash)` of a spreadsheet, and `each(:slice)` with a schema or contract, return the value of
+each cell as Excel typed it, rather than its text: a number is a `Float`, such as `1001.0` where it was `"1001.0"`, a cell of a date format a `Date`, of a
 date and time format a `Time` in UTC, a boolean `true` or `false`, and an error, such as `#N/A`, `nil`, while text, such
 as `"01234"`, is still a `String`. Its lines, `each(:line)`, and a copy into a CSV file without a mode, are still its CSV
 text. A header cell of a date format is the key of its date, such as `2026_01_01` where it was `2026_01_01t000000z`.

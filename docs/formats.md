@@ -298,8 +298,9 @@ without an offset, such as `2026-01-02T09:30:00`, and of a time of day, a time f
 of its clock, such as `09:30:00`. The lines of the spreadsheet are the text of each cell, the same in every process: a
 date as `2026-01-02`, a date and time as its clock, without an offset, since a cell holds no zone, such as
 `2026-01-02T09:30:00`, a cell of a time format as the time of its clock, which Excel shows, such as `09:30:00`, so that
-a field of its type reads it, in its `timeZone`, or in UTC without one, as it reads the cell, and a number as the workbook holds it, such as `1001` or `12.5`, whatever its format
-shows. A number of a date
+a field of its type reads it, in its `timeZone`, or in UTC without one, as it reads the cell, and a number to the
+digits that Excel displays, as a `string` field reads it, such as `1001`, `12.5`, or `0.3` for the
+`0.30000000000000004` that the workbook holds, whatever its format shows. A number of a date
 or time format that is not a date that Excel holds, such as a negative number, which Excel shows as `####`, is its
 number, in the lines and in the rows. A field whose `missingValues` hold text other than empty text, such as `"-99"`,
 compares that text of each cell with them, whatever the type of the cell, see [Missing values](schemas#missing-values),
@@ -315,10 +316,11 @@ the number `1.5`, as a list of that one item, `[1.5]`, as the CSV text of the ce
 [Lists, years, months and points](schemas#lists-years-months-and-points). A `list` of `string` items reads a number as
 a `string` field does, such as `["2134"]`.
 
-The rows that `each(:slice)` reads are the values of the cells, in the `:array` format, and `slice.to_h` holds each
-`Date` and `Time` as its text, such as `2026-07-01` and `2026-07-01T09:30:00`, the clock of a cell of a date and
-time without an offset, and each number as JSON holds it, such as `1234.5`, as do the
-slices of the CSV text of a spreadsheet, copied to a [store of slices](background_jobs#a-store-of-slices) with
+The rows that `each(:slice)` reads with a schema or contract are the values of the cells, in the `:array` format, and
+`slice.to_h` holds each `Date` and `Time` as its text, such as `2026-07-01` and `2026-07-01T09:30:00`, the clock of a
+cell of a date and time without an offset, and each number as JSON holds it, such as `1234.5`, while without one they
+are the text of each cell, as the lines hold it, such as `09:30:00` for a time of day and `0.3` for a number, so that
+a schema reads them later as it reads the spreadsheet, as do the slices of the CSV text of a spreadsheet, copied to a [store of slices](background_jobs#a-store-of-slices) with
 `copy_from(path, mode: :line)`, as text. That text is the default text of each type, rather than the text that a schema
 describes, so the slices of a spreadsheet say that they hold its cells, `slice.cell_text?`, and `IOStreams.stream(slice)`
 reads each value as the spreadsheet reads its cell, also once the slice is stored: the default text of its type first,
@@ -338,7 +340,7 @@ of their values, by the fields of a schema or contract when there is one, so tha
 date, a `Time` a date and time, holding its clock in UTC, or in the `timeZone` of its field, the value of a `time`
 field a time of day, of Excel's time format `h:mm:ss`, holding its own clock, or that of the `timeZone` of its field,
 and text, such as `"01234"`, is text. A date and time before 1899-12-31, which no cell of a date and time holds, is
-written as its text, such as `1899-12-30T12:00:00Z`, which a `datetime` field reads back. A `BigDecimal` is written as the `Float` that Excel
+written as the text of its clock, such as `1899-12-30T12:00:00`, which a `datetime` field reads back. A `BigDecimal` is written as the `Float` that Excel
 holds, shown without the `decimals` of its field, see [Limitations](#spreadsheet-limitations). A field whose value is
 not one value, a `list`, `geopoint`, `array` or `object`, and a `yearmonth`, is written as its text, as CSV writes it,
 such as `a,b` or `2026-10`, and a `Hash` or an `Array` of a field of type `any`, or without a schema, as its JSON:
@@ -412,7 +414,7 @@ Give the column the type `time`, so that its cells are times of day, whose lines
 A cell of an elapsed time format, such as `[h]:mm:ss`, is read as a time, rather than as the length of time that Excel
 shows. One of less than a day, such as `9:00:00`, is a time of day, and one of a day or more, such as `36:00:00`, is
 the date and time that many days after 1899-12-30, `1899-12-31 12:00:00 UTC`, whose text in the lines of the
-spreadsheet is that date and time, `1899-12-31T12:00:00Z`. A cell of a time format without brackets, such as `h:mm`,
+spreadsheet is the clock of that date and time, `1899-12-31T12:00:00`. A cell of a time format without brackets, such as `h:mm`,
 that holds a date too is the date and time in the rows, and the time of its clock in the lines, which Excel shows.
 
 Excel counts 1900 as a leap year, so a date before 1900-03-01 is read a day early, in the rows and the lines alike, such

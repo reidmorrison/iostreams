@@ -395,9 +395,9 @@ class XlsxWriterTest < Minitest::Test
         xml = worksheet_xml(File.binread(file_name))
 
         assert_match(%r{<c r="A2" s="3"><v>0\.5</v>}, xml)
-        assert_includes xml, "<t>1899-12-30T12:00:00Z</t>"
+        assert_includes xml, "<t>1899-12-30T12:00:00</t>"
         assert_includes xml, "<t>1899-12-30T06:00:00</t>"
-        assert_includes xml, "<t>1899-12-29T06:00:00Z</t>"
+        assert_includes xml, "<t>1899-12-29T06:00:00</t>"
         assert_match(%r{<c r="C3" s="2"><v>1\.0</v>}, xml)
         records = []
         path.each(:hash) { |record| records << record.slice("at") }

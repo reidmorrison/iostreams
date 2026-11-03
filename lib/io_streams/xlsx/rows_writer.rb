@@ -79,15 +79,15 @@ module IOStreams
       end
 
       # Returns [Time|String] the cell of a time: of a column of times of day, its clock on Excel's first day, see
-      # `IOStreams::Xlsx::Workbook.time_of_day`, otherwise the time in UTC, or its text, see
-      # `IOStreams::Schema::Field.any_text`, before FIRST_DATE_TIME, such as 1899-12-30T12:00:00Z, the zero date of OLE,
-      # whose number of days would be that of a time of day, 0.5, so that only a cell of a time of day holds a number of
-      # less than 1.
+      # `IOStreams::Xlsx::Workbook.time_of_day`, otherwise the time in UTC, or the text of its clock, as the CSV text of
+      # a cell holds it, see `IOStreams::Schema::Field.clock_text`, before FIRST_DATE_TIME, such as 1899-12-30T12:00:00,
+      # the zero date of OLE, whose number of days would be that of a time of day, 0.5, so that only a cell of a time of
+      # day holds a number of less than 1.
       def time_cell(time, index)
         return Workbook.time_of_day(time) if @time_columns.key?(index)
 
         time = time.getutc
-        time < FIRST_DATE_TIME ? IOStreams::Schema::Field.any_text(time) : time
+        time < FIRST_DATE_TIME ? IOStreams::Schema::Field.clock_text(time) : time
       end
 
       # Returns [Numeric|String] the number, as a number of Excel, a double of which it keeps 15 significant digits, or

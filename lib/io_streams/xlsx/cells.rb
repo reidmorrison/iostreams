@@ -46,6 +46,12 @@ module IOStreams
       # The part of a custom format code that shows an elapsed time, such as `[h]` or `[mm]`.
       ELAPSED = /\[[hms]+\]/i
 
+      # The most significant digits that Excel displays of a number, see .displayed.
+      DISPLAYED_DIGITS = 15
+
+      # The whole numbers that a Float holds exactly, below 2**53, which keep every digit, see .displayed.
+      EXACT_WHOLE = 2**53
+
       # The parts of a custom format code that are not its tokens: quoted text, an escaped character, and a section in
       # brackets other than an elapsed time, such as a color or a locale. A section never holds another `[`, so a match
       # stops there, rather than scan the rest of the code again from each `[` of a workbook's code that never closes.
@@ -68,6 +74,33 @@ module IOStreams
           id = style["numFmtId"]&.to_i
           BUILT_IN_FORMATS.fetch(id) { custom[id] } if id
         end
+      end
+
+      # Returns [BigDecimal] the number of a finite Float that a cell holds, to the digits that Excel displays, its most
+      # significant 15, such as `0.3` for `0.30000000000000004`, apart from a whole number below 2**53, which a Float
+      # holds exactly, which keeps every digit, such as the card number `4111111111111111`, which a field that keeps the
+      # digits of its numbers reads, see `IOStreams::Xlsx::Reader::Rows`.
+      #
+      # The exact value of the Float is rounded half up, to the digits counted from the first significant digit of its
+      # shortest text, rather than that text, so that the digits are the same on every Ruby, since JRuby writes the text
+      # of some Floats with other digits than MRI does. Rounded so, the number has at most one more digit than Excel
+      # displays, which the BigDecimal holds exactly.
+      def self.displayed(number)
+        return BigDecimal(number.to_i) if number == number.truncate && number.abs < EXACT_WHOLE
+
+        digits = DISPLAYED_DIGITS - BigDecimal(number.to_s).exponent
+        BigDecimal(number.to_r.round(digits, half: :up), DISPLAYED_DIGITS + 1)
+      end
+
+      # Returns [String] the text of a finite Float that a cell holds, to the digits that Excel displays, see .displayed,
+      # in plain digits, without a decimal point for a whole number, such as "2134" for `2134.0`, "0.3" for
+      # `0.30000000000000004`, or "0.0000001" for `1e-7`, as the CSV text of the cell holds it, see .text, and a
+      # `string` field reads it.
+      def self.displayed_text(number)
+        return number.to_i.to_s if number.abs < EXACT_WHOLE && number == number.truncate
+
+        number = displayed(number)
+        number.frac.zero? ? number.to_i.to_s : number.to_s("F")
       end
 
       # Returns [Symbol|nil] the class of a custom format code, by the first of its sections: `:date` with only a year,
@@ -109,9 +142,10 @@ module IOStreams
       #   a date and time          its clock, without an offset, such as "2026-01-02T09:30:00", with its milliseconds when
       #                            it has any, which a field reads in its `timeZone`, or in UTC without one, as the cell
       #   a time                   the time of its clock, such as "09:30:00", which Excel shows, as a `time` field writes it
-      #   an elapsed time          the time of its clock below a day, otherwise the date and time that .value reads, such
-      #                            as "1899-12-31T12:00:00Z" for `36:00:00` of the format `[h]:mm:ss`, whose hours Excel shows
-      #   any other number         as the workbook holds it, such as "1001" or "12.5"
+      #   an elapsed time          the time of its clock below a day, otherwise the clock of the date and time that .value
+      #                            reads, such as "1899-12-31T12:00:00" for `36:00:00` of the format `[h]:mm:ss`
+      #   any other number         to the digits that Excel displays, see .displayed_text, such as "1001", "12.5", or
+      #                            "0.3" for the 0.30000000000000004 that the workbook holds
       #   text                     as it is
       #   a boolean                "true" or "false"
       #   an error, such as #N/A   as Excel shows it
@@ -161,7 +195,7 @@ module IOStreams
       # Returns [String] the text of a cell of a number type, by the class of its number format, see .text.
       def self.number_text(text, style, base_date)
         days = days(text) if style
-        return text unless days
+        return plain_text(text) unless days
 
         return elapsed_text(days, base_date) if style == :elapsed
 
@@ -174,13 +208,20 @@ module IOStreams
         text
       end
 
+      # Returns [String] the text of a number that is not a date or a time, to the digits that Excel displays, see
+      # .displayed_text, or the text itself for one that is not finite, such as `1e10000`.
+      def self.plain_text(text)
+        number = Float(text)
+        number.finite? ? displayed_text(number) : text
+      end
+
       # Returns [String] the text of a cell of an elapsed time, see .text: the time of its clock below a day, otherwise
       # the date and time that .value reads, rather than the time of its clock without its days, which Excel does not
       # show for an elapsed time.
       def self.elapsed_text(days, base_date)
         return time_of_day_field.render(time_of_day(days), :text) if days < 1
 
-        Schema::Field.any_text(date_time(days, base_date))
+        Schema::Field.clock_text(date_time(days, base_date))
       end
 
       # Returns [Rational|nil] the days since the first day of the workbook of the text of a number, or nil for one
@@ -213,7 +254,8 @@ module IOStreams
       def self.seconds(days)
         ((days - days.floor) * DAY).round(3)
       end
-      private_class_method :number, :number_text, :elapsed_text, :days, :time_of_day_field, :date_time, :time_of_day, :seconds
+      private_class_method :number, :number_text, :plain_text, :elapsed_text, :days, :time_of_day_field, :date_time,
+                           :time_of_day, :seconds
     end
   end
 end

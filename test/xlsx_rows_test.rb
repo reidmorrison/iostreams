@@ -73,10 +73,10 @@ class XlsxRowsTest < Minitest::Test
         assert_equal [1001.0, 12.5, at, Date.new(2026, 10, 25), "01234", true, nil, 0.30000000000000004], rows.last
       end
 
-      it "still reads the lines and bytes of the spreadsheet as CSV text" do
+      it "still reads the lines and bytes of the spreadsheet as CSV text, each number to the digits that Excel displays" do
         lines = read(IOStreams.path(file_name), :line)
 
-        assert_equal "1001,12.5,2026-10-25T09:30:00,2026-10-25,01234,true,,0.30000000000000004", lines.last
+        assert_equal "1001,12.5,2026-10-25T09:30:00,2026-10-25,01234,true,,0.3", lines.last
         assert_equal "#{lines.join("\n")}\n", IOStreams.path(file_name).read
       end
 
@@ -123,13 +123,17 @@ class XlsxRowsTest < Minitest::Test
                       "zip" => "string", "paid" => "boolean", "notes" => "any", "ratio" => "number"}, types)
       end
 
-      it "reads slices of its typed rows, whose dates and times JSON holds as ISO 8601 text, a cell's clock without an offset" do
+      it "reads slices of the text of its cells without a schema, as its lines hold them, and of its typed rows with one" do
         slices = []
         IOStreams.path(file_name).each(:slice, size: 10) { |slice| slices << slice }
+        schema = {fieldsMatch: "partial", fields: [{name: "id", type: "integer"}, {name: "ratio", type: "number"}]}
+        typed  = []
+        IOStreams.path(file_name).schema(schema).each(:slice, size: 10) { |slice| typed << slice }
 
         assert_equal :array, slices.first.format
-        assert_equal [1001.0, 12.5, "2026-10-25T09:30:00", "2026-10-25", "01234", true, nil, 0.30000000000000004],
-                     slices.first.to_h["rows"].first
+        assert_equal [%w[1001 12.5 2026-10-25T09:30:00 2026-10-25 01234 true] + [nil, "0.3"]], slices.first.rows
+        assert_equal [1001.0, 12.5, "2026-10-25T09:30:00", "2026-10-25", "01234", true, nil, "0.3"],
+                     typed.first.to_h["rows"].first
       end
 
       it "raises for a delimiter of the rows read, which are cells rather than lines" do
@@ -269,6 +273,47 @@ class XlsxRowsTest < Minitest::Test
         assert_equal :time, IOStreams::Xlsx::Cells.custom_format("[Red]h:mm")
         assert_nil IOStreams::Xlsx::Cells.custom_format("[>=100]0;0")
         assert_nil IOStreams::Xlsx::Cells.custom_format("[" * 40_000)
+      end
+    end
+
+    describe "slices without a schema" do
+      before do
+        IOStreams.path(file_name).schema(fields: [{name: "at", type: "datetime"}, {name: "clock", type: "time"},
+                                                  {name: "ratio"}, {name: "n"}]).writer(:array) do |io|
+          io << [at, Time.utc(2000, 1, 1, 9, 30), 0.1 + 0.2, -99]
+          io << [nil, nil, nil, -99]
+        end
+      end
+
+      # A schema that reads each cell as text, apart from a number with its missing value.
+      let(:schema) do
+        {fields: [{name: "at", type: "string"}, {name: "clock", type: "string"}, {name: "ratio", type: "string"},
+                  {name: "n", type: "integer", missingValues: ["-99"]}]}
+      end
+
+      it "hold the text of each cell, which a schema reads as it reads the spreadsheet, in memory, stored and as lines" do
+        expected = [{"at" => "2026-10-25T09:30:00", "clock" => "09:30:00", "ratio" => "0.3", "n" => nil},
+                    {"at" => nil, "clock" => nil, "ratio" => nil, "n" => nil}]
+        lines    = read(IOStreams.path(file_name), :line)
+        text     = IOStreams.slice({"rows" => lines.drop(1), "header" => %w[at clock ratio n], "format" => "csv",
+                                    "cell_text" => true})
+
+        assert_equal expected, read(IOStreams.path(file_name).schema(schema))
+        assert_equal expected, read(IOStreams.stream(text).schema(schema))
+        IOStreams.path(file_name).each(:slice, size: 10) do |slice|
+          assert_equal [["2026-10-25T09:30:00", "09:30:00", "0.3", "-99"], [nil, nil, nil, "-99"]], slice.rows
+          assert_equal expected, read(IOStreams.stream(slice).schema(schema))
+          assert_equal expected, read(IOStreams.stream(IOStreams.slice(JSON.parse(JSON.generate(slice.to_h)))).schema(schema))
+        end
+      end
+
+      it "read a row whose every cell is a missing value as a record, as the CSV text of the spreadsheet does" do
+        numbers = {fields: [{name: "n", type: "integer"}], fieldsMatch: "subset", missingValues: ["", "-99"]}
+        csv     = File.join(dir, "copy.csv")
+        IOStreams.path(csv).copy_from(file_name)
+
+        assert_equal [{"n" => nil}, {"n" => nil}], read(IOStreams.path(file_name).schema(numbers))
+        assert_equal [{"n" => nil}, {"n" => nil}], read(IOStreams.path(csv).schema(numbers))
       end
     end
 
@@ -421,11 +466,11 @@ class XlsxRowsTest < Minitest::Test
                       ["clock", 20, nil, "1.5"]])
         strings = IOStreams.path(file_name).schema(fields: %w[wait short custom clock].map { |name| {name: name, type: "string"} })
 
-        assert_equal "1899-12-31T12:00:00Z,01:30:00,1899-12-31T12:00:00Z,12:00:00", read(IOStreams.path(file_name), :line).last
+        assert_equal "1899-12-31T12:00:00,01:30:00,1899-12-31T12:00:00,12:00:00", read(IOStreams.path(file_name), :line).last
         assert_equal [Time.utc(1899, 12, 31, 12), Time.utc(2000, 1, 1, 1, 30), Time.utc(1899, 12, 31, 12),
                       Time.utc(1899, 12, 31, 12)], read(IOStreams.path(file_name), :array).last
-        assert_equal [{"wait" => "1899-12-31T12:00:00Z", "short" => "01:30:00", "custom" => "1899-12-31T12:00:00Z",
-                       "clock" => "1899-12-31T12:00:00Z"}], read(strings)
+        assert_equal [{"wait" => "1899-12-31T12:00:00", "short" => "01:30:00", "custom" => "1899-12-31T12:00:00",
+                       "clock" => "1899-12-31T12:00:00"}], read(strings)
       end
 
       it "raises for a cell of a time of day in a field of a date or a date and time, as for its CSV text" do
