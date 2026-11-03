@@ -761,7 +761,10 @@ A slice holds its rows, and is responsible for them and their numbers, so it is 
   for a record before its first row or after the one after its last.
 * Slices are equal when they hold the same rows, with the same numbers, header row and format.
 * `slice.to_json` writes the Hash that `slice.to_h` returns, which `IOStreams.slice(JSON.parse(json))` turns back into
-  the slice.
+  the slice. `slice.to_json` and `slice.as_json` raise `IOStreams::Errors::InvalidValue` for a `Float` that is not
+  finite, such as `NaN`, within a value of a row, such as the `Hash` of an `object` field, naming its column and
+  record, since JSON cannot hold it, rather than the json gem's `JSON::GeneratorError`, or the `null` that
+  ActiveSupport writes, which would come back as `nil`.
 
 When a row does not follow the row before it, such as the row after a quoted value that holds line breaks, the Hash of
 the slice lists it under `"jumps"`, as `[index, line_number, record_number]`, and numbers the rows after it from it:

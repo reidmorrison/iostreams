@@ -2386,11 +2386,14 @@ class SchemaTest < Minitest::Test
                 assert_equal "sizes", error.field
                 assert_equal 'Field "sizes": JSON cannot hold a number that is not finite: NaN', error.reason
               end
-              error = assert_raises(IOStreams::Errors::InvalidValue) do
-                IOStreams.stream(StringIO.new).format(:csv).writer(:hash) { |io| io << {"sizes" => [Float::NAN]} }
-              end
+              %i[csv psv].each do |format|
+                error = assert_raises(IOStreams::Errors::InvalidValue) do
+                  IOStreams.stream(StringIO.new).format(format).writer(:hash) { |io| io << {"id" => 1, "sizes" => [Float::NAN]} }
+                end
 
-              assert_equal "JSON cannot hold a number that is not finite: NaN", error.reason
+                assert_equal "sizes", error.field
+                assert_equal 'Field "sizes": JSON cannot hold a number that is not finite: NaN', error.reason
+              end
             end
           end
         end

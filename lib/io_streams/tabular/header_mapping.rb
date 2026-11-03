@@ -185,7 +185,10 @@ module IOStreams
         # The columns of a format of keyed records, such as JSON, are known once the first row gives them, when the record
         # written has every one of them, otherwise its keys are its columns.
         record = @keyed && header.columns ? header.to_record(row) : row
-        @parser.render(@keyed ? header.to_hash(record) : header.to_array(row))
+        values = @keyed ? header.to_hash(record) : header.to_array(row)
+        @parser.render(values)
+      rescue IOStreams::Errors::InvalidValue => e
+        raise(named_error(e, values))
       end
 
       # Returns [String] the header row of the columns, once the columns supplied to it, if any, become the columns, such
@@ -210,6 +213,18 @@ module IOStreams
       end
 
       private
+
+      # Returns [IOStreams::Errors::InvalidValue] the supplied error of a value of the row that the parser cannot write,
+      # such as a number that is not finite within the Hash of a value written to CSV as JSON, see
+      # `IOStreams::Schema::Field.any_text`, naming the column of the value, see
+      # `IOStreams::Tabular::Parser::Json.named_error`, or the error itself when it names one, or no column is known.
+      def named_error(error, values)
+        return error if error.field || !values.is_a?(::Array) || header.columns.nil?
+
+        columns = header.columns
+        record  = values.each_with_index.to_h { |value, index| [columns[index] || index, value] }
+        IOStreams::Tabular::Parser::Json.named_error(error, record)
+      end
 
       # The plan of a record whose keys are the columns of the rows, in order, whose values are its row, see #row_plan.
       IN_ORDER = :in_order

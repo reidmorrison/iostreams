@@ -507,8 +507,9 @@ module IOStreams
       # Formats of text, such as CSV, write each value that has no field this way, as they do every value of a file
       # without a schema.
       #
-      # A Hash or an Array that holds a value that JSON cannot hold, such as `Float::NAN`, is handled as writing it to a
-      # JSON file handles it: the json gem raises, while ActiveSupport, which replaces how Ruby writes JSON, writes null.
+      # A Hash or an Array that holds a value that JSON cannot hold, such as `Float::NAN`, raises
+      # `IOStreams::Errors::InvalidValue`, as writing it to a JSON file does, also where ActiveSupport replaces how Ruby
+      # writes JSON, see `IOStreams::Tabular::Parser::Json.generate`.
       def self.any_text(value)
         return value if value.is_a?(String)
         # The most common values first, so that they skip the checks below.

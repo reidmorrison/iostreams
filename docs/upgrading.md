@@ -539,8 +539,8 @@ as JSON in CSV, PSV, fixed width files and spreadsheets, the same as the JSON fo
 | `[1, 2]` | `[1,2]` | its `to_s`, `[1, 2]`, or in PSV its items as more columns |
 
 Its `to_s` is Ruby's inspect text, which other programs cannot read as JSON. A `Float` within it that JSON cannot
-hold, such as `NaN`, is handled as writing JSON handles it: it raises, or is written as `null` where ActiveSupport
-writes JSON, as in Rails.
+hold, such as `NaN`, raises `IOStreams::Errors::InvalidValue`, naming its column, as writing it to JSON does, also
+where ActiveSupport writes JSON, as in Rails, which wrote `null` for it.
 
 Fix: to write another form, convert the value to text before writing it.
 
@@ -1809,6 +1809,10 @@ for each one.
   the whole message.
 - Without a schema, a `Float` or `BigDecimal` that is not finite is written to CSV, and the other formats of text, as
   `INF` or `-INF`, as Frictionless spells them, where v2.1 wrote `Infinity` or `-Infinity`.
+- Without a schema, a `Float` that is not finite written to JSON, such as `{"rate" => Float::NAN}`, or within a
+  `Hash` or an `Array`, raises `IOStreams::Errors::InvalidValue`, naming its key, where v2.1 raised the json gem's
+  `JSON::GeneratorError`, or wrote `null` where ActiveSupport writes JSON, as in Rails. Rescue
+  `IOStreams::Errors::InvalidValue` instead.
 - Without a schema, a `DateTime` at an offset of zero is written with `Z`, as a `Time` in UTC is, such as
   `2026-10-13T09:30:00Z`, to CSV, JSON, the other formats of text and `slice.to_h`, where v2.2 wrote
   `2026-10-13T09:30:00+00:00`. v2.2 already writes `Z` for it through a field of a schema.

@@ -953,6 +953,21 @@ class SliceTest < Minitest::Test
         assert_equal numbered, IOStreams.slice(JSON.parse(JSON.generate(numbered)))
       end
 
+      it "raises InvalidValue naming the column, the key or the field of a number that is not finite, which JSON cannot hold" do
+        rows  = IOStreams::Slice.new([[1, {"a" => 2}], [2, {"a" => Float::NAN}]], header: %w[id prefs], format: :array,
+                                                                                 record_number: 1)
+        typed = IOStreams::Slice.new([{"id" => 1, "sizes" => [1.5, Float::INFINITY]}], format: :hash, record_number: 7,
+                                     schema: {fields: [{name: "id", type: "integer"}, {name: "sizes", type: "array"}]})
+        {rows => ["prefs", 2], typed => ["sizes", 7]}.each do |slice, (field, record)|
+          %i[to_json as_json].each do |method|
+            error = assert_raises(IOStreams::Errors::InvalidValue, method.to_s) { slice.public_send(method) }
+
+            assert_equal field, error.field
+            assert_equal record, error.record_number
+          end
+        end
+      end
+
       it "raises for the options of as_json without ActiveSupport, which is what applies them, rather than ignore them" do
         options = {only: "rows"}
         error   = assert_raises(ArgumentError) { slice.as_json(options) }

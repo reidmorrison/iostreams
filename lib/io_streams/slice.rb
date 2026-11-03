@@ -571,8 +571,10 @@ module IOStreams
     # such as `only:` and `except:`, as it does to a Hash.
     #
     # Raises ArgumentError for options without ActiveSupport, which is what applies them, rather than ignore them.
+    # Raises `IOStreams::Errors::InvalidValue` for a value that JSON cannot hold, see #json_h, rather than the `null`
+    # that ActiveSupport writes for a number that is not finite, which would come back as nil.
     def as_json(options = nil)
-      hash = to_h
+      hash = json_h
       return hash.as_json(options) if hash.respond_to?(:as_json)
       return hash if options.nil? || options == {}
 
@@ -582,8 +584,11 @@ module IOStreams
 
     # Returns [String] what the slice holds as JSON, see #to_h, which `IOStreams.slice(JSON.parse(json))` turns back
     # into the slice.
+    #
+    # Raises `IOStreams::Errors::InvalidValue` for a value that JSON cannot hold, see #json_h, rather than the
+    # `JSON::GeneratorError` of the json gem.
     def to_json(*)
-      to_h.to_json(*)
+      json_h.to_json(*)
     end
 
     # Returns [true|false] whether the rows of the supplied slice are read as those of this one, as rows of the same
@@ -729,6 +734,34 @@ module IOStreams
     def dumped_rows
       fields = row_fields
       @rows.map { |row| map_values(row, fields) { |field, value| field.dump(value) } }
+    end
+
+    # Returns [Hash] what the slice holds, see #to_h, once each of its rows is checked to be one that JSON holds, as
+    # the JSON format checks what it writes, see `IOStreams::Tabular::Parser::Json.json_value`, for #as_json and
+    # #to_json.
+    #
+    # Raises `IOStreams::Errors::InvalidValue` for a number that is not finite, such as NaN, within a value of a row,
+    # such as within the Hash of an `object` field, which JSON cannot hold, naming its column or key, the record that
+    # it is in, and the line that the record starts on, and `IOStreams::Errors::InvalidEncoding` for text that is not
+    # valid UTF-8.
+    def json_h
+      hash = to_h
+      hash["rows"].each_with_index do |row, index|
+        IOStreams::Tabular::Parser::Json.json_value(row)
+      rescue IOStreams::Errors::InvalidValue => e
+        raise json_error(e, row).at(line_number: line_number_at(index), record_number: record_number_at(index))
+      end
+      hash
+    end
+
+    # Returns [IOStreams::Errors::InvalidValue] the supplied error of a value of the row that JSON cannot hold, see
+    # #json_h, naming the key of a Hash, or the column of the header row of an Array, see
+    # `IOStreams::Tabular::Parser::Json.named_error`.
+    def json_error(error, row)
+      return IOStreams::Tabular::Parser::Json.named_error(error, row) unless row.is_a?(::Array) && header?
+
+      record = row.each_with_index.to_h { |value, index| [header[index] || index, value] }
+      IOStreams::Tabular::Parser::Json.named_error(error, record)
     end
 
     # Turns the values of the rows of a slice with a schema back into the types of their fields, see
