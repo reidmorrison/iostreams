@@ -51,5 +51,11 @@ module IOStreams
     def self.rows_value_form
       :scalar
     end
+
+    # Returns [true] since the cells of a workbook hold typed values, whose CSV text is the default text of each, see
+    # `IOStreams::Xlsx::Cells.text`, such as `1234.5` for a number cell, see `IOStreams::StreamFormat#cell_text?`.
+    def self.cell_text?
+      true
+    end
   end
 end

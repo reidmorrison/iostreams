@@ -345,11 +345,14 @@ module IOStreams
     # for a field that the file does not have, as a contract reads them, see `IOStreams::Contract`, with `keys_vary`
     # a key that a record leaves out is a missing value, `form` is the form of the values read, see
     # `IOStreams::Schema::Columns#initialize`, with `read` the values read are those that the schema of the file
-    # already read, see `IOStreams::Schema::ContractColumns`, and with `part_of_file` the rows are only a part of the
-    # file, such as those of a slice, whose values that must be unique within the file are not checked.
-    def columns(typed: false, every_field: false, keys_vary: false, form: :typed, read: false, part_of_file: false)
+    # already read, see `IOStreams::Schema::ContractColumns`, with `part_of_file` the rows are only a part of the
+    # file, such as those of a slice, whose values that must be unique within the file are not checked, and with
+    # `cell_text` the text of the values read is the text of the cells of a source of typed values, such as a slice of a
+    # spreadsheet, see `IOStreams::Schema::Field#parse_cell_text`.
+    def columns(typed: false, every_field: false, keys_vary: false, form: :typed, read: false, part_of_file: false,
+                cell_text: false)
       Columns.new(self, typed: typed, every_field: every_field, keys_vary: keys_vary, form: form, read: read,
-                        part_of_file: part_of_file)
+                        part_of_file: part_of_file, cell_text: cell_text)
     end
 
     # Returns [Array<String>] the properties of this schema that lay out a file, see LAYOUT_PROPERTIES, each as it
@@ -377,19 +380,6 @@ module IOStreams
     # target of a copy that takes the types of its source writes its own text, see `IOStreams::Stream#copy_from`.
     def without_text
       self.class.new(to_h.except(*TEXT_PROPERTIES.map(&:to_sym)).merge(fields: fields.map(&:without_text_h)))
-    end
-
-    # Returns [IOStreams::Schema] a schema of the same properties and fields, whose fields read the default text of their
-    # types, such as `1234.5` for a number, `2026-07-01` for a date and `true` for a boolean, rather than the text that
-    # this schema describes, see `IOStreams::Schema::Field::TYPED_TEXT_PROPERTIES`: the text that IOStreams writes for a
-    # value that a source holds typed, such as a cell of a spreadsheet, which a slice holds as text, see
-    # `IOStreams::Slice#default_text?`. Its missing values, the `delimiter` of a list and the `timeZone` of a datetime or
-    # time still apply. Returns itself when none of its fields describes that text.
-    def for_default_text
-      default = fields.map(&:default_text_h)
-      return self if default.each_with_index.all? { |properties, index| properties.size == fields[index].to_h.size }
-
-      self.class.new(to_h.merge(fields: default))
     end
 
     # Returns [String] the Ruby of a class that declares the contract of this schema, see #to_contract, for a person to

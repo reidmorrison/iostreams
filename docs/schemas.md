@@ -164,7 +164,7 @@ IOStreams.path("orders.csv").schema(IOStreams::Schema.new(JSON.parse(File.read("
 | `array` | an `Array`, from the text of a JSON array, such as `[1,2]`, or an `Array` as JSON holds it, see below | that JSON text, or in JSON an array |
 | `list` | an `Array` of items of its `itemType`, from text of the items separated by its `delimiter`, such as `a,b,c`, each in the default form of its type, or from an `Array`, or a single value that is not text as a list of that one item | the items separated by its `delimiter`, or in JSON an array |
 | `year` | an `Integer` from 0 to 9999, from text of 4 digits, such as `2026`, or a whole number | 4 digits, or in JSON a number |
-| `yearmonth` | a `Date` on the first of its month, from text such as `2026-10`, or a `Date` on the first of its month, up to the year 9999 | `2026-10` |
+| `yearmonth` | a `Date` on the first of its month, from text such as `2026-10` or `2026-10-01`, or a `Date` on the first of its month, up to the year 9999 | `2026-10` |
 | `geopoint` | a point on the earth, `[lon, lat]`, two `BigDecimal`s, from the form of its `format`: `default`, the text `90.50, 45.50`; `array`, a JSON array, such as `[90.50, 45.50]`, or its text; or `object`, a JSON object, such as `{"lon": 90.50, "lat": 45.50}`, or its text | the form of its `format` |
 | `any` | the value as it is read | the value, with a `BigDecimal`, `Date` or `Time` as its text, and in a format of text a `Hash` or an `Array` as JSON, see [Values without a field](#values-without-a-field) |
 
@@ -456,9 +456,9 @@ writes plain numbers, such as `1234.50`, since a JSON number has neither, and re
 that is not finite is written as `NaN`, `INF` or `-INF`.
 
 The slices of a spreadsheet, see [Background Jobs](background_jobs), hold the text of its number cells as the workbook
-holds it, such as `1234.5`, rather than in the form that these properties describe, so a slice says so, and its rows
-are read without `groupChar`, `decimalChar` and `bareNumber`, as the spreadsheet reads its number cells, see
-[Excel spreadsheets](formats#excel-spreadsheets).
+holds it, such as `1234.5`, rather than in the form that these properties describe, so a slice says so, and a number
+of its rows is read as that text first, then with `groupChar`, `decimalChar` and `bareNumber`, which a text cell can
+hold, as the spreadsheet reads its cells, see [Excel spreadsheets](formats#excel-spreadsheets).
 
 ### Formats of dates and times
 

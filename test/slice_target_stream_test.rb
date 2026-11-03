@@ -1086,7 +1086,7 @@ class SliceTargetStreamTest < Minitest::Test
           IOStreams.stream(stored).schema(european).each(:hash) { |record| records << record }
 
           assert_equal [%w[Jack,1234.5]], store.slices.collect(&:rows)
-          assert_equal [true], store.slices.collect(&:default_text?)
+          assert_equal [true], store.slices.collect(&:cell_text?)
           assert_equal [{"name" => "Jack", "amount" => BigDecimal("1234.5")}], records
         end
       end
@@ -1106,7 +1106,7 @@ class SliceTargetStreamTest < Minitest::Test
       it "gives the lines copied from a file slices of its own text" do
         IOStreams.stream(store).copy_from(IOStreams.stream(StringIO.new("name,age\nJack,21\n")).format(:csv), mode: :line)
 
-        assert_equal [false], store.slices.collect(&:default_text?)
+        assert_equal [false], store.slices.collect(&:cell_text?)
       end
 
       it "gives the rows copied in the :hash mode their record numbers and no line, as for a query" do

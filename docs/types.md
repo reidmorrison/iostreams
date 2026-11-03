@@ -728,7 +728,8 @@ See [Time zones](schemas#time-zones). Neither the spec nor frictionless-py has `
 
 ### `yearmonth`
 
-* **Read as** a `Date` on the first of its month, from `YYYY-MM`, such as `2026-10`.
+* **Read as** a `Date` on the first of its month, from `YYYY-MM`, such as `2026-10`, or from the date of the first of a
+  month, `2026-10-01`, the text of a spreadsheet's cell that holds that date.
 * **Written as** `2026-10`.
 
 ~~~ruby
@@ -756,7 +757,8 @@ end
   a zone, `2026Z`.
 * frictionless-py writes the year 26 as `26`, which it then cannot read, since it reads only 4 digits. IOStreams
   writes `0026`, or the number `26` in JSON.
-* frictionless-py reads a month of one digit, such as `2026-1`. The spec and IOStreams require `YYYY-MM`.
+* frictionless-py reads a month of one digit, such as `2026-1`. The spec and IOStreams require `YYYY-MM`, while
+  IOStreams also reads `2026-10-01`, and raises for any other day, such as `2026-10-02`.
 * frictionless-py reads a `yearmonth` as a pair of its year and month, `(2026, 10)`, where IOStreams reads a `Date` on
   the first of the month.
 * frictionless-py also reads a JSON array of the year and month, such as `[2026, 10]`, which IOStreams raises for.
@@ -1142,6 +1144,7 @@ properties that IOStreams adds to the spec, such as `aliases` and `allowBlank`, 
 | `year` | `-0044`, `12026` or `2026Z` | `gYear` reads them | raises | raises |
 | `year` | the year 26, written | not defined | `26` | `0026`, or the number `26` in JSON |
 | `yearmonth` | `2026-1` | raises | reads | raises |
+| `yearmonth` | `2026-10-01` | raises | raises | reads 2026-10-01 |
 | `yearmonth` | `2026-10`, read | not defined | a pair, `(2026, 10)` | a `Date`, 2026-10-01 |
 | `yearmonth` | the JSON array `[2026, 10]` | `YYYY-MM` | reads | raises |
 | `duration` | `minimum` and `maximum` | allowed | not supported | checked |

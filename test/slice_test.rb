@@ -48,14 +48,14 @@ class SliceTest < Minitest::Test
                       "record_number" => 1, "jumps" => [[2, 5, 3]]}, numbered.to_h)
       end
 
-      it "holds default_text: true for a slice of the default text of values, such as of a spreadsheet, only then" do
-        cells = IOStreams::Slice.new([%w[Jack 1234.5]], header: %w[name amount].freeze, format: :array, default_text: true)
+      it "holds cell_text: true for a slice of the cells of a spreadsheet, only then" do
+        cells = IOStreams::Slice.new([%w[Jack 1234.5]], header: %w[name amount].freeze, format: :array, cell_text: true)
 
         assert_equal({"rows" => [%w[Jack 1234.5]], "header" => %w[name amount], "format" => "array",
-                      "default_text" => true}, cells.to_h)
-        assert_predicate IOStreams.slice(cells.to_h), :default_text?
-        assert_predicate cells.with_rows([%w[Jill 1.5]]), :default_text?
-        refute_predicate IOStreams.slice(rows: []), :default_text?
+                      "cell_text" => true}, cells.to_h)
+        assert_predicate IOStreams.slice(cells.to_h), :cell_text?
+        assert_predicate cells.with_rows([%w[Jill 1.5]]), :cell_text?
+        refute_predicate IOStreams.slice(rows: []), :cell_text?
         refute_equal cells, IOStreams::Slice.new([%w[Jack 1234.5]], header: %w[name amount].freeze, format: :array)
         refute cells.same_file?(IOStreams::Slice.new([], header: %w[name amount].freeze, format: :array))
       end
@@ -150,7 +150,7 @@ class SliceTest < Minitest::Test
       it "raises for a key that a slice does not have" do
         error = assert_raises(ArgumentError) { IOStreams.slice("rows" => [], "line" => 1) }
         assert_equal 'Unknown key "line" of a slice. Valid keys: "rows", "header", "format", "blank_rows", ' \
-                     '"default_text", "schema", "line_number", "record_number", "jumps"', error.message
+                     '"cell_text", "schema", "line_number", "record_number", "jumps"', error.message
       end
 
       it "turns back the line that the first row starts on, once stored as JSON, or nil for a Hash without one" do
@@ -221,10 +221,10 @@ class SliceTest < Minitest::Test
         assert_equal 'The blank_rows of a slice must be true or false: "false"', error.message
       end
 
-      it "raises for a default_text that is not true or false" do
-        error = assert_raises(ArgumentError) { IOStreams.slice("rows" => [], "default_text" => "true") }
-        assert_equal 'The default_text of a slice must be true or false: "true"', error.message
-        assert_raises(ArgumentError) { IOStreams::Slice.new([], default_text: nil) }
+      it "raises for a cell_text that is not true or false" do
+        error = assert_raises(ArgumentError) { IOStreams.slice("rows" => [], "cell_text" => "true") }
+        assert_equal 'The cell_text of a slice must be true or false: "true"', error.message
+        assert_raises(ArgumentError) { IOStreams::Slice.new([], cell_text: nil) }
       end
 
       it "raises for a header row that is not an Array of Strings" do

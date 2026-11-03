@@ -1540,6 +1540,38 @@ class SchemaTest < Minitest::Test
           assert_raises(IOStreams::Errors::InvalidValue) { european.load("1.234,5") }
         end
 
+        it "reads the text of a cell as the default text of its type first, then in the form of the field" do
+          european = field(type: "number", groupChar: ".", decimalChar: ",", missingValues: ["NA"])
+          count    = field(type: "integer", groupChar: ".")
+          paid     = field(type: "date", format: "%d/%m/%Y")
+          at       = field(type: "datetime", format: "%d/%m/%Y %H:%M", timeZone: "America/New_York")
+          done     = field(type: "boolean", trueValues: ["Y"], falseValues: ["N"])
+
+          assert_equal BigDecimal("1234.5"), european.parse_cell_text("1234.5", :text)
+          assert_equal BigDecimal("1234.5"), european.parse_cell_text("1.234,5", :text)
+          assert_equal BigDecimal("1.234"), european.parse_cell_text("1.234", :text)
+          assert_nil european.parse_cell_text("NA", :text)
+          assert_equal BigDecimal("12.5"), european.parse_cell_text(12.5, :scalar)
+          assert_equal 1234, count.parse_cell_text("1234.0", :text)
+          assert_equal 1234, count.parse_cell_text("1.234", :text)
+          assert_equal Date.new(2026, 7, 1), paid.parse_cell_text("2026-07-01", :text)
+          assert_equal Date.new(2026, 7, 1), paid.parse_cell_text("01/07/2026", :text)
+          assert_equal Time.utc(2026, 7, 1, 13, 30), at.parse_cell_text("2026-07-01T09:30:00", :text)
+          assert_equal Time.utc(2026, 7, 1, 13, 30), at.parse_cell_text("01/07/2026 09:30", :text)
+          assert done.parse_cell_text("true", :text)
+          refute done.parse_cell_text("N", :text)
+        end
+
+        it "raises for the text of a cell that is neither the default text of its type nor in the form of the field" do
+          paid  = field(type: "date", format: "%d/%m/%Y")
+          error = assert_raises(IOStreams::Errors::InvalidValue) { paid.parse_cell_text("2026-02-30", :text) }
+
+          assert_equal "2026-02-30", error.value
+          assert_raises(IOStreams::Errors::InvalidValue) do
+            field(type: "boolean", trueValues: ["Y"], falseValues: ["N"]).parse_cell_text("yes", :text)
+          end
+        end
+
         it "reads a number of a format that holds numbers, such as JSON, as it is" do
           assert_equal BigDecimal("1234.5"), field(type: "number", decimalChar: ",").cast(1234.5)
           assert_equal 12, field(type: "integer", groupChar: ",", bareNumber: false).cast(12)

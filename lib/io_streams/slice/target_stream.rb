@@ -180,9 +180,9 @@ module IOStreams
       # their rows are those of the fields, see `IOStreams::Slice#typed?`, as the tabular of those writers says, see
       # `IOStreams::Tabular#renders_field_values?`, and in the `:line` mode, the line that each row starts on, unless the
       # lines are not those of a file, such as those that a copy reads from a spreadsheet, see
-      # `IOStreams::Stream#copy_lines_of_file?`, whether the text of their values is the default text of IOStreams, such
-      # as the CSV text that a copy reads from a spreadsheet, see `IOStreams::Stream#copy_default_text?`, which the
-      # tabular of the slices reads, see `IOStreams::Slice#default_text?`, and the quote character within which a line
+      # `IOStreams::Stream#copy_lines_of_file?`, whether their values are the cells of a source of typed values, such as
+      # the CSV text that a copy reads from a spreadsheet, see `IOStreams::Stream#copy_cell_text?`, which the tabular of
+      # the slices reads, see `IOStreams::Slice#cell_text?`, and the quote character within which a line
       # that holds a line break is split, that of the format of the rows unless a copy supplies that of its source, see
       # `IOStreams::Stream#lines_quote_character`. Protected, so that a copy writes with the stream that has the schema of
       # its source, see #copy_rows.
@@ -194,10 +194,10 @@ module IOStreams
       # them, `part_of_file: true`, and a write without `validate: true` checks none either.
       #
       # Returns the result of the block.
-      def write_slices(mode, options, blank_rows: true, lines_of_file: true, quote_character: :auto, default_text: false,
+      def write_slices(mode, options, blank_rows: true, lines_of_file: true, quote_character: :auto, cell_text: false,
                        &block)
         rendering       = tabular(blank_rows: blank_rows, part_of_file: true) unless mode == :line
-        tabular         = rows_tabular(blank_rows, rendering&.renders_field_values? || false, default_text)
+        tabular         = rows_tabular(blank_rows, rendering&.renders_field_values? || false, cell_text)
         quote_character = tabular.quote_character if quote_character == :auto
 
         Collector.write(io_stream, tabular: tabular, **options) do |collector|
@@ -468,15 +468,15 @@ module IOStreams
       # stream has its own, see `IOStreams::Stream#with_copy_schema`, and in the `:line` mode the format of its lines,
       # see #with_lines_format, split within the quote character that the source read them by, such as that of the CSV
       # of a spreadsheet read as `:text`, see `IOStreams::Stream#lines_quote_character`, whose slices hold whether the
-      # blank rows of the source are records, and in the `:line` mode whether the text of their values is the default
-      # text of IOStreams, such as the CSV text of a spreadsheet, see `IOStreams::Stream#copy_default_text?`.
+      # blank rows of the source are records, and in the `:line` mode whether their values are the cells of a source of
+      # typed values, such as the CSV text of a spreadsheet, see `IOStreams::Stream#copy_cell_text?`.
       def copy_rows(source, rows, mode, options)
         target = copy_target(source, rows, mode)
         target = target.with_lines_format(source) if mode == :line
         slices = {blank_rows: source.copy_blank_rows?, lines_of_file: source.copy_lines_of_file?}
         if mode == :line
           slices[:quote_character] = source.lines_quote_character
-          slices[:default_text]    = source.copy_default_text?
+          slices[:cell_text]       = source.copy_cell_text?
         end
         target.write_slices(mode, options, **slices) { |output| rows.copy_to(output) }
       end
@@ -546,11 +546,11 @@ module IOStreams
 
       # Returns [IOStreams::Tabular] that reads the lines written into slices, see `IOStreams::Slice::Collector`, with
       # whether a row whose every value is blank is a blank row, whether the values of the rows are those of the fields,
-      # and whether the text of their values is the default text of IOStreams, see #write_slices.
+      # and whether their values are the cells of a source of typed values, see #write_slices.
       #
       # Raises ArgumentError for a format whose rows are not lines, such as Parquet.
-      def rows_tabular(blank_rows, typed, default_text)
-        tabular = self.tabular(blank_rows: blank_rows, typed: typed, default_text: default_text)
+      def rows_tabular(blank_rows, typed, cell_text)
+        tabular = self.tabular(blank_rows: blank_rows, typed: typed, cell_text: cell_text)
         return tabular if tabular.lines?
 
         raise(ArgumentError, "The #{tabular.format.inspect} format has no lines, so its rows cannot be written to a " \

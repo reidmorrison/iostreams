@@ -3133,7 +3133,9 @@ a field of its type reads it, and a number as the workbook holds it, such as `10
 shows. A number of a date
 or time format that is not a date that Excel holds, such as a negative number, which Excel shows as `####`, is its
 number, in the lines and in the rows. A field whose `missingValues` hold text other than empty text, such as `"-99"`,
-compares that text of each cell with them, whatever the type of the cell, see [Missing values](schemas#missing-values).
+compares that text of each cell with them, whatever the type of the cell, see [Missing values](schemas#missing-values),
+and reads a row whose every cell is a missing value as a record of missing values, as its CSV text reads, rather than
+as a blank row.
 A `datetime` or `time` field with a `timeZone` reads the clock of a cell of a date and time, or of a time of day, in its
 zone, since a cell holds no zone, such as `2026-07-01 09:30` as `13:30` UTC in `America/New_York`, see
 [Time zones](schemas#time-zones), while the lines, which have no schema, hold the clock as UTC, as above.
@@ -3144,15 +3146,19 @@ the number `1.5`, as a list of that one item, `[1.5]`, as the CSV text of the ce
 a `string` field does, such as `["2134"]`.
 
 The rows that `each(:slice)` reads are the values of the cells, in the `:array` format, and `slice.to_h` holds each
-number, `Date` and `Time` as its text, such as `1234.5` and `2026-07-01`, as do the slices of the CSV text of a
-spreadsheet, copied to a [store of slices](background_jobs#a-store-of-slices) in the `:line` mode. That text is the
-default text of each type, rather than the text that a schema describes, so the slices of a spreadsheet say so, and
-`IOStreams.stream(slice)` reads their values without the `groupChar`, `decimalChar` and `bareNumber` of a number, the
-`trueValues` and `falseValues` of a boolean, and the `format` of a date, datetime or time, which describe the text of a
-file, also once the slice is stored, as the spreadsheet reads its number, date and boolean cells. Its missing values,
-the `delimiter` of a list and the `timeZone` of a datetime or time still apply. So a slice reads a text cell that holds
-a number or a date in the form of the schema, such as `1.234,50` for `decimalChar: ","`, as the default text of its
-type, which raises `IOStreams::Errors::InvalidValue`, while reading the spreadsheet itself reads it by the schema. A
+`Date` and `Time` as its text, such as `2026-07-01`, and each number as JSON holds it, such as `1234.5`, as do the
+slices of the CSV text of a spreadsheet, copied to a [store of slices](background_jobs#a-store-of-slices) with
+`copy_from(path, mode: :line)`, as text. That text is the default text of each type, rather than the text that a schema
+describes, so the slices of a spreadsheet say that they hold its cells, `slice.cell_text?`, and `IOStreams.stream(slice)`
+reads each value as the spreadsheet reads its cell, also once the slice is stored: the default text of its type first,
+such as `1234.5`, `2026-07-01` or `true`, then the text that the field describes, with the `groupChar`, `decimalChar`
+and `bareNumber` of a number, the `trueValues` and `falseValues` of a boolean, and the `format` of a date, datetime or
+time, which a text cell can hold, such as `1.234,50` for `decimalChar: ","`, `01/07/2026` for `format: "%d/%m/%Y"`, or
+`Y` for `trueValues: ["Y"]`. Its missing values, the `delimiter` of a list and the `timeZone` of a datetime or time
+still apply. Text that is both, such as a text cell `1.234` with `groupChar: "."` and `decimalChar: ","`, is read as the
+default text in a slice, `1.234`, while the spreadsheet itself reads it by the schema, `1234`. Lines of the CSV text
+written to a store by hand, with `writer(:line)`, do not say that they hold cells, so a schema reads them as the text of
+a file, such as `1234.5` as `12345` with `groupChar: "."`: copy them with `copy_from(path, mode: :line)` instead. A
 `delimiter:` raises `ArgumentError` for the rows and records, which are cells rather than lines.
 
 Writing writes a workbook with one worksheet, with the `xlsxtream` gem. The rows and records are written as the types
@@ -4094,7 +4100,7 @@ IOStreams.path("orders.csv").schema(IOStreams::Schema.new(JSON.parse(File.read("
 | `array` | an `Array`, from the text of a JSON array, such as `[1,2]`, or an `Array` as JSON holds it, see below | that JSON text, or in JSON an array |
 | `list` | an `Array` of items of its `itemType`, from text of the items separated by its `delimiter`, such as `a,b,c`, each in the default form of its type, or from an `Array`, or a single value that is not text as a list of that one item | the items separated by its `delimiter`, or in JSON an array |
 | `year` | an `Integer` from 0 to 9999, from text of 4 digits, such as `2026`, or a whole number | 4 digits, or in JSON a number |
-| `yearmonth` | a `Date` on the first of its month, from text such as `2026-10`, or a `Date` on the first of its month, up to the year 9999 | `2026-10` |
+| `yearmonth` | a `Date` on the first of its month, from text such as `2026-10` or `2026-10-01`, or a `Date` on the first of its month, up to the year 9999 | `2026-10` |
 | `geopoint` | a point on the earth, `[lon, lat]`, two `BigDecimal`s, from the form of its `format`: `default`, the text `90.50, 45.50`; `array`, a JSON array, such as `[90.50, 45.50]`, or its text; or `object`, a JSON object, such as `{"lon": 90.50, "lat": 45.50}`, or its text | the form of its `format` |
 | `any` | the value as it is read | the value, with a `BigDecimal`, `Date` or `Time` as its text, and in a format of text a `Hash` or an `Array` as JSON, see [Values without a field](#values-without-a-field) |
 
@@ -4386,9 +4392,9 @@ writes plain numbers, such as `1234.50`, since a JSON number has neither, and re
 that is not finite is written as `NaN`, `INF` or `-INF`.
 
 The slices of a spreadsheet, see [Background Jobs](background_jobs), hold the text of its number cells as the workbook
-holds it, such as `1234.5`, rather than in the form that these properties describe, so a slice says so, and its rows
-are read without `groupChar`, `decimalChar` and `bareNumber`, as the spreadsheet reads its number cells, see
-[Excel spreadsheets](formats#excel-spreadsheets).
+holds it, such as `1234.5`, rather than in the form that these properties describe, so a slice says so, and a number
+of its rows is read as that text first, then with `groupChar`, `decimalChar` and `bareNumber`, which a text cell can
+hold, as the spreadsheet reads its cells, see [Excel spreadsheets](formats#excel-spreadsheets).
 
 ### Formats of dates and times
 
@@ -5746,7 +5752,8 @@ See [Time zones](schemas#time-zones). Neither the spec nor frictionless-py has `
 
 ### `yearmonth`
 
-* **Read as** a `Date` on the first of its month, from `YYYY-MM`, such as `2026-10`.
+* **Read as** a `Date` on the first of its month, from `YYYY-MM`, such as `2026-10`, or from the date of the first of a
+  month, `2026-10-01`, the text of a spreadsheet's cell that holds that date.
 * **Written as** `2026-10`.
 
 ~~~ruby
@@ -5774,7 +5781,8 @@ end
   a zone, `2026Z`.
 * frictionless-py writes the year 26 as `26`, which it then cannot read, since it reads only 4 digits. IOStreams
   writes `0026`, or the number `26` in JSON.
-* frictionless-py reads a month of one digit, such as `2026-1`. The spec and IOStreams require `YYYY-MM`.
+* frictionless-py reads a month of one digit, such as `2026-1`. The spec and IOStreams require `YYYY-MM`, while
+  IOStreams also reads `2026-10-01`, and raises for any other day, such as `2026-10-02`.
 * frictionless-py reads a `yearmonth` as a pair of its year and month, `(2026, 10)`, where IOStreams reads a `Date` on
   the first of the month.
 * frictionless-py also reads a JSON array of the year and month, such as `[2026, 10]`, which IOStreams raises for.
@@ -6160,6 +6168,7 @@ properties that IOStreams adds to the spec, such as `aliases` and `allowBlank`, 
 | `year` | `-0044`, `12026` or `2026Z` | `gYear` reads them | raises | raises |
 | `year` | the year 26, written | not defined | `26` | `0026`, or the number `26` in JSON |
 | `yearmonth` | `2026-1` | raises | reads | raises |
+| `yearmonth` | `2026-10-01` | raises | raises | reads 2026-10-01 |
 | `yearmonth` | `2026-10`, read | not defined | a pair, `(2026, 10)` | a `Date`, 2026-10-01 |
 | `yearmonth` | the JSON array `[2026, 10]` | `YYYY-MM` | reads | raises |
 | `duration` | `minimum` and `maximum` | allowed | not supported | checked |
@@ -7555,11 +7564,12 @@ slice.to_h
   as a Time is a Date. A value of a field of type `any`, such as a computed column of a query, is held as JSON holds it,
   a time, a date or a BigDecimal as its text, which comes back as text. To replace the rows of a slice with others in
   the same form, `slice.with_rows(rows)` returns a new slice that keeps everything else that the slice says.
-* The slices of an Excel spreadsheet, of its cells or of their CSV text, hold `"default_text" => true`, since they hold
-  each number, date and boolean as its default text, such as `1234.5`, rather than the text of a file that a schema
-  describes, such as `1.234,5`. `IOStreams.stream(slice)` reads them without the properties of the schema that describe
-  that text, such as `decimalChar`, as the spreadsheet reads its cells, see
-  [Excel spreadsheets](formats#excel-spreadsheets).
+* The slices of an Excel spreadsheet hold `"cell_text" => true`, those of its cells from `each(:slice)`, and those of
+  its CSV text from `copy_from(path, mode: :line)`, since they hold each number, date and boolean cell as its default
+  text, such as `1234.5`, rather than the text of a file that a schema describes, such as `1.234,5`.
+  `IOStreams.stream(slice)` reads that text first, then the text that the field describes, which a text cell can hold,
+  as the spreadsheet reads its cells, see [Excel spreadsheets](formats#excel-spreadsheets). Lines of its CSV text
+  written to a store with `writer(:line)` do not say so, so copy them with `copy_from` instead.
 
 ### Choosing the size of a slice
 

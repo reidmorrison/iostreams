@@ -321,6 +321,14 @@ module IOStreams
       stream_format(stream).rows_value_form if stream
     end
 
+    # Returns [true|false] whether the text of the stream closest to the application holds the cells of typed values
+    # that it reads as the default text of each, such as `1234.5` for a number cell of a spreadsheet, see
+    # `IOStreams::StreamFormat#cell_text?`, or false when the streams only read and write bytes.
+    def cell_text?
+      stream = application_stream
+      stream ? stream_format(stream).cell_text? : false
+    end
+
     # Returns [IOStreams::Builder] a copy that opens the stream closest to the application with the supplied arguments
     # and `rows: true`, so that it reads and writes rows rather than text, see #rows_format, and without an encode stream,
     # since rows are not text, see `IOStreams::Stream#rows_stream`.

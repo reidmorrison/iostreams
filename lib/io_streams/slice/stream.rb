@@ -103,19 +103,19 @@ module IOStreams
       # `part_of_file:` of `IOStreams::Tabular#initialize`: slicing the file with `validate: true` checks them across the
       # whole file, see `IOStreams::Stream#each`.
       #
-      # The values of a slice whose text is the default text of IOStreams, such as the cells of a spreadsheet, are read
-      # without the properties of the schema that describe the text of a file, such as `groupChar`, see
-      # `IOStreams::Slice#default_text?`.
+      # The values of a slice of the cells of a source of typed values, such as a spreadsheet, are read as the text of
+      # such cells, the default text of the type of each field first, such as `1234.5` rather than with its `groupChar`,
+      # see `IOStreams::Slice#cell_text?`.
       def tabular(**)
         super(default_schema: io_stream.schema, blank_rows: io_stream.blank_rows?, headerless: !io_stream.header?,
-              typed: io_stream.typed?, part_of_file: true, default_text: default_text?, **)
+              typed: io_stream.typed?, part_of_file: true, cell_text: cell_text?, **)
       end
 
-      # Returns [true|false] whether the text of the values of the rows of the slice is the default text of IOStreams,
-      # such as that of the cells of a spreadsheet, see `IOStreams::Slice#default_text?`, which the slices read from it
-      # carry too, see `IOStreams::Stream#default_text?`.
-      def default_text?
-        io_stream.default_text?
+      # Returns [true|false] whether the values of the rows of the slice are the cells of a source of typed values, such
+      # as a spreadsheet, see `IOStreams::Slice#cell_text?`, which the slices read from it carry too, see
+      # `IOStreams::Stream#cell_text?`.
+      def cell_text?
+        io_stream.cell_text?
       end
 
       # Returns [IOStreams::Schema] the schema of the values of the rows of the slice, see `IOStreams::Slice#schema`,

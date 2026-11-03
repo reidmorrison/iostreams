@@ -56,8 +56,9 @@ module IOStreams
     #                 Writing an item whose text holds the delimiter raises, since it would not read back.
     #     "year":     an Integer from 0 to 9999, read from text of 4 digits, such as `2026`, or from a whole number, and
     #                 written as 4 digits.
-    #     "yearmonth": a Date on the first of its month, read from text such as `2026-10`, or from a Date on the first of
-    #                 its month, of a year up to 9999, and written as that text.
+    #     "yearmonth": a Date on the first of its month, read from text such as `2026-10`, or the ISO 8601 text of the
+    #                 first of a month, such as `2026-10-01`, the text of a cell of a spreadsheet that holds the date, or
+    #                 from a Date on the first of its month, of a year up to 9999, and written as `2026-10`.
     #     "geopoint": a point on the earth, `[lon, lat]`, two BigDecimals, read from and written in the form of its
     #                 `format`, see `IOStreams::Schema::Geopoint`.
     #     "any":      the value as it is read, without converting it, apart from empty text, which is nil.
@@ -217,18 +218,6 @@ module IOStreams
       # Parquet column of times of day, which hold the clock without a zone, so a copy keeps it.
       TEXT_PROPERTIES = %w[format trueValues falseValues groupChar decimalChar bareNumber missingValues delimiter].freeze
 
-      # The properties of a field that say how a file writes the text of a value that a source of typed values holds as
-      # the value itself, such as a number, a date or a boolean that a cell of a spreadsheet holds, whose text IOStreams
-      # writes in the default form of its type instead, such as `1234.5`, `2026-07-01` and `true`, see #default_text_h:
-      # the `format` of a date, datetime or time, see TYPED_FORMAT_TYPES, its true and false values, and the text of its
-      # numbers. Its missing values, the `delimiter` of a list and the `timeZone` of a datetime or a time still apply to
-      # that text, as they do to the cells of a spreadsheet.
-      TYPED_TEXT_PROPERTIES = %w[format trueValues falseValues groupChar decimalChar bareNumber].freeze
-
-      # The types whose `format` says how a file writes the text of a value that a source of typed values holds as the
-      # value itself, see TYPED_TEXT_PROPERTIES, while a spreadsheet holds a geopoint as its text, in its `format`.
-      TYPED_FORMAT_TYPES = %w[date datetime time].freeze
-
       # The types whose values a cell that holds one value, such as that of a spreadsheet, holds as their text, see
       # #render's `:scalar` form: those that are not one value, and a yearmonth, whose text, such as `2026-10`, is not
       # that of a date, so that the CSV text of a spreadsheet reads back too.
@@ -260,6 +249,14 @@ module IOStreams
 
       # The text of a year and a month, see `yearmonth` above.
       YEARMONTH = /\A(\d{4})-(\d{2})\z/
+
+      # The ISO 8601 text of the first of a month, which a yearmonth also reads, see `yearmonth` above.
+      FIRST_OF_MONTH = /\A(\d{4})-(\d{2})-01\z/
+
+      # What #default_text_value returns for text that is not the default text of the type of the field, see
+      # #parse_cell_text, which nil, false and every other value can be.
+      OWN_TEXT = Object.new.freeze
+      private_constant :OWN_TEXT
 
       DEFAULT_TRUE_VALUES  = %w[true True TRUE 1].freeze
       DEFAULT_FALSE_VALUES = %w[false False FALSE 0].freeze
@@ -393,6 +390,11 @@ module IOStreams
         @number_text  = number_text_of(descriptor)
         @true_values  = check_values("trueValues", descriptor["trueValues"], DEFAULT_TRUE_VALUES)
         @false_values = check_values("falseValues", descriptor["falseValues"], DEFAULT_FALSE_VALUES)
+        # Whether the field reads text in a form of its own rather than the default text of its type, see
+        # #parse_cell_text: a number with a `groupChar`, `decimalChar` or `bareNumber`, a date, datetime or time with a
+        # `format`, or a boolean with `trueValues` or `falseValues`.
+        @own_text     = !@number_text.nil? || !@format.nil? || !@true_values.equal?(DEFAULT_TRUE_VALUES) ||
+                        !@false_values.equal?(DEFAULT_FALSE_VALUES)
         @aliases      = check_values("aliases", descriptor["aliases"], [].freeze, empty: true)
         @missing      = own_missing_values(descriptor) || missing_values
         require_duration if @type == "duration"
@@ -433,15 +435,6 @@ module IOStreams
       def without_text_h
         names = TEXT_PROPERTIES.map(&:to_sym)
         names.delete(:format) unless TEXT_FORMAT_TYPES.include?(type)
-        to_h.except(*names)
-      end
-
-      # Returns [Hash] the properties of this field without those that say how a file writes the text of a value that a
-      # source of typed values holds as the value itself, see TYPED_TEXT_PROPERTIES, so that the field reads the default
-      # text of its type, see `IOStreams::Schema#for_default_text`.
-      def default_text_h
-        names = TYPED_TEXT_PROPERTIES.map(&:to_sym)
-        names.delete(:format) unless TYPED_FORMAT_TYPES.include?(type)
         to_h.except(*names)
       end
 
@@ -904,6 +897,31 @@ module IOStreams
         value.is_a?(json_class) ? value : invalid(value)
       end
 
+      # Returns the value read from the cell of a source whose cells hold typed values, such as a spreadsheet, as #parse
+      # reads it, from text that is the text of such a cell, see `IOStreams::Tabular#cell_text?`: the default text of its
+      # type that IOStreams writes for a number, date, time or boolean cell, such as `1234.5`, `2026-07-01`,
+      # `2026-07-01T09:30:00Z` or `true`, see `IOStreams::Xlsx::Cells.text`, otherwise the text of a text cell, in the
+      # form of this field, such as `1.234,5` for `groupChar: "."` and `decimalChar: ","`, `01/07/2026` for
+      # `format: "%d/%m/%Y"`, or `Y` for `trueValues: ["Y"]`. So a slice of the cells of a spreadsheet reads them as the
+      # spreadsheet does, also once stored as text, see `IOStreams::Slice#cell_text?`. Text that is both, such as
+      # `1.234` for `groupChar: "."`, which a text cell may hold as one thousand two hundred and thirty four, is read as
+      # the default text, `1.234`. Its missing values, the `delimiter` of a list and the `timeZone` of a datetime or a
+      # time apply as they do to the cell.
+      #
+      # Only text that is not the default text of the type is read twice, so that the cells of a number, a date or a
+      # boolean cost no more than #parse.
+      #
+      # Raises `IOStreams::Errors::InvalidValue` as #cast does.
+      def parse_cell_text(value, form)
+        return parse(value, form) unless @own_text && value.is_a?(String)
+        return @constraints.no_value(value) if @missing.include?(value)
+
+        converted = default_text_value(value.strip)
+        return cast(value) if converted.equal?(OWN_TEXT)
+
+        @checks ? @constraints.check(converted, value) : converted
+      end
+
       # Returns the value converted to the type of this field, see #cast, in the form that the supplied format of
       # file writes it:
       #   :text   the text of the value, such as "12.50", for a format of text, such as CSV.
@@ -1080,11 +1098,11 @@ module IOStreams
         year.between?(0, 9999) ? year : invalid(value)
       end
 
-      # Returns [Date] the first of the month of text such as `2026-10`, or of a Date on the first of its month, or a
-      # Time or DateTime at midnight on it, see `yearmonth` above.
+      # Returns [Date] the first of the month of text such as `2026-10` or `2026-10-01`, or of a Date on the first of its
+      # month, or a Time or DateTime at midnight on it, see `yearmonth` above.
       def cast_yearmonth(value)
         if value.is_a?(String)
-          parts = YEARMONTH.match(value)
+          parts = YEARMONTH.match(value) || FIRST_OF_MONTH.match(value)
           month = parts && parts[2].to_i
           return invalid(value) unless month&.between?(1, 12)
 
@@ -1771,6 +1789,58 @@ module IOStreams
         digits = self.class.fraction_digits(time)
         clock  = digits.zero? ? time.strftime("%H:%M:%S") : time.strftime("%H:%M:%S.%#{digits}N")
         "#{clock}#{time.utc? ? 'Z' : time.strftime('%:z')}"
+      end
+
+      # Returns the value of text that is the default text of the type of this field, see #parse_cell_text: the plain
+      # digits of a number, such as `1234.5`, of an integer, such as `1234` or `1234.0`, the ISO 8601 text of a date,
+      # datetime or time, and the default true and false values of a boolean, such as `true`, whatever the properties of
+      # the field that describe its own text, or OWN_TEXT for any other text.
+      #
+      # Raises `IOStreams::Errors::InvalidValue` for the default text of a datetime or time in a clock that the zone of
+      # the field skips, as #cast does.
+      def default_text_value(text)
+        case type
+        when "number" then NUMBER.match?(text) ? round(number(text)) : OWN_TEXT
+        when "integer" then default_integer(text)
+        when "boolean" then default_boolean(text)
+        else default_time(text)
+        end
+      end
+
+      # Returns [Integer] the whole number of plain digits, such as `1234` or `1234.0`, see #default_text_value, or
+      # OWN_TEXT.
+      def default_integer(text)
+        return Integer(text, 10) if INTEGER.match?(text)
+
+        whole = WHOLE.match(text)
+        whole ? Integer(whole[1], 10) : OWN_TEXT
+      end
+
+      # Returns [true|false] of a default true or false value, see #default_text_value, or OWN_TEXT.
+      def default_boolean(text)
+        return true if DEFAULT_TRUE_VALUES.include?(text)
+
+        DEFAULT_FALSE_VALUES.include?(text) ? false : OWN_TEXT
+      end
+
+      # Returns [Date|Time] the date, datetime or time of its ISO 8601 text, see #default_text_value, a date that exists
+      # and a clock of 00:00:00 to 23:59:59, or OWN_TEXT.
+      def default_time(text)
+        case type
+        when "date" then return cast_date_text(text) if DATE.match?(text)
+        when "datetime"
+          match = DATETIME.match(text)
+          date  = match && match[1]
+          return iso_datetime(match) if date && Date.valid_date?(date[0, 4].to_i, date[5, 2].to_i, date[8, 2].to_i)
+        else
+          clock = TIME.match(text)
+          return iso_clock(clock) if clock && clock_time?(clock[1].to_i, clock[2].to_i, clock[3].to_i)
+        end
+        OWN_TEXT
+      rescue TimeZone::SkippedClock => e
+        invalid(text, "#{type}, since #{e.message}")
+      rescue ArgumentError
+        OWN_TEXT
       end
 
       # Returns [Date|Time|nil] the value of the ISO 8601 text of a date, datetime or time, whatever the format of the

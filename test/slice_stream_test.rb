@@ -124,17 +124,17 @@ class SliceStreamTest < Minitest::Test
             list = []
             path.schema(european).each(:slice, size: 5) { |slice| list << slice }
 
-            assert_predicate list.first, :default_text?
+            assert_predicate list.first, :cell_text?
             assert_equal [record], each(IOStreams.stream(list.first).schema(european))
             stored = IOStreams.slice(JSON.parse(JSON.generate(list.first.to_h)))
 
-            assert_predicate stored, :default_text?
+            assert_predicate stored, :cell_text?
             assert_equal [record], each(IOStreams.stream(stored).schema(european))
 
             again = []
             IOStreams.stream(stored).each(:slice, size: 5) { |slice| again << slice }
 
-            assert_predicate again.first, :default_text?
+            assert_predicate again.first, :cell_text?
           end
         end
 
@@ -143,25 +143,68 @@ class SliceStreamTest < Minitest::Test
             text = []
             path.format(:csv).each(:line) { |line| text << line }
             slice = IOStreams.slice({"rows" => text.drop(1), "header" => text.first.split(","), "format" => "csv",
-                                     "default_text" => true})
+                                     "cell_text" => true})
 
             assert_equal [record], each(IOStreams.stream(slice).schema(european))
           end
         end
 
-        it "reads a text cell by the default text of its type in a slice, while the spreadsheet reads it by the schema" do
+        it "reads a text cell in the form of the schema in a slice, also once stored, as the spreadsheet reads it" do
           Dir.mktmpdir do |dir|
             path = IOStreams.path(dir, "people.xlsx")
             path.writer(:array) do |writer|
-              writer << %w[name amount]
-              writer << %w[Jack 1.234,5]
+              writer << %w[name amount paid done note]
+              writer << ["Jack", "1.234,5", "01/07/2026", "Y", "NA"]
             end
-            schema = {"fields" => [{"name" => "name"}, european["fields"][1]]}
 
-            assert_equal [{"name" => "Jack", "amount" => BigDecimal("1234.5")}], each(path.schema(schema))
+            assert_equal [record], each(path.schema(european))
+            list = []
+            path.schema(european).each(:slice, size: 5, validate: true) { |slice| list << slice }
+
+            assert_equal [record], each(IOStreams.stream(list.first).schema(european))
+            stored = IOStreams.slice(JSON.parse(JSON.generate(list.first.to_h)))
+
+            assert_equal [record], each(IOStreams.stream(stored).schema(european))
+            text = []
+            path.format(:csv).each(:line) { |line| text << line }
+            lines = IOStreams.slice({"rows" => text.drop(1), "header" => text.first.split(","), "format" => "csv",
+                                     "cell_text" => true})
+
+            assert_equal [record], each(IOStreams.stream(lines).schema(european))
+          end
+        end
+
+        it "reads text that is also the default text of its type as the default text in a slice" do
+          Dir.mktmpdir do |dir|
+            path = IOStreams.path(dir, "amounts.xlsx")
+            path.writer(:array) do |writer|
+              writer << %w[amount]
+              writer << ["1.234"]
+            end
+            schema = {"fields" => [{"name" => "amount", "type" => "number", "groupChar" => ".", "decimalChar" => ","}]}
+
+            assert_equal [{"amount" => BigDecimal("1234")}], each(path.schema(schema))
             path.schema(schema).each(:slice, size: 5) do |slice|
-              error = assert_raises(IOStreams::Errors::InvalidValue) { each(IOStreams.stream(slice).schema(schema)) }
-              assert_equal "1.234,5", error.value
+              assert_equal [{"amount" => BigDecimal("1.234")}], each(IOStreams.stream(slice).schema(schema))
+            end
+          end
+        end
+
+        it "reads a date cell into a yearmonth field, also once stored" do
+          Dir.mktmpdir do |dir|
+            path = IOStreams.path(dir, "months.xlsx")
+            path.writer(:array) do |writer|
+              writer << %w[month]
+              writer << [Date.new(2026, 7, 1)]
+            end
+            schema = {"fields" => [{"name" => "month", "type" => "yearmonth"}]}
+            month  = [{"month" => Date.new(2026, 7, 1)}]
+
+            assert_equal month, each(path.schema(schema))
+            path.schema(schema).each(:slice, size: 5) do |slice|
+              stored = IOStreams.slice(JSON.parse(JSON.generate(slice.to_h)))
+
+              assert_equal month, each(IOStreams.stream(stored).schema(schema))
             end
           end
         end
