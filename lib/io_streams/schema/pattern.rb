@@ -15,6 +15,10 @@ module IOStreams
     #   %H  the hour, from 00 to 23, as Python reads it, where Ruby also reads 24, and `%S` the second, from 00 to 59,
     #       where Ruby also reads the leap second 60, see #parts.
     #
+    # A datetime whose pattern reads no date, or only part of one, such as `%H:%M` or `%m/%d %H:%M`, is on the year,
+    # month and day of 1900-01-01 that it leaves out, as Python reads it, rather than on the day that it is read, as
+    # Ruby reads it, see #datetime.
+    #
     # Every other directive is Ruby's, which reads and writes the directives of Python the same way. A directive that
     # reads several, such as `%F`, `%c` or Ruby's `%+`, reads its year as they do, see COMPOSITES. Ruby's own
     # directives, such as `%N`, `%L`, `%s` and `%+`, still work, but other Frictionless tools do not read them, and `%s`
@@ -59,6 +63,15 @@ module IOStreams
       # The letters of the directives that write a zone, see #zone?.
       ZONES = %w[z Z +].freeze
 
+      # The year, month and day that Python's strptime gives the parts of a date that the text of a datetime leaves out,
+      # see #datetime.
+      DEFAULT_DATE = [1900, 1, 1].freeze
+
+      # The parts of the text that give its date other than by its year, month and day, as `Date._strptime` returns
+      # them: the day of the year, `%j`, a week, `%U`, `%W`, `%G` and `%V`, and the seconds since 1970, `%s` and `%Q`,
+      # whose date Ruby's strptime reads as it does, see #partial_date?.
+      OTHER_DATE_PARTS = %i[yday cwyear cweek cwday wnum0 wnum1 seconds].freeze
+
       # The start of a pattern of Ruby's strptime that reads a number, after which a directive before it that reads as
       # many digits as there are reads only its own number of them, see #checks.
       NUMERIC = /\A(?:\d|%[EO]?[CDdeFGgHIjkLlMmNQRrSsTUuVvWwXxYy\d])/
@@ -101,12 +114,29 @@ module IOStreams
         Date.strptime(text, @read)
       end
 
-      # Returns [DateTime] the time of the text, which #parts must have matched.
-      def datetime(text)
-        DateTime.strptime(text, @read)
+      # Returns [DateTime] the time of the text, whose parts #parts returned.
+      #
+      # A date that the text leaves out, or part of one, such as with `%H:%M` or `%m/%d %H:%M`, see #partial_date?, is
+      # that of DEFAULT_DATE, 1900-01-01, as Python's strptime reads it, such as 1900-07-01 09:30 for `07/01 09:30`,
+      # rather than the date of the day that it is read, which Ruby's strptime gives it.
+      #
+      # Raises `Date::Error` for a date that does not exist, such as `02/29`, since 1900 is not a leap year.
+      def datetime(text, parts)
+        return DateTime.strptime(text, @read) unless partial_date?(parts)
+
+        year, month, day = DEFAULT_DATE
+        seconds          = parts.fetch(:sec, 0) + parts.fetch(:sec_fraction, 0)
+        DateTime.new(parts.fetch(:year, year), parts.fetch(:mon, month), parts.fetch(:mday, day), parts.fetch(:hour, 0),
+                     parts.fetch(:min, 0), seconds, Rational(parts.fetch(:offset, 0), 86_400))
       end
 
       private
+
+      # Returns [true|false] whether the parts leave out the year, month or day of the date, such as those of `%H:%M` or
+      # `%m/%d %H:%M`, see #datetime, rather than give the date some other way, see OTHER_DATE_PARTS.
+      def partial_date?(parts)
+        !(parts.key?(:year) && parts.key?(:mon) && parts.key?(:mday)) && OTHER_DATE_PARTS.none? { |part| parts.key?(part) }
+      end
 
       # Returns [true|false] whether the time of the parts is on a clock, from 00:00:00 to 23:59:59, as Python's strptime
       # reads it, for a date as for a time, rather than the hour 24 of `%H`, which `DateTime` moves into the next day, or

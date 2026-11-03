@@ -857,7 +857,7 @@ module IOStreams
         # A DateTime at an offset of zero is a time in UTC, see .time_of, so a time keeps an offset of zero that the
         # text says, such as `+0000`, see #zero_offset?, with `Time.at`, since JRuby's `getlocal(0)` of a time in UTC is
         # in UTC.
-        time = self.class.time_of(@format.datetime(text))
+        time = self.class.time_of(@format.datetime(text, parts))
         zero_offset?(parts) ? Time.at(time, in: "+00:00") : time
       rescue ArgumentError
         invalid(text)

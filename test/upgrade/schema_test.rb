@@ -332,6 +332,14 @@ class UpgradeSchemaTest < Minitest::Test
           assert_equal "at\n2026-10-31 09:30:00.500000\n", write([{"at" => Time.utc(2026, 10, 31, 9, 30, 0.5r)}], schema: schema)
         end
 
+        it "reads a datetime whose format has no date, or only part of one, on 1900-01-01, as Python's strptime does" do
+          schema = {fields: [{name: "at", type: "datetime", format: "%H:%M"}, {name: "on", type: "datetime", format: "%m/%d %H:%M"}]}
+
+          assert_equal [{"at" => Time.utc(1900, 1, 1, 9, 30), "on" => Time.utc(1900, 7, 1, 9, 30)}],
+                       read("at,on\n09:30,07/01 09:30\n", schema: schema)
+          assert_raises(IOStreams::Errors::InvalidValue) { read("at,on\n09:30,02/29 09:30\n", schema: schema) }
+        end
+
         it "keeps an offset of zero that the text says, such as +0000, as without a format, while Z is UTC" do
           schema = {fields: [{name: "at", type: "datetime", format: "%Y-%m-%d %H:%M %z"}]}
           times  = read("at\n2026-10-31 09:30 +0000\n2026-10-31 09:30 Z\n", schema: schema).map { |record| record["at"] }

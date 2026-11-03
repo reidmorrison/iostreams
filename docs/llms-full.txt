@@ -2726,10 +2726,13 @@ and `#copy_to`, whose options only apply to the target.
   as `%F` and `%c`, while `%y` reads exactly 2 digits, the time of a `date` or a `datetime` must be on a clock, so
   that the hour `24` of `%H`, such as `24:00`, and a leap second, `60` of `%S`, raise, rather than read the next day
   or the second before it, or be ignored by a `date`, and `%f` reads 1 to 6 digits of microseconds, such as `5` for
-  half a second, and writes 6, such as `500000`. A pattern that starts with `fmt:`, as Data Package v0 wrote it, such
-  as `"fmt:%d/%m/%Y"`, has that prefix removed, so that `"fmt:default"` is the default form. Ruby's own directives,
-  such as `%N`, `%L` and `%s`, also work, but other Frictionless tools do not read them, and `%s` reads whole seconds,
-  ignoring a fraction after it, such as that of `%s.%f`. Default: ISO 8601.
+  half a second, and writes 6, such as `500000`. A `datetime` whose pattern reads no date, or only part of one, such
+  as `%H:%M` or `%m/%d %H:%M`, is on 1900-01-01, the year, month and day that Python gives the parts that it leaves
+  out, such as `1900-07-01 09:30` for `07/01 09:30`, rather than on the day that it is read. A pattern that starts
+  with `fmt:`, as Data Package v0 wrote it, such as `"fmt:%d/%m/%Y"`, has that prefix removed, so that
+  `"fmt:default"` is the default form. Ruby's own directives, such as `%N`, `%L` and `%s`, also work, but other
+  Frictionless tools do not read them, and `%s` reads whole seconds, ignoring a fraction after it, such as that of
+  `%s.%f`. Default: ISO 8601.
 * `trueValues` and `falseValues` For a `boolean`, the text that is true and false.
   Default: `["true", "True", "TRUE", "1"]` and `["false", "False", "FALSE", "0"]`
 * `floatNumber` For a `number`, `true` to read a `Float` rather than a `BigDecimal`, as frictionless-py does.
