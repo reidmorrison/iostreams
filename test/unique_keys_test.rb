@@ -165,36 +165,59 @@ class UniqueKeysTest < Minitest::Test
         assert_raises(IOStreams::Errors::InvalidValue) { read_slice(slice, {primaryKey: "id", fields: schema[:fields]}) }
       end
 
-      it "checks every row of the file written to a store of slices with validate: true, across its slices" do
-        store = Store.new
-        error = assert_raises(IOStreams::Errors::InvalidValue) do
-          IOStreams.stream(store).format(:csv).schema(schema).writer(:line, validate: true) do |io|
-            %w[id,name 1,a 2,b 1,c].each { |line| io << line }
+      it "checks every row written to a store of slices with validate: true, in every mode, across its slices" do
+        lines   = %w[id,name 1,a 2,b 1,c]
+        records = [{"id" => 1, "name" => "a"}, {"id" => 2, "name" => "b"}, {"id" => 1, "name" => "c"}]
+        writes  = {
+          line:   ->(stream) { stream.format(:csv).writer(:line, validate: true) { |io| lines.each { |line| io << line } } },
+          array:  ->(stream) { stream.writer(:array, validate: true) { |io| records.each { |record| io << record.values } } },
+          hash:   ->(stream) { stream.writer(:hash, validate: true) { |io| records.each { |record| io << record } } },
+          typed:  ->(stream) { stream.format(:hash).writer(:hash, validate: true) { |io| records.each { |record| io << record } } },
+          copy:   ->(stream) { stream.copy_from(StringIO.new("id,name\n1,a\n2,b\n1,c\n"), mode: :line, validate: true) },
+          rows:   ->(stream) { stream.copy_from(StringIO.new("id,name\n1,a\n2,b\n1,c\n"), mode: :hash, validate: true) },
+          record: lambda do |stream|
+            contract = IOStreams::Contract.new(schema)
+            stream.as(contract).writer(:record, validate: true) do |io|
+              records.each { |record| io << contract.new(id: record["id"], name: record["name"]) }
+            end
           end
-        end
+        }
+        writes.each do |mode, write|
+          store = Store.new
+          error = assert_raises(IOStreams::Errors::InvalidValue, mode.to_s) do
+            write.call(mode == :record ? IOStreams.stream(store) : IOStreams.stream(store).schema(schema))
+          end
 
-        assert_equal 3, error.record_number
-        assert_equal [2], store.slices.map(&:size)
-        store = Store.new
-        assert_raises(IOStreams::Errors::InvalidValue) do
-          IOStreams.stream(store).schema(schema).copy_from(StringIO.new("id,name\n1,a\n2,b\n1,c\n"), mode: :line, validate: true)
+          assert_equal 3, error.record_number, mode.to_s
+          assert_equal [2], store.slices.map(&:size), mode.to_s
         end
-        assert_equal [2], store.slices.map(&:size)
       end
 
-      it "does not check the lines written to a store of slices without validate: true, but a writer of records checks its own" do
-        store = Store.new
-        IOStreams.stream(store).format(:csv).schema(schema).writer(:line) do |io|
-          %w[id,name 1,a 2,b 1,c].each { |line| io << line }
+      it "checks no value written to a store of slices without validate: true, in any mode, which may be a part of a file" do
+        records = [{"id" => 1, "name" => "a"}, {"id" => 2, "name" => "b"}, {"id" => 1, "name" => "c"}]
+        writes  = {
+          line:  ->(stream) { stream.format(:csv).writer(:line) { |io| %w[id,name 1,a 2,b 1,c].each { |line| io << line } } },
+          array: ->(stream) { stream.writer(:array) { |io| records.each { |record| io << record.values } } },
+          hash:  ->(stream) { stream.writer(:hash) { |io| records.each { |record| io << record } } },
+          typed: ->(stream) { stream.format(:hash).writer(:hash) { |io| records.each { |record| io << record } } },
+          rows:  ->(stream) { stream.copy_from(StringIO.new("id,name\n1,a\n2,b\n1,c\n"), mode: :hash) }
+        }
+        writes.each do |mode, write|
+          store = Store.new
+          write.call(IOStreams.stream(store).schema(schema))
+
+          assert_equal [2, 1], store.slices.map(&:size), mode.to_s
         end
 
-        assert_equal [2, 1], store.slices.map(&:size)
+        # The results of a worker, read from its slice and written to a store of results, check none of them either.
         store = Store.new
-        assert_raises(IOStreams::Errors::InvalidValue) do
-          IOStreams.stream(store).format(:csv).schema(schema).writer(:hash) do |io|
-            [{"id" => 1}, {"id" => 2}, {"id" => 1}].each { |record| io << record }
+        IOStreams.stream(store).schema(schema).writer(:hash) do |io|
+          slices_of("id,name\n1,a\n1,b\n").each do |slice|
+            IOStreams.stream(slice).schema(schema).each(:hash) { |record| io << record }
           end
         end
+
+        assert_equal [2], store.slices.map(&:size)
       end
 
       it "checks every row of the slices written to a file with validate: true, across the slices" do
@@ -211,6 +234,26 @@ class UniqueKeysTest < Minitest::Test
           end
         end
         assert_equal 3, error.record_number
+      end
+
+      it "checks every row of the slices that it converts to another format when writing them to a file, as it parses them" do
+        slices = slices_of("id,name\n1,a\n2,b\n1,c\n")
+
+        assert_raises(IOStreams::Errors::InvalidValue) do
+          IOStreams.stream(StringIO.new).file_name("a.json").schema(schema).writer(:slice) do |io|
+            slices.each { |slice| io << slice }
+          end
+        end
+      end
+
+      it "checks the records that a read from resume_at reads, not those that it skips" do
+        assert_equal [{"id" => 2, "name" => "b"}, {"id" => 1, "name" => "c"}], read("id,name\n1,a\n2,b\n1,c\n", schema, resume_at: 2)
+        sliced = []
+        IOStreams.stream(StringIO.new("id,name\n1,a\n2,b\n1,c\n")).file_name("a.csv").schema(schema).
+          each(:slice, size: 2, validate: true, resume_at: 2) { |slice| sliced << slice }
+
+        assert_equal [2], sliced.map(&:size)
+        assert_raises(IOStreams::Errors::InvalidValue) { read("id,name\n1,a\n2,b\n2,c\n", schema, resume_at: 2) }
       end
 
       it "raises for a value written before" do

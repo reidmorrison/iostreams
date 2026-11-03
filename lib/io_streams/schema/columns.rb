@@ -68,9 +68,10 @@ module IOStreams
       #
       #   part_of_file: [true|false]
       #     Whether the rows and records are only a part of a file, such as the rows of a slice, see
-      #     `IOStreams::Slice::Stream`, so that the values of the fields and keys that must be unique within the file are
-      #     not checked, see `IOStreams::Schema#uniqueness`, since they may be those of another part of it, while the
-      #     whole file, such as when it is sliced with `validate: true`, checks them.
+      #     `IOStreams::Slice::Stream`, or those written into a store of slices, see `IOStreams::Slice::TargetStream`, so
+      #     that the values of the fields and keys that must be unique within the file are not checked, see
+      #     `IOStreams::Schema#uniqueness`, since they may be those of another part of it, while the whole file, such as
+      #     when it is sliced with `validate: true`, checks them.
       #     Default: false
       def initialize(schema, typed: false, every_field: false, keys_vary: false, form: :typed, read: false,
                      part_of_file: false)

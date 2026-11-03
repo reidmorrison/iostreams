@@ -674,19 +674,29 @@ end
   `uniqueKeys` holds at least one key, as Frictionless requires.
 
 Each read or write remembers the values that it has seen, so the check applies to one read or write of a whole file,
-such as each file read by a job. A slice is only a part of a file, so reading one, as a worker does, does not check
-them, since another slice may hold the same value. They are checked across the whole file by
-`each(:slice, validate: true)`, which reads every row of the file once while it slices it, by a write to a store of
-slices with `validate: true`, and by `writer(:slice, validate: true)`, which parses every row of the slices that it
-writes, while without `validate: true` none of them parses the rows, so none checks them, see
-[Background Jobs](background_jobs). A writer of rows or records checks the rows that it writes, as any write does, also
-to a store of slices. It remembers up to 1,000,000 distinct values of each field and key, so that a large
-file does not fill the memory, and raises `IOStreams::Errors::UniqueLimitExceeded` once it would need to remember more,
-rather than miss a duplicate. Each field and key has its own limit, and remembering costs memory: about 60 MB for
-1,000,000 Integers, and about 190 MB for 1,000,000 Strings such as UUIDs, or keys of several fields. The
-`uniqueLimit` of the schema, which IOStreams adds, changes how many: raise it for a larger file, or check the uniqueness
-of a very large one elsewhere, such as with a unique index of a database. `foreignKeys` is not supported yet, so it
-raises `ArgumentError`.
+such as each file that a job reads or writes. A read that resumes, with `resume_at:`, checks the records from that one
+on, not those that it skips, see [Resuming at a record](streams#resuming-at-a-record). When the work on a file is split
+into slices, see [Background Jobs](background_jobs), only a read or write of every row of the file can check them:
+
+* A slice is only a part of a file, so reading one, as a worker does, does not check them, since another slice may hold
+  the same value.
+* `each(:slice, validate: true)` reads every row of the file once while it slices it, so it checks them across the
+  whole file. Without `validate: true` it does not parse the rows, so it checks none of them.
+* A write into a store of slices checks them only with `validate: true`, across every row of that write, as for the
+  upload of a file. Without it, the write may be the results of a worker, only a part of the output file, so it checks
+  none of them, in any mode.
+* `writer(:slice, validate: true)` parses every row of the slices that it writes, so it checks them across the whole
+  output file. Without `validate: true` it checks only the rows of the slices that it converts, such as slices of CSV
+  written to a JSON file, or slices of typed values, since it parses their rows, and not those of the slices that it
+  writes as they are.
+
+Any other writer, of rows or records to a file, checks the rows that it writes. Each read or write remembers up to
+1,000,000 distinct values of each field and key, so that a large file does not fill the memory, and raises
+`IOStreams::Errors::UniqueLimitExceeded` once it would need to remember more, rather than miss a duplicate. Each field
+and key has its own limit, and remembering costs memory: about 60 MB for 1,000,000 Integers, and about 190 MB for
+1,000,000 Strings such as UUIDs, or keys of several fields. The `uniqueLimit` of the schema, which IOStreams adds,
+changes how many: raise it for a larger file, or check the uniqueness of a very large one elsewhere, such as with a
+unique index of a database. `foreignKeys` is not supported yet, so it raises `ArgumentError`.
 
 ## Schema properties
 

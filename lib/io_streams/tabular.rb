@@ -132,9 +132,10 @@ module IOStreams
     #     Default: false
     #
     #   part_of_file: [true|false]
-    #     Whether the rows are only a part of a file, such as the rows of a slice, see `IOStreams::Slice::Stream`, rather
-    #     than the whole file, so that the values of the fields and keys of a schema that must be unique within the file
-    #     are not checked, since a part of a file cannot tell whether a value is unique within it, see
+    #     Whether the rows are only a part of a file, such as the rows of a slice, see `IOStreams::Slice::Stream`, or
+    #     those written into a store of slices, see `IOStreams::Slice::TargetStream#write_slices`, rather than the whole
+    #     file, so that the values of the fields and keys of a schema that must be unique within the file are not
+    #     checked, since a part of a file cannot tell whether a value is unique within it, see
     #     `IOStreams::Schema::Columns.new`. Not an option of a call that reads or writes rows.
     #     Default: false
     #

@@ -4569,19 +4569,29 @@ end
   `uniqueKeys` holds at least one key, as Frictionless requires.
 
 Each read or write remembers the values that it has seen, so the check applies to one read or write of a whole file,
-such as each file read by a job. A slice is only a part of a file, so reading one, as a worker does, does not check
-them, since another slice may hold the same value. They are checked across the whole file by
-`each(:slice, validate: true)`, which reads every row of the file once while it slices it, by a write to a store of
-slices with `validate: true`, and by `writer(:slice, validate: true)`, which parses every row of the slices that it
-writes, while without `validate: true` none of them parses the rows, so none checks them, see
-[Background Jobs](background_jobs). A writer of rows or records checks the rows that it writes, as any write does, also
-to a store of slices. It remembers up to 1,000,000 distinct values of each field and key, so that a large
-file does not fill the memory, and raises `IOStreams::Errors::UniqueLimitExceeded` once it would need to remember more,
-rather than miss a duplicate. Each field and key has its own limit, and remembering costs memory: about 60 MB for
-1,000,000 Integers, and about 190 MB for 1,000,000 Strings such as UUIDs, or keys of several fields. The
-`uniqueLimit` of the schema, which IOStreams adds, changes how many: raise it for a larger file, or check the uniqueness
-of a very large one elsewhere, such as with a unique index of a database. `foreignKeys` is not supported yet, so it
-raises `ArgumentError`.
+such as each file that a job reads or writes. A read that resumes, with `resume_at:`, checks the records from that one
+on, not those that it skips, see [Resuming at a record](streams#resuming-at-a-record). When the work on a file is split
+into slices, see [Background Jobs](background_jobs), only a read or write of every row of the file can check them:
+
+* A slice is only a part of a file, so reading one, as a worker does, does not check them, since another slice may hold
+  the same value.
+* `each(:slice, validate: true)` reads every row of the file once while it slices it, so it checks them across the
+  whole file. Without `validate: true` it does not parse the rows, so it checks none of them.
+* A write into a store of slices checks them only with `validate: true`, across every row of that write, as for the
+  upload of a file. Without it, the write may be the results of a worker, only a part of the output file, so it checks
+  none of them, in any mode.
+* `writer(:slice, validate: true)` parses every row of the slices that it writes, so it checks them across the whole
+  output file. Without `validate: true` it checks only the rows of the slices that it converts, such as slices of CSV
+  written to a JSON file, or slices of typed values, since it parses their rows, and not those of the slices that it
+  writes as they are.
+
+Any other writer, of rows or records to a file, checks the rows that it writes. Each read or write remembers up to
+1,000,000 distinct values of each field and key, so that a large file does not fill the memory, and raises
+`IOStreams::Errors::UniqueLimitExceeded` once it would need to remember more, rather than miss a duplicate. Each field
+and key has its own limit, and remembering costs memory: about 60 MB for 1,000,000 Integers, and about 190 MB for
+1,000,000 Strings such as UUIDs, or keys of several fields. The `uniqueLimit` of the schema, which IOStreams adds,
+changes how many: raise it for a larger file, or check the uniqueness of a very large one elsewhere, such as with a
+unique index of a database. `foreignKeys` is not supported yet, so it raises `ArgumentError`.
 
 ## Schema properties
 
@@ -6263,7 +6273,10 @@ end
 * Every slice must come from the same file, or the same kind of results: a slice with another header row or format
   raises `ArgumentError`.
 * `validate: true` parses each row before it is written, to catch a value that is not valid before it reaches the file,
-  and a value that must be [unique](schemas#unique-values) that an earlier slice had.
+  and a value that must be [unique](schemas#unique-values) that an earlier slice had. A job that writes its results to
+  a store of slices does not check those values, since its results are only a part of the output file, so check them
+  here, across the whole file. Without `validate: true`, only the rows of a slice in another format, which are parsed
+  anyway, are checked for them.
 * As for any writer, the file is kept when the block returns, and not when it raises.
 * A job whose input slice holds more rows than the `slice_size` of its store of results, 100 unless the store says
   otherwise, writes more than one result slice, each with the number of its input slice, so they are still in the
@@ -6287,7 +6300,8 @@ end
 * `nil` reads the whole file, so the cursor of a job that has not started yet, which is usually `nil`, can be supplied
   as it is.
 * The file is read again up to the cursor, since a file cannot be read from the middle, such as when it is compressed,
-  but those rows are not parsed, so it is quick. The header row is still read, and matched to the schema.
+  but those rows are not parsed, so it is quick. The header row is still read, and matched to the schema. So the values
+  that must be [unique](schemas#unique-values) are checked from the cursor on, not against the records that it skips.
 * `each(:hash, resume_at: cursor)` works too, for a job that keeps a cursor for each record, see
   [Resuming at a record](streams#resuming-at-a-record).
 * A query is read again from its start too, so give the relation an order, such as `order(:id)`, so that its rows come
@@ -6448,9 +6462,10 @@ The slices still hold the rows as they are in the file. Validating parses every 
 job, so it is worth it when starting work on a file that is only partly valid is worse than reading it slower.
 
 Values that must be [unique](schemas#unique-values), such as those of a `primaryKey`, are unique within the whole
-file, so a job that reads its slice does not check them, since another slice may hold the same value. Validating reads
-the whole file once while it is sliced, so it checks them across the whole file, and raises for a duplicate before the
-slice that holds it is handed on. Without `validate: true`, nothing checks them before the jobs run.
+file, so a job that reads its slice does not check them, since another slice may hold the same value, and neither does
+a job that writes its results to a store of slices. Validating reads the whole file once while it is sliced, so it
+checks them across the whole file, and raises for a duplicate before the slice that holds it is handed on. Without
+`validate: true`, nothing checks them before the jobs run.
 
 ### Hand on the slices only once the file is read
 
@@ -6589,7 +6604,9 @@ end
   example, to record the columns of the upload. It is not called for a file without a header row, such as JSON.
 * **Validating as you write.** `validate: true` parses each row before the slice that holds it is written, as for
   `each(:slice)`: `writer(:hash, validate: true)` or `copy_from(path, mode: :line, validate: true)`. It parses every
-  row of the write, so it checks the values that must be [unique](schemas#unique-values) across all of its slices.
+  row of the write, so it checks the values that must be [unique](schemas#unique-values) across all of its slices, as
+  for the upload of a file. Without it, a write checks none of them, in any mode, since it may be the results of one
+  job, only a part of the output file, which `writer(:slice, validate: true)` checks once every job has finished.
 
 The store decides the size of its slices, rather than each call, since it knows how it keeps them.
 

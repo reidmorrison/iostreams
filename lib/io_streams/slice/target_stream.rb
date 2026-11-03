@@ -75,7 +75,10 @@ module IOStreams
       # Parameters
       #   validate: [true|false]
       #     Whether to parse each row before it is added to its slice, so that a row that the format or the schema
-      #     cannot read raises before the slice that holds it is written, see `IOStreams::Slice::Collector`.
+      #     cannot read raises before the slice that holds it is written, see `IOStreams::Slice::Collector`, and a value
+      #     that the schema says must be unique, see `IOStreams::Schema#uniqueness`, that an earlier row of the write
+      #     had. Without it, no value is checked to be unique, since the write may be only a part of a file, such as
+      #     the results of a worker, see #write_slices.
       #     Default: false
       #
       # Returns the result of the block.
@@ -182,9 +185,15 @@ module IOStreams
       # `IOStreams::Stream#lines_quote_character`. Protected, so that a copy writes with the stream that has the schema of
       # its source, see #copy_rows.
       #
+      # The values that a schema says must be unique within a file, see `IOStreams::Schema#uniqueness`, are checked only
+      # with `validate: true`, across every row of the write, which the collector parses through one tabular, as it does
+      # for an upload of a whole file. A write into a store may instead be the results of a worker, only a part of the
+      # output file, whose other parts other writes hold, so the tabular that renders the rows and records checks none of
+      # them, `part_of_file: true`, and a write without `validate: true` checks none either.
+      #
       # Returns the result of the block.
       def write_slices(mode, options, blank_rows: true, lines_of_file: true, quote_character: :auto, &block)
-        rendering       = tabular(blank_rows: blank_rows) unless mode == :line
+        rendering       = tabular(blank_rows: blank_rows, part_of_file: true) unless mode == :line
         tabular         = rows_tabular(blank_rows, rendering&.renders_field_values? || false)
         quote_character = tabular.quote_character if quote_character == :auto
 
