@@ -480,7 +480,9 @@ of only spaces is `nil`, a missing value, where the layout read empty text, `""`
 `string` field writes a `Float` that is not finite as `NaN`, `INF` or `-INF`, where the layout wrote `NaN`, `Infinity`
 or `-Infinity`. A `number` field with `decimals` rounds the number read to them, such as `12.35` for `12.346` with
 `decimals: 2`, where the layout read all of its digits, and writes a negative number that rounds to zero, such as
-`-0.001`, as zero, without a minus sign, where the layout wrote one, such as `-0000.00`.
+`-0.001`, as zero, without a minus sign, where the layout wrote one, such as `-0000.00`. A `number` field that takes
+the remainder of the line, without `decimals`, writes a whole number without a decimal point, such as `12`, where the
+layout wrote `12.0`.
 
 `IOStreams::Schema.from_layout` raises `IOStreams::Errors::InvalidLayout` for a layout that a schema cannot hold: two
 columns with the same key, including `:a` and `"a"`, a key that is neither a String nor a Symbol, such as `1`, or
@@ -538,6 +540,7 @@ of type `any` writes it, in CSV, PSV and JSON:
 | `BigDecimal("12.5")` | `12.5` | `0.125e2`, or `12.5` in a Rails application |
 | `Time.utc(2026, 10, 13, 9, 30)` | `2026-10-13T09:30:00Z` | `2026-10-13 09:30:00 UTC`, or in JSON in a Rails application `2026-10-13T09:30:00.000Z` |
 | `Date.new(2026, 10, 13)` | `2026-10-13` | its `to_s`, which an application can change |
+| `ActiveSupport::Duration`, such as `1.day` | its ISO 8601 text, `P1D` | its number of seconds, `86400` |
 
 JSON writes them as text, within an object or an array too, so that a `BigDecimal` keeps all of its digits. So
 does the header row that `writer(:array)` takes from the first row written, so that it matches the rows after it. PSV writes an `Array` value in one column, as JSON, see below, where its items were
@@ -618,22 +621,25 @@ Fix: set `format(:csv)` on the path of a `.text` file that holds CSV.
 #### Spreadsheet date and time cells are read as ISO 8601
 
 In the CSV text of a spreadsheet, which its lines and a copy without a mode read, a date cell is `2026-01-02`, a date
-and time cell its time in UTC in ISO 8601, such as `2026-01-02T09:30:00Z`, since Excel holds a time without a time
-zone, and a time of day its clock, such as `09:30:00`, so that a field of its type reads each one, the same text in
-every process. Its rows and records hold the cells themselves instead, see
+and time cell its clock in ISO 8601, without an offset, such as `2026-01-02T09:30:00`, since Excel holds a time without
+a time zone, and a time of day its clock, such as `09:30:00`, so that a field of its type reads each one, in its
+`timeZone`, or in UTC without one, as it reads the cell, the same text in every process. A `string` field reads a
+cell of a date and time as the same text. Its rows and records hold the cells themselves instead, see
 [Rows of a spreadsheet are the values of its cells](#rows-of-a-spreadsheet-are-the-values-of-its-cells). Previously
 only a cell of a built-in date format of Excel, such as its short date, was `2026-01-02`. A cell of a custom date
 format, such as `yyyy-mm-dd`, or of a time, was the text of a `Time` in the local time zone of the process, such as
 `2026-01-02 00:00:00 -0500` or `2026-01-02 09:30:00 -0500`, a time of day was on 1899-12-30, and a number of a custom
-format with a letter in its text, such as `0" items"`, was a date. A number is the text that the workbook holds, such
-as `1001` or `12.5`, where a cell with the type of a number was `1001.0`, a format of a whole number, such as `0` or
+format with a letter in its text, such as `0" items"`, was a date. A number is the digits that Excel displays, its 15
+most significant, such as `1001`, `12.5`, or `0.3` for the `0.30000000000000004` that the workbook holds, where a cell
+with the type of a number was `1001.0`, a format of a whole number, such as `0` or
 `#,##0`, dropped the fraction of `12.5`, and a decimal cell that the `creek` gem returns as a `BigDecimal` was
 `0.125e2`.
 
-Fix: code that parses the text of a date or time cell, such as with `Date.parse` or `Time.parse`, still works, but
-gets a time in UTC, and a time of day without a date. To get a local time, convert it, such as with
-`Time.parse(value).localtime`. Read a column of times of day with a `time` field, which reads `09:30:00`, rather than
-a `datetime` field, which reads only a date and time.
+Fix: code that parses the text of a date or time cell with `Date.parse` still works, while `Time.parse` reads the clock
+of a date and time cell in the local time zone of the process, since the text has no offset, so read it as UTC, such as
+with `Time.parse("#{value}Z")`, or read the column with a `datetime` field, which reads it in UTC, or in its `timeZone`.
+Read a column of times of day with a `time` field, which reads `09:30:00`, rather than a `datetime` field, which reads
+only a date and time.
 
 #### The column options of each call are removed
 
@@ -854,8 +860,8 @@ Fix: set the format of the file with `#format`, such as `format(:psv)` for a pip
 
 #### Rows of a spreadsheet are the values of its cells
 
-`each(:array)`, `each(:hash)` and `each(:slice)` of a spreadsheet return the value of each cell as Excel typed it, rather
-than its text: a number is a `Float`, such as `1001.0` where it was `"1001.0"`, a cell of a date format a `Date`, of a
+`each(:array)` and `each(:hash)` of a spreadsheet, and `each(:slice)` with a schema or contract, return the value of
+each cell as Excel typed it, rather than its text: a number is a `Float`, such as `1001.0` where it was `"1001.0"`, a cell of a date format a `Date`, of a
 date and time format a `Time` in UTC, a boolean `true` or `false`, and an error, such as `#N/A`, `nil`, while text, such
 as `"01234"`, is still a `String`. Its lines, `each(:line)`, and a copy into a CSV file without a mode, are still its CSV
 text. A header cell of a date format is the key of its date, such as `2026_01_01` where it was `2026_01_01t000000z`.

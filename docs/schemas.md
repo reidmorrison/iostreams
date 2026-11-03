@@ -154,7 +154,7 @@ IOStreams.path("orders.csv").schema(IOStreams::Schema.new(JSON.parse(File.read("
 |------|---------|------------|
 | `string` | a `String`, such as the number of a number cell of a spreadsheet, to the digits that Excel displays, `2134` rather than `2134.0`, checked to be one of its `format`, see [Formats of strings](#formats-of-strings) | the text, or the text of any other value, except a `Hash` or an `Array`, which raise |
 | `integer` | an `Integer`, from text such as `42`, `-12` or `0042`, or a whole number with a decimal point, such as `12.0`, as a spreadsheet stores it | `42` |
-| `number` | a `BigDecimal`, from text such as `12.5`, `-1.5E3`, `NaN`, `INF` or `-INF`, whatever their case, or `Infinity` and `-Infinity`, as Ruby and JavaScript write them, and frictionless-py also reads them, or a number, including a `Rational`, or a `Float` with `floatNumber: true`, rounded to its `decimals` when it has them | `12.5`, or `12.50` with `decimals: 2`, and one that is not finite as `NaN`, `INF` or `-INF`, except to JSON, which cannot hold it, so that it raises `IOStreams::Errors::InvalidValue` |
+| `number` | a `BigDecimal`, from text such as `12.5`, `-1.5E3`, `NaN`, `INF` or `-INF`, whatever their case, or `Infinity` and `-Infinity`, as Ruby and JavaScript write them, and frictionless-py also reads them, or a number, including a `Rational`, or a `Float` with `floatNumber: true`, rounded to its `decimals` when it has them | `12.5`, a whole number without a decimal point, such as `42` for `42`, `42.0` or the text `42.0`, or `12.50` and `42.00` with `decimals: 2`, and one that is not finite as `NaN`, `INF` or `-INF`, except to JSON, which cannot hold it, so that it raises `IOStreams::Errors::InvalidValue` |
 | `boolean` | `true` or `false`, from one of its `trueValues` or `falseValues`, or the number `1` or `0`, such as `1.0` of a spreadsheet, or a number of JSON, a Parquet file or a query; any other number raises | the first of its `trueValues` or `falseValues` |
 | `date` | a `Date`, from `2026-10-13`, or text in its `format`, or a `Time` at midnight, by its own clock; any other time raises, rather than lose its time of day | `2026-10-13`, or text in its `format` |
 | `datetime` | a `Time`, from ISO 8601 with seconds, such as `2026-10-13T09:30:00Z`, also with a space in place of the `T`, such as `2026-10-13 09:30:00`, and an offset from UTC with or without a colon, or of hours alone, such as `+05:30`, `+0530` or `+05`, or text in its `format`. Text without an offset from UTC is read as UTC, or in its `timeZone`, and a date without a time raises | ISO 8601, such as `2026-10-13T09:30:00Z`, or text in its `format` |
@@ -201,7 +201,8 @@ a Hash that holds itself, raise `IOStreams::Errors::InvalidValue`, and so does w
 finite, such as `NaN`, which JSON cannot hold, naming the field.
 
 JSON writes integers, numbers and booleans as JSON numbers and booleans, with all of the digits of a `number`, and the
-digits after the decimal point that its `decimals` give, such as `12.50`, the same as CSV, an `object` or an `array`
+digits after the decimal point that its `decimals` give, such as `12.50`, or none for a whole number without
+`decimals`, such as `42`, the same as CSV, an `object` or an `array`
 as itself, and every other value as text, such as a date, including in an application that uses ActiveSupport, as
 Rails does, which replaces how Ruby writes JSON. Reading JSON keeps all of the digits of a `number` too, rather than
 reading it through a `Float`, rounded to its `decimals` when it has them, while the numbers of the other fields are a
@@ -401,9 +402,9 @@ end
   no zone either, so a field with a `timeZone` writes the clock of its zone to a cell, such as `2026-07-01 09:30` for
   `13:30` UTC in New York, and reads the clock of a cell in its zone, as it reads the text `2026-07-01 09:30:00`, so a
   spreadsheet made by hand in New York reads as the times that were entered, while a field without a `timeZone` writes
-  and reads the clock in UTC. The lines of a spreadsheet, its CSV text, have no schema, so they hold the clock of a
-  date and time as UTC, such as `2026-07-01T09:30:00Z`, which a field reads as that time, whatever its `timeZone`, so
-  read the rows of a spreadsheet, rather than its lines, with a field that has one.
+  and reads the clock in UTC. The lines of a spreadsheet, its CSV text, hold the clock of a date and time without an
+  offset, such as `2026-07-01T09:30:00`, so a field reads it in its `timeZone` too, as do a CSV copy of the
+  spreadsheet and its slices, the same times as its rows.
 * A spreadsheet's cell holds the clock alone, so both times of a clock that the zone has twice, such as `01:30` on
   2026-11-01 in New York, which is `05:30` UTC, at `-04:00`, and an hour later `06:30` UTC, at `-05:00`, are written as
   the cell `2026-11-01 01:30`, which reads back as the first, `05:30` UTC, while CSV writes each time with its offset.
@@ -479,8 +480,24 @@ IOStreams reads as Python does:
 | `%H`, `%S` | the hour, `00` to `23`, and the second, `00` to `59`, so that the time of a `date`, `datetime` or `time` is on a clock: the hour `24`, such as `24:00`, and a leap second, `60`, raise, rather than read the next day, or the second before it, or be ignored by a `date`, as Ruby reads them | 2 digits |
 
 A directive that reads several, such as `%F`, which is `%Y-%m-%d`, or `%c`, reads its year as they do, and so does a
-directive with the modifier `E` or `O`, such as `%EY`. A `format` that starts with `fmt:`, as Data Package v0 wrote it,
-such as `"fmt:%d/%m/%Y"`, has the prefix removed, as Frictionless requires, so `"fmt:default"` is the default form.
+directive with the modifier `E` or `O`, such as `%EY`. A `format` that starts with `fmt:`, as Data Package v0 wrote
+it, such as `"fmt:%d/%m/%Y"`, has the prefix removed, as Frictionless requires, so `"fmt:default"` is the default form.
+
+Nothing is read on the day that it is read, as Ruby's strptime reads the parts of a date that the text leaves out, so
+that a file reads the same on every day. As Python reads them:
+
+* A `format` that reads a day of the month, `%d` or `%e`, without a year, `%Y`, `%y` or `%G`, such as `%m/%d` or
+  `%m/%d %H:%M`, raises `ArgumentError` when the schema is created, as Python's strptime does from 3.15, since it cannot
+  read February 29: add a year to it, and to the text. So does one that reads an ISO 8601 week without its year, `%G`,
+  its week, `%V`, and a weekday, such as `%u`, which give its date together, or with the day of the year, `%j`.
+* Text without a year, such as that of `%H:%M`, `%m %H:%M` or `%I:%M %p`, is on 1900-01-01, the year, month and day
+  that Python gives the parts that it leaves out, such as `1900-07-01 09:30` for `07 09:30` with `%m %H:%M`, the day of
+  the year of `%j` counts from 1900-01-01, such as `1900-03-01` for `060`, and a weekday or a week without a year, such
+  as `%a` or `%U`, is ignored.
+* A `datetime` without a date in a `timeZone` is on 1900-01-01 in that zone, at the offset that the zone had then,
+  often its local mean time, such as `+05:21:10` for `Asia/Kolkata`, which IOStreams writes in UTC, such as
+  `1900-01-01T04:08:50Z`, since ISO 8601 cannot write the seconds of an offset. Read a time of day with a `time` field,
+  which is on 2000-01-01, rather than a `datetime`.
 
 Ruby's own directives also work, such as `%N` and `%L` for the fraction of a second, and `%s` for the seconds since
 1970, which reads whole seconds, ignoring a fraction after it, such as that of `%s.%f`, but other Frictionless tools do

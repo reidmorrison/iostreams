@@ -468,11 +468,25 @@ module IOStreams
       @mapping.missing_positions
     end
 
+    # Returns [Hash<Integer, Symbol>|nil] the positions of the values of the rows read whose field reads the cell of a time
+    # of day otherwise than as the Time that it holds, with how, see `IOStreams::Schema::Field#time_cell`, such as
+    # `:clock`, the text of its clock, as the CSV text of a spreadsheet holds it, so that a source of such cells, a
+    # spreadsheet, see `IOStreams::Xlsx::Reader::Rows`, reads them as that field reads them, or nil until the header row
+    # is read, which places them, see `IOStreams::Tabular::Mapping#time_cell_positions`.
+    def time_cell_positions = @mapping.time_cell_positions
+
     # Returns [Array<Integer>] the positions of the values of the rows rendered whose field is a `string`, which a
     # format that writes the values themselves, such as a spreadsheet, keeps as text, see
     # `IOStreams::Xlsx::RowsWriter`, or none without a schema, whose values have no type.
     def text_positions
       @mapping.text_positions
+    end
+
+    # Returns [Array<Integer>] the positions of the values of the rows rendered whose field is a `time`, a time of day,
+    # which a format that writes the values themselves, such as a spreadsheet, writes as a time of day rather than a
+    # date and time, see `IOStreams::Xlsx::RowsWriter`, or none without a schema, whose values have no type.
+    def time_positions
+      @mapping.time_positions
     end
 
     # Raises `IOStreams::Errors::IncompatibleType` for a column of the schema that the block returns, which a source

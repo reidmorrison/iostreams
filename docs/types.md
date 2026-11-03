@@ -339,9 +339,10 @@ end
 * **Reads** a decimal with an optional sign and exponent, such as `12.50`, `-1.5E3`, `.5` or `12.`, and the numbers
   that are not finite: `NaN`, `INF` and `-INF`, in any case, and `Infinity` and `-Infinity`, as Ruby and JavaScript
   write them.
-* **Written as** the plain digits of its value, such as `12.5` and `1500.0`. A whole number is written with `.0`, such
-  as `3.0`. A number that is not finite is written as `NaN`, `INF` or `-INF`. JSON cannot hold those, so writing one to
-  JSON raises `IOStreams::Errors::InvalidValue`.
+* **Written as** the plain digits of its value, such as `12.5` and `1500`. A whole number is written without a
+  decimal point, such as `3` for `3`, `3.0` or the text `3.000`, unless the field has `decimals`. A number that is not
+  finite is written as `NaN`, `INF` or `-INF`. JSON cannot hold those, so writing one to JSON raises
+  `IOStreams::Errors::InvalidValue`.
 * **`decimals`**, which IOStreams adds, gives the digits after the decimal point. It rounds the number read, and the
   number written, half up, so that a record holds the number that its file holds, such as `12.35` for `12.345` with
   `decimals: 2`.
@@ -388,7 +389,7 @@ end
 puts path.read
 # total,rounded
 # 12.5,12.50
-# 3.0,12.35
+# 3,12.35
 # INF,3.00
 ~~~
 
@@ -404,7 +405,7 @@ puts path.read
 * frictionless-py writes the numbers that are not finite as `NaN`, `Infinity` and `-Infinity`. IOStreams writes them
   as the spec spells them, `NaN`, `INF` and `-INF`.
 * frictionless-py writes the digits of the text that it read, so `12.50`, `1.5E3` and `3` are written as `12.50`,
-  `1.5E+3` and `3`. IOStreams writes the plain digits of the value, `12.5`, `1500.0` and `3.0`, unless `decimals` gives
+  `1.5E+3` and `3`. IOStreams writes the plain digits of the value, `12.5`, `1500` and `3`, unless `decimals` gives
   the digits after the point. Either way, each is the same number.
 * `decimals` is a property that IOStreams adds. `floatNumber` is not in the spec either: IOStreams reads it as
   frictionless-py does.
@@ -607,6 +608,9 @@ puts path.read
 * **Read as** a time of day: a `Time` on 2000-01-01, which is how Active Record holds a `time` column, since Ruby has
   no class for a time of day. It reads `09:30:00`, `09:30:00.250`, `09:30:00Z`, `09:30:00-05:00` or `09:30:00-0500`.
   `9:30:00`, `09:30` and `24:00:00` raise.
+* **Also reads** a date and time on 2000-01-01, the day on which IOStreams and Active Record hold a time of day, such
+  as `2000-01-01T09:30:00.000Z`, as a Rails app writes a `time` column to JSON, as its time of day. A date and time on
+  any other day raises.
 * **Text without an offset** is read as UTC, or in the `timeZone` of the field.
 * **Written as** the time of its own clock, without its offset, such as `09:30:00`, or in its `format`. Give it a
   `format` of `"%H:%M:%S%:z"` to write the offset too. A fraction of a second is written as a `datetime` writes it,
@@ -641,6 +645,8 @@ A shift that starts at 09:30 in New York is written as `09:30:00`, whatever the 
 * The spec gives the form `hh:mm:ss`. IOStreams and frictionless-py both also read a fraction of a second and an
   offset.
 * frictionless-py reads `24:00:00` as midnight, `00:00:00`. IOStreams raises for it.
+* IOStreams reads a date and time on 2000-01-01, such as `2000-01-01T09:30:00Z`, as its time of day. The spec and
+  frictionless-py raise for it.
 * frictionless-py reads text without an offset as a time without a zone. IOStreams reads it as UTC, or in the
   `timeZone` of the field. Both write it without an offset, such as `09:30:00`.
 * frictionless-py writes the offset of a time that has one, such as `09:30:00-0500`. IOStreams writes the time of its
@@ -673,8 +679,14 @@ end
 ~~~
 
 Ruby's patterns are almost the same as Python's. IOStreams reads these as Python does: `%Y` is exactly 4 digits, so
-`31/10/26` raises for `%d/%m/%Y`, `%y` is exactly 2 digits, and `%f` is the microseconds, which Ruby does not have. A
-`format` that starts with `fmt:`, as an old version of the spec wrote it, has the prefix removed, as the spec requires.
+`31/10/26` raises for `%d/%m/%Y`, `%y` is exactly 2 digits, and `%f` is the microseconds, which Ruby does not have.
+Nothing is read on the day that it is read, as Ruby reads it: a `format` that reads a day of the month, `%d` or `%e`,
+without a year, such as `%m/%d`, raises `ArgumentError` when the schema is created, as Python's strptime does from
+3.15, since it cannot read February 29, while text without a year, such as that of `%H:%M` or `%m %H:%M`, is on
+1900-01-01, the year, month and day that Python gives the parts that it leaves out, such as `1900-07-01 09:30` for
+`07 09:30` with `%m %H:%M`. A `time` is on 2000-01-01 anyway, so read a time of day with a `time` field, rather than a
+`datetime`, whose 1900-01-01 a `timeZone` reads at the offset that the zone had then. A `format` that starts with
+`fmt:`, as an old version of the spec wrote it, has the prefix removed, as the spec requires.
 See [Formats of dates and times](schemas#formats-of-dates-and-times).
 
 **Compared with Frictionless**
@@ -682,6 +694,8 @@ See [Formats of dates and times](schemas#formats-of-dates-and-times).
 * IOStreams also reads Ruby's own directives, such as `%s` for the seconds since 1970, and `%N` and `%L` for the
   fraction of a second. Python, so frictionless-py, does not. Use the directives of Python in a schema that other
   tools read.
+* Python's strptime reads the date of a week without a year, such as `10 Mon` with `%U %a`, in 1900. IOStreams
+  ignores it, as it ignores a weekday without a year, as Python does.
 
 ### Time zones
 
@@ -773,7 +787,13 @@ end
 * **Read as** an `ActiveSupport::Duration`, from ISO 8601, such as `PT8H30M` for 8 hours and 30 minutes, or
   `P1M2DT3H` for a month, 2 days and 3 hours. It keeps the months and days apart from the seconds, since a month has
   no fixed number of seconds. A number, such as `30600`, raises, since it does not say what it counts.
-* **Written as** ISO 8601, such as `P1M2DT3H`.
+* **Also reads** a spreadsheet's cell of a time or elapsed time format as its length, such as `PT1H30M` for `1:30:00`,
+  or `PT36H` for `36:00:00` of the format `[h]:mm:ss`, while a number cell raises. The lines of the spreadsheet, its
+  CSV text, and a slice of it read without a schema, hold such a cell as the text of its clock, or of its date and
+  time, which a `duration` field raises for, so read the rows, or slice the spreadsheet with the schema.
+* **Written as** ISO 8601, such as `P1M2DT3H`, also to a cell of a spreadsheet, as text. An `ActiveSupport::Duration`
+  without a `duration` field, of a field of type `any`, or of a file without a schema, is written so too, rather than
+  as its number of seconds.
 * **Needs the activesupport gem**, which Rails includes. Without it, setting a schema with a `duration` field raises
   `LoadError`.
 
@@ -1126,7 +1146,7 @@ properties that IOStreams adds to the spec, such as `aliases` and `allowBlank`, 
 | `number` | `1.5e3`, a lower case `e` | an upper case `E` | reads | reads |
 | `number` | `1_000.5` | raises | `1000.5` | raises |
 | `number` | a number that is not finite, written | `NaN`, `INF`, `-INF` | `NaN`, `Infinity`, `-Infinity` | `NaN`, `INF`, `-INF` |
-| `number` | `12.50`, `1.5E3` and `3`, read and written | not defined | `12.50`, `1.5E+3` and `3` | `12.5`, `1500.0` and `3.0` |
+| `number` | `12.50`, `1.5E3` and `3`, read and written | not defined | `12.50`, `1.5E+3` and `3` | `12.5`, `1500` and `3` |
 | `number` | `decimals` | not defined | ignored | rounds the number read and written |
 | `number`, `integer` | `bareNumber: false` and `(12.50)` or `(12)` | up to each tool | `12.50` and `12` | `-12.50` and `-12` |
 | `number`, `integer` | `bareNumber: false` and `-$12.50` or `-$12` | up to each tool | raises | `-12.50` and `-12` |
@@ -1147,6 +1167,7 @@ properties that IOStreams adds to the spec, such as `aliases` and `allowBlank`, 
 | `datetime`, `time` | `timeZone` | not defined | ignored | the zone of text without an offset, and of the clock of a spreadsheet's cell |
 | `datetime` | `2026-10-13T24:00:00` | ISO 8601 | `2026-10-14T00:00:00` | raises |
 | `time` | `24:00:00` | `hh:mm:ss` | `00:00:00` | raises |
+| `time` | `2000-01-01T09:30:00Z`, a date and time on 2000-01-01 | raises | raises | `09:30:00` |
 | `time` | the offset of a time, written | not defined | written, such as `09:30:00-0500` | not written, unless its `format` writes it |
 | `year` | `-0044`, `12026` or `2026Z` | `gYear` reads them | raises | raises |
 | `year` | the year 26, written | not defined | `26` | `0026`, or the number `26` in JSON |

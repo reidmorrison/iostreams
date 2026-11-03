@@ -186,11 +186,13 @@ module IOStreams
 
     # Raises what writing through the pipeline would raise before anything is written, such as an option value that a
     # stream does not accept, or the gem of a stream that is not installed, as each stream's format answers, see
-    # `IOStreams::StreamFormat#check_stream`. So that a path can check before it opens its output, which would replace
-    # an existing file, see `IOStreams::Stream#open_writer`.
+    # `IOStreams::StreamFormat#check_stream`, the stream closest to the application with the arguments of its rows, see
+    # #for_rows. So that a path can check before it opens its output, which would replace an existing file, see
+    # `IOStreams::Stream#open_writer`.
     def check_writer
       pipeline.each_pair do |stream, opts|
-        stream_format(stream).check_stream(:writer, opts, name: stream, file_name: file_name)
+        arguments = @rows_arguments if @rows_arguments && stream == application_stream
+        stream_format(stream).check_stream(:writer, opts, name: stream, file_name: file_name, arguments: arguments)
       end
       nil
     end

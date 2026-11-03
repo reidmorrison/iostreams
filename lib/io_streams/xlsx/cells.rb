@@ -12,7 +12,8 @@ module IOStreams
     #   Number, without a date format  | a Float, as Excel stores it
     #   Number, of a date format       | a Date
     #   Number, of a date and time     | a Time, in UTC, with the time of the clock of the cell, since Excel has no zone
-    #   Number, of a time format       | a Time on 2000-01-01, in UTC, as a time of day, see `IOStreams::Schema::Field`
+    #   Number, of a time format       | a Time on 2000-01-01, in UTC, as a time of day, see `IOStreams::Schema::Field`,
+    #                                  | or of a day or more, a date and time, as above, also of an elapsed time
     #   Boolean                        | true or false
     #   Empty                          | nil
     #   Error, such as #N/A            | nil
@@ -32,11 +33,24 @@ module IOStreams
       # The number of the day after the last date that Excel holds, 9999-12-31, since 1899-12-30.
       LAST_DAY = 2_958_466
 
-      # The built-in number formats of Excel of dates, times of day, and dates with times, by their ids.
+      # The built-in number formats of Excel of dates, times of day, elapsed times, and dates with times, by their ids.
       BUILT_IN_FORMATS = {
         14 => :date, 15 => :date, 16 => :date, 17 => :date, 18 => :time, 19 => :time, 20 => :time, 21 => :time,
-        22 => :date_time, 45 => :time, 46 => :time, 47 => :time
+        22 => :date_time, 45 => :time, 46 => :elapsed, 47 => :time
       }.freeze
+
+      # The classes of the number formats of a time, see .number_formats: of a time of day, whose clock Excel shows, and
+      # of an elapsed time, whose hours Excel shows, such as `36:00:00` for a day and a half.
+      TIME_FORMATS = %i[time elapsed].freeze
+
+      # The part of a custom format code that shows an elapsed time, such as `[h]` or `[mm]`.
+      ELAPSED = /\[[hms]+\]/i
+
+      # The most significant digits that Excel displays of a number, see .displayed.
+      DISPLAYED_DIGITS = 15
+
+      # The whole numbers that a Float holds exactly, below 2**53, which keep every digit, see .displayed.
+      EXACT_WHOLE = 2**53
 
       # The parts of a custom format code that are not its tokens: quoted text, an escaped character, and a section in
       # brackets other than an elapsed time, such as a color or a locale. A section never holds another `[`, so a match
@@ -44,8 +58,8 @@ module IOStreams
       LITERALS = /"[^"]*"|\\.|_.|\*.|\[(?![hms]+\])[^\[\]]*\]/i
 
       # Returns [Array<Symbol|nil>] the class of the number format of each style of a workbook, by the index of the style,
-      # as a cell names it with its `s` attribute: `:date`, `:time` or `:date_time`, or nil for a number, from Excel's own
-      # number formats, see BUILT_IN_FORMATS and .custom_format, rather than as creek finds them.
+      # as a cell names it with its `s` attribute: `:date`, `:time`, `:elapsed` or `:date_time`, or nil for a number,
+      # from Excel's own number formats, see BUILT_IN_FORMATS and .custom_format, rather than as creek finds them.
       #
       # Parameters:
       #   styles: [Nokogiri::XML::Document|nil]
@@ -62,15 +76,45 @@ module IOStreams
         end
       end
 
+      # Returns [BigDecimal] the number of a finite Float that a cell holds, to the digits that Excel displays, its most
+      # significant 15, such as `0.3` for `0.30000000000000004`, apart from a whole number below 2**53, which a Float
+      # holds exactly, which keeps every digit, such as the card number `4111111111111111`, which a field that keeps the
+      # digits of its numbers reads, see `IOStreams::Xlsx::Reader::Rows`.
+      #
+      # The exact value of the Float is rounded half up, to the digits counted from the first significant digit of its
+      # shortest text, rather than that text, so that the digits are the same on every Ruby, since JRuby writes the text
+      # of some Floats with other digits than MRI does. Rounded so, the number has at most one more digit than Excel
+      # displays, which the BigDecimal holds exactly.
+      def self.displayed(number)
+        return BigDecimal(number.to_i) if number == number.truncate && number.abs < EXACT_WHOLE
+
+        digits = DISPLAYED_DIGITS - BigDecimal(number.to_s).exponent
+        BigDecimal(number.to_r.round(digits, half: :up), DISPLAYED_DIGITS + 1)
+      end
+
+      # Returns [String] the text of a finite Float that a cell holds, to the digits that Excel displays, see .displayed,
+      # in plain digits, without a decimal point for a whole number, such as "2134" for `2134.0`, "0.3" for
+      # `0.30000000000000004`, or "0.0000001" for `1e-7`, as the CSV text of the cell holds it, see .text, and a
+      # `string` field reads it.
+      def self.displayed_text(number)
+        return number.to_i.to_s if number.abs < EXACT_WHOLE && number == number.truncate
+
+        number = displayed(number)
+        number.frac.zero? ? number.to_i.to_s : number.to_s("F")
+      end
+
       # Returns [Symbol|nil] the class of a custom format code, by the first of its sections: `:date` with only a year,
-      # month or day, `:time` with only hours, minutes or seconds, `:date_time` with both, otherwise nil, for a number.
-      # An `m` is minutes after hours or before seconds, otherwise the month.
+      # month or day, `:time` with only hours, minutes or seconds, `:elapsed` with an elapsed time, such as `[h]:mm:ss`,
+      # `:date_time` with a date and a time, otherwise nil, for a number. An `m` is minutes after hours or before seconds,
+      # or within brackets, otherwise the month.
       def self.custom_format(code)
-        tokens = code.split(";").first.to_s.gsub(LITERALS, "")
-        time   = tokens.match?(%r{[hs]|am/pm|a/p}i)
-        date   = tokens.match?(/[yd]/i) || (!time && tokens.match?(/m/i))
+        tokens  = code.split(";").first.to_s.gsub(LITERALS, "")
+        elapsed = tokens.match?(ELAPSED)
+        time    = elapsed || tokens.match?(%r{[hs]|am/pm|a/p}i)
+        date    = tokens.match?(/[yd]/i) || (!time && tokens.match?(/m/i))
         if date && time then :date_time
         elsif date then :date
+        elsif elapsed then :elapsed
         elsif time then :time
         end
       end
@@ -95,9 +139,13 @@ module IOStreams
       # of a workbook agree on which cells hold a date or a time. Excel holds a date or a time without a time zone, so
       # its text is the same in every process, and a field of its type reads it:
       #   a date                   in ISO 8601, such as "2026-01-02"
-      #   a date and time          its time in UTC, such as "2026-01-02T09:30:00Z", with its milliseconds when it has any
+      #   a date and time          its clock, without an offset, such as "2026-01-02T09:30:00", with its milliseconds when
+      #                            it has any, which a field reads in its `timeZone`, or in UTC without one, as the cell
       #   a time                   the time of its clock, such as "09:30:00", which Excel shows, as a `time` field writes it
-      #   any other number         as the workbook holds it, such as "1001" or "12.5"
+      #   an elapsed time          the time of its clock below a day, otherwise the clock of the date and time that .value
+      #                            reads, such as "1899-12-31T12:00:00" for `36:00:00` of the format `[h]:mm:ss`
+      #   any other number         to the digits that Excel displays, see .displayed_text, such as "1001", "12.5", or
+      #                            "0.3" for the 0.30000000000000004 that the workbook holds
       #   text                     as it is
       #   a boolean                "true" or "false"
       #   an error, such as #N/A   as Excel shows it
@@ -122,12 +170,40 @@ module IOStreams
       #
       # Parameters are those of .value, without its options.
       def self.clock(text, type, style)
-        return unless style == :time && (type.nil? || type == "n") && text && !text.empty?
+        return unless TIME_FORMATS.include?(style) && (type.nil? || type == "n") && text && !text.empty?
 
         days = days(text)
         time_of_day_field.render(time_of_day(days), :text) if days && days < 1
       rescue ArgumentError, ZeroDivisionError
         nil
+      end
+
+      # Returns [String|nil] the ISO 8601 text of the length of time of a cell of a time format, or of an elapsed time,
+      # see TIME_FORMATS, such as `PT1H30M` for `1:30:00`, or `PT36H` for `36:00:00`, to the millisecond that Excel
+      # holds, which a `duration` field reads, see `IOStreams::Schema::Field#time_cell`, or nil for any other cell, such
+      # as a number, which does not say what it counts, or a number of a time format that is not a date that Excel holds,
+      # such as a negative one.
+      #
+      # Parameters are those of .value, without its options.
+      def self.length(text, type, style)
+        return unless TIME_FORMATS.include?(style) && (type.nil? || type == "n") && text && !text.empty?
+
+        days = days(text)
+        duration_text((days * DAY).round(3)) if days
+      rescue ArgumentError, ZeroDivisionError
+        nil
+      end
+
+      # Returns [String] the ISO 8601 text of a length of time of the supplied seconds, in hours, minutes and seconds,
+      # such as `PT36H`, `PT1H30M` or `PT0.5S`, see .length.
+      def self.duration_text(seconds)
+        hours, seconds   = seconds.divmod(3600)
+        minutes, seconds = seconds.divmod(60)
+        parts = []
+        parts << "#{hours}H" unless hours.zero?
+        parts << "#{minutes}M" unless minutes.zero?
+        parts << "#{seconds.denominator == 1 ? seconds.to_i : seconds.to_f}S" unless seconds.zero? && !parts.empty?
+        "PT#{parts.join}"
       end
 
       # Returns the number of a cell of a number type, by the class of its number format.
@@ -138,7 +214,7 @@ module IOStreams
         case style
         when :date then base_date + days.floor
         when :date_time then date_time(days, base_date)
-        when :time then days < 1 ? time_of_day(days) : date_time(days, base_date)
+        when :time, :elapsed then days < 1 ? time_of_day(days) : date_time(days, base_date)
         end
       rescue ArgumentError, ZeroDivisionError
         text
@@ -147,15 +223,33 @@ module IOStreams
       # Returns [String] the text of a cell of a number type, by the class of its number format, see .text.
       def self.number_text(text, style, base_date)
         days = days(text) if style
-        return text unless days
+        return plain_text(text) unless days
+
+        return elapsed_text(days, base_date) if style == :elapsed
 
         case style
         when :date then (base_date + days.floor).iso8601
-        when :date_time then Schema::Field.any_text(date_time(days, base_date))
+        when :date_time then Schema::Field.clock_text(date_time(days, base_date))
         when :time then time_of_day_field.render(time_of_day(days), :text)
         end
       rescue ArgumentError, ZeroDivisionError
         text
+      end
+
+      # Returns [String] the text of a number that is not a date or a time, to the digits that Excel displays, see
+      # .displayed_text, or the text itself for one that is not finite, such as `1e10000`.
+      def self.plain_text(text)
+        number = Float(text)
+        number.finite? ? displayed_text(number) : text
+      end
+
+      # Returns [String] the text of a cell of an elapsed time, see .text: the time of its clock below a day, otherwise
+      # the date and time that .value reads, rather than the time of its clock without its days, which Excel does not
+      # show for an elapsed time.
+      def self.elapsed_text(days, base_date)
+        return time_of_day_field.render(time_of_day(days), :text) if days < 1
+
+        Schema::Field.clock_text(date_time(days, base_date))
       end
 
       # Returns [Rational|nil] the days since the first day of the workbook of the text of a number, or nil for one
@@ -188,7 +282,8 @@ module IOStreams
       def self.seconds(days)
         ((days - days.floor) * DAY).round(3)
       end
-      private_class_method :number, :number_text, :days, :time_of_day_field, :date_time, :time_of_day, :seconds
+      private_class_method :number, :number_text, :plain_text, :elapsed_text, :duration_text, :days, :time_of_day_field,
+                           :date_time, :time_of_day, :seconds
     end
   end
 end

@@ -149,6 +149,48 @@ class SliceStreamTest < Minitest::Test
           end
         end
 
+        # The rows of a spreadsheet read by fields with the timeZone of New York, in summer and in winter.
+        def zoned_spreadsheet(dir)
+          schema = {
+            "fields" => [
+              {"name" => "at", "type" => "datetime", "timeZone" => "America/New_York"},
+              {"name" => "starts", "type" => "time", "timeZone" => "America/New_York"}
+            ]
+          }
+          path = IOStreams.path(dir, "times.xlsx").schema(schema)
+          path.writer(:hash) do |writer|
+            writer << {"at" => Time.utc(2026, 7, 1, 13, 30), "starts" => Time.new(2000, 1, 1, 9, 30, 0, "-05:00")}
+            writer << {"at" => Time.utc(2026, 1, 15, 14, 30), "starts" => Time.new(2000, 1, 1, 17, 0, 0, "-05:00")}
+          end
+          [path, schema]
+        end
+
+        it "reads the clock of a date and time cell in the timeZone of its field, in memory and stored, as the file" do
+          Dir.mktmpdir do |dir|
+            path, schema = zoned_spreadsheet(dir)
+            expected     = [
+              {"at" => Time.utc(2026, 7, 1, 13, 30), "starts" => Time.new(2000, 1, 1, 9, 30, 0, "-05:00")},
+              {"at" => Time.utc(2026, 1, 15, 14, 30), "starts" => Time.new(2000, 1, 1, 17, 0, 0, "-05:00")}
+            ]
+
+            assert_equal expected, each(path)
+            path.each(:slice, size: 5) do |slice|
+              assert_equal expected, each(IOStreams.stream(slice).schema(schema))
+              stored = IOStreams.slice(JSON.parse(JSON.generate(slice.to_h)))
+
+              assert_equal [%w[2026-07-01T09:30:00 2000-01-01T09:30:00], %w[2026-01-15T09:30:00 2000-01-01T17:00:00]],
+                           stored.rows
+              assert_equal expected, each(IOStreams.stream(stored).schema(schema))
+            end
+            lines = []
+            IOStreams.path(dir, "times.xlsx").each(:line) { |line| lines << line }
+            text = IOStreams.slice({"rows" => lines.drop(1), "header" => %w[at starts], "format" => "csv", "cell_text" => true})
+
+            assert_equal %w[2026-07-01T09:30:00,09:30:00 2026-01-15T09:30:00,17:00:00], lines.drop(1)
+            assert_equal expected, each(IOStreams.stream(text).schema(schema))
+          end
+        end
+
         it "reads a text cell in the form of the schema in a slice, also once stored, as the spreadsheet reads it" do
           Dir.mktmpdir do |dir|
             path = IOStreams.path(dir, "people.xlsx")

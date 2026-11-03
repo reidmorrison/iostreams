@@ -132,7 +132,7 @@ class XlsxReaderTest < Minitest::Test
         path.option(:xlsx, auto_format: true).writer(:array) { |io| io << %w[2026-01-02T09:00:45 1.5] }
 
         %w[UTC America/New_York Asia/Tokyo].each do |zone|
-          in_time_zone(zone) { assert_equal "2026-01-02T09:00:45Z,1.5\n", path.read, zone }
+          in_time_zone(zone) { assert_equal "2026-01-02T09:00:45,1.5\n", path.read, zone }
         end
       end
 

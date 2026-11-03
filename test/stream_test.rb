@@ -2732,7 +2732,7 @@ class StreamTest < Minitest::Test
           schema  = {fields: [{name: "id", width: 2}, {name: "pay", type: "number", width: "remainder", floatNumber: true}]}
           written = write_fixed({id: "a", pay: 1.5}, {id: "b"}, {id: "c", pay: BigDecimal("2.255")}, {id: "d", pay: 3}, schema: schema)
 
-          assert_equal "a 1.5\nb 0.0\nc 2.255\nd 3.0\n", written
+          assert_equal "a 1.5\nb 0\nc 2.255\nd 3\n", written
           pays = read_fixed(written, schema: schema).map { |record| record["pay"] }
 
           assert_equal [1.5, 0.0, 2.255, 3.0], pays

@@ -936,9 +936,34 @@ class SchemaTest < Minitest::Test
 
         it "renders text without an exponent" do
           assert_equal "12.5", number.render(BigDecimal("12.5"), :text)
-          assert_equal "100000000000000000000.0", number.render(BigDecimal("1E20"), :text)
+          assert_equal "100000000000000000000", number.render(BigDecimal("1E20"), :text)
           assert_equal "NaN", number.render("NaN", :text)
           assert_equal "-INF", number.render("-INF", :text)
+        end
+
+        it "renders a whole number without a decimal point, unless the field has decimals" do
+          float = field(type: "number", floatNumber: true)
+
+          [42, "3", "0042", 42.0, BigDecimal("42"), Rational(84, 2)].each do |value|
+            assert_equal value == "3" ? "3" : "42", number.render(value, :text), value.inspect
+            assert_equal value == "3" ? "3" : "42", float.render(value, :text), value.inspect
+          end
+          assert_equal "1.5", number.render(1.5, :text)
+          assert_equal "0", number.render(0, :text)
+          assert_equal "-3", number.render("-3.000", :text)
+          assert_equal "42.00", field(type: "number", decimals: 2).render(42, :text)
+          assert_equal "42.00", field(type: "number", floatNumber: true, decimals: 2).render(42.0, :text)
+          assert_equal "42", field(type: "number", decimals: 0).render(42.0, :text)
+          assert_equal "1,234", field(type: "number", groupChar: ",").render(1234, :text)
+        end
+
+        it "renders a Float with an exponent without the decimal point of a whole number before it" do
+          float = field(type: "number", floatNumber: true)
+
+          assert_equal "1e+20", float.render(1e20, :text)
+          assert_equal "1e-05", float.render(1e-5, :text)
+          assert_equal "1.5e+20", float.render(1.5e20, :text)
+          assert_equal "100000000000000000000", number.render(1e20, :text)
         end
 
         it "renders text with the number of decimals, rounding half up" do
@@ -1042,7 +1067,9 @@ class SchemaTest < Minitest::Test
 
           assert_equal long, json(number, long)
           assert_equal "12.50", json(field(type: "number", decimals: 2), "12.5")
-          assert_equal "1234567890123456789.0", json(number, 1_234_567_890_123_456_789)
+          assert_equal "1234567890123456789", json(number, 1_234_567_890_123_456_789)
+          assert_equal "42", json(field(type: "number", floatNumber: true), 42.0)
+          assert_equal "1e+20", json(field(type: "number", floatNumber: true), 1e20)
           assert_equal number.render(1_234_567_890_123_456_789, :text), json(number, 1_234_567_890_123_456_789)
           assert_equal BigDecimal("12.5"), number.render("12.50", :typed)
         end
@@ -1075,7 +1102,10 @@ class SchemaTest < Minitest::Test
         it "renders a JSON number as the text of a Float with floatNumber and decimals, the same as CSV" do
           float = field(type: "number", floatNumber: true, decimals: 2)
 
-          assert_kind_of Float, field(type: "number", floatNumber: true).render("12.50", :json)
+          assert_equal "12.5", json(field(type: "number", floatNumber: true), "12.50")
+          # A Float whose text has no ".0" to leave out is itself, which JSON writes with the same digits.
+          assert_instance_of Float, field(type: "number", floatNumber: true).render("12.50", :json)
+          refute_instance_of Float, field(type: "number", floatNumber: true).render(42.0, :json)
           assert_equal "12.50", json(float, 12.5)
           ["12.345", 0.125, 1.005, 2.675].each do |value|
             assert_equal float.render(value, :text), json(float, value), value.inspect
@@ -1505,7 +1535,7 @@ class SchemaTest < Minitest::Test
           assert_equal BigDecimal("1234567.5"), grouped.cast("1,234,567.5")
           assert_equal BigDecimal("1234"), grouped.cast("12,34")
           assert_equal "-1,234,567.50", field(type: "number", groupChar: ",", decimals: 2).render("-1234567.5", :text)
-          assert_equal "123.0", grouped.render("123", :text)
+          assert_equal "123", grouped.render("123", :text)
           assert_equal 1_234_567, integer.cast("1 234 567")
           assert_equal "1 234 567", integer.render(1_234_567, :text)
           assert_equal "-1 234", integer.render(-1234, :text)
@@ -1914,6 +1944,61 @@ class SchemaTest < Minitest::Test
           assert_raises(IOStreams::Errors::InvalidValue) { field(type: "time").cast("09:30:00+0560") }
         end
 
+        it "reads a format without a year in 1900, on 1900-01-01 without a day, as Python's strptime does, not today" do
+          clock = field(type: "datetime", format: "%H:%M")
+
+          assert_equal Time.utc(1900, 1, 1, 9, 30), clock.cast("09:30")
+          assert_equal Time.utc(1900, 1, 1, 21, 30), field(type: "datetime", format: "%I:%M %p").cast("09:30 PM")
+          assert_equal Time.new(1900, 1, 1, 9, 30, 0, "+05:00"), field(type: "datetime", format: "%H:%M %z").cast("09:30 +0500")
+          assert_equal Time.utc(1900, 7, 1, 9, 30), field(type: "datetime", format: "%m %H:%M").cast("07 09:30")
+          assert_equal Time.utc(1900, 7, 1, 9, 30), field(type: "datetime", format: "%j %H:%M").cast("182 09:30")
+          assert_equal Time.utc(1901, 1, 1), field(type: "datetime", format: "%j").cast("366")
+          assert_equal Date.new(1900, 3, 1), field(type: "date", format: "%j").cast("060")
+          # A weekday, or a week, without a year is ignored.
+          assert_equal Time.utc(1900, 1, 1, 9, 30), field(type: "datetime", format: "%U %a %H:%M").cast("10 Mon 09:30")
+          assert_equal Time.utc(1900, 1, 1, 9, 30), field(type: "datetime", format: "%a %H:%M").cast("Tue 09:30")
+          assert_equal Date.new(1900, 7, 1), field(type: "date", format: "%m").cast("07")
+          assert_equal Date.new(1900, 7, 1), field(type: "date", format: "%B").cast("July")
+          assert_equal Time.new(1900, 1, 1, 9, 30, 0, "-05:00"),
+                       field(type: "datetime", format: "%H:%M", timeZone: "America/New_York").cast("09:30")
+          # A date with a year, or read some other way, and a time of day, are unchanged.
+          assert_equal Time.utc(2026, 7, 1, 9, 30), field(type: "datetime", format: "%Y %j %H:%M").cast("2026 182 09:30")
+          assert_equal Time.utc(2026, 3, 2), field(type: "datetime", format: "%G %V %u").cast("2026 10 1")
+          assert_equal Time.utc(2000, 1, 1, 9, 30), field(type: "time", format: "%H:%M").cast("09:30")
+        end
+
+        it "writes a time whose offset has seconds, such as a zone's local mean time of 1900, in UTC, which reads back" do
+          kolkata = field(type: "datetime", format: "%H:%M", timeZone: "Asia/Kolkata")
+          time    = kolkata.cast("09:30")
+
+          assert_equal 19_270, time.utc_offset
+          assert_equal "1900-01-01T04:08:50Z", kolkata.dump(time)
+          assert_equal time, kolkata.load(kolkata.dump(time))
+          assert_equal "1900-01-01T04:08:50Z", field(type: "datetime").render(time, :text)
+          assert_equal "2026-07-01T09:30:00+05:30", field(type: "datetime").render(Time.new(2026, 7, 1, 9, 30, 0, "+05:30"), :text)
+        end
+
+        it "raises when the schema is built for a format of a day of the month without a year, as Python 3.15 does" do
+          ["%m/%d", "%d %H:%M", "%e %b", "%Od/%m %H:%M", "%-d.%m."].each do |format|
+            %w[date datetime time].each do |type|
+              error = assert_raises(ArgumentError, format) { field(type: type, format: format) }
+
+              assert_match(/\AField "value": the format #{Regexp.escape(format.inspect)} reads a day of the month without a year.* add a year/,
+                           error.message)
+            end
+          end
+          # An ISO 8601 week without its year, week and weekday, or with the day of the year, as Python raises for it.
+          ["%V %u", "%G-%m-%d", "%Y %V %u", "%G %V", "%G %j"].each do |format|
+            error = assert_raises(ArgumentError, format) { field(type: "date", format: format) }
+
+            assert_match(/ISO 8601 week/, error.message, format)
+          end
+          # A year of any kind, or a composite that reads one, such as %D, which is %m/%d/%y.
+          ["%d/%m/%Y", "%d/%m/%y", "%D", "%x", "%G %V %u %d"].each do |format|
+            assert_kind_of IOStreams::Schema::Field, field(type: "date", format: format), format
+          end
+        end
+
         it "raises for an hour of 24, as a time does, rather than read the midnight of the next day" do
           pattern = field(type: "datetime", format: "%Y-%m-%d %H:%M:%S")
           ["2026-10-13T24:00:00", "2026-10-13T24:00:00Z", "2026-12-31 24:00:00+05:00", "2026-10-13T23:60:00Z"].each do |text|
@@ -2125,6 +2210,19 @@ class SchemaTest < Minitest::Test
       describe "time" do
         let(:clock) { field(type: "time") }
 
+        it "reads a date and time on 2000-01-01, as Rails writes a time column to JSON, as its time of day" do
+          zoned = field(type: "time", timeZone: "America/New_York")
+
+          assert_equal Time.utc(2000, 1, 1, 9, 30), clock.cast("2000-01-01T09:30:00.000Z")
+          assert_equal Time.new(2000, 1, 1, 9, 30, 0, "+05:00"), clock.cast("2000-01-01T09:30:00+05:00")
+          assert_equal Time.utc(2000, 1, 1, 9, 30), clock.cast("2000-01-01 09:30:00")
+          assert_equal Time.new(2000, 1, 1, 9, 30, 0, "-05:00"), zoned.cast("2000-01-01T09:30:00")
+          assert_equal Time.utc(2000, 1, 1, 9, 30), clock.load("2000-01-01T09:30:00")
+          ["2026-07-01T09:30:00Z", "2000-01-02T09:30:00Z", "2000-01-01T24:00:00Z", "2000-01-01"].each do |text|
+            assert_raises(IOStreams::Errors::InvalidValue, text) { clock.cast(text) }
+          end
+        end
+
         it "reads ISO 8601 as a time of day, a Time on 2000-01-01, in UTC without an offset, whatever the time zone" do
           original  = ENV.fetch("TZ", nil)
           ENV["TZ"] = "America/New_York"
@@ -2228,6 +2326,20 @@ class SchemaTest < Minitest::Test
           assert_equal({seconds: 0.5}, duration.cast("PT0.5S").parts)
           assert_equal({days: -1}, duration.cast("-P1D").parts)
           assert_equal({hours: 8, minutes: 30}, duration.cast(" PT8H30M ").parts)
+        end
+
+        it "writes a Duration without a duration field as its ISO 8601 text, rather than its number of seconds" do
+          value = duration.cast("PT8H30M")
+          any   = field(type: "any")
+
+          assert_equal "PT8H30M", IOStreams::Schema::Field.any_text(value)
+          assert_equal "PT0.5S", IOStreams::Schema::Field.any_text(duration.cast("PT0.5S"))
+          assert_equal "PT8H30M", IOStreams::Schema::Field.any_json(value)
+          assert_equal "PT8H30M", any.render(value, :text)
+          assert_equal "PT8H30M", any.render(value, :json)
+          assert_equal "PT8H30M", any.dump(value)
+          assert_equal '{"wait":"PT8H30M"}', IOStreams::Tabular::Parser::Json.generate({"wait" => value})
+          assert_equal '{"wait":"PT8H30M"}', field(type: "object").render({"wait" => value}, :text)
         end
 
         it "keeps a Duration as it is" do

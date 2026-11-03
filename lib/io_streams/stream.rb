@@ -1343,8 +1343,12 @@ module IOStreams
     # format whose rows are not lines, such as Parquet, and the lines of text that a stream turns the data into, such as
     # the CSV text of a spreadsheet, which are not the lines of the file, see `IOStreams::Builder#lines_of_file?`. The
     # slices number each row as the next record, see `IOStreams::Slice#record_number_at`.
+    #
+    # Without a schema or contract, the rows of a stream that reads them itself, such as the cells of a spreadsheet, see
+    # #stream_rows?, hold the default text of each value, as its lines do, see #default_text?, so that its slices read
+    # the same values with a schema as the stream, and as the slices of its lines, once a schema reads them.
     def open_slice_rows(tabular, delimiter, buffer_size)
-      open_rows_reader(tabular, delimiter, buffer_size) do |rows|
+      open_rows_reader(tabular, delimiter, buffer_size, text: tabular.schema.nil?) do |rows|
         lines_of_file = tabular.lines? && builder.lines_of_file?
         yield(lines_of_file ? IOStreams::Slice::LineRows.new(rows) : IOStreams::Slice::Rows.new(rows))
       end
@@ -1356,15 +1360,20 @@ module IOStreams
     #
     # The line reader reads in blocks of `buffer_size` bytes, or of its own default when it is nil.
     #
+    # The rows that a stream reads itself, see #stream_rows?, are its typed values, or with `text: true`, the text of
+    # each one, as its lines hold it, such as `Xlsx::Cells.text` of each cell of a spreadsheet.
+    #
     # Raises ArgumentError when `delimiter` or `buffer_size` is supplied, or an encoding is set, for a format without
     # lines, see #reject_line_options!.
-    def open_rows_reader(tabular, delimiter, buffer_size, &)
+    def open_rows_reader(tabular, delimiter, buffer_size, text: false, &)
       if stream_rows?
         reject_row_options!(tabular, delimiter: delimiter, buffer_size: buffer_size)
         decimals = (-> { tabular.decimal_positions } if tabular.schema&.decimals?)
         strings  = (-> { tabular.string_positions } if tabular.schema&.strings?)
         missing  = (-> { tabular.missing_positions } if tabular.schema&.missing_text?)
-        return rows_stream(decimals: decimals, strings: strings, missing: missing).send(:stream_reader, &)
+        times    = (-> { tabular.time_cell_positions } if tabular.schema)
+        stream   = rows_stream(decimals: decimals, strings: strings, missing: missing, times: times, text: text)
+        return stream.send(:stream_reader, &)
       end
 
       unless tabular.lines?
@@ -1390,7 +1399,8 @@ module IOStreams
     def open_rows_writer(tabular, delimiter, &)
       if stream_rows?
         reject_row_options!(tabular, delimiter: delimiter)
-        return rows_stream(text_columns: tabular.text_positions).send(:open_writer, &)
+        return rows_stream(text_columns: tabular.text_positions, time_columns: tabular.time_positions).
+               send(:open_writer, &)
       end
 
       unless tabular.lines?

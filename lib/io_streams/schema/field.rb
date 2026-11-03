@@ -32,6 +32,7 @@ module IOStreams
     #                 `Infinity` and `-Infinity`, as Ruby and JavaScript write them, are read too, whatever their case,
     #                 as frictionless-py also reads them, while one that is not finite is written as the Frictionless
     #                 spec spells it, `NaN`, `INF` or `-INF`, except to JSON, which cannot hold it, so that it raises.
+    #                 A whole number is written without a decimal point, such as `42`, unless `decimals` is set.
     #     "boolean":  true or false, see `trueValues` and `falseValues`, or the number 1 or 0, such as the 1.0 or 0.0 of a
     #                 spreadsheet, or a column of numbers of a Parquet file or a query.
     #     "date":     a Date, written as `2026-10-13` unless `format` is set. A Time or DateTime at midnight, by its own
@@ -186,6 +187,9 @@ module IOStreams
       # The types of the items of a list, see `itemType` above.
       ITEM_TYPES = %w[string integer boolean number datetime date time].freeze
 
+      # The types that read the cell of a time of day as the Time that it holds, see #time_cell.
+      TIME_CELL_TYPES = %w[time any].freeze
+
       # The properties of a list of numbers that apply to each of its items, see `itemType` above.
       NUMBER_ITEM_PROPERTIES = %w[decimals floatNumber].freeze
 
@@ -219,9 +223,10 @@ module IOStreams
       TEXT_PROPERTIES = %w[format trueValues falseValues groupChar decimalChar bareNumber missingValues delimiter].freeze
 
       # The types whose values a cell that holds one value, such as that of a spreadsheet, holds as their text, see
-      # #render's `:scalar` form: those that are not one value, and a yearmonth, whose text, such as `2026-10`, is not
-      # that of a date, so that the CSV text of a spreadsheet reads back too.
-      SCALAR_TEXT_TYPES = %w[list geopoint array object yearmonth].freeze
+      # #render's `:scalar` form: those that are not one value, a yearmonth, whose text, such as `2026-10`, is not that
+      # of a date, and a duration, whose text, such as `P1D`, says what it counts, which its number of seconds does not,
+      # so that the CSV text of a spreadsheet reads back too.
+      SCALAR_TEXT_TYPES = %w[list geopoint array object yearmonth duration].freeze
 
       # The types whose `format` says how a file writes the text of their values, which a contract and the target of a
       # copy leave out, see #to_contract_h and #without_text_h, while that of a string, such as "email" or "binary",
@@ -331,6 +336,9 @@ module IOStreams
       # `-00`, which RFC 3339 and RFC 2822 give a time in UTC whose local offset is not known.
       UTC_ZONE = /\A(?:Z|UTC?|-00(?::?00)?)\z/i
 
+      # The date of a time of day, on which IOStreams and Active Record hold it, see .time_of_day and #time_of_day_text.
+      TIME_OF_DAY_DATE = "2000-01-01"
+
       # Returns [String|Symbol] the name of the field, as it was given.
       attr_reader :name
 
@@ -384,6 +392,9 @@ module IOStreams
         build_forms(descriptor)
         @zone         = TimeZone.new(descriptor["timeZone"], @name) if descriptor.key?("timeZone")
         @in_zone      = writes_in_zone?
+        # Whether a cell that holds one value holds the clock of a time, see #render's `:scalar` form and #clock_of: of
+        # a datetime or time with a zone, or of a time of day, whose own clock is its text.
+        @scalar_clock = !@zone.nil? || type == "time"
         @width        = check_width(descriptor["width"])
         @start        = check_positive("start", descriptor["start"])
         @truncate     = check_flag("truncate", descriptor["truncate"])
@@ -519,6 +530,8 @@ module IOStreams
       # writes JSON, see `IOStreams::Tabular::Parser::Json.generate`.
       def self.any_text(value)
         return value if value.is_a?(String)
+        # Before the numbers, since a duration answers `is_a?(Integer)`.
+        return value.iso8601 if duration?(value)
         # The most common values first, so that they skip the checks below.
         return value.to_s if value.is_a?(Integer)
         return value.finite? ? value.to_s : special_text(value) if value.is_a?(Float)
@@ -613,7 +626,14 @@ module IOStreams
 
       # Returns [true|false] whether JSON holds the value as its text, see .any_json.
       def self.textual?(value)
-        value.is_a?(Time) || value.is_a?(Date) || value.is_a?(::BigDecimal)
+        value.is_a?(Time) || value.is_a?(Date) || value.is_a?(::BigDecimal) || duration?(value)
+      end
+
+      # Returns [true|false] whether the value is an `ActiveSupport::Duration`, which .any_text writes as its ISO 8601
+      # text, such as `P1D`, rather than its number of seconds, which does not say what it counts, as a `duration`
+      # field writes it. A duration answers `is_a?(Integer)`, or `Float`, for the class of its seconds.
+      def self.duration?(value)
+        defined?(::ActiveSupport::Duration) && value.is_a?(::ActiveSupport::Duration)
       end
 
       # Returns [String] the text of a number that is not finite, as Frictionless writes it: "NaN", "INF" or "-INF",
@@ -624,9 +644,21 @@ module IOStreams
         number.positive? ? "INF" : "-INF"
       end
 
-      # Returns [String] the time in ISO 8601, with as many digits of its fraction of a second as it needs.
+      # Returns [String] the time in ISO 8601, with as many digits of its fraction of a second as it needs, at its offset
+      # from UTC, or in UTC, `Z`, when its offset has seconds, such as the local mean time `+05:21:10` that a time zone
+      # had in 1900, which ISO 8601 cannot write, so that the text is the same time.
       def self.time_text(value)
+        value = value.getutc unless (value.utc_offset % 60).zero?
         value.iso8601(fraction_digits(value))
+      end
+
+      # Returns [String] the clock of the time in ISO 8601, without its offset from UTC, such as "2026-07-01T09:30:00",
+      # with as many digits of its fraction of a second as it needs, for a format whose times are clocks without a zone,
+      # such as a cell of a spreadsheet, see `IOStreams::Xlsx::Cells.text`, which a `datetime` field reads in its
+      # `timeZone`, or in UTC without one, as it reads the cell.
+      def self.clock_text(time)
+        digits = fraction_digits(time)
+        digits.zero? ? time.strftime("%Y-%m-%dT%H:%M:%S") : time.strftime("%Y-%m-%dT%H:%M:%S.%#{digits}N")
       end
 
       # Returns [Integer] the digits of the fraction of a second of the time that its text needs: 0, 3, 6 or 9.
@@ -638,7 +670,7 @@ module IOStreams
         else 9
         end
       end
-      private_class_method :time_text, :data_hash, :data_array, :json_held?, :nesting
+      private_class_method :time_text, :duration?, :data_hash, :data_array, :json_held?, :nesting
 
       # Returns [true|false] whether IOStreams knows the property, of a field of any type, such as `trueValues`, see
       # KNOWN_PROPERTIES, so that the class of a contract, which declares its fields in Ruby, raises for any other.
@@ -691,6 +723,19 @@ module IOStreams
       # item as that field's type.
       def item_field
         @item
+      end
+
+      # Returns [Symbol|nil] how this field reads the cell of a time of day of a format whose cells are typed, such as a
+      # spreadsheet, which holds it as a Time on 2000-01-01, see `IOStreams::Xlsx::Cells`: `:length`, as the ISO 8601
+      # text of its length, such as `PT1H30M` for `1:30:00`, for a `duration`, which reads a cell of an elapsed time of a
+      # day or more too, such as `PT36H` for `36:00:00`, `:clock`, as the text of its clock, such as "09:30:00", as the
+      # CSV text of the cell holds it, for every other type but a time of day and any value, so that a `string` field
+      # reads that text, and a `date` or `datetime` field raises for it, since a time of day is neither a date nor a date
+      # and time, or nil, as the Time, for a `time` or `any` field.
+      def time_cell
+        return :length if type == "duration"
+
+        :clock unless TIME_CELL_TYPES.include?(type)
       end
 
       # Returns [true|false] whether the values of this field are bytes, a string with `format: "binary"`, which a format
@@ -784,9 +829,15 @@ module IOStreams
 
       # Returns [Time] the clock that the zone of this datetime or time field shows at the time, see `timeZone` above, as
       # a Time in UTC that holds that clock, for a format whose values hold a clock without a zone, such as a cell of a
-      # spreadsheet, see #render, which #time_of_clock reads back as the same time. Without a zone, the clock in UTC.
+      # spreadsheet, see #render, which #time_of_clock reads back as the same time. Without a zone, the clock in UTC of
+      # a datetime, and the own clock of a time of day, on 2000-01-01, as its text is written, see #time_text, such as
+      # 09:30 for 09:30 at +05:00, rather than 04:30.
       def clock_of(time)
-        return time.getutc unless @zone
+        unless @zone
+          return time.getutc unless @scalar_clock
+
+          return Time.utc(2000, 1, 1, time.hour, time.min, time.sec + time.subsec)
+        end
 
         local = @zone.convert(time)
         Time.utc(local.year, local.month, local.day, local.hour, local.min, local.sec + local.subsec)
@@ -946,10 +997,11 @@ module IOStreams
       #           :text, which JSON writes as it is, see #number_json, and any other value as its text.
       #   :typed  the value itself, such as `BigDecimal("12.5")`, for a format whose rows are Ruby objects, such as
       #           `:hash`, and a geopoint as its point, `[lon, lat]`, whatever its format.
-      #   :scalar the value itself, as for `:typed`, apart from a list, a geopoint, an array, an object and a yearmonth, as
-      #           their text, as for `:text`, for a format each of whose cells holds one value, such as a spreadsheet,
-      #           and a time of a datetime or time field with a `timeZone`, as the clock of its zone, see #clock_of,
-      #           since such a cell holds a clock without a zone.
+      #   :scalar the value itself, as for `:typed`, apart from a list, a geopoint, an array, an object, a yearmonth and a
+      #           duration, as their text, as for `:text`, for a format each of whose cells holds one value, such as a
+      #           spreadsheet,
+      #           and a time of a datetime or time field with a `timeZone`, as the clock of its zone, and of a time
+      #           field without one, as its own clock, see #clock_of, since such a cell holds a clock without a zone.
       #
       # A Hash or an Array of an object or array field is written to JSON, or as its JSON text, as the JSON format
       # converts the values within it, see #render_json_structure, rather than first converted as JSON holds it, see
@@ -970,7 +1022,7 @@ module IOStreams
         return missing_text(form) if value.nil?
         return value if form == :typed
         return json(value) if form == :json
-        return clock_of(value) if form == :scalar && @zone
+        return clock_of(value) if form == :scalar && @scalar_clock
         return value if form == :scalar && !@scalar_text
 
         text(value)
@@ -1392,6 +1444,9 @@ module IOStreams
 
       # Returns [IOStreams::Schema::Pattern|nil] the strptime pattern of a date, datetime or time, or nil for the
       # default form.
+      #
+      # Raises ArgumentError, naming the field, for a pattern that cannot read every date, such as one that reads a day of
+      # the month without a year, see `IOStreams::Schema::Pattern#initialize`.
       def check_format(format)
         pattern = format.is_a?(String) ? format.delete_prefix("fmt:") : format
         return if pattern.nil? || pattern == "default"
@@ -1400,7 +1455,11 @@ module IOStreams
           raise(ArgumentError, "Field #{name.inspect}: the format #{format.inspect} is not supported for a #{type} field")
         end
 
-        Pattern.new(pattern)
+        begin
+          Pattern.new(pattern)
+        rescue ArgumentError => e
+          raise(ArgumentError, "Field #{name.inspect}: #{e.message}")
+        end
       end
 
       def check_width(width)
@@ -1730,7 +1789,8 @@ module IOStreams
       end
 
       # Returns [Time] the time of day, on 2000-01-01, see .time_of_day: of a Time or a DateTime, at its offset from UTC, or
-      # of text such as `09:30:00`, `09:30:00.250`, `09:30:00-05:00` or `09:30:00-0500`, or in the format of this field,
+      # of text such as `09:30:00`, `09:30:00.250`, `09:30:00-05:00` or `09:30:00-0500`, or a date and time on
+      # 2000-01-01, such as `2000-01-01T09:30:00Z`, see #time_of_day_text, or in the format of this field,
       # which is read at the offset of its zone, or in UTC without one, as a datetime field reads it, see #cast_datetime.
       #
       # Its hour, minute and second are checked, since `Time` moves 24:00:00, and a leap second, into the next day.
@@ -1767,10 +1827,7 @@ module IOStreams
       # offset is not known, such as "XYZ", raises, rather than be read in the time zone of the process.
       def parse_time(klass, text, parts = @format.parts(text))
         return invalid(text) if parts.nil?
-        if parts[:mon] && parts[:mday] && !Date.valid_date?(parts.fetch(:year, Time.now.year), parts[:mon], parts[:mday])
-          return invalid(text)
-        end
-        return @format.date(text) if klass == Date
+        return @format.date(text, parts) if klass == Date
         return invalid(text) if parts.key?(:zone) && parts[:offset].nil?
 
         # A DateTime reads text without an offset as UTC, and knows the offset of every zone that Date._strptime knows,
@@ -1779,7 +1836,7 @@ module IOStreams
         # A DateTime at an offset of zero is a time in UTC, see .time_of, so a time keeps an offset of zero that the
         # text says, such as `+0000`, see #zero_offset?, with `Time.at`, since JRuby's `getlocal(0)` of a time in UTC is
         # in UTC.
-        time = self.class.time_of(@format.datetime(text))
+        time = self.class.time_of(@format.datetime(text, parts))
         return zero_offset?(parts) ? Time.at(time, in: "+00:00") : time if parts[:offset]
 
         parts[:seconds] ? time.utc : in_zone(time)
@@ -1919,11 +1976,24 @@ module IOStreams
         iso_datetime(match) if date[8, 2] <= "28" || Date.valid_date?(date[0, 4].to_i, date[5, 2].to_i, date[8, 2].to_i)
       end
 
-      # Returns [Time|nil] the time of day of the ISO 8601 text of a time, see TIME, or nil for other text, or for a time
-      # that is not on a clock, see #clock_time?, such as 24:00:00, which `Time` moves into the next day.
+      # Returns [Time|nil] the time of day of the ISO 8601 text of a time, see TIME, or of a date and time on 2000-01-01,
+      # see #time_of_day_text, or nil for other text, or for a time that is not on a clock, see #clock_time?, such as
+      # 24:00:00, which `Time` moves into the next day.
       def iso_clock_text(text)
         clock = TIME.match(text)
-        iso_clock(clock) if clock && clock_time?(clock[1].to_i, clock[2].to_i, clock[3].to_i)
+        return iso_clock(clock) if clock && clock_time?(clock[1].to_i, clock[2].to_i, clock[3].to_i)
+
+        time_of_day_text(text)
+      end
+
+      # Returns [Time|nil] the time of day of the ISO 8601 text of a date and time on 2000-01-01, the day on which IOStreams
+      # and Active Record hold a time of day, see .time_of_day, such as `2000-01-01T09:30:00.000Z`, as a Rails app writes
+      # the value of a `time` column to JSON, or `2000-01-01T09:30:00`, as a stored slice of a spreadsheet holds the time
+      # of day of a cell, see `IOStreams::Slice#to_h`, at its offset, or in the zone of the field without one, or nil for
+      # any other text, such as a date and time on another day.
+      def time_of_day_text(text)
+        match = DATETIME.match(text)
+        iso_datetime(match) if match && match[1] == TIME_OF_DAY_DATE
       end
 
       # Returns [Time] the time of the text that DATETIME matched, in UTC without an offset, read with `Time.iso8601`,
@@ -1946,16 +2016,33 @@ module IOStreams
         Date.new(*text.split("-").map { |part| Integer(part, 10) })
       end
 
+      # Returns [String] the text of the number: with the decimals of the field, such as "42.00", or else with the digits
+      # that it has, so that a whole number has no decimal point, such as "42" for the Integer 42, the text "3" or the
+      # Float 42.0, as frictionless-py writes it, rather than the "42.0" of `BigDecimal#to_s("F")` and `Float#to_s`.
       def number_text(value)
         return self.class.special_text(value) unless value.finite?
-        return (@decimals ? float_text(value) : value.to_s) if value.is_a?(Float)
-        return value.to_s("F") unless @decimals
+        return (@decimals ? float_text(value) : plain_float_text(value)) if value.is_a?(Float)
+        return value.to_s("F").delete_suffix(".0") unless @decimals
 
         # The value is already rounded to the decimals, see #cast.
         return value.to_i.to_s if @decimals.zero?
 
         whole, fraction = value.to_s("F").split(".")
         "#{whole}.#{fraction.ljust(@decimals, '0')[0, @decimals]}"
+      end
+
+      # Returns [String] the text of a finite Float without decimals, as `Float#to_s` writes it, without the ".0" of a
+      # whole number, such as "42" for 42.0, nor of the digits before an exponent, such as "1e+20" for 1.0e+20.
+      def plain_float_text(value)
+        plain_digits(value.to_s)
+      end
+
+      # Returns [String] the text of a Float, see #plain_float_text, without the ".0" of a whole number, or the text
+      # itself, the same String, when it has none.
+      def plain_digits(text)
+        return text.delete_suffix(".0") if text.end_with?(".0")
+
+        text.include?(".0e") ? text.sub(".0e", "e") : text
       end
 
       # Returns [String] the text of a finite Float with the decimals of this field, which `format` rounds as its text
@@ -1987,14 +2074,23 @@ module IOStreams
 
       # Returns the number as JSON writes it: its text, see #number_text, which JSON writes as it is, see
       # `IOStreams::Schema::JsonNumber.fragment`, so that a BigDecimal keeps all of its digits, and the digits after the
-      # decimal point that the field gives are written, such as `12.50`, the same as in CSV. A Float without `decimals`
-      # is itself, which JSON writes with the same digits. A number that is not finite, such as NaN, raises, see
-      # #not_finite_json.
+      # decimal point that the field gives are written, such as `12.50`, and a whole number without a decimal point,
+      # such as `42`, the same as in CSV. A number that is not finite, such as NaN, raises, see #not_finite_json.
       def number_json(value)
         return not_finite_json(value) unless value.finite?
-        return value if @decimals.nil? && value.is_a?(Float)
+        return float_json(value) if @decimals.nil? && value.is_a?(Float)
 
         JsonNumber.fragment(number_text(value))
+      end
+
+      # Returns [Float|JSON::Fragment] a Float of a field without decimals as JSON writes it, see #number_json: the Float
+      # itself, which JSON writes with the digits of `Float#to_s`, unless that text has a ".0" that #plain_float_text
+      # leaves out, such as 42.0, whose text without it, "42", is written as it is, so that most Floats are written
+      # without a fragment.
+      def float_json(value)
+        text  = value.to_s
+        plain = plain_digits(text)
+        plain.equal?(text) ? value : JsonNumber.fragment(plain)
       end
 
       # Raises `IOStreams::Errors::InvalidValue` for a number that is not finite, such as NaN, which JSON cannot hold,

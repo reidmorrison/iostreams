@@ -282,7 +282,7 @@ does:
 | A number, without a date format | a `Float`, as Excel holds it, such as `1001.0` |
 | A number of a date format, such as `yyyy-mm-dd` | a `Date` |
 | A number of a date and time format | a `Time` in UTC, with the time of the clock of the cell, since Excel has no time zone |
-| A number of a time format, such as `h:mm` | a time of day, a `Time` on 2000-01-01 in UTC |
+| A number of a time format, such as `h:mm` | a time of day, a `Time` on 2000-01-01 in UTC, which only a `time` field and a field of type `any` read as a time, while a field of another type reads the text of its clock, such as `09:30:00`, as the lines hold it, so that a `date` or `datetime` field raises `IOStreams::Errors::InvalidValue` for it |
 | A boolean | `true` or `false` |
 | An empty cell, or an error, such as `#N/A` | `nil` |
 | A formula | its cached value, typed as above |
@@ -293,12 +293,14 @@ such as `0.3` rather than the `Float` `0.30000000000000004`, or every digit of a
 `Float` holds exactly, such as the card number `4111111111111111`, and a `string` field reads the number that the cell
 holds, to those digits, without its number format, such as `0.125` for `12.5%`, in plain digits, such as `0.0000001`
 rather than `1.0e-07`, and without a decimal point for a whole number, such as `2134` for a zip code that Excel holds as
-the `Float` `2134.0`. A `string` field reads a cell of a date as `2026-01-02`, of a date and time as its time in UTC,
-such as `2026-01-02T09:30:00Z`, and of a time of day, a time format of less than a day, as the time of its clock, such
-as `09:30:00`. The lines of the spreadsheet are the text of each cell, the same in every process: a date as `2026-01-02`, a date and time as its time in UTC, such as
-`2026-01-02T09:30:00Z`, a cell of a time format as the time of its clock, which Excel shows, such as `09:30:00`, so that
-a field of its type reads it, and a number as the workbook holds it, such as `1001` or `12.5`, whatever its format
-shows. A number of a date
+the `Float` `2134.0`. A `string` field reads a cell of a date as `2026-01-02`, of a date and time as its clock,
+without an offset, such as `2026-01-02T09:30:00`, and of a time of day, a time format of less than a day, as the time
+of its clock, such as `09:30:00`. The lines of the spreadsheet are the text of each cell, the same in every process: a
+date as `2026-01-02`, a date and time as its clock, without an offset, since a cell holds no zone, such as
+`2026-01-02T09:30:00`, a cell of a time format as the time of its clock, which Excel shows, such as `09:30:00`, so that
+a field of its type reads it, in its `timeZone`, or in UTC without one, as it reads the cell, and a number to the
+digits that Excel displays, as a `string` field reads it, such as `1001`, `12.5`, or `0.3` for the
+`0.30000000000000004` that the workbook holds, whatever its format shows. A number of a date
 or time format that is not a date that Excel holds, such as a negative number, which Excel shows as `####`, is its
 number, in the lines and in the rows. A field whose `missingValues` hold text other than empty text, such as `"-99"`,
 compares that text of each cell with them, whatever the type of the cell, see [Missing values](schemas#missing-values),
@@ -306,16 +308,19 @@ and reads a row whose every cell is a missing value as a record of missing value
 as a blank row.
 A `datetime` or `time` field with a `timeZone` reads the clock of a cell of a date and time, or of a time of day, in its
 zone, since a cell holds no zone, such as `2026-07-01 09:30` as `13:30` UTC in `America/New_York`, see
-[Time zones](schemas#time-zones), while the lines, which have no schema, hold the clock as UTC, as above.
+[Time zones](schemas#time-zones), and so does such a field reading the lines, which hold the clock without an offset, as
+above, so that a CSV copy of the spreadsheet, and its slices, read the same times as its rows.
 
 A `list` field reads a cell that holds its text, such as `1.5,2`, as its items, and a cell that holds one value, such as
 the number `1.5`, as a list of that one item, `[1.5]`, as the CSV text of the cell reads, see
 [Lists, years, months and points](schemas#lists-years-months-and-points). A `list` of `string` items reads a number as
 a `string` field does, such as `["2134"]`.
 
-The rows that `each(:slice)` reads are the values of the cells, in the `:array` format, and `slice.to_h` holds each
-`Date` and `Time` as its text, such as `2026-07-01`, and each number as JSON holds it, such as `1234.5`, as do the
-slices of the CSV text of a spreadsheet, copied to a [store of slices](background_jobs#a-store-of-slices) with
+The rows that `each(:slice)` reads with a schema or contract are the values of the cells, in the `:array` format, and
+`slice.to_h` holds each `Date` and `Time` as its text, such as `2026-07-01` and `2026-07-01T09:30:00`, the clock of a
+cell of a date and time without an offset, and each number as JSON holds it, such as `1234.5`, while without one they
+are the text of each cell, as the lines hold it, such as `09:30:00` for a time of day and `0.3` for a number, so that
+a schema reads them later as it reads the spreadsheet, as do the slices of the CSV text of a spreadsheet, copied to a [store of slices](background_jobs#a-store-of-slices) with
 `copy_from(path, mode: :line)`, as text. That text is the default text of each type, rather than the text that a schema
 describes, so the slices of a spreadsheet say that they hold its cells, `slice.cell_text?`, and `IOStreams.stream(slice)`
 reads each value as the spreadsheet reads its cell, also once the slice is stored: the default text of its type first,
@@ -323,7 +328,8 @@ such as `1234.5`, `2026-07-01` or `true`, then the text that the field describes
 and `bareNumber` of a number, the `trueValues` and `falseValues` of a boolean, and the `format` of a date, datetime or
 time, which a text cell can hold, such as `1.234,50` for `decimalChar: ","`, `01/07/2026` for `format: "%d/%m/%Y"`, or
 `Y` for `trueValues: ["Y"]`. Its missing values, the `delimiter` of a list and the `timeZone` of a datetime or time
-still apply. Text that is both, such as a text cell `1.234` with `groupChar: "."` and `decimalChar: ","`, is read as the
+still apply, so that a field with a `timeZone` reads the clock of a cell in its zone, in a slice, in memory or stored,
+as it does reading the spreadsheet. Text that is both, such as a text cell `1.234` with `groupChar: "."` and `decimalChar: ","`, is read as the
 default text in a slice, `1.234`, while the spreadsheet itself reads it by the schema, `1234`. Lines of the CSV text
 written to a store by hand, with `writer(:line)`, do not say that they hold cells, so a schema reads them as the text of
 a file, such as `1234.5` as `12345` with `groupChar: "."`: copy them with `copy_from(path, mode: :line)` instead. A
@@ -331,11 +337,13 @@ a file, such as `1234.5` as `12345` with `groupChar: "."`: copy them with `copy_
 
 Writing writes a workbook with one worksheet, with the `xlsxtream` gem. The rows and records are written as the types
 of their values, by the fields of a schema or contract when there is one, so that a number is a number cell, a `Date` a
-date, a `Time` a date and time, holding its clock in UTC, or in the `timeZone` of its field, and text, such as
-`"01234"`, is text. A `BigDecimal` is written as the `Float` that Excel
+date, a `Time` a date and time, holding its clock in UTC, or in the `timeZone` of its field, the value of a `time`
+field a time of day, of Excel's time format `h:mm:ss`, holding its own clock, or that of the `timeZone` of its field,
+and text, such as `"01234"`, is text. A date and time before 1899-12-31, which no cell of a date and time holds, is
+written as the text of its clock, such as `1899-12-30T12:00:00`, which a `datetime` field reads back. A `BigDecimal` is written as the `Float` that Excel
 holds, shown without the `decimals` of its field, see [Limitations](#spreadsheet-limitations). A field whose value is
-not one value, a `list`, `geopoint`, `array` or `object`, and a `yearmonth`, is written as its text, as CSV writes it,
-such as `a,b` or `2026-10`, and a `Hash` or an `Array` of a field of type `any`, or without a schema, as its JSON:
+not one value, a `list`, `geopoint`, `array` or `object`, a `yearmonth` and a `duration`, is written as its text, as
+CSV writes it, such as `a,b`, `2026-10` or `P1D`, and a `Hash` or an `Array` of a field of type `any`, or without a schema, as its JSON:
 
 ~~~ruby
 # Order is a contract, see Contracts.
@@ -370,6 +378,9 @@ Notes:
 
 * Reading ignores `auto_format` and `use_shared_strings`, since the workbook records them, and raises for `sheet_name`,
   since it always reads the first worksheet.
+* Writing the value of a `time` field as a time of day needs `xlsxtream` 3.0 or later, below 4, since IOStreams adds
+  the style of a time of day to the styles that `xlsxtream` writes. Another version raises `IOStreams::Errors::Error`
+  before the file is opened, for a schema or contract with a `time` field.
 * Reading a spreadsheet needs a local file, so one stored elsewhere, or within another stream, is copied into a temp
   file first. Its lines, and its bytes, are converted into CSV in a second temp file, since the `creek` gem returns them
   to a block, while its rows and records are read straight from the workbook. Writing streams the workbook, without a temp file, see [When temp files are used](config#when-temp-files-are-used).
@@ -396,26 +407,25 @@ end
 # {"id" => 1001, "amount" => 0.125e2, "ordered_at" => 2026-10-25 09:30:00 UTC, "zip" => "01234"}
 ~~~
 
-A time of day, such as the value of a `time` field, is written as a date and time on 2000-01-01, such as
-`2000-01-01 09:30`, since the `xlsxtream` gem cannot write a cell of a time format. The rows of the spreadsheet read it
-back as a `Time` that a `time` field takes, but its lines, its CSV text, hold `2000-01-01T09:30:00Z`, which a `time`
-field raises `IOStreams::Errors::InvalidValue` for, so a CSV copy of the spreadsheet made without a mode does not read
-back. Copy it in the `:hash` mode with a schema or contract that gives the column the type `time`, which writes the
-time of day, `09:30:00`:
-
-~~~ruby
-# Hours is a contract with the field {name: "opens", type: "time"}.
-IOStreams.path("hours.csv").copy_from(IOStreams.path("hours.xlsx").as(Hours), mode: :hash)
-~~~
+A time of day without a `time` field, such as a `Time` on 2000-01-01 of a field of type `any` or without a schema, is
+written as a date and time on 2000-01-01, such as `2000-01-01 09:30`, since nothing says that it is a time of day.
+Give the column the type `time`, so that its cells are times of day, whose lines, its CSV text, hold `09:30:00`.
 
 A cell of an elapsed time format, such as `[h]:mm:ss`, is read as a time, rather than as the length of time that Excel
 shows. One of less than a day, such as `9:00:00`, is a time of day, and one of a day or more, such as `36:00:00`, is
 the date and time that many days after 1899-12-30, `1899-12-31 12:00:00 UTC`, whose text in the lines of the
-spreadsheet is the time of its clock, `12:00:00`, without its days.
+spreadsheet is the clock of that date and time, `1899-12-31T12:00:00`. A cell of a time format without brackets, such as `h:mm`,
+that holds a date too is the date and time in the rows, and the time of its clock in the lines, which Excel shows. A
+`duration` field reads a cell of a time or elapsed time format as its length, such as `PT1H30M` for `1:30:00` and
+`PT36H` for `36:00:00`, from the rows, while its lines hold the text above, which it raises for, as it does for a
+number cell, which does not say what it counts.
 
 Excel counts 1900 as a leap year, so a date before 1900-03-01 is read a day early, in the rows and the lines alike, such
 as `1899-12-31` for the 1900-01-01 that Excel shows, and Excel's 1900-02-29, which does not exist, as `1900-02-28`.
-The `creek` gem reads them the same way.
+The `creek` gem reads them the same way. Likewise, a date before 1900-03-01 that IOStreams writes, such as the
+1900-01-01 of a `datetime` whose `format` reads no date, such as `%H:%M`, is a cell that Excel shows a day later, as
+1900-01-02, while IOStreams reads it back as 1900-01-01, so read and write a time of day with a `time` field, rather
+than a `datetime`.
 
 ## Schema
 
@@ -656,7 +666,8 @@ When reading, each value is the text of its field without its leading and traili
 its field, so that a field of only spaces is `nil`, a missing value, in every type, a `string` included. The keys of each record are the names of the fields as they are given, so that a field whose name is a
 Symbol returns a Symbol key.
 
-When writing, a number is right justified and zero filled, and a missing number is written as zero, as the
+When writing, a number is right justified and zero filled, such as `000042` for `42` without `decimals`, or `042.00`
+with `decimals: 2`, and a missing number is written as zero, as the
 specifications of most fixed width files require, unless its field has a missing value of its own, such as `NA` or
 `-99`, see [Missing values](schemas#missing-values), which is written as it is. That value, and a number that is not
 finite, such as `NaN` or `-INF`, is space filled instead, so that it can be read back. Any other value is left justified and space filled, with each line

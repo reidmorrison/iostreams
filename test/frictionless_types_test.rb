@@ -117,6 +117,15 @@ class FrictionlessTypesTest < Minitest::Test
         assert_equal "[1.50,2.25]", IOStreams::Tabular::Parser::Json.generate(numbers.render([1.5, 2.25], :json))
       end
 
+      it "writes each whole number of a list of numbers without a decimal point, unless it has decimals" do
+        numbers = field(type: "list", itemType: "number")
+        floats  = field(type: "list", itemType: "number", floatNumber: true)
+
+        assert_equal "42,1.5,3", numbers.render([42, 1.5, BigDecimal("3")], :text)
+        assert_equal "42,1.5", floats.render([42.0, 1.5], :text)
+        assert_equal "42.00,1.50", field(type: "list", itemType: "number", decimals: 2).render([42, 1.5], :text)
+      end
+
       it "reads each number of a list as a Float with floatNumber" do
         floats = field(type: "list", itemType: "number", floatNumber: true)
 
@@ -211,6 +220,27 @@ class FrictionlessTypesTest < Minitest::Test
 
       it "compares its values for minimum and maximum" do
         assert_raises(IOStreams::Errors::InvalidValue) { field(type: "yearmonth", constraints: {maximum: "2026-06"}).cast("2026-07") }
+      end
+
+      it "reads a spreadsheet's cell of a date on the first of a month from its rows, its lines, a CSV copy and its slices" do
+        path = IOStreams.path(dir, "budgets.xlsx")
+        path.writer(:array) do |io|
+          io << %w[month]
+          io << [Date.new(2026, 10, 1)]
+        end
+        months = path.schema(fields: [{name: "month", type: "yearmonth"}])
+        copy   = IOStreams.path(dir, "budgets.csv")
+        copy.copy_from(path)
+        expected = [{"month" => Date.new(2026, 10, 1)}]
+
+        assert_equal expected, read(months)
+        assert_equal expected, read(copy.schema(months.infer_schema))
+        months.each(:slice, size: 10) do |slice|
+          stored = IOStreams.slice(JSON.parse(JSON.generate(slice.to_h)))
+
+          assert_equal expected, read(IOStreams.stream(slice).schema(months.infer_schema))
+          assert_equal expected, read(IOStreams.stream(stored).schema(months.infer_schema))
+        end
       end
     end
 
@@ -514,7 +544,13 @@ class FrictionlessTypesTest < Minitest::Test
         lines = []
         IOStreams.path(dir, "times.xlsx").each(:line) { |line| lines << line }
 
-        assert_equal "2026-07-01T09:30:00Z,2000-01-01T09:30:00Z", lines.last
+        # A time field writes a cell of a time of day, whose text is its clock.
+        # The CSV text of a cell of a date and time is its clock, without an offset, which the field reads in its zone.
+        assert_equal "2026-07-01T09:30:00,09:30:00", lines.last
+        copy = IOStreams.path(dir, "times.csv")
+        copy.copy_from(IOStreams.path(dir, "times.xlsx"))
+
+        assert_equal [record], read(copy.schema(schema))
       end
 
       it "reads the clock of a spreadsheet's cell in its zone, and writes the UTC clock without a zone" do
