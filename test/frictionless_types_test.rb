@@ -221,6 +221,27 @@ class FrictionlessTypesTest < Minitest::Test
       it "compares its values for minimum and maximum" do
         assert_raises(IOStreams::Errors::InvalidValue) { field(type: "yearmonth", constraints: {maximum: "2026-06"}).cast("2026-07") }
       end
+
+      it "reads a spreadsheet's cell of a date on the first of a month from its rows, its lines, a CSV copy and its slices" do
+        path = IOStreams.path(dir, "budgets.xlsx")
+        path.writer(:array) do |io|
+          io << %w[month]
+          io << [Date.new(2026, 10, 1)]
+        end
+        months = path.schema(fields: [{name: "month", type: "yearmonth"}])
+        copy   = IOStreams.path(dir, "budgets.csv")
+        copy.copy_from(path)
+        expected = [{"month" => Date.new(2026, 10, 1)}]
+
+        assert_equal expected, read(months)
+        assert_equal expected, read(copy.schema(months.infer_schema))
+        months.each(:slice, size: 10) do |slice|
+          stored = IOStreams.slice(JSON.parse(JSON.generate(slice.to_h)))
+
+          assert_equal expected, read(IOStreams.stream(slice).schema(months.infer_schema))
+          assert_equal expected, read(IOStreams.stream(stored).schema(months.infer_schema))
+        end
+      end
     end
 
     describe "geopoint" do
