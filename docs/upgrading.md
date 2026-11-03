@@ -1809,6 +1809,9 @@ for each one.
   the whole message.
 - Without a schema, a `Float` or `BigDecimal` that is not finite is written to CSV, and the other formats of text, as
   `INF` or `-INF`, as Frictionless spells them, where v2.1 wrote `Infinity` or `-Infinity`.
+- Without a schema, a `DateTime` at an offset of zero is written with `Z`, as a `Time` in UTC is, such as
+  `2026-10-13T09:30:00Z`, to CSV, JSON, the other formats of text and `slice.to_h`, where v2.2 wrote
+  `2026-10-13T09:30:00+00:00`. v2.2 already writes `Z` for it through a field of a schema.
 
 ## Upgrading to v2.2
 
