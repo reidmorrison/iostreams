@@ -3253,7 +3253,10 @@ A cell of an elapsed time format, such as `[h]:mm:ss`, is read as a time, rather
 shows. One of less than a day, such as `9:00:00`, is a time of day, and one of a day or more, such as `36:00:00`, is
 the date and time that many days after 1899-12-30, `1899-12-31 12:00:00 UTC`, whose text in the lines of the
 spreadsheet is the clock of that date and time, `1899-12-31T12:00:00`. A cell of a time format without brackets, such as `h:mm`,
-that holds a date too is the date and time in the rows, and the time of its clock in the lines, which Excel shows.
+that holds a date too is the date and time in the rows, and the time of its clock in the lines, which Excel shows. A
+`duration` field reads a cell of a time or elapsed time format as its length, such as `PT1H30M` for `1:30:00` and
+`PT36H` for `36:00:00`, from the rows, while its lines hold the text above, which it raises for, as it does for a
+number cell, which does not say what it counts.
 
 Excel counts 1900 as a leap year, so a date before 1900-03-01 is read a day early, in the rows and the lines alike, such
 as `1899-12-31` for the 1900-01-01 that Excel shows, and Excel's 1900-02-29, which does not exist, as `1900-02-28`.
@@ -5848,7 +5851,13 @@ end
 * **Read as** an `ActiveSupport::Duration`, from ISO 8601, such as `PT8H30M` for 8 hours and 30 minutes, or
   `P1M2DT3H` for a month, 2 days and 3 hours. It keeps the months and days apart from the seconds, since a month has
   no fixed number of seconds. A number, such as `30600`, raises, since it does not say what it counts.
-* **Written as** ISO 8601, such as `P1M2DT3H`, also to a cell of a spreadsheet, as text.
+* **Also reads** a spreadsheet's cell of a time or elapsed time format as its length, such as `PT1H30M` for `1:30:00`,
+  or `PT36H` for `36:00:00` of the format `[h]:mm:ss`, while a number cell raises. The lines of the spreadsheet, its
+  CSV text, and a slice of it read without a schema, hold such a cell as the text of its clock, or of its date and
+  time, which a `duration` field raises for, so read the rows, or slice the spreadsheet with the schema.
+* **Written as** ISO 8601, such as `P1M2DT3H`, also to a cell of a spreadsheet, as text. An `ActiveSupport::Duration`
+  without a `duration` field, of a field of type `any`, or of a file without a schema, is written so too, rather than
+  as its number of seconds.
 * **Needs the activesupport gem**, which Rails includes. Without it, setting a schema with a `duration` field raises
   `LoadError`.
 
@@ -10722,6 +10731,7 @@ of type `any` writes it, in CSV, PSV and JSON:
 | `BigDecimal("12.5")` | `12.5` | `0.125e2`, or `12.5` in a Rails application |
 | `Time.utc(2026, 10, 13, 9, 30)` | `2026-10-13T09:30:00Z` | `2026-10-13 09:30:00 UTC`, or in JSON in a Rails application `2026-10-13T09:30:00.000Z` |
 | `Date.new(2026, 10, 13)` | `2026-10-13` | its `to_s`, which an application can change |
+| `ActiveSupport::Duration`, such as `1.day` | its ISO 8601 text, `P1D` | its number of seconds, `86400` |
 
 JSON writes them as text, within an object or an array too, so that a `BigDecimal` keeps all of its digits. So
 does the header row that `writer(:array)` takes from the first row written, so that it matches the rows after it. PSV writes an `Array` value in one column, as JSON, see below, where its items were

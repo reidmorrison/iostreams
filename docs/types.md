@@ -787,7 +787,13 @@ end
 * **Read as** an `ActiveSupport::Duration`, from ISO 8601, such as `PT8H30M` for 8 hours and 30 minutes, or
   `P1M2DT3H` for a month, 2 days and 3 hours. It keeps the months and days apart from the seconds, since a month has
   no fixed number of seconds. A number, such as `30600`, raises, since it does not say what it counts.
-* **Written as** ISO 8601, such as `P1M2DT3H`, also to a cell of a spreadsheet, as text.
+* **Also reads** a spreadsheet's cell of a time or elapsed time format as its length, such as `PT1H30M` for `1:30:00`,
+  or `PT36H` for `36:00:00` of the format `[h]:mm:ss`, while a number cell raises. The lines of the spreadsheet, its
+  CSV text, and a slice of it read without a schema, hold such a cell as the text of its clock, or of its date and
+  time, which a `duration` field raises for, so read the rows, or slice the spreadsheet with the schema.
+* **Written as** ISO 8601, such as `P1M2DT3H`, also to a cell of a spreadsheet, as text. An `ActiveSupport::Duration`
+  without a `duration` field, of a field of type `any`, or of a file without a schema, is written so too, rather than
+  as its number of seconds.
 * **Needs the activesupport gem**, which Rails includes. Without it, setting a schema with a `duration` field raises
   `LoadError`.
 

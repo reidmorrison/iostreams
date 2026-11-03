@@ -178,6 +178,34 @@ module IOStreams
         nil
       end
 
+      # Returns [String|nil] the ISO 8601 text of the length of time of a cell of a time format, or of an elapsed time,
+      # see TIME_FORMATS, such as `PT1H30M` for `1:30:00`, or `PT36H` for `36:00:00`, to the millisecond that Excel
+      # holds, which a `duration` field reads, see `IOStreams::Schema::Field#time_cell`, or nil for any other cell, such
+      # as a number, which does not say what it counts, or a number of a time format that is not a date that Excel holds,
+      # such as a negative one.
+      #
+      # Parameters are those of .value, without its options.
+      def self.length(text, type, style)
+        return unless TIME_FORMATS.include?(style) && (type.nil? || type == "n") && text && !text.empty?
+
+        days = days(text)
+        duration_text((days * DAY).round(3)) if days
+      rescue ArgumentError, ZeroDivisionError
+        nil
+      end
+
+      # Returns [String] the ISO 8601 text of a length of time of the supplied seconds, in hours, minutes and seconds,
+      # such as `PT36H`, `PT1H30M` or `PT0.5S`, see .length.
+      def self.duration_text(seconds)
+        hours, seconds   = seconds.divmod(3600)
+        minutes, seconds = seconds.divmod(60)
+        parts = []
+        parts << "#{hours}H" unless hours.zero?
+        parts << "#{minutes}M" unless minutes.zero?
+        parts << "#{seconds.denominator == 1 ? seconds.to_i : seconds.to_f}S" unless seconds.zero? && !parts.empty?
+        "PT#{parts.join}"
+      end
+
       # Returns the number of a cell of a number type, by the class of its number format.
       def self.number(text, style, base_date)
         days = days(text) if style
@@ -254,8 +282,8 @@ module IOStreams
       def self.seconds(days)
         ((days - days.floor) * DAY).round(3)
       end
-      private_class_method :number, :number_text, :plain_text, :elapsed_text, :days, :time_of_day_field, :date_time,
-                           :time_of_day, :seconds
+      private_class_method :number, :number_text, :plain_text, :elapsed_text, :duration_text, :days, :time_of_day_field,
+                           :date_time, :time_of_day, :seconds
     end
   end
 end

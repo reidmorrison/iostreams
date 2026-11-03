@@ -162,7 +162,9 @@ module IOStreams
         #     the Time that it holds, with how, see `IOStreams::Schema::Field#time_cell`: `:clock`, as the text of its
         #     clock, such as `09:30:00`, as the CSV text of the cell holds it, see `IOStreams::Xlsx::Cells.clock`, such as
         #     a `string` field, which reads that text, or a `date` or `datetime` field, which raises for it, as it does for
-        #     the CSV text, or nil until they are known, as for `decimals`.
+        #     the CSV text, or `:length`, as the ISO 8601 text of its length, which a `duration` field reads, also of a
+        #     cell of an elapsed time of a day or more, see `IOStreams::Xlsx::Cells.length`, or nil until they are known,
+        #     as for `decimals`.
         #     Default: nil, every time of day is a Time.
         #
         #   text: [true|false]
@@ -190,10 +192,10 @@ module IOStreams
           return enum_for(:each) unless block_given?
 
           sheet     = Reader.tag_failure(@display_name) { Reader.new(@file_name).worksheet }
-          clocks    = type_cells(sheet)
+          times     = type_cells(sheet)
           positions = {}
           each_row(sheet) do |row|
-            read_row(row, positions, clocks)
+            read_row(row, positions, times)
             yield(row)
           end
         end
@@ -201,14 +203,14 @@ module IOStreams
         private
 
         # Reads the values of the row as the fields of their positions read them, see #initialize, which are known once
-        # the header row is read, and kept in the supplied Hash, and forgets the clocks of its cells, see #type_cells.
-        def read_row(row, positions, clocks)
-          read_cells(row, known(positions, :missing, @missing), clocks) if @missing
-          times = known(positions, :times, @times)
-          read_times(row, times, clocks) if times && !clocks.empty?
+        # the header row is read, and kept in the supplied Hash, and forgets the time cells of the row, see #type_cells.
+        def read_row(row, positions, times)
+          read_cells(row, known(positions, :missing, @missing), times) if @missing
+          forms = known(positions, :times, @times)
+          read_times(row, forms, times) if forms && !times.empty?
           known(positions, :decimals, @decimals)&.each { |index| row[index] = displayed(row[index]) }
           known(positions, :strings, @strings)&.each { |index| row[index] = displayed_text(row[index]) }
-          row.each { |value| clocks.delete(value) } unless clocks.empty?
+          row.each { |value| times.delete(value) } unless times.empty?
         end
 
         # Returns the positions of the supplied kind, which the source returns once they are known, see #initialize,
@@ -219,41 +221,45 @@ module IOStreams
 
         # Types the cells of the worksheet by Excel's own cell type and number format, see `IOStreams::Xlsx::Cells.value`.
         #
-        # Returns [Hash] the time of the clock of each cell of a time of day, by the Time that the cell holds, itself,
-        # rather than its value, since a cell of a date and time can hold the same time, see
-        # `IOStreams::Xlsx::Cells.clock`, which a field that reads it as that text reads, see `times` in #initialize,
-        # filled as the worksheet is read, and only when there are such fields.
+        # Returns [Hash] the TimeCell of each cell of a time format, by the Time that the cell holds, itself, rather than
+        # its value, since a cell of a date and time can hold the same time: the text of its clock, see
+        # `IOStreams::Xlsx::Cells.clock`, and of its length, see `IOStreams::Xlsx::Cells.length`, which a field that
+        # reads it otherwise than as the Time reads, see `times` in #initialize, filled as the worksheet is read, and
+        # only when there are such fields.
         #
         # When the text of a cell can be a missing value, see `missing` in #initialize, each cell is its value with its
         # text, a Cell, until #read_cells reads the row.
         def type_cells(sheet)
           formats = Reader.tag_failure(@display_name) { Reader.number_formats(sheet) }
-          clocks  = {}.compare_by_identity
+          times   = {}.compare_by_identity
           Reader.convert_cells(sheet) do |text, type, style, options|
             next Cells.text(text, type, formats[style], options) if @text
 
-            value = Cells.value(text, type, formats[style], options)
-            clock = @times && Cells.clock(text, type, formats[style])
-            clocks[value] = clock if clock
+            value  = Cells.value(text, type, formats[style], options)
+            length = @times && Cells.length(text, type, formats[style])
+            times[value] = TimeCell.new(Cells.clock(text, type, formats[style]), length) if length
             @missing ? Cell.new(value, Cells.text(text, type, formats[style], options)) : value
           end
-          clocks
+          times
         end
+
+        # The text of a cell of a time format, see #type_cells: its clock, below a day, otherwise nil, and its length.
+        TimeCell = Data.define(:clock, :length)
 
         # The value of a cell with its text, see `IOStreams::Xlsx::Cells.text`, which a missing value is compared with,
         # see `missing` in #initialize, until #read_cells reads the row.
         Cell = Struct.new(:value, :text)
 
         # Replaces each cell of the row with its value, or its text when that is a missing value of the field of its
-        # position, see `missing` in #initialize, which the field reads as missing, forgetting the clock of a time that is
-        # missing, see #type_cells.
-        def read_cells(row, missing, clocks)
+        # position, see `missing` in #initialize, which the field reads as missing, forgetting the time cell of a time
+        # that is missing, see #type_cells.
+        def read_cells(row, missing, times)
           row.each_with_index do |cell, index|
             next unless cell.is_a?(Cell)
 
             missing_value = missing&.[](index)
             if missing_value&.call(cell.text)
-              clocks.delete(cell.value)
+              times.delete(cell.value)
               row[index] = cell.text
             else
               row[index] = cell.value
@@ -261,12 +267,14 @@ module IOStreams
           end
         end
 
-        # Replaces the Time of each cell of a time of day of the row whose field reads it as the text of its clock, see
-        # `times` in #initialize, with that text, and forgets it, see #type_cells.
-        def read_times(row, times, clocks)
-          times.each_key do |index|
-            clock = clocks.delete(row[index])
-            row[index] = clock if clock
+        # Replaces the Time of each cell of a time format of the row whose field reads it otherwise, see `times` in
+        # #initialize, with the text of its clock or of its length, as the form of the field says, and forgets it, see
+        # #type_cells. A cell of a day or more has no clock, so that a field that reads the clock reads its Time.
+        def read_times(row, forms, times)
+          forms.each_pair do |index, form|
+            cell = times.delete(row[index])
+            text = form == :length ? cell&.length : cell&.clock
+            row[index] = text if text
           end
         end
 

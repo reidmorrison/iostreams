@@ -530,6 +530,8 @@ module IOStreams
       # writes JSON, see `IOStreams::Tabular::Parser::Json.generate`.
       def self.any_text(value)
         return value if value.is_a?(String)
+        # Before the numbers, since a duration answers `is_a?(Integer)`.
+        return value.iso8601 if duration?(value)
         # The most common values first, so that they skip the checks below.
         return value.to_s if value.is_a?(Integer)
         return value.finite? ? value.to_s : special_text(value) if value.is_a?(Float)
@@ -624,7 +626,14 @@ module IOStreams
 
       # Returns [true|false] whether JSON holds the value as its text, see .any_json.
       def self.textual?(value)
-        value.is_a?(Time) || value.is_a?(Date) || value.is_a?(::BigDecimal)
+        value.is_a?(Time) || value.is_a?(Date) || value.is_a?(::BigDecimal) || duration?(value)
+      end
+
+      # Returns [true|false] whether the value is an `ActiveSupport::Duration`, which .any_text writes as its ISO 8601
+      # text, such as `P1D`, rather than its number of seconds, which does not say what it counts, as a `duration`
+      # field writes it. A duration answers `is_a?(Integer)`, or `Float`, for the class of its seconds.
+      def self.duration?(value)
+        defined?(::ActiveSupport::Duration) && value.is_a?(::ActiveSupport::Duration)
       end
 
       # Returns [String] the text of a number that is not finite, as Frictionless writes it: "NaN", "INF" or "-INF",
@@ -661,7 +670,7 @@ module IOStreams
         else 9
         end
       end
-      private_class_method :time_text, :data_hash, :data_array, :json_held?, :nesting
+      private_class_method :time_text, :duration?, :data_hash, :data_array, :json_held?, :nesting
 
       # Returns [true|false] whether IOStreams knows the property, of a field of any type, such as `trueValues`, see
       # KNOWN_PROPERTIES, so that the class of a contract, which declares its fields in Ruby, raises for any other.
@@ -717,11 +726,15 @@ module IOStreams
       end
 
       # Returns [Symbol|nil] how this field reads the cell of a time of day of a format whose cells are typed, such as a
-      # spreadsheet, which holds it as a Time on 2000-01-01, see `IOStreams::Xlsx::Cells`: `:clock`, as the text of its
-      # clock, such as "09:30:00", as the CSV text of the cell holds it, for every type but a time of day and any value,
-      # so that a `string` field reads that text, and a `date` or `datetime` field raises for it, since a time of day is
-      # neither a date nor a date and time, or nil, as the Time, for a `time` or `any` field.
+      # spreadsheet, which holds it as a Time on 2000-01-01, see `IOStreams::Xlsx::Cells`: `:length`, as the ISO 8601
+      # text of its length, such as `PT1H30M` for `1:30:00`, for a `duration`, which reads a cell of an elapsed time of a
+      # day or more too, such as `PT36H` for `36:00:00`, `:clock`, as the text of its clock, such as "09:30:00", as the
+      # CSV text of the cell holds it, for every other type but a time of day and any value, so that a `string` field
+      # reads that text, and a `date` or `datetime` field raises for it, since a time of day is neither a date nor a date
+      # and time, or nil, as the Time, for a `time` or `any` field.
       def time_cell
+        return :length if type == "duration"
+
         :clock unless TIME_CELL_TYPES.include?(type)
       end
 

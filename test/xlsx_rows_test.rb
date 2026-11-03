@@ -473,6 +473,23 @@ class XlsxRowsTest < Minitest::Test
                        "clock" => "1899-12-31T12:00:00"}], read(strings)
       end
 
+      it "reads a cell of a time or elapsed time format into a duration field as its length, and raises for a number" do
+        require "active_support"
+        require "active_support/core_ext/integer/time"
+
+        format_cells([["short", 21, nil, "0.0625"], ["wait", 46, nil, "1.5"], ["custom", 169, "[hh]:mm", "2.25"],
+                      ["tick", 21, nil, "0.000011574074074074073"]])
+        durations = IOStreams.path(file_name).schema(fields: %w[short wait custom tick].map { |name| {name: name, type: "duration"} })
+        record    = read(durations).first
+
+        assert_equal [90.minutes, 36.hours, 54.hours, 1.second], record.values
+        assert_equal %w[PT1H30M PT36H PT54H PT1S], record.values.map(&:iso8601)
+        format_cells([["count", 0, nil, "1.5"]])
+        number = IOStreams.path(file_name).schema(fields: [{name: "count", type: "duration"}])
+
+        assert_raises(IOStreams::Errors::InvalidValue) { read(number) }
+      end
+
       it "raises for a cell of a time of day in a field of a date or a date and time, as for its CSV text" do
         format_cells([["clock", 20, nil, "0.39583333333333331"], ["midnight", 21, nil, "0"]])
 

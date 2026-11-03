@@ -415,7 +415,10 @@ A cell of an elapsed time format, such as `[h]:mm:ss`, is read as a time, rather
 shows. One of less than a day, such as `9:00:00`, is a time of day, and one of a day or more, such as `36:00:00`, is
 the date and time that many days after 1899-12-30, `1899-12-31 12:00:00 UTC`, whose text in the lines of the
 spreadsheet is the clock of that date and time, `1899-12-31T12:00:00`. A cell of a time format without brackets, such as `h:mm`,
-that holds a date too is the date and time in the rows, and the time of its clock in the lines, which Excel shows.
+that holds a date too is the date and time in the rows, and the time of its clock in the lines, which Excel shows. A
+`duration` field reads a cell of a time or elapsed time format as its length, such as `PT1H30M` for `1:30:00` and
+`PT36H` for `36:00:00`, from the rows, while its lines hold the text above, which it raises for, as it does for a
+number cell, which does not say what it counts.
 
 Excel counts 1900 as a leap year, so a date before 1900-03-01 is read a day early, in the rows and the lines alike, such
 as `1899-12-31` for the 1900-01-01 that Excel shows, and Excel's 1900-02-29, which does not exist, as `1900-02-28`.

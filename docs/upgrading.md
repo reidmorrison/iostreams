@@ -540,6 +540,7 @@ of type `any` writes it, in CSV, PSV and JSON:
 | `BigDecimal("12.5")` | `12.5` | `0.125e2`, or `12.5` in a Rails application |
 | `Time.utc(2026, 10, 13, 9, 30)` | `2026-10-13T09:30:00Z` | `2026-10-13 09:30:00 UTC`, or in JSON in a Rails application `2026-10-13T09:30:00.000Z` |
 | `Date.new(2026, 10, 13)` | `2026-10-13` | its `to_s`, which an application can change |
+| `ActiveSupport::Duration`, such as `1.day` | its ISO 8601 text, `P1D` | its number of seconds, `86400` |
 
 JSON writes them as text, within an object or an array too, so that a `BigDecimal` keeps all of its digits. So
 does the header row that `writer(:array)` takes from the first row written, so that it matches the rows after it. PSV writes an `Array` value in one column, as JSON, see below, where its items were

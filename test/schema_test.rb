@@ -2328,6 +2328,20 @@ class SchemaTest < Minitest::Test
           assert_equal({hours: 8, minutes: 30}, duration.cast(" PT8H30M ").parts)
         end
 
+        it "writes a Duration without a duration field as its ISO 8601 text, rather than its number of seconds" do
+          value = duration.cast("PT8H30M")
+          any   = field(type: "any")
+
+          assert_equal "PT8H30M", IOStreams::Schema::Field.any_text(value)
+          assert_equal "PT0.5S", IOStreams::Schema::Field.any_text(duration.cast("PT0.5S"))
+          assert_equal "PT8H30M", IOStreams::Schema::Field.any_json(value)
+          assert_equal "PT8H30M", any.render(value, :text)
+          assert_equal "PT8H30M", any.render(value, :json)
+          assert_equal "PT8H30M", any.dump(value)
+          assert_equal '{"wait":"PT8H30M"}', IOStreams::Tabular::Parser::Json.generate({"wait" => value})
+          assert_equal '{"wait":"PT8H30M"}', field(type: "object").render({"wait" => value}, :text)
+        end
+
         it "keeps a Duration as it is" do
           value = duration.cast("PT8H30M")
 

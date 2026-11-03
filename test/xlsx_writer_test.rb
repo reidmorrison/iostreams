@@ -542,6 +542,19 @@ class XlsxWriterTest < Minitest::Test
         assert_equal([1.day, 90.minutes], records.map { |record| record["wait"] })
         assert_equal %w[wait P1D PT90M], lines
       end
+
+      it "writes a duration without a duration field, or without a schema, as its ISO 8601 text" do
+        require "active_support"
+        require "active_support/core_ext/integer/time"
+
+        IOStreams.path(file_name).writer(:hash) { |io| io << {"wait" => 1.day} }
+        xml = worksheet_xml(File.binread(file_name))
+
+        assert_includes xml, "<t>P1D</t>"
+        IOStreams.path(file_name).schema(fields: [{name: "wait", type: "any"}]).writer(:hash) { |io| io << {"wait" => 2.months} }
+
+        assert_includes worksheet_xml(File.binread(file_name)), "<t>P2M</t>"
+      end
     end
 
     describe "the format of the rows" do
