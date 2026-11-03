@@ -342,7 +342,8 @@ class SchemaTest < Minitest::Test
           assert_equal [{name: "Jack", pay: 12.5}], layout_read("Jack12.5\n", floats)
           assert_equal [{name: "Jack", pay: 12.5}], schema_read("Jack12.5\n", floats)
           assert_equal "Jack12.5\nJill12.0\n", layout_write([{name: "Jack", pay: 12.5}, {name: "Jill", pay: 12}], floats)
-          assert_equal "Jack12.5\nJill12.0\n", schema_write([{name: "Jack", pay: 12.5}, {name: "Jill", pay: 12}], floats)
+          # A number field writes a whole number without a decimal point, see `IOStreams::Schema::Field#render`.
+          assert_equal "Jack12.5\nJill12\n", schema_write([{name: "Jack", pay: 12.5}, {name: "Jill", pay: 12}], floats)
         end
 
         it "leaves out a column after the remainder, which the layout writes but does not read" do
@@ -1040,9 +1041,33 @@ class SchemaTest < Minitest::Test
 
         it "renders text without an exponent" do
           assert_equal "12.5", number.render(BigDecimal("12.5"), :text)
-          assert_equal "100000000000000000000.0", number.render(BigDecimal("1E20"), :text)
+          assert_equal "100000000000000000000", number.render(BigDecimal("1E20"), :text)
           assert_equal "NaN", number.render("NaN", :text)
           assert_equal "-INF", number.render("-INF", :text)
+        end
+
+        it "renders a whole number without a decimal point, unless the field has decimals" do
+          float = field(type: "number", floatNumber: true)
+
+          [42, "3", "0042", 42.0, BigDecimal("42"), Rational(84, 2)].each do |value|
+            assert_equal value == "3" ? "3" : "42", number.render(value, :text), value.inspect
+            assert_equal value == "3" ? "3" : "42", float.render(value, :text), value.inspect
+          end
+          assert_equal "1.5", number.render(1.5, :text)
+          assert_equal "0", number.render(0, :text)
+          assert_equal "-3", number.render("-3.000", :text)
+          assert_equal "42.00", field(type: "number", decimals: 2).render(42, :text)
+          assert_equal "42.00", field(type: "number", floatNumber: true, decimals: 2).render(42.0, :text)
+          assert_equal "42", field(type: "number", decimals: 0).render(42.0, :text)
+        end
+
+        it "renders a Float with an exponent without the decimal point of a whole number before it" do
+          float = field(type: "number", floatNumber: true)
+
+          assert_equal "1e+20", float.render(1e20, :text)
+          assert_equal "1e-05", float.render(1e-5, :text)
+          assert_equal "1.5e+20", float.render(1.5e20, :text)
+          assert_equal "100000000000000000000", number.render(1e20, :text)
         end
 
         it "renders text with the number of decimals, rounding half up" do
@@ -1159,7 +1184,9 @@ class SchemaTest < Minitest::Test
 
           assert_equal long, json(number, long)
           assert_equal "12.50", json(field(type: "number", decimals: 2), "12.5")
-          assert_equal "1234567890123456789.0", json(number, 1_234_567_890_123_456_789)
+          assert_equal "1234567890123456789", json(number, 1_234_567_890_123_456_789)
+          assert_equal "42", json(field(type: "number", floatNumber: true), 42.0)
+          assert_equal "1e+20", json(field(type: "number", floatNumber: true), 1e20)
           assert_equal number.render(1_234_567_890_123_456_789, :text), json(number, 1_234_567_890_123_456_789)
           assert_equal BigDecimal("12.5"), number.render("12.50", :typed)
         end
@@ -1188,7 +1215,7 @@ class SchemaTest < Minitest::Test
         it "renders a JSON number as the text of a Float with floatNumber and decimals, the same as CSV" do
           float = field(type: "number", floatNumber: true, decimals: 2)
 
-          assert_kind_of Float, field(type: "number", floatNumber: true).render("12.50", :json)
+          assert_equal "12.5", json(field(type: "number", floatNumber: true), "12.50")
           assert_equal "12.50", json(float, 12.5)
           ["12.345", 0.125, 1.005, 2.675].each do |value|
             assert_equal float.render(value, :text), json(float, value), value.inspect
@@ -1446,6 +1473,28 @@ class SchemaTest < Minitest::Test
           assert_equal Time.utc(2026, 10, 13, 23, 59, 59), pattern.cast("2026-10-13 23:59:59")
           assert_equal Time.utc(2026, 10, 13), pattern.cast("2026-10-13 00:00:00")
           assert_equal Time.utc(2026, 10, 13, 23, 30), field(type: "datetime", format: "%Y-%m-%d %I:%M %p").cast("2026-10-13 11:30 PM")
+        end
+
+        it "reads a format without a date, or only part of one, on 1900-01-01, as Python's strptime does, rather than today" do
+          clock = field(type: "datetime", format: "%H:%M")
+          day   = field(type: "datetime", format: "%m/%d %H:%M")
+
+          assert_equal Time.utc(1900, 1, 1, 9, 30), clock.cast("09:30")
+          assert_predicate clock.cast("09:30"), :utc?
+          assert_equal Time.utc(1900, 1, 1, 21, 30), field(type: "datetime", format: "%I:%M %p").cast("09:30 PM")
+          assert_equal Time.utc(1900, 1, 1, 9, 30, 0.25r), field(type: "datetime", format: "%H:%M:%S.%f").cast("09:30:00.25")
+          assert_equal Time.new(1900, 1, 1, 9, 30, 0, "+05:00"), field(type: "datetime", format: "%H:%M %z").cast("09:30 +0500")
+          assert_equal Time.utc(1900, 7, 1, 9, 30), day.cast("07/01 09:30")
+          assert_equal Time.utc(1900, 1, 13, 9, 30), field(type: "datetime", format: "%d %H:%M").cast("13 09:30")
+          assert_equal Time.utc(2026, 1, 1, 9, 30), field(type: "datetime", format: "%Y %H:%M").cast("2026 09:30")
+          # 1900 is not a leap year, whichever year it is read in.
+          Time.stub(:now, Time.utc(2028, 1, 1)) do
+            assert_raises(IOStreams::Errors::InvalidValue) { day.cast("02/29 09:30") }
+          end
+          assert_equal "09:30", clock.render(clock.cast("09:30"), :text)
+          # A date read some other way, by its day of the year or the seconds since 1970, is unchanged.
+          assert_equal Time.utc(2026, 7, 1, 9, 30), field(type: "datetime", format: "%Y %j %H:%M").cast("2026 182 09:30")
+          assert_equal Time.utc(2026, 10, 13, 9, 30), field(type: "datetime", format: "%s").cast("1791883800")
         end
 
         it "reads a space in place of the T" do
