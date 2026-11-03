@@ -60,9 +60,11 @@ changes, and docs/errors.md when what it raises does.
   fields (`typed: true`, asked of `tabular_settings.schema`, which is nil without a schema that was set), so its
   slices are typed (`Slice#typed?`) and a stored duration that BSON keeps as its seconds is read as a duration
   (`Field#restore`); with a schema that was set, which describes the values otherwise, they are cast as any other rows are (`Field#cast`).
-- A copy gives a target without a schema the schema of the columns (`Stream#copy_schema`, which asks the private
-  `#rows_schema`, nil for a file, whose schema describes its text), once the source is open, unless the target is a
-  row or record writer of the mode that is already open (`Stream#open_writer?`), which writes with its own settings.
+- A copy gives a target without a schema the schema that was set, without its layout and text properties
+  (`Stream#copied_schema`), otherwise the schema of the columns (`Stream#copy_schema`, which asks the private
+  `#rows_schema`), once the source is open, unless the target is a row or record writer of the mode that is already
+  open (`Stream#open_writer?`), which writes with its own settings. A copy without a mode copies the rows as the
+  `:array` mode does (`Stream#copy_mode_to`, by `Row::Stream#copies_rows?`).
 - It is a `Row::Stream`, so it raises `ArgumentError` for what needs bytes (`#stream`, `#option`, `#encoding`, `#raw`,
   the `:stream` and `:line` modes), for the options of lines (`delimiter:` and `buffer_size:`, which
   `Row::Stream#reader` rejects before the describe query runs), and for writing. `#file_name=` raises, since a file

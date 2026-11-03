@@ -464,8 +464,9 @@ module IOStreams
     # Returns [Integer] the number of bytes copied, when copying without a `mode:` between files of the same format.
     #
     # Without a `mode:`, a source in another tabular format than this stream, see #format, such as CSV into JSON or
-    # Parquet, is copied as the `:array` mode copies it, so that the target is a file of its own format, see #copy_mode,
-    # which returns the number of rows copied, as a copy in that mode does.
+    # Parquet, is copied as the `:array` mode copies it, so that the target is a file of its own format, and so is a
+    # source of rows rather than bytes, such as a query or a slice, see #copy_mode_to, which returns the number of rows
+    # copied, as a copy in that mode does, the header row of a CSV source included.
     #
     # Notes:
     # - The source is opened before the target, so that the target is not changed when the source
@@ -857,19 +858,29 @@ module IOStreams
       @tabular_settings = nil
     end
 
-    # Returns [Symbol|nil] the mode that a copy without a `mode:` copies the supplied source in: `:array`, as a copy in
-    # that mode does, when the source and this stream are in different tabular formats, see #format, such as CSV into
-    # JSON or Parquet, so that the target is a file of its own format, rather than the data of the source as it is,
-    # such as a Parquet file of CSV text. Otherwise nil, the data is copied as it is: a source or target whose format
-    # is not known, such as an IO or a `.txt` file, one of the same format, and a spreadsheet to or from CSV, whose text
-    # is CSV.
+    # Returns [Symbol|nil] the mode that a copy without a `mode:` copies the supplied source in, which the source
+    # decides, see #copy_mode_to: `:array`, or nil to copy the data as it is.
     #
     # Raises ArgumentError for an option, see #reject_copy_options!, since a copy without a mode takes none.
     def copy_mode(source, args)
       reject_copy_options!("when copying without a `mode:`", **args)
-      from = source.format
-      to   = format
-      :array unless from.nil? || to.nil? || from == to
+      source.copy_mode_to(self)
+    end
+
+    # Returns [Symbol|nil] the mode that a copy without a `mode:` reads this source in, to write the supplied target:
+    # `:array`, as a copy in that mode does, when this stream and the target are in formats that a copy converts
+    # between, see `IOStreams::Tabular.converts?`, such as CSV into JSON or Parquet, so that the target is a file of its
+    # own format, rather than the data of the source as it is, such as a Parquet file of CSV text. Otherwise nil, the
+    # data is copied as it is: when either reads or writes the data as it is stored, see #raw, when the format of either
+    # is not known, such as an IO or a `.txt` file, or is the text of each row as it is, `:text`, or rows of Ruby
+    # objects, `:hash` or `:array`, when both are of the same format, and a spreadsheet to or from CSV, whose text is
+    # CSV. A source of rows rather than bytes, such as a query or a slice, is always read in the `:array` mode, see
+    # #copies_rows?. Protected, see #copy_schema.
+    def copy_mode_to(target)
+      return :array if copies_rows?
+      return if raw? || target.raw?
+
+      :array if IOStreams::Tabular.converts?(format, target.format)
     end
 
     # Options are strict: raise rather than ignore options that a copy cannot use, whatever their value, apart from a
@@ -981,17 +992,36 @@ module IOStreams
     # query holds an internal object for it, see `IOStreams::Query::Stream`.
     attr_reader :io_stream
 
-    # Returns [IOStreams::Schema|nil] the schema of the supplied rows that this stream reads, which a copy gives a target
-    # without one, see #copy_schema: that of a format whose rows hold typed values, such as Parquet, which the file
-    # declares, see `IOStreams::Parquet::Reader#declared_schema`, or that was set, which its values are read by. None for
-    # a file of text, such as CSV, or of values that each have their own type, such as JSON or a spreadsheet, since the
-    # schema of such a file describes its text, such as the format of its dates, rather than the values that the copy
-    # writes, and its types are never guessed. A source of typed rows overrides it, such as a query, see
-    # `IOStreams::Query::Stream#rows_schema`, or a slice, see `IOStreams::Slice::Stream#rows_schema`.
-    def rows_schema(rows)
-      return if IOStreams::Tabular.lines?(rows_format)
+    # Returns [false] since this stream reads bytes, so that a copy without a `mode:` copies them as they are, unless it
+    # converts the format of its rows, see #copy_mode_to. A source of rows rather than bytes returns true, see
+    # `IOStreams::Row::Stream#copies_rows?`.
+    def copies_rows?
+      false
+    end
 
-      tabular_settings.file_schema || (rows.declared_schema if rows.respond_to?(:declared_schema))
+    # Returns [IOStreams::Schema|nil] the schema of the supplied rows that this stream reads, which a copy gives a target
+    # without one, see #copy_schema: the schema that was set, which its values are read by, without what says how this
+    # file writes the text of its values, see #copied_schema, also for a file of text, such as CSV or a spreadsheet, so
+    # that the target writes each value by its field, such as the `decimals` of a number or the `timeZone` of a time,
+    # in its own text, otherwise that of a format whose rows hold typed values, such as Parquet, which the file declares,
+    # see `IOStreams::Parquet::Reader#declared_schema`. None for a file of text without a schema, such as CSV, or of
+    # values that each have their own type, such as JSON or a spreadsheet, since its types are never guessed. A source of
+    # typed rows overrides it, such as a query, see `IOStreams::Query::Stream#rows_schema`, or a slice, see
+    # `IOStreams::Slice::Stream#rows_schema`.
+    def rows_schema(rows)
+      copied = copied_schema
+      return copied if copied || IOStreams::Tabular.lines?(rows_format)
+
+      rows.declared_schema if rows.respond_to?(:declared_schema)
+    end
+
+    # Returns [IOStreams::Schema|nil] the schema that was set, see #schema, without what says how the file is laid out
+    # and writes the text of its values, see `IOStreams::Schema#for_copy`, such as `header`, the `width` of a field, the
+    # `format` of a date, the `groupChar` of a number or the missing values, so that the target of a copy that takes it
+    # writes in its own layout and text, while it keeps the types, the `decimals` of a number, and the `timeZone` of a
+    # datetime or time, which says which clock its values are, see #rows_schema. Nil without a schema.
+    def copied_schema
+      tabular_settings.file_schema&.for_copy
     end
 
     # Returns [Hash] the options of the writer of the supplied mode that a copy writes the rows of its source with, see
@@ -1024,12 +1054,14 @@ module IOStreams
 
     # Returns [IOStreams::Stream] this stream, unless it has neither a schema nor a contract, see #as, and a copy of the
     # supplied rows of the source gives it one, when it returns a copy of this stream with it, so that this stream is not
-    # changed: the contract that the source is read through, see #copy_contract, otherwise the schema of a source of
-    # typed rows, see #copy_schema, such as a query, a Parquet file or a slice of typed values, so that a typed target,
-    # such as Parquet, keeps their types, while text is never guessed. The contract is handed on without what says how
-    # the source writes the text of its values, such as the `format` of a date, see `IOStreams::Schema#without_text`,
-    # so that the target writes its own. A writer of the mode that is already open, which writes with its own settings,
-    # see #open_writer?, and a copy of lines, which copies them as they are, keep this stream as it is.
+    # changed: the contract that the source is read through, see #copy_contract, otherwise the schema of its rows, see
+    # #copy_schema, such as that of a query, a Parquet file or a slice of typed values, or the schema set on a file of
+    # text, so that the target keeps their types, such as Parquet, or writes each value by its field, such as the
+    # `timeZone` of a time in a spreadsheet, while text is never guessed. The contract and the schema are handed on
+    # without what says how the source writes the text of its values, such as the `format` of a date, see
+    # `IOStreams::Schema#without_text`, so that the target writes its own, and the schema set on a file without its
+    # layout too, see `IOStreams::Schema#for_copy`. A writer of the mode that is already open, which writes with its own
+    # settings, see #open_writer?, and a copy of lines, which copies them as they are, keep this stream as it is.
     def with_copy_schema(source, rows, mode)
       return self if mode == :line || open_writer?(mode)
       return self unless schema.nil? && tabular_settings.contract.nil?

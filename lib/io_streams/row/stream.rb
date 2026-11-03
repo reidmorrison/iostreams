@@ -62,6 +62,12 @@ module IOStreams
 
       private
 
+      # Returns [true] since the source holds rows rather than bytes, so that a copy without a `mode:` reads them in the
+      # `:array` mode, whatever the target, see `IOStreams::Stream#copy_mode_to`.
+      def copies_rows?
+        true
+      end
+
       # Returns [#each] the rows that the readers of rows and records read, starting with their header row, which they
       # read as the header row of a file, see `IOStreams::Tabular#read_header`, see #open_rows.
       def rows

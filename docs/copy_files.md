@@ -56,9 +56,21 @@ A copy without a mode returns the number of bytes copied, as written to the targ
 A copy without a mode into a file of another format, such as `people.csv` into `people.json` or `people.parquet`,
 copies the rows, as the `:array` mode does, see [Converting rows and records](#converting-rows-and-records), so that
 the target is a file of its own format, rather than CSV text in a JSON or Parquet file, and returns the number of rows
-copied. A Parquet target needs a schema for that, its own or one that the source declares, as in the `:array` mode. A
-source or target whose format is not known, such as an IO or a `.txt` file, is copied as it is, and so is a
-spreadsheet to or from CSV, since its text is CSV.
+copied, the header row of a CSV source included. A Parquet or fixed width target needs a schema for that, its own or
+one that the source declares, as in the `:array` mode. These are copied as they are:
+
+* a source or target whose format is not known, such as an IO or a `.txt` file;
+* a source and target of the same format, such as `people.csv` into `people.csv.pgp`;
+* a spreadsheet to or from CSV, since its text is CSV;
+* a source or target read or written as it is stored, with `#raw`;
+* a source or target whose rows are the text of each line as it is, `format(:text)`, or Ruby objects, `format(:hash)`
+  or `format(:array)`.
+
+To keep the text of the source in a file of another format, copy it with `mode: :line`, which keeps the streams of
+each, or set the format of the target to that of the source, such as `IOStreams.path("people.json").format(:csv)`.
+
+The source of a copy that holds rows rather than bytes, such as an Active Record relation or a slice, is always copied
+as the `:array` mode copies it, whatever the format of the target.
 
 The source of a copy in the `:array` or `:hash` mode can also be an Active Record relation, whose rows are read with
 one query, and written by the types of its columns, see [Exporting queries](queries):
@@ -105,7 +117,10 @@ IOStreams.path("people.csv").copy_from("people.json", mode: :array)
 
 Use `:hash` for JSON whose records do not all have the same keys, since a row has no column for a key that the first
 record does not have, so the `:array` mode raises `IOStreams::Errors::InvalidHeader` for it. A blank row of the
-source, such as an empty line or a line of only commas, is skipped, see [Blank rows](streams#blank-rows).
+source, such as an empty line or a line of only commas, is skipped, see [Blank rows](streams#blank-rows). Each row is
+written in the format of the target, so a value of a row beyond its header row, such as the `3` of `1,2,3` under the
+header row `a,b`, is not written to JSON, whose records are keyed by the header row, and PSV writes a line break within
+a value as a space, and a `|` within it as `:`, since PSV does not quote its values.
 
 ## Choosing the columns
 
@@ -139,10 +154,11 @@ IOStreams.path("people.json").copy_from(source, mode: :hash)
 ~~~
 
 A target with neither a schema nor a [contract](contracts) of its own takes the types of the rows that the copy reads,
-when the source has them: the contract that the source is read through, otherwise the schema of a source of typed rows,
-such as a Parquet file, an [Active Record query](queries#keeping-the-types-of-the-columns), or a slice of typed values.
-So a Parquet file copied to another keeps the type of each column that holds values of one type, and CSV writes each
-number with its decimals:
+when the source has them: the contract that the source is read through, otherwise the schema set on the source, also
+on a file of text, such as CSV or a spreadsheet, otherwise the schema of a source of typed rows, such as a Parquet file,
+an [Active Record query](queries#keeping-the-types-of-the-columns), or a slice of typed values. So a Parquet file
+copied to another keeps the type of each column that holds values of one type, CSV writes each number with its
+decimals, and a spreadsheet writes the clock of the `timeZone` of a field to each cell:
 
 ~~~ruby
 # The source's contract gives the Parquet columns their types.
@@ -158,14 +174,31 @@ IOStreams.path("orders.parquet").copy_from(source, mode: :hash)
 IOStreams.path("archive/orders.parquet").copy_from("orders.parquet", mode: :hash)
 ~~~
 
-A file of text, such as CSV, or of values that each have their own type, such as JSON or a spreadsheet, gives nothing,
-since its types are never guessed, so a Parquet target needs a schema or a contract, and raises `ArgumentError` before
-it is opened without one, so that an existing file is kept.
+~~~ruby
+source = IOStreams.path("ny.xlsx").schema(
+  fields: [
+    {name: "at", type: "datetime", timeZone: "America/New_York"},
+    {name: "amount", type: "number", decimals: 2}
+  ]
+)
+# Each cell holds the clock of New York, such as 09:30, as the source's cell does.
+IOStreams.path("copy.xlsx").copy_from(source, mode: :hash)
+# 2026-07-01T09:30:00-04:00,12.50
+IOStreams.path("copy.csv").copy_from(source, mode: :hash)
+~~~
 
-* The contract is handed on without what says how the source writes its text, the `format` of a date and the
-  `trueValues` and `falseValues` of a boolean, so that the target writes its own, such as a date in ISO 8601. It keeps
-  the `timeZone` of a `datetime` or `time`, which says which clock its values are, so that a spreadsheet target writes
-  the clock of the zone to each cell, as the source read it, see [Time zones](schemas#time-zones).
+A file of text, such as CSV, or of values that each have their own type, such as JSON or a spreadsheet, without a
+schema gives nothing, since its types are never guessed, so a Parquet target needs a schema or a contract, and raises
+`ArgumentError` before it is opened without one, so that an existing file is kept.
+
+* The contract or schema is handed on without what says how the source writes its text, such as the `format` of a
+  date, the `trueValues` and `falseValues` of a boolean, the `groupChar` of a number and the missing values, so that
+  the target writes its own, such as a date in ISO 8601. It keeps the `timeZone` of a `datetime` or `time`, which says
+  which clock its values are, so that a spreadsheet target writes the clock of the zone to each cell, as the source
+  read it, see [Time zones](schemas#time-zones).
+* A schema set on the source is handed on without what lays out its file, `header` and the `width` and `start` of a
+  field, and without the fields that only hold the place of a column, `skip: true`, so that the target writes its own
+  layout, such as a header row of the names of the fields to a CSV file copied from one without a header row.
 * A column of a Parquet file of lists, maps or structs is an `array` or `object`, which another Parquet file holds as
   JSON text, and a column of binary values is of type `any`, which Parquet cannot write without a schema on the target
   that gives its type.

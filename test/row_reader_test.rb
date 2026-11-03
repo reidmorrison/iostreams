@@ -154,8 +154,9 @@ class RowReaderTest < Minitest::Test
       it "raise for a record with a key that the first record does not have, since no row has a column for it" do
         error = assert_raises(IOStreams::Errors::InvalidHeader) { read_json(%({"name":"Jack"}\n{"name":"Jill","age":22,"zip":1}\n)) }
         assert_equal "The keys of a record do not match the columns of the rows, which are the keys of the first record: the " \
-                     'keys "age" and "zip" are not among them. Read the records with each(:hash), or describe the columns with a ' \
-                     'schema whose fields are every key, with fieldsMatch "superset" when a record can leave out a key',
+                     'keys "age" and "zip" are not among them. Read the records with each(:hash), or copy them with mode: :hash, ' \
+                     'or describe the columns with a schema whose fields are every key, with fieldsMatch "superset" when a ' \
+                     "record can leave out a key",
                      error.message
       end
 

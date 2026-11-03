@@ -124,14 +124,12 @@ module IOStreams
         io_stream.schema || super
       end
 
-      # Returns [IOStreams::Schema|Hash|String|IOStreams::Stream|nil] the schema that a copy of the rows of a slice of
-      # typed values gives a target without one, see `IOStreams::Stream#rows_schema`: the schema that was set, otherwise
-      # that of the values of its rows, see `IOStreams::Slice#schema`, or nil for a slice of text, such as CSV, whose
-      # schema, when one is set, describes its text, as that of a file of text does.
+      # Returns [IOStreams::Schema|nil] the schema that a copy of the rows of a slice gives a target without one, see
+      # `IOStreams::Stream#rows_schema`: the schema that was set, without what says how the file writes the text of its
+      # values, see `IOStreams::Stream#copied_schema`, otherwise that of the values of the rows of a slice of typed
+      # values, see `IOStreams::Slice#schema`, or nil for a slice of text, such as CSV, whose types are never guessed.
       def rows_schema(_rows)
-        return unless io_stream.typed?
-
-        schema || io_stream.schema
+        copied_schema || (io_stream.schema if io_stream.typed?)
       end
 
       # Returns [IOStreams::Schema|nil] the schema of the values of the rows of the slice, which each slice of them

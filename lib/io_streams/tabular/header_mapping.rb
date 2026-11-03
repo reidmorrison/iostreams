@@ -309,8 +309,8 @@ module IOStreams
         raise(
           Errors::InvalidHeader,
           "The keys of a record do not match the columns of the rows, which are the keys of the first record: #{which}. " \
-          "Read the records with each(:hash), or describe the columns with a schema whose fields are every key, with " \
-          "fieldsMatch \"superset\" when a record can leave out a key"
+          "Read the records with each(:hash), or copy them with mode: :hash, or describe the columns with a schema " \
+          "whose fields are every key, with fieldsMatch \"superset\" when a record can leave out a key"
         )
       end
     end

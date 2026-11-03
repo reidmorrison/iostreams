@@ -382,6 +382,19 @@ module IOStreams
       self.class.new(to_h.except(*TEXT_PROPERTIES.map(&:to_sym)).merge(fields: fields.map(&:without_text_h)))
     end
 
+    # Returns [IOStreams::Schema] the schema that the target of a copy takes from its source, when it has neither a
+    # schema nor a contract of its own, see `IOStreams::Stream#copy_from`: the same properties and fields, without what
+    # says how the file of the source is laid out, see #layout_properties, such as `header` and the `width` of a field,
+    # nor the fields that only hold the place of a column, whose values are not read, see
+    # `IOStreams::Schema::Field#skip?`, nor what says how it writes the text of its values, see #without_text, so that
+    # the target writes the values of the source by their types, such as with the `decimals` of a number and the
+    # `timeZone` of a time, in the layout and text of its own format.
+    def for_copy
+      descriptor = to_h.except(*(TEXT_PROPERTIES + LAYOUT_PROPERTIES).map(&:to_sym))
+      descriptor[:fields] = fields.reject(&:skip?).map(&:for_copy_h)
+      self.class.new(descriptor)
+    end
+
     # Returns [String] the Ruby of a class that declares the contract of this schema, see #to_contract, for a person to
     # review and commit, such as of a schema that `IOStreams::Stream#infer_schema` drafted, see
     # `IOStreams::Contract.to_dsl`. The `format` of a field, which the contract leaves to the schema of the file, is a

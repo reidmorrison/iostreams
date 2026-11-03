@@ -443,6 +443,13 @@ module IOStreams
         to_h.except(*names)
       end
 
+      # Returns [Hash] the properties of this field without those that lay out a file, see LAYOUT_PROPERTIES, nor those
+      # that say how a file writes the text of its values, see #without_text_h, for the target of a copy, see
+      # `IOStreams::Schema#for_copy`.
+      def for_copy_h
+        without_text_h.except(*LAYOUT_PROPERTIES.map(&:to_sym))
+      end
+
       # Returns [true|false] whether the other is a field of the same properties, see #to_h, and missing values, which
       # can be those of its schema, see `missingValues` above.
       def ==(other)

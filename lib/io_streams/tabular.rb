@@ -731,6 +731,24 @@ module IOStreams
       !format.nil? && parser_class(format).value_form == :typed
     end
 
+    # Returns [true|false] whether a copy without a mode converts the rows of the registered format `source` into the
+    # format `target`, see `IOStreams::Stream#copy_mode_to`, rather than copy the data as it is: when both are known,
+    # they differ, and each is the format of a file of its own, see .file_format?.
+    def self.converts?(source, target)
+      return false if source.nil? || target.nil? || source == target
+
+      file_format?(source) && file_format?(target)
+    end
+
+    # Returns [true|false] whether the rows of the registered format are those of a file of its own, which a copy
+    # converts to and from, see .converts?: lines of text, such as CSV or JSON, or the layout of a format whose rows are
+    # not lines, such as Parquet, see .lines?, but not the text of each row as it is, see
+    # `IOStreams::Tabular::Parser::Base.verbatim?`, such as `:text`, nor lines of Ruby objects, see .lines_of_text?,
+    # such as `:hash` and `:array`, whose text would be Ruby's inspect text.
+    def self.file_format?(format)
+      !parser_class(format).verbatim? && (!lines?(format) || lines_of_text?(format))
+    end
+
     # Returns [Symbol|nil] the format of the lines that the rows of the supplied registered format are split from, decoded
     # from and written to: that of the supplied format of the text, when a stream decides it, see
     # `IOStreams::Builder#text_format`, and the rows hold that text as it is, see .verbatim_text?, such as `:csv` for

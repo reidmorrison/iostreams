@@ -44,6 +44,7 @@ Start with the changes that apply to your application:
 | Reads records without a schema from files whose header row repeats a column, such as `a,a,b` | [Two columns of the same key raise `InvalidHeader`](#two-columns-of-the-same-key-raise-invalidheader) |
 | Supplies options to `#option`, `#stream`, `#reader`, `#writer` or the copy methods | [Reading, writing and options](#reading-writing-and-options) |
 | Copies a file into one of another format without a `mode:`, such as `.csv` into `.json` | [A copy without a mode converts the format](#a-copy-without-a-mode-converts-the-format) |
+| Copies the rows or records of a source with a schema into a target without one | [A copy hands the schema of its source to the target](#a-copy-hands-the-schema-of-its-source-to-the-target) |
 | Calls methods such as `#rewind`, `#pos` or `#size` on the IO that a block receives | [The stream of a reader block is not the reader of a gem](#the-stream-of-a-reader-block-is-not-the-reader-of-a-gem), and for S3 and HTTP [S3 objects are read without a temp file](#s3-objects-are-read-without-a-temp-file) and [S3 objects are written without a temp file](#s3-objects-are-written-without-a-temp-file) |
 | Reads or writes an IO supplied with `IOStreams.stream(io)` | [Gzip and `.enc` streams leave your IO open](#gzip-and-enc-streams-leave-your-io-open), [Text written with an encoding to your IO keeps it](#text-written-with-an-encoding-to-your-io-keeps-it), [BZip2 leaves your IO in its mode](#bzip2-leaves-your-io-in-its-mode), and [A failed write to your IO is not completed](#a-failed-write-to-your-io-is-not-completed) |
 | Reads or writes PGP files, or manages PGP keys | [PGP](#pgp) |
@@ -919,9 +920,31 @@ into a file named `.json`, which then did not read as JSON, and returned the num
 schema, as in the `:array` mode. A source or target whose format is not known, such as an IO or a `.txt` file, a
 source and target of the same format, and a spreadsheet to or from CSV are still copied as they are.
 
-Fix: nothing, unless the code relied on the copy keeping the text of the source, or on its number of bytes: then name
-the target with the extension of the source's format, or copy it with `convert: false`, which copies the data as it is
-stored.
+A source or target read or written as it is stored, with `#raw`, and one whose rows are the text of each line,
+`format(:text)`, or Ruby objects, `format(:hash)` or `format(:array)`, are copied as they are too. The number of rows
+returned includes the header row of a CSV source. A source of rows rather than bytes, such as an Active Record relation
+or a slice, is copied as the `:array` mode copies it, whatever the format of the target, where it raised
+`ArgumentError`.
+
+Fix: nothing, unless the code relied on the copy keeping the text of the source, or on its number of bytes: then copy it
+with `mode: :line`, which keeps the text of each line and applies the streams of each, or set the format of the target
+to that of the source, such as `IOStreams.path("people.json").format(:csv).copy_from("people.csv")`. `convert: false`
+is not the same: it also drops the streams of both, so it copies the data as it is stored, such as the gzip bytes of a
+`.csv.gz` file into a `.json` file.
+
+#### A copy hands the schema of its source to the target
+
+A copy in the `:array` or `:hash` mode, or without a mode between two formats, gives a target with neither a schema nor
+a contract of its own the schema set on the source, also on a file of text, such as CSV or a spreadsheet, without
+what says how the source lays out its file and writes the text of its values, such as `header`, the `width` of a
+field, the `format` of a date and the missing values, so that the target writes each value by its field: a number with
+its `decimals`, such as `12.50` for `decimals: 2`, where `12.5` was written, and a `datetime` or `time` with a
+`timeZone` as the clock of that zone in each cell of a spreadsheet, such as `09:30` for `America/New_York`, where its
+clock in UTC, `13:30`, was written. Previously only a contract and a source of typed rows, such as a Parquet file or a
+query, handed their types on, and the target wrote each value of a file of text as its usual text.
+
+Fix: nothing, unless the code relied on the target writing the usual text of each value: then give the target a schema
+or a [contract](contracts) of its own, which it keeps.
 
 #### An option for a format applies to each of its extensions
 
