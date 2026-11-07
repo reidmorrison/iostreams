@@ -87,8 +87,8 @@ or `#path`. Where the code needs a `File`, copy the file to a local file first, 
 
 ### Blank rows
 
-A blank row holds no data. It is the same in every format, so that a file holds the same rows whichever format it is
-in:
+A blank row holds no data. It is the same in every format that can hold one, so that a file holds the same rows
+whichever of them it is in:
 
 * a line that is empty, or only whitespace, including Unicode whitespace such as a no-break space, as Rails'
   `String#blank?` matches it;

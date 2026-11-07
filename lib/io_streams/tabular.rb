@@ -115,8 +115,8 @@ module IOStreams
     #     Whether a row whose every value is blank, such as a line of CSV of only commas, is a blank row, read as nil, see
     #     `IOStreams::Tabular::Mapping`. False for rows that are each a record whatever their values, such as the rows of
     #     a database query, see `IOStreams::Query::Stream`, and of a slice that says so, see `IOStreams::Slice::Stream`.
-    #     A format whose rows are never blank, such as Parquet, see `IOStreams::Tabular::Parser::Base.blank_rows?`, reads
-    #     each row as a record whatever this says. Not an option of a call that reads or writes rows.
+    #     A format whose rows are never blank, such as Parquet, see .blank_rows?, reads and writes each row as a record
+    #     whatever this says. Not an option of a call that reads or writes rows.
     #     Default: true
     #
     #   headerless: [true|false|nil]
@@ -193,7 +193,7 @@ module IOStreams
       @text_format        = text_format
       @value_form         = value_form
       @parser             = build_parser
-      @mapping            = build_mapping(blank_rows && parser.class.blank_rows?, headerless, typed, part_of_file)
+      @mapping            = build_mapping(blank_rows && self.class.blank_rows?(@format), headerless, typed, part_of_file)
     end
 
     # Returns [IOStreams::Tabular] a new tabular with the same schema that reads the rows of the supplied format, such as
@@ -423,7 +423,8 @@ module IOStreams
     # `IOStreams::Schema::Columns#render`.
     #
     # Returns nil for a blank row, which is written as a blank line, unless the schema has a field that is required,
-    # which raises `IOStreams::Errors::InvalidValue`, since the row has no value for it.
+    # which raises `IOStreams::Errors::InvalidValue`, since the row has no value for it. A format whose rows are never
+    # blank, such as Parquet, see #blank_rows?, renders it as a record of its columns, without values.
     def render(row)
       @mapping.render(row)
     end
@@ -780,6 +781,14 @@ module IOStreams
     # when the format is nil, whose rows are text.
     def self.renders_values?(format)
       !format.nil? && parser_class(format).value_form == :typed
+    end
+
+    # Returns [true|false] whether a row of the registered format whose every value is blank is a blank row, see
+    # `IOStreams::Tabular::Parser::Base.blank_rows?`: false for a format whose every row is a record, such as Parquet.
+    # True when the format is nil, or not registered, whose rows no format says otherwise of.
+    def self.blank_rows?(format)
+      parser = @formats[format.to_sym] if format.respond_to?(:to_sym)
+      parser.nil? || parser.blank_rows?
     end
 
     # Returns [true|false] whether a copy without a mode converts the rows of the registered format `source` into the

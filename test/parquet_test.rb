@@ -481,6 +481,25 @@ class ParquetTest < Minitest::Test
       assert_equal [{"id" => 1, "email" => nil}, {"id" => 2, "email" => "jack@example.org"}], read(path.schema(blank))
     end
 
+    it "writes a record or row without values as a row of nulls, which is read back as a record, since a row is never blank" do
+      people = {fields: [{name: "name", type: "string"}, {name: "age", type: "integer"}]}
+      write(path.schema(people), [{"name" => "Jack", "age" => 21}, {}])
+      path("rows.parquet").schema(people).writer(:array) do |writer|
+        writer << ["Jill", 22]
+        writer << []
+      end
+
+      assert_equal [{"name" => "Jack", "age" => 21}, {"name" => nil, "age" => nil}], read(path.schema(people))
+      assert_equal [{"name" => "Jill", "age" => 22}, {"name" => nil, "age" => nil}], read(path("rows.parquet").schema(people))
+    end
+
+    it "raises for a record without values written with a field that is required" do
+      required = {fields: [{name: "name", type: "string", constraints: {required: true}}]}
+
+      error = assert_raises(IOStreams::Errors::InvalidValue) { write(path.schema(required), [{}]) }
+      assert_match(/Field "name" is required/, error.message)
+    end
+
     it "raises when writing without a schema, before it replaces an existing file" do
       File.write(File.join(dir, "people.parquet"), "existing")
       error = assert_raises(ArgumentError) { write(path) }

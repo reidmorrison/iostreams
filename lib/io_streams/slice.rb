@@ -49,8 +49,9 @@ module IOStreams
     # Its keys can be Strings or Symbols, the String being read when it holds both, and its format a String or a Symbol,
     # as storing it may have changed them. The header row is a frozen copy, since every slice of a file shares it.
     #
-    # Only `rows` is required: a missing `blank_rows` is true and a missing `cell_text` false, as #to_h leaves them out
-    # then, and any other key that is missing is nil. A key that a slice does not have is ignored, never read, such as
+    # Only `rows` is required: a missing `blank_rows` is what the format of the slice says, see .new, true unless its
+    # rows are never blank, such as Parquet, a missing `cell_text` false, as #to_h leaves them out then, and any other
+    # key that is missing is nil. A key that a slice does not have is ignored, never read, such as
     # the `_id` of a database document that holds the keys of #to_h as its own fields, so that the document can be
     # supplied as it is.
     #
@@ -66,7 +67,7 @@ module IOStreams
       slice = new(rows_of(value_of(hash, "rows")),
                   header:        header_of(value_of(hash, "header")),
                   format:        format_of(value_of(hash, "format")),
-                  blank_rows:    blank_rows_of(value_of(hash, "blank_rows")),
+                  blank_rows:    value_of(hash, "blank_rows"),
                   cell_text:     cell_text_of(value_of(hash, "cell_text")),
                   schema:        value_of(hash, "schema"),
                   line_number:   value_of(hash, "line_number"),
@@ -115,16 +116,6 @@ module IOStreams
                            "#{IOStreams.tabular_formats.map(&:inspect).join(', ')}")
     end
     private_class_method :format_of
-
-    # Returns [true|false] whether a row of the Hash of a slice whose every value is blank is a blank row, see .from_h
-    # and #blank_rows?: true, as in a file, when the Hash does not say, since #to_h only holds it when it is false.
-    def self.blank_rows_of(blank_rows)
-      return true if blank_rows.nil?
-      return blank_rows if [true, false].include?(blank_rows)
-
-      raise(ArgumentError, "The blank_rows of a slice must be true or false: #{blank_rows.inspect}")
-    end
-    private_class_method :blank_rows_of
 
     # Returns [true|false] whether the values of the rows of the Hash of a slice are the cells of a source whose cells
     # hold typed values, see .from_h and #cell_text?: false when the Hash does not say, since #to_h only holds it when it
@@ -177,9 +168,11 @@ module IOStreams
     #     The tabular format of the rows, see #format.
     #     Default: nil
     #
-    #   blank_rows: [true|false]
-    #     Whether a row whose every value is blank is a blank row, see #blank_rows?.
-    #     Default: true
+    #   blank_rows: [true|false|nil]
+    #     Whether a row whose every value is blank is a blank row, see #blank_rows?, or nil for what the format says,
+    #     see `IOStreams::Tabular.blank_rows?`: false for a format whose rows are never blank, such as Parquet, for which
+    #     true raises, since its rows are read as records whatever it says, otherwise true.
+    #     Default: nil
     #
     #   cell_text: [true|false]
     #     Whether the values of the rows are the cells of a source whose cells hold typed values, such as a spreadsheet,
@@ -205,10 +198,11 @@ module IOStreams
     # see #add.
     #
     # Raises ArgumentError when the rows are not an Array, for a header row that is not an Array, or is blank, for a
-    # `schema` that is not a valid schema, or of a format whose rows are text, for a `cell_text` that is not true or
-    # false, for a line number or record number that is not a positive Integer, nor nil, or for one without rows, rather
-    # than ignore it.
-    def initialize(rows = [], header: nil, format: nil, blank_rows: true, cell_text: false, schema: nil,
+    # `schema` that is not a valid schema, or of a format whose rows are text, for a `blank_rows` that is not true,
+    # false or nil, or that is true of a format whose rows are never blank, for a `cell_text` that is not true or false,
+    # for a line number or record number that is not a positive Integer, nor nil, or for one without rows, rather than
+    # ignore it.
+    def initialize(rows = [], header: nil, format: nil, blank_rows: nil, cell_text: false, schema: nil,
                    line_number: nil, record_number: nil)
       raise(ArgumentError, "The rows of a slice must be an Array, not #{rows.class.name}") unless rows.is_a?(::Array)
       unless [true, false].include?(cell_text)
@@ -218,7 +212,7 @@ module IOStreams
       @rows          = rows.dup
       @header        = checked_header(header)
       @format        = format
-      @blank_rows    = blank_rows
+      @blank_rows    = checked_blank_rows(blank_rows, format)
       @cell_text     = cell_text
       @schema        = checked_schema(schema, format)
       @line_number   = checked_number("line_number", line_number)
@@ -834,6 +828,24 @@ module IOStreams
       schema.field_for(label)
     rescue IOStreams::Errors::InvalidHeader
       nil
+    end
+
+    # Returns [true|false] whether a row whose every value is blank is a blank row, see #blank_rows?: as supplied, or for
+    # nil, as the format says, see `IOStreams::Tabular.blank_rows?`.
+    #
+    # Raises ArgumentError for a value that is not true, false or nil, and for true of a format whose rows are never
+    # blank, such as Parquet, whose rows are read as records whatever it says, rather than ignore it.
+    def checked_blank_rows(blank_rows, format)
+      unless [true, false, nil].include?(blank_rows)
+        raise(ArgumentError, "The blank_rows of a slice must be true or false: #{blank_rows.inspect}")
+      end
+
+      blank = IOStreams::Tabular.blank_rows?(format)
+      return blank if blank_rows.nil?
+      return blank_rows if blank || !blank_rows
+
+      raise(ArgumentError, "A slice of the #{format.inspect} format cannot have blank_rows: true, since each of its " \
+                           "rows is a record, also when every value is null")
     end
 
     # Raises ArgumentError for a header row that is not an Array, such as false, or that is blank, see

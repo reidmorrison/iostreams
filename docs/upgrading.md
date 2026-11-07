@@ -320,8 +320,8 @@ end
 
 A row whose every value is `nil` or blank text is now read as `nil`, as a blank line already was, in every format, see
 [Blank rows](streams#blank-rows). Previously `each(:array)` and `each(:hash)` returned a row or record of `nil` values
-for a line of CSV of only commas, such as those that Excel writes after the last row, a JSON or Parquet record whose
-every value is null, and a fixed width line whose every field is blank, while a row of empty spreadsheet cells was
+for a line of CSV of only commas, such as those that Excel writes after the last row, a JSON record whose every value
+is null, and a fixed width line whose every field is blank, while a row of empty spreadsheet cells was
 already `nil`. Text of only Unicode whitespace, such as a no-break space, is now blank as well, as Rails'
 `String#blank?` matches it, where only spaces, tabs and line endings were.
 

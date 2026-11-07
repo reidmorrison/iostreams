@@ -36,8 +36,9 @@ module IOStreams
         end
 
         # Returns [true|false] whether a row of the format whose every value is blank is a blank row, read as nil, as a
-        # line of CSV of only commas is, see `IOStreams::Tabular#blank_rows?`: false for a format whose every row is a
-        # record that was written as one, such as Parquet, which holds no blank lines.
+        # line of CSV of only commas is, and written as a blank line, see `IOStreams::Tabular#blank_rows?`: false for a
+        # format whose every row is a record that was written as one, such as Parquet, which holds no blank lines, so
+        # that a record written without values, such as `{}`, is written as a row of nulls.
         def self.blank_rows?
           true
         end
