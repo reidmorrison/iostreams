@@ -76,7 +76,7 @@ module IOStreams
         "exclusiveMaximum" => ORDERED_TYPES,
         "minLength"        => LENGTH_TYPES,
         "maxLength"        => LENGTH_TYPES,
-        "pattern"          => %w[string]
+        "pattern"          => %w[string].freeze
       }.freeze
 
       # The constraints that IOStreams supports.
@@ -84,19 +84,19 @@ module IOStreams
 
       # The comparison of a value with each bound, and how its message says that a value is outside it.
       BOUNDS = {
-        "minimum"          => [:>=, "less than its minimum"],
-        "maximum"          => [:<=, "more than its maximum"],
-        "exclusiveMinimum" => [:>, "not more than its exclusiveMinimum"],
-        "exclusiveMaximum" => [:<, "not less than its exclusiveMaximum"]
+        "minimum"          => [:>=, "less than its minimum"].freeze,
+        "maximum"          => [:<=, "more than its maximum"].freeze,
+        "exclusiveMinimum" => [:>, "not more than its exclusiveMinimum"].freeze,
+        "exclusiveMaximum" => [:<, "not less than its exclusiveMaximum"].freeze
       }.freeze
 
       # The lower and the upper bounds that leave no value between them when the lower one is more than the upper one,
       # or not less than it, see #check_range.
       RANGES = [
-        ["minimum", "maximum", :>],
-        ["minimum", "exclusiveMaximum", :>=],
-        ["exclusiveMinimum", "maximum", :>=],
-        ["exclusiveMinimum", "exclusiveMaximum", :>=]
+        ["minimum", "maximum", :>].freeze,
+        ["minimum", "exclusiveMaximum", :>=].freeze,
+        ["exclusiveMinimum", "maximum", :>=].freeze,
+        ["exclusiveMinimum", "exclusiveMaximum", :>=].freeze
       ].freeze
 
       # Parameters:

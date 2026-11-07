@@ -16,7 +16,7 @@ module IOStreams
     # workbook whose cells are not of their styles.
     class Workbook < ::Xlsxtream::Workbook
       # The versions of `xlsxtream` whose writer and styles this workbook knows: 2.x names its writer otherwise.
-      VERSIONS = Gem::Requirement.new(">= 3.0", "< 4")
+      VERSIONS = Utils.shareable(Gem::Requirement.new(">= 3.0", "< 4"))
 
       # The style of a time of day, after the styles of `xlsxtream`: none, a date and a date and time.
       TIME_OF_DAY_STYLE = 3

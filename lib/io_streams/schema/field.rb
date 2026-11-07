@@ -195,15 +195,15 @@ module IOStreams
 
       # The properties that each type of field accepts, in addition to those that every field accepts.
       TYPE_PROPERTIES = {
-        "boolean"  => %w[trueValues falseValues],
-        "date"     => %w[format],
-        "datetime" => %w[format timeZone],
-        "geopoint" => %w[format],
-        "integer"  => %w[groupChar bareNumber categories categoriesOrdered],
-        "list"     => %w[delimiter itemType decimals floatNumber],
-        "number"   => %w[decimals floatNumber groupChar decimalChar bareNumber],
-        "string"   => %w[truncate categories categoriesOrdered format],
-        "time"     => %w[format timeZone]
+        "boolean"  => %w[trueValues falseValues].freeze,
+        "date"     => %w[format].freeze,
+        "datetime" => %w[format timeZone].freeze,
+        "geopoint" => %w[format].freeze,
+        "integer"  => %w[groupChar bareNumber categories categoriesOrdered].freeze,
+        "list"     => %w[delimiter itemType decimals floatNumber].freeze,
+        "number"   => %w[decimals floatNumber groupChar decimalChar bareNumber].freeze,
+        "string"   => %w[truncate categories categoriesOrdered format].freeze,
+        "time"     => %w[format timeZone].freeze
       }.freeze
 
       # The properties that every field accepts.
@@ -284,20 +284,20 @@ module IOStreams
       # Hash or an Array, so takes neither an object nor an array. A list also takes a value of a type that its items
       # convert, as a list of that one item, see #converts?.
       CONVERTED_TYPES = {
-        "string"    => %w[string any integer number boolean date datetime time duration year],
-        "integer"   => %w[integer number],
-        "number"    => %w[integer number],
-        "boolean"   => %w[boolean integer number],
-        "date"      => %w[date datetime],
-        "datetime"  => %w[datetime],
-        "time"      => %w[time datetime],
-        "duration"  => %w[duration],
-        "object"    => %w[object],
-        "array"     => %w[array],
-        "list"      => %w[list array],
-        "year"      => %w[year integer],
-        "yearmonth" => %w[yearmonth date],
-        "geopoint"  => %w[geopoint array object]
+        "string"    => %w[string any integer number boolean date datetime time duration year].freeze,
+        "integer"   => %w[integer number].freeze,
+        "number"    => %w[integer number].freeze,
+        "boolean"   => %w[boolean integer number].freeze,
+        "date"      => %w[date datetime].freeze,
+        "datetime"  => %w[datetime].freeze,
+        "time"      => %w[time datetime].freeze,
+        "duration"  => %w[duration].freeze,
+        "object"    => %w[object].freeze,
+        "array"     => %w[array].freeze,
+        "list"      => %w[list array].freeze,
+        "year"      => %w[year integer].freeze,
+        "yearmonth" => %w[yearmonth date].freeze,
+        "geopoint"  => %w[geopoint array object].freeze
       }.freeze
 
       # The most Hashes and Arrays within each other that the value of an object or array field can have, as the json

@@ -95,7 +95,7 @@ module IOStreams
           /authentication failed for user/, /no password supplied/, /connection requires a valid client certificate/,
           /no pg_hba\.conf entry/, /pg_hba\.conf rejects /, /role ".*" does not exist/,
           /role ".*" is not permitted to log in/, /permission denied for database/
-        ),
+        ).freeze,
         Errors::Unavailable      => Regexp.union(
           /Connection refused/, /timeout expired/, /timed out/, /could not connect to server/,
           /connection to server on socket .* failed: No such file or directory/,
@@ -106,14 +106,14 @@ module IOStreams
           /too many clients already/, /too many connections/, /remaining connection slots are reserved/,
           /could not translate host name ".*" to address: #{Errors::Unavailable::TEMPORARY_RESOLUTION_FAILURE}/,
           /SSL SYSCALL error/
-        ),
+        ).freeze,
         # A failure of TLS that a retry does not change: TLS that the server does not have, a certificate that is not
         # trusted, or not of the host, or a root certificate that the client does not have.
         Failure::NONE            => Regexp.union(
           /could not translate host name /, /database ".*" does not exist/,
           /server does not support SSL, but SSL was required/, /certificate verify failed/,
           /server certificate for ".*" does not match host name/, /root certificate file ".*" does not exist/
-        )
+        ).freeze
       }.freeze
 
       # Returns [true|false] whether the connection is to PostgreSQL, through an adapter of ADAPTERS, with any driver but

@@ -510,6 +510,14 @@ module IOStreams
       end
     end
 
+    # Returns the value deeply frozen, with every object within it, so that every Ractor can read it, such as a constant
+    # of a Hash of Arrays, or a lambda that reads only its arguments and constants. It freezes the value itself rather
+    # than a copy, so supply only a value that IOStreams built, see .frozen_copy for one that a caller supplied. JRuby
+    # has no Ractors, so there it freezes only the value.
+    def self.shareable(value)
+      defined?(::Ractor) ? ::Ractor.make_shareable(value) : value.freeze
+    end
+
     # Returns a frozen copy of the value, whose Hashes, Arrays and Strings are frozen copies too, so that freezing an
     # object that holds options does not freeze the objects that the caller supplied. Any other value, such as a Proc
     # or a Symbol, is returned as it is.
