@@ -550,7 +550,10 @@ module IOStreams
     # out. A slice whose values are the cells of a source of typed values, such as the rows of a spreadsheet, see
     # #cell_text?, holds `"cell_text" => true`, which is otherwise left out, and each number, date and time of a cell as
     # its default text, such as `"2026-07-01"`, see `IOStreams::Schema::Field.any_json`, apart from a Float, which JSON
-    # holds as its number, such as `1234.5`. A slice whose rows hold the values of the fields of a schema, see #schema,
+    # holds as its number, such as `1234.5`. Any other slice of values without a schema, such as the records written in
+    # the `:hash` format to a store of slices, holds each key as its text and each value as JSON holds it, such as a
+    # BigDecimal, Date, Time or Symbol as its text, also within a Hash or an Array, which comes back as that text, for a
+    # schema or contract to read. A slice whose rows hold the values of the fields of a schema, see #schema,
     # holds `"schema"`, the Frictionless
     # Table Schema, by String keys, about one row's worth of bytes, and each value of its rows in a form that JSON keeps
     # exactly, see `IOStreams::Schema::Field#dump`, such as a number as its digits, `"12.50"`, and a time in ISO 8601, so
@@ -723,26 +726,33 @@ module IOStreams
     end
 
     # Returns [Array] the rows as #to_h holds them: of a slice with a schema, each value in a form that JSON keeps, see
-    # #dumped_rows, of a slice of values without one, such as the cells of a spreadsheet, each BigDecimal, Date and Time
-    # as its text, see `IOStreams::Schema::Field.any_json`, which a contract reads back, and of a slice of lines, as
-    # they are.
+    # #dumped_rows, of a slice of values without one, such as the cells of a spreadsheet, or the records written in the
+    # `:hash` format, each key of a record as its text and each value as JSON holds it, see #stored_value, which a
+    # contract reads back, and of a slice of lines, as they are.
     def stored_rows
       return dumped_rows if schema
       return @rows.dup unless IOStreams::Tabular.renders_values?(format)
 
-      every = Hash.new(true)
-      @rows.map { |row| map_values(row, [every, every]) { |_field, value| stored_value(value) } }
+      @rows.map do |row|
+        case row
+        when ::Array then row.map { |value| stored_value(value) }
+        when ::Hash then row.to_h { |key, value| [key.to_s, stored_value(value)] }
+        else row
+        end
+      end
     end
 
-    # Returns the value of a row of a slice without a schema in a form that JSON keeps, see
-    # `IOStreams::Schema::Field.any_json`, apart from a time of a slice of the cells of a source of typed values, such as
-    # a spreadsheet, see #cell_text?, which holds a clock without a zone, as the text of its clock without an offset, see
+    # Returns the value of a row of a slice without a schema in a form that JSON keeps, as a field of type "any" writes
+    # it, see `IOStreams::Schema::Field.any_json`, such as a BigDecimal, Date or Time as its text, with each key and
+    # value within a Hash or an Array, and a Symbol, as JSON holds it too, see `IOStreams::Schema::Field.json_data`,
+    # apart from a time of a slice of the cells of a source of typed values, such as a spreadsheet, see #cell_text?,
+    # which holds a clock without a zone, as the text of its clock without an offset, see
     # `IOStreams::Schema::Field.clock_text`, so that a field reads it in its `timeZone` once the slice is stored, as it
     # reads the cell.
     def stored_value(value)
       return IOStreams::Schema::Field.clock_text(value) if cell_text? && value.is_a?(Time)
 
-      IOStreams::Schema::Field.any_json(value)
+      IOStreams::Schema::Field.json_data(IOStreams::Schema::Field.any_json(value))
     end
 
     # Returns [Array] the rows of a slice with a schema, each value in a form that JSON keeps, see

@@ -354,6 +354,17 @@ class SliceTest < Minitest::Test
         assert_equal stored, IOStreams.slice(JSON.parse(JSON.generate(records.to_h))).rows
       end
 
+      it "holds the keys and values of a row without a schema as JSON holds them, also within a Hash or an Array" do
+        time    = Time.utc(2026, 1, 2, 3, 4, 5)
+        records = IOStreams::Slice.new([{name: "Jack", kind: :admin, totals: {amount: BigDecimal("12.5"), at: time}}], format: :hash)
+        rows    = IOStreams::Slice.new([[:admin, [BigDecimal("1.5"), Date.new(2026, 1, 2)]]], header: %w[kind totals], format: :array)
+        stored  = {"name" => "Jack", "kind" => "admin", "totals" => {"amount" => "12.5", "at" => "2026-01-02T03:04:05Z"}}
+
+        assert_equal [stored], records.to_h["rows"]
+        assert_equal [["admin", ["1.5", "2026-01-02"]]], rows.to_h["rows"]
+        assert_equal records.to_h, JSON.parse(JSON.generate(records.to_h))
+      end
+
       it "names the record and line of a value that its field cannot hold, when it is turned back" do
         hash  = {"rows" => [{"name" => "Jack", "on" => "2026-01-02"}, {"name" => "Jill", "on" => "x"}], "format" => "hash",
                  "schema" => schema, "record_number" => 5, "line_number" => 7}
