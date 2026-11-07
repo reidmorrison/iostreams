@@ -37,7 +37,7 @@ module IOStreams
     private_constant :RUBY_PATHS
 
     # The directory of the standard library of Ruby.
-    RUBY_LIB_DIRS = [RbConfig::CONFIG["rubylibdir"]].compact.map { |dir| "#{dir}/" }.freeze
+    RUBY_LIB_DIRS = [RbConfig::CONFIG["rubylibdir"]].compact.map { |dir| "#{dir}/".freeze }.freeze
     private_constant :RUBY_LIB_DIRS
 
     # Reports that the application used something deprecated, unless deprecation warnings are off, with the message,

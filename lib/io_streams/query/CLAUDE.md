@@ -224,7 +224,7 @@ changes, and docs/errors.md when what it raises does.
   `.adapter?(connection)` (an `ArJdbc::Abstract::Core`, without asking the raw connection), `.driver_exception(exception,
   driver)` (the Java exception of the driver of the supplied start of its class names: the exception itself, or the
   `java.sql.SQLException` that an `ActiveRecord::JDBCError` wraps (`#jdbc_exception`), or else the cause that Ruby
-  records for it (`CAUSE`, `Exception#cause`), which AR-JDBC sets to the exception of a failure to connect again while it
+  records for it (`.recorded_cause`, `Exception#cause`), which AR-JDBC sets to the exception of a failure to connect again while it
   retried a statement, such as a `java.net.ConnectException`, while `JDBCError#cause` returns the exception that was
   being rescued when AR-JDBC created it; AR-JDBC raises an unchecked exception of the driver as it is, such as
   `com.mysql.cj.exceptions.CJCommunicationsException`; the driver is told by the class of the exception or any frame of

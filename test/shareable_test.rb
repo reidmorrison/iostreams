@@ -20,9 +20,9 @@ class ShareableTest < Minitest::Test
 
     it "holds a shareable value in every constant" do
       script = <<~RUBY
+        require "shareable_state"
         require "iostreams"
         require "xlsxtream"
-        require "shareable_state"
         # test/query/shareable_test.rb checks IOStreams::Query, which needs Active Record.
         puts ShareableState.unshareable_constants(ShareableState.modules(IOStreams, except: ["IOStreams::Query"]))
       RUBY

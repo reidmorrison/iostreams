@@ -16,7 +16,7 @@ module IOStreams
     # workbook whose cells are not of their styles.
     class Workbook < ::Xlsxtream::Workbook
       # The versions of `xlsxtream` whose writer and styles this workbook knows: 2.x names its writer otherwise.
-      VERSIONS = Utils.shareable(Gem::Requirement.new(">= 3.0", "< 4"))
+      VERSIONS = [">= 3.0", "< 4"].freeze
 
       # The style of a time of day, after the styles of `xlsxtream`: none, a date and a date and time.
       TIME_OF_DAY_STYLE = 3
@@ -46,9 +46,9 @@ module IOStreams
       # workbook of `xlsxtream` itself does not write, to its writer, with the cells of CELL_STYLES, see .written_styles.
       def self.problem
         version = ::Xlsxtream::VERSION
-        unless VERSIONS.satisfied_by?(Gem::Version.new(version))
+        unless Gem::Requirement.new(*VERSIONS).satisfied_by?(Gem::Version.new(version))
           return "xlsxtream #{version} is not a version whose styles IOStreams adds the style of a time of day to, " \
-                 "which needs xlsxtream #{VERSIONS}"
+                 "which needs xlsxtream #{VERSIONS.join(', ')}"
         end
         parts = written_styles if ::Xlsxtream::Row::TIME_STYLE == 2
         return if parts&.any? { |xml| xml.include?(CELL_STYLES) && xml.include?(CELL_STYLES_END) }

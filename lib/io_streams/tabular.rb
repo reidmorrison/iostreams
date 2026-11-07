@@ -702,7 +702,7 @@ module IOStreams
 
     # De-Register a file format
     #
-    # Returns [Symbol] the format removed, or nil if the format was not registered
+    # Returns [Class] the parser class of the format removed, or nil if the format was not registered
     #
     # Example:
     #   deregister_format(:psv)
