@@ -1346,9 +1346,10 @@ module IOStreams
     # #stream_rows?, hold the default text of each value, as its lines do, see #default_text?, so that its slices read
     # the same values with a schema as the stream, and as the slices of its lines, once a schema reads them.
     #
-    # The slices hold the rows as they are in the file, so a format that can read only some of its columns, such as
-    # Parquet, reads every column, also those that the schema skips, as the lines of CSV hold every column, so that
-    # whoever parses a slice later reads it by the schema that it carries, whatever schema or contract read the file.
+    # The slices hold every column, as the lines of CSV do, so a format that can read only some of its columns, such as
+    # Parquet, reads every column, also those that the schema skips, so that a slice holds the columns that the schema
+    # it carries describes, whatever schema or contract read the file. That schema or contract still reads a time of day
+    # in the zone of its field, see `IOStreams::Parquet::Reader#time_fields`.
     def open_slice_rows(tabular, delimiter, buffer_size)
       open_rows_reader(tabular, delimiter, buffer_size, text: tabular.schema.nil?, every_column: true) do |rows|
         lines_of_file = tabular.lines? && builder.lines_of_file?

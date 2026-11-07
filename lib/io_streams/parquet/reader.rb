@@ -42,8 +42,9 @@ module IOStreams
       #
       #   every_column: [true|false]
       #     Whether to read every column of the file, also those that the schema skips, such as for the slices of the
-      #     file, which hold its rows as they are in the file, see `IOStreams::Stream#open_slice_rows`, so that whoever
-      #     parses them later reads them as the file, by the schema that the reader declares, see #declared_schema.
+      #     file, which hold every column, see `IOStreams::Stream#open_slice_rows`, as the schema that the reader
+      #     declares describes them, see #declared_schema. The schema still reads a time of day in the zone of its
+      #     field, see #time_fields.
       #     Default: false, only the columns of the fields of a schema that skips the others.
       def self.file(file_name, schema: nil, every_column: false)
         Parquet.load_dependency

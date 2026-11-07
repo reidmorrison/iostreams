@@ -340,7 +340,7 @@ module IOStreams
     # The reader is given the schema, as the writer is, see #write_rows, so that a reader that can read only some of the
     # columns of a file, such as Parquet, reads only those of its fields when the schema skips the others, see
     # `IOStreams::Parquet::Reader.file`, unless the caller needs every column, `every_column: true`, such as for the
-    # slices of the file, which hold its rows as they are in the file.
+    # slices of the file, which hold every column.
     #
     # Returns the result of the block.
     def read_rows(io, every_column: false, &)

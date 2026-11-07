@@ -778,7 +778,7 @@ class ParquetTest < Minitest::Test
         [requested_columns { list = read(source) }, list]
       end
 
-      it "reads every column into its slices, which hold the rows as they are in the file, whatever reads them later" do
+      it "reads every column into its slices, which carry the schema of the whole file" do
         write
         contract = Class.new(IOStreams::Contract) do
           fields_match "subset"
