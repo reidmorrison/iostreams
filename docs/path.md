@@ -554,13 +554,14 @@ holds only the server's ed25519 key raises `Net::SSH::HostKeyUnknown`, although 
 is skipped. The full output of `ssh-keyscan` also holds the server's other keys, which work without them. Reading and
 writing do not need these gems, since the `sftp` program supports ed25519 keys itself.
 
-On JRuby, `net-ssh` 8 brings `jruby-openssl` 0.19, whose AES-CTR cipher breaks these operations whenever `net-ssh`
-uses it, depending on what in the process used OpenSSL first: they raise `Net::SSH::Disconnect` ("connection closed
-by remote host") or `Net::SSH::Exception` ("unexpected message") as they connect. Keep `jruby-openssl` below 0.19,
-which JRuby itself includes, until [it is fixed](https://github.com/jruby/jruby-openssl/issues/392):
+On JRuby, `net-ssh` 8 brings `jruby-openssl` 0.19, whose AES-CTR cipher before 0.19.4 breaks these operations
+whenever `net-ssh` uses it, depending on what in the process used OpenSSL first: they raise `Net::SSH::Disconnect`
+("connection closed by remote host") or `Net::SSH::Exception` ("unexpected message") as they connect. Use
+`jruby-openssl` 0.19.4 or later, which [fixes it](https://github.com/jruby/jruby-openssl/issues/392), and which JRuby
+10.1.3 includes:
 
 ~~~ruby
-gem "jruby-openssl", "< 0.19", platform: :jruby
+gem "jruby-openssl", ">= 0.19.4", platform: :jruby
 ~~~
 
 ### The url {#required-arguments-1}
