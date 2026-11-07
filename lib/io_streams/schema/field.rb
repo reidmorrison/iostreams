@@ -331,9 +331,9 @@ module IOStreams
       # checked, see #cast_time, since `Time` moves 24:00:00, and a leap second, into the next day. Its hour, minute,
       # second, fraction of a second and offset are captured.
       TIME     = /\A(\d{2}):(\d{2}):(\d{2})(\.\d+)?(Z|[+-]\d{2}(?::?[0-5]\d)?)?\z/
-      # The zones of text read with a format that are UTC, rather than an offset of zero, such as `+00:00` or `+0000`,
-      # which a time keeps, as `Time.iso8601` reads them, see #cast_datetime: `Z`, `UTC`, `UT`, and `-00:00`, `-0000` or
-      # `-00`, which RFC 3339 and RFC 2822 give a time in UTC whose local offset is not known.
+      # The zones of text that are UTC, rather than an offset of zero, such as `+00:00` or `+0000`, which a time keeps,
+      # see #zero_offset? and #at_offset: `Z`, `UTC`, `UT`, and `-00:00`, `-0000` or `-00`, which RFC 3339 and RFC 2822
+      # give a time in UTC whose local offset is not known.
       UTC_ZONE = /\A(?:Z|UTC?|-00(?::?00)?)\z/i
 
       # The date of a time of day, on which IOStreams and Active Record hold it, see .time_of_day and #time_of_day_text.
@@ -2030,14 +2030,24 @@ module IOStreams
       # is replaced, and Z added to text without an offset.
       def iso_datetime(match)
         time = Time.iso8601("#{match[1]}T#{match[2]}#{match[3] || 'Z'}")
-        match[3].nil? ? in_zone(time) : time
+        at_offset(time, match[3])
       end
 
       # Returns [Time] the time of day, on 2000-01-01, of the text that TIME matched, in UTC without an offset, read with
       # `Time.iso8601`, see #iso_datetime, so that only Z is added to text without an offset.
       def iso_clock(clock)
         time = Time.iso8601("2000-01-01T#{clock[0]}#{'Z' unless clock[5]}")
-        clock[5].nil? ? in_zone(time) : time
+        at_offset(time, clock[5])
+      end
+
+      # Returns [Time] the time that `Time.iso8601` read from text with the supplied offset: in the zone of the field
+      # without an offset, see #in_zone, in UTC for an offset that UTC_ZONE names, such as `-0000`, and otherwise at the
+      # offset, such as `+0000`. `Time.iso8601` does not tell them apart alike everywhere: from the time gem 0.5.0 it
+      # reads the text with `Time.new`, which on JRuby reads `-0000` and `-00` as an offset of zero.
+      def at_offset(time, offset)
+        return in_zone(time) if offset.nil?
+
+        UTC_ZONE.match?(offset) ? time.utc : time
       end
 
       # Returns [Date] the date of ISO 8601 text, see #load.
