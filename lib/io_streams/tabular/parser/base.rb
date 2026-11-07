@@ -44,10 +44,11 @@ module IOStreams
         end
 
         # Returns [#read|nil] the times of day of the rows of the format, when it holds them as clocks without a zone, such
-        # as Parquet, in the columns that the supplied schema of the file declares as `time`, read by the fields of the
-        # supplied schema that reads the rows, see `IOStreams::Tabular#clocks`, or nil for any other format, whose values
-        # hold their own offset, or are text, which the fields read themselves.
-        def self.clocks(_declared, _schema)
+        # as Parquet, in the columns that the schema of the file, which the block returns, declares as `time`, read by
+        # the fields of the supplied schema that reads the rows, see `IOStreams::Tabular#read_declared`, or nil for any
+        # other format, whose values hold their own offset, or are text, which the fields read themselves, without
+        # calling the block.
+        def self.clocks(_schema)
           nil
         end
 

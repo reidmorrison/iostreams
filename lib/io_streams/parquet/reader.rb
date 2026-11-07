@@ -40,28 +40,26 @@ module IOStreams
       #     on the path, see `IOStreams::Stream#schema`, as for the writer, see `IOStreams::Parquet::Writer.file`.
       #     Default: nil, which reads every column.
       #
-      #   as_in_file: [true|false]
-      #     Whether to read the rows as they are in the file, such as for its slices, see
-      #     `IOStreams::Stream#open_slice_rows`: every column, also those that the schema skips, and each time of day as
-      #     the clock that the file holds, in UTC, see `IOStreams::Parquet::Clocks`, so that the rows are those that the
-      #     schema that the reader declares describes, see #declared_schema, whatever schema reads them later.
-      #     Default: false, only the columns of the fields of a schema that skips the others, and each time of day in
-      #     the zone of the field of the schema that reads it.
-      def self.file(file_name, schema: nil, as_in_file: false)
+      #   every_column: [true|false]
+      #     Whether to read every column of the file, also those that the schema skips, such as for the slices of the
+      #     file, which hold every column, see `IOStreams::Stream#open_slice_rows`, as the schema that the reader
+      #     declares describes them, see #declared_schema.
+      #     Default: false, only the columns of the fields of a schema that skips the others.
+      def self.file(file_name, schema: nil, every_column: false)
         Parquet.load_dependency
-        yield new(file_name, schema, as_in_file: as_in_file)
+        yield new(file_name, schema, every_column: every_column)
       end
 
-      def initialize(file_name, schema = nil, as_in_file: false)
+      def initialize(file_name, schema = nil, every_column: false)
         super(nil)
-        @file_name  = file_name
-        @schema     = schema
-        @as_in_file = as_in_file
-        @columns    = schema&.projection { labels } unless as_in_file
+        @file_name = file_name
+        @columns   = schema&.projection { labels } unless every_column
       end
 
       # Yields [Hash<String, Object>] each row, by the names of its columns, in the order of the columns, with each time of
-      # day on 2000-01-01, see #time_columns and `IOStreams::Parquet::Clocks`, and empty text as nil, see #text_columns.
+      # day as the clock that the file holds, on 2000-01-01, in UTC, see #time_columns, which the tabular that reads the
+      # rows reads in the zone of its `time` field, see `IOStreams::Parquet::Clocks`, and empty text as nil, see
+      # #text_columns.
       #
       # Raises the RuntimeError of the parquet gem, tagged as `IOStreams::Errors::Corrupt`, for a file that it cannot
       # read, see .failure_kind.
@@ -71,10 +69,10 @@ module IOStreams
       # block is not running.
       def each(&block)
         in_block = false
-        clocks   = Clocks.new(time_columns, (@schema unless @as_in_file))
+        times    = time_columns
         texts    = text_columns
         ::Parquet.each_row(@file_name, columns: @columns) do |row|
-          clocks.read!(row)
+          times.each { |name| (time = row[name]) && (row[name] = Schema::Field.time_of_day(time)) }
           texts.each { |name| row[name] = nil if row[name] == "" }
           in_block = true
           block.call(row)
@@ -91,7 +89,8 @@ module IOStreams
 
       # Returns [IOStreams::Schema] the schema that the file declares, see `IOStreams::Stream#infer_schema`: a field for
       # each of its columns, in order, of the type that #each reads its values as, which it records at its end, so that
-      # no row is read:
+      # no row is read, built once for the read, since the stream asks for it more than once, see
+      # `IOStreams::Stream#open_rows_reader`:
       #   integer:  an integer column of any width, signed or not.
       #   number:   a decimal, with the `decimals` of its scale, or a float or double, with `floatNumber: true`.
       #   boolean, date, datetime (a timestamp, or the INT96 of older writers), time and string (text, an enum or JSON).
@@ -102,7 +101,7 @@ module IOStreams
       # A column that cannot be null, `REQUIRED`, is required, `constraints: {required: true}`, unless its values are text
       # or of type "any", which can be empty, as for the columns of a query, see `IOStreams::Query::Columns`.
       def declared_schema
-        IOStreams::Schema.new(fields: fields.map { |field| declared_field(field) })
+        @declared_schema ||= IOStreams::Schema.new(fields: fields.map { |field| declared_field(field) })
       end
 
       private
@@ -178,11 +177,12 @@ module IOStreams
 
       # Returns [Array<String>] the names of the columns of times of day that are read, whose values the `parquet` gem
       # reads as a Time on the day that it reads them, in UTC, which #each moves to 2000-01-01, see
-      # `IOStreams::Parquet::Clocks`, as Active Record holds a time of day, so that a value reads the same on every day.
-      # Only a column of the file itself, not a time of day within a column of structs or lists, which IOStreams does not
-      # write.
+      # `IOStreams::Schema::Field.time_of_day`, as Active Record holds a time of day, so that a value reads the same on
+      # every day: those that #declared_schema declares as `time`, by their logical type, or the converted type of an
+      # older writer. Only a column of the file itself, not a time of day within a column of structs or lists, which
+      # IOStreams does not write.
       def time_columns
-        names = fields.filter_map { |field| field["name"] if field.dig("logical_type", "type") == "Time" }
+        names = fields.filter_map { |field| field["name"] if declared_field(field)[:type] == "time" }
         @columns ? names & @columns : names
       end
 

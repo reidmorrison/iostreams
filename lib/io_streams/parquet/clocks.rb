@@ -2,58 +2,58 @@
 
 module IOStreams
   module Parquet
-    # The times of day of the rows of a Parquet file: the values of its columns of times of day, which hold the clock
-    # that a schema wrote, without a zone, see `IOStreams::Parquet::Column`, read as a time of day on 2000-01-01 in the
-    # zone of the `time` field of the schema that reads each column, so that a time of day written in New York reads
-    # back as the same time, see `IOStreams::Schema::Field#time_of_clock`, otherwise in UTC, see
-    # `IOStreams::Schema::Field.time_of_day`.
-    #
-    # The reader of the file reads them so, see `IOStreams::Parquet::Reader`, and so does the stream of a slice of its
-    # rows, see `IOStreams::Slice::Stream#open_rows`, whose rows hold the clocks of the file, so that a schema or
-    # contract reads a slice as it reads the file.
+    # The times of day of the rows of a Parquet file, read in the zone of the `time` field that reads each of their
+    # columns. A column of times of day holds the clock that a schema wrote, without a zone, see
+    # `IOStreams::Parquet::Column`, which the reader of the file returns as a time of day on 2000-01-01 in UTC, see
+    # `IOStreams::Parquet::Reader#each`, and which a slice of its rows holds as it is. The tabular that parses the rows,
+    # of the file or of a slice, reads each one in the zone of its field, see `IOStreams::Tabular#read_declared` and
+    # `IOStreams::Schema::Field#time_of_clock`, so that a time of day written in New York reads back as the same time,
+    # and a schema or contract reads a slice as it reads the file.
     class Clocks
       # Returns [IOStreams::Parquet::Clocks|nil] the times of day of the columns that the supplied schema of the file
       # declares as `time`, such as the schema that a slice of its rows carries, see `IOStreams::Slice#schema`, read by
-      # the fields of the supplied schema, or nil when it declares none.
+      # the `time` fields of the supplied schema, or nil when no `time` field reads one of them.
       def self.declared(declared, schema)
-        names = declared&.fields&.filter_map { |field| field.name if field.type == "time" }
-        new(names, schema) unless names.nil? || names.empty?
+        names  = declared.fields.filter_map { |field| field.name if field.type == "time" }
+        clocks = new(names, schema)
+        clocks unless clocks.empty?
       end
 
       # Parameters
       #   columns: [Array<String>]
       #     The names of the columns of times of day.
       #
-      #   schema: [IOStreams::Schema|nil]
-      #     The schema that reads the rows, whose `time` field of a column reads its clocks in its zone, or nil to read
-      #     every clock in UTC, as the file holds it.
+      #   schema: [IOStreams::Schema]
+      #     The schema that reads the rows, whose `time` field of a column reads its clocks in its zone, or in UTC without
+      #     one. A column that no `time` field reads is left as it is.
       def initialize(columns, schema)
-        @fields = columns.map do |name|
-          field = schema&.field_for(name, "column")
-          [name, (field if field&.type == "time")]
+        @fields = columns.filter_map do |name|
+          field = schema.field_for(name, "column")
+          [name, field] if field&.type == "time"
         end
       end
 
-      # Returns [Hash] the row, by the names of its columns, with each time of day read, see the class, changing the
-      # row supplied, such as one that the reader of the file has just read.
-      def read!(row)
-        @fields.each { |name, field| (time = row[name]).is_a?(::Time) && (row[name] = time_of_day(time, field)) }
-        row
+      # Returns [true|false] whether no `time` field reads a column of times of day.
+      def empty?
+        @fields.empty?
       end
 
-      # Returns [Hash] a copy of the row with each time of day read, see #read!, or the row itself when it holds none, or
-      # is not a Hash, such as a row of a slice, which the slice keeps as it is.
+      # Returns [Hash] a copy of the row, by the names of its columns, with each time of day read in the zone of its
+      # field, or the row itself when none changes, such as for a field without a zone, which reads the clock of a time
+      # of day on 2000-01-01 as it is, or when it is not a Hash, so that a row of a slice, which the slice keeps as it is,
+      # is copied only when it must be.
       def read(row)
-        return row unless row.is_a?(::Hash) && @fields.any? { |name, _field| row[name].is_a?(::Time) }
+        return row unless row.is_a?(::Hash)
 
-        read!(row.dup)
-      end
+        copy = nil
+        @fields.each do |name, field|
+          time = row[name]
+          next unless time.is_a?(::Time)
 
-      private
-
-      # Returns [Time] the time of day of the clock of the time, in the zone of the field, or in UTC without one.
-      def time_of_day(time, field)
-        field ? field.time_of_clock(time) : Schema::Field.time_of_day(time)
+          clock = field.time_of_clock(time)
+          (copy ||= row.dup)[name] = clock unless clock.equal?(time)
+        end
+        copy || row
       end
     end
   end

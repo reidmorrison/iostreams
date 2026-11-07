@@ -340,21 +340,24 @@ module IOStreams
     #
     # The reader is given the schema, as the writer is, see #write_rows, so that a reader that can read only some of the
     # columns of a file, such as Parquet, reads only those of its fields when the schema skips the others, see
-    # `IOStreams::Parquet::Reader.file`, and reads a time of day in the zone of its field, unless the caller needs the
-    # rows as they are in the file, `as_in_file: true`, such as for the slices of the file.
+    # `IOStreams::Parquet::Reader.file`, unless the caller needs every column, `every_column: true`, such as for the
+    # slices of the file, which hold every column.
     #
     # Returns the result of the block.
-    def read_rows(io, as_in_file: false, &)
-      arguments = {schema: schema, as_in_file: as_in_file}
+    def read_rows(io, every_column: false, &)
+      arguments = {schema: schema, every_column: every_column}
       parser.class.row_format.open_stream(:reader, io, @row_format_options, name: format, arguments: arguments, &)
     end
 
-    # Returns [#read|nil] the times of day of the rows of the format, when it holds them as clocks without a zone, such
-    # as Parquet, in the columns that the supplied schema of the file declares as `time`, such as that of a slice of its
-    # rows, read in the zone of the field of this tabular's schema that reads each one, as reading the file reads them,
-    # see `IOStreams::Tabular::Parser::Base.clocks`, or nil, for a format whose rows need nothing more.
-    def clocks(declared)
-      parser.class.clocks(declared, schema)
+    # Takes the schema that the rows declare, which the block returns, such as that of a Parquet file, which its
+    # reader declares, see `IOStreams::Stream#open_rows_reader`, or that which a slice of its rows carries, see
+    # `IOStreams::Slice#schema`, so that each time of day of a format that holds them as clocks without a zone is read
+    # in the zone of the field of this tabular's schema that reads it, before the row is parsed, see #record_parse, as
+    # every reader of rows and records, of a file or a slice, parses them, see
+    # `IOStreams::Tabular::Parser::Base.clocks`. The block is called only for such a format, with a schema.
+    def read_declared(&)
+      @clocks = parser.class.clocks(schema, &)
+      nil
     end
 
     # Yields [#<<] the writer of the rows of a format whose rows are not lines, see #lines?, to the supplied stream of
@@ -399,7 +402,7 @@ module IOStreams
     # `IOStreams::Schema::Columns`.
     # Returns nil if the line is blank.
     def record_parse(line)
-      @mapping.record_parse(line)
+      @mapping.record_parse(clocked(line))
     end
 
     # Parses the line, or a row already read, as a reader of its records would, see #record_parse, so that a value that
@@ -409,6 +412,7 @@ module IOStreams
     #
     # Returns nil.
     def validate_line(line)
+      line = clocked(line)
       unnamed_columns? ? @mapping.row_parse(line) : @mapping.record_parse(line)
       nil
     end
@@ -422,7 +426,7 @@ module IOStreams
     # Raises `IOStreams::Errors::TypeMismatch` when a line of JSON is not an object, since only a record has keys.
     # Raises `IOStreams::Errors::InvalidHeader` for a key of a record that is not a column of the rows, see #read_row.
     def row_parse(line)
-      @mapping.row_parse(line)
+      @mapping.row_parse(clocked(line))
     end
 
     # Renders the output row, once the mapping of the columns arranges it in the form of the rows of the format, see
@@ -477,7 +481,7 @@ module IOStreams
     # or record is not valid, rather than raise the first, as reading it does, so that a reader reports every field of a
     # bad row, see `IOStreams::InvalidRow`.
     def value_errors(line)
-      @mapping.value_errors(line)
+      @mapping.value_errors(clocked(line))
     end
 
     # Returns [Array<Integer>|nil] the positions of the values of the rows read whose field keeps every digit of its
@@ -597,7 +601,7 @@ module IOStreams
     # header row, see #read_record_line.
     # Returns nil if the line is blank.
     def read_record(line)
-      @mapping.record_parse(line)
+      @mapping.record_parse(clocked(line))
     end
 
     # Reading and writing a line at a time: a reader or writer of rows or records, see `IOStreams::Row::Reader` and the
@@ -616,6 +620,7 @@ module IOStreams
     #
     # Returns the result of the block.
     def read_row(line)
+      line = clocked(line)
       # Once the header row is read, every line is a row, so that is asked first.
       return yield(@mapping.row_parse(line)) unless @mapping.rows_header?
       return yield(as_header_row(@mapping.read_header(line))) if @mapping.header?
@@ -646,7 +651,7 @@ module IOStreams
       if @mapping.header?
         @mapping.read_header(line)
       else
-        yield @mapping.record_parse(line)
+        yield @mapping.record_parse(clocked(line))
       end
     end
 
@@ -894,6 +899,12 @@ module IOStreams
       line_format = self.class.line_format(@format, text_format: @text_format)
       lines       = self.class.parser_class(line_format) unless line_format == @format
       parser_class.new(schema: schema, lines: lines)
+    end
+
+    # Returns the row with each time of day of a format that holds them as clocks without a zone read in the zone of its
+    # field, see #read_declared, or the row as it is.
+    def clocked(line)
+      @clocks ? @clocks.read(line) : line
     end
 
     # Returns [IOStreams::Tabular::Mapping] the mapping of the columns of the file, see #mapping: by the fields of the

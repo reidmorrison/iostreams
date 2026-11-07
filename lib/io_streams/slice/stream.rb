@@ -107,9 +107,16 @@ module IOStreams
       # such cells, the default text of the type of each field first, such as `1234.5` rather than with its `groupChar`,
       # see `IOStreams::Slice#cell_text?`, in the form of a cell, `:scalar`, see `IOStreams::Schema::Field#parse`, so that
       # a `Time` of a cell is the clock that it holds, read in the `timeZone` of its field.
+      #
+      # The rows are those that the schema of the slice describes, so that a schema or contract reads them as it reads
+      # the rows of the file, such as the time of day of a Parquet file, which it reads in the zone of its field, see
+      # `IOStreams::Tabular#read_declared`.
       def tabular(**)
-        super(default_schema: io_stream.schema, blank_rows: io_stream.blank_rows?, headerless: !io_stream.header?,
-              typed: io_stream.typed?, part_of_file: true, cell_text: cell_text?, value_form: (:scalar if cell_text?), **)
+        tabular = super(default_schema: io_stream.schema, blank_rows: io_stream.blank_rows?, headerless: !io_stream.header?,
+                        typed: io_stream.typed?, part_of_file: true, cell_text: cell_text?,
+                        value_form: (:scalar if cell_text?), **)
+        tabular.read_declared { io_stream.schema }
+        tabular
       end
 
       # Returns [true|false] whether the values of the rows of the slice are the cells of a source of typed values, such
@@ -155,35 +162,19 @@ module IOStreams
         NumberedRows.new(io_stream)
       end
 
-      # Yields [NumberedRows] the rows of the slice, see #rows, which the readers of rows and records read by the supplied
-      # tabular, with each time of day of a format that holds them as clocks without a zone, such as Parquet, read in the
-      # zone of the field of the tabular that reads it, see `IOStreams::Tabular#clocks`, as reading its file reads it,
-      # so that a schema or contract reads the slice as it reads the file. The slice keeps its rows as they are.
-      def open_rows(tabular)
-        yield NumberedRows.new(io_stream, tabular.clocks(io_stream.schema))
-      end
-
       # The rows of a slice, after its header row, when it carries one, with the line of the file that each one starts
       # on and its record number, see `IOStreams::Slice#each`, which a slice reader reads, see
       # `IOStreams::Slice::Reader`, so that the slices that it reads from them keep their numbers.
       class NumberedRows
-        # Parameters
-        #   slice: [IOStreams::Slice]
-        #
-        #   clocks: [#read|nil]
-        #     Reads the times of day of each row, see `IOStreams::Tabular#clocks`, or nil for rows that need nothing.
-        def initialize(slice, clocks = nil)
-          @slice  = slice
-          @clocks = clocks
+        def initialize(slice)
+          @slice = slice
         end
 
         # Yields the header row, which is neither on a line nor a record, nil, nil, and then each row with its line
-        # number and record number, see `IOStreams::Slice#each`, with its times of day read, see #initialize.
-        def each(&block)
+        # number and record number, see `IOStreams::Slice#each`.
+        def each(&)
           yield(@slice.header, nil, nil) if @slice.header?
-          return @slice.each(&block) unless @clocks
-
-          @slice.each { |row, line_number, record_number| block.call(@clocks.read(row), line_number, record_number) }
+          @slice.each(&)
         end
 
         # Yields each row as #each does, for a reader of rows or records, see `IOStreams::Row::Numbered#each_numbered`.
