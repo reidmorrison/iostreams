@@ -31,12 +31,11 @@ module IOStreams
         # Returns nil before json 2.10, which added `JSON::Coder`, for a version whose coder does not write a key that is
         # not a String the same way, or does not hand its block the text that it does not write as it is, see .hands_text?,
         # and when another library, such as ActiveSupport, has replaced `Hash#to_json`, since the coder would not write
-        # the JSON that it does.
+        # the JSON that it does. The coder is built once, as the class is loaded, see the end of the class.
         def self.coder
           return unless ::Hash.instance_method(:to_json).owner.name&.start_with?("JSON::")
-          return @coder if defined?(@coder)
 
-          @coder = build_coder
+          @coder
         end
 
         def self.build_coder
@@ -343,6 +342,10 @@ module IOStreams
           else value
           end
         end
+
+        # The coder, see .coder, built as the class is loaded, since a class-level cache could only be set in the main
+        # Ractor, see `IOStreams::Utils.main_ractor?`, and shareable, see `IOStreams::Utils.shareable`.
+        @coder = Utils.shareable(build_coder)
       end
     end
   end

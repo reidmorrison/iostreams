@@ -432,19 +432,21 @@ class XlsxWriterTest < Minitest::Test
 
       describe "a version of xlsxtream whose styles it does not know" do
         # The gem that each test changes, which IOStreams loads only once it writes a spreadsheet, and the workbook,
-        # which reads xlsxtream's style of a date and time, `Row::TIME_STYLE`, as its class is loaded, so that it does
-        # so before a test changes it.
+        # which reads xlsxtream's style of a date and time, `Row::TIME_STYLE`, and checks the gem, as its class is
+        # loaded, so that it does so before a test changes the gem.
         before do
           require "xlsxtream"
           IOStreams::Xlsx::Workbook
         end
 
-        # Checks the version of xlsxtream again within the block, which the workbook otherwise checks once.
+        # Checks the version of xlsxtream again within the block, which the workbook otherwise checks once, as it is
+        # loaded.
         def recheck
-          IOStreams::Xlsx::Workbook.instance_variable_set(:@problem, nil)
+          checked = IOStreams::Xlsx::Workbook.instance_variable_get(:@problem)
+          IOStreams::Xlsx::Workbook.instance_variable_set(:@problem, IOStreams::Xlsx::Workbook.send(:problem))
           yield
         ensure
-          IOStreams::Xlsx::Workbook.instance_variable_set(:@problem, nil)
+          IOStreams::Xlsx::Workbook.instance_variable_set(:@problem, checked)
         end
 
         # Writes a time of day to the existing file, which raises before it is opened, so that the file is untouched.

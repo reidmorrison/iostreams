@@ -105,9 +105,18 @@ module IOStreams
     BLANK_TEXT = /\A[[:space:]]*\z/
     private_constant :BLANK_TEXT
 
-    # The pattern of BLANK_TEXT in each encoding that it cannot be matched against, such as UTF-16, see .blank_text?.
-    @encoded_blank_texts = {}
-    @encoded_blank_texts_mutex = Mutex.new
+    # Returns [Regexp] the pattern of BLANK_TEXT in the supplied encoding, see .blank_text?.
+    def self.blank_text_in(encoding)
+      Regexp.new(BLANK_TEXT.source.encode(encoding), BLANK_TEXT.options | Regexp::FIXEDENCODING)
+    end
+    private_class_method :blank_text_in
+
+    # The pattern of BLANK_TEXT in each encoding of text that it cannot be matched against, such as UTF-16LE, see
+    # .blank_text?, built as the file is loaded, since a class-level cache could only be set in the main Ractor, see
+    # .main_ractor?.
+    ENCODED_BLANK_TEXTS = ::Encoding.list.reject { |encoding| encoding.ascii_compatible? || encoding.dummy? }.
+                          to_h { |encoding| [encoding, blank_text_in(encoding).freeze] }.freeze
+    private_constant :ENCODED_BLANK_TEXTS
 
     # Returns [true|false] whether the value is blank, by the rules of Rails' `Object#blank?`: nil, false, text that is
     # blank, see .blank_text?, or anything else that is empty, such as an empty Array or Hash. Any other value is not
@@ -169,12 +178,10 @@ module IOStreams
       raise(ArgumentError, "Invalid #{name} #{value.inspect}: supply the number of a record, counting from 1, or nil")
     end
 
-    # Returns [Regexp] the pattern of blank text in the supplied encoding, see .blank_text?, created once for each one.
+    # Returns [Regexp] the pattern of blank text in the supplied encoding, see .blank_text?, from ENCODED_BLANK_TEXTS,
+    # otherwise built for a dummy encoding, such as "UTF-16" without its byte order, for which Regexp raises.
     def self.encoded_blank_text(encoding)
-      @encoded_blank_texts_mutex.synchronize do
-        @encoded_blank_texts[encoding] ||=
-          Regexp.new(BLANK_TEXT.source.encode(encoding), BLANK_TEXT.options | Regexp::FIXEDENCODING)
-      end
+      ENCODED_BLANK_TEXTS[encoding] || blank_text_in(encoding)
     end
     private_class_method :encoded_blank_text
 
@@ -508,6 +515,14 @@ module IOStreams
       when Array then value.map { |item| string_keys(item) }
       else value
       end
+    end
+
+    # Returns [true|false] whether class-level state can be set here, such as a value that a class remembers once for
+    # each process: always, apart from in a Ractor other than the main Ractor, which can never set the instance
+    # variables of a class or module, so that a class remembers such a value only when this is true, and finds it again
+    # otherwise. JRuby has no Ractors.
+    def self.main_ractor?
+      !defined?(::Ractor) || ::Ractor.current.equal?(::Ractor.main)
     end
 
     # Returns the value deeply frozen, with every object within it, so that every Ractor can read it, such as a constant

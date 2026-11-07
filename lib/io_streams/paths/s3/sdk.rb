@@ -36,13 +36,14 @@ module IOStreams
         # Returns [true|false] whether the AWS SDK is loaded, or can be, since the `aws-sdk-s3` gem is installed.
         # Raises LoadError when the gem is installed but cannot be loaded, see `Utils.soft_dependency_installed?`.
         #
-        # Remembers that the gem is not installed, so that it is not searched for again each time.
+        # Remembers that the gem is not installed, so that it is not searched for again each time, where class-level
+        # state can be set, see `IOStreams::Utils.main_ractor?`.
         def self.available?
           return true if defined?(::Aws::S3::Client)
           return false if @not_installed
 
           installed = Utils.soft_dependency_installed?("aws-sdk-s3", "AWS S3")
-          @not_installed = true unless installed
+          @not_installed = true if !installed && Utils.main_ractor?
           installed
         end
 
@@ -80,8 +81,9 @@ module IOStreams
           return cached if cached
 
           names = (::Aws::S3::Client.api.operation(operation).input.shape.member_names - PATH_PARAMETERS).freeze
-          # Replaces the cache rather than changing it, since the parts of an upload are requested in several threads.
-          @operation_options = (@operation_options || {}).merge(operation => names).freeze
+          # Replaces the cache rather than changing it, since the parts of an upload are requested in several threads,
+          # where class-level state can be set, see `IOStreams::Utils.main_ractor?`.
+          @operation_options = (@operation_options || {}).merge(operation => names).freeze if Utils.main_ractor?
           names
         end
 
@@ -98,8 +100,9 @@ module IOStreams
         def self.unknown_options(names)
           return [] if names.empty? || !available?
 
-          @known_options ||= OPERATIONS.flat_map { |operation| operation_options(operation) }.uniq.freeze
-          names - @known_options
+          known = @known_options || OPERATIONS.flat_map { |operation| operation_options(operation) }.uniq.freeze
+          @known_options ||= known if Utils.main_ractor?
+          names - known
         end
       end
     end

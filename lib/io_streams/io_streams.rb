@@ -389,10 +389,10 @@ module IOStreams
 
   # Returns the temporary path used when creating local temp files.
   #
-  # Default:
+  # Default, found each time, see `Dir.tmpdir`:
   #   ENV['TMPDIR'], or ENV['TMP'], or ENV['TEMP'], or `Etc.systmpdir`, or '/tmp', otherwise '.'
   def self.temp_dir
-    @temp_dir ||= Dir.tmpdir
+    @temp_dir || Dir.tmpdir
   end
 
   @temp_dir = nil

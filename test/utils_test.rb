@@ -79,6 +79,22 @@ class UtilsTest < Minitest::Test
       end
     end
 
+    describe ".main_ractor?" do
+      it "is true outside of a Ractor other than the main Ractor" do
+        assert_predicate IOStreams::Utils, :main_ractor?
+      end
+    end
+
+    describe ".shareable" do
+      it "freezes the value, with every value within it" do
+        value = {name: +"jack", list: [+"a", {key: +"b"}]}
+
+        assert_same value, IOStreams::Utils.shareable(value)
+        assert_predicate value, :frozen?
+        assert_predicate value[:list].last[:key], :frozen?
+      end
+    end
+
     describe ".frozen_copy" do
       it "returns a frozen copy, leaving the value as it is" do
         value = {name: +"jack", list: [+"a", {key: +"b"}], block: -> {}}
@@ -154,6 +170,14 @@ class UtilsTest < Minitest::Test
         assert IOStreams::Utils.blank_text?("  ".encode("UTF-16LE"))
         assert IOStreams::Utils.blank_text?(" ".encode("UTF-32BE"))
         refute IOStreams::Utils.blank_text?(" a".encode("UTF-16LE"))
+        %w[UTF-16BE UTF-16LE UTF-32BE UTF-32LE].each do |encoding|
+          assert IOStreams::Utils.blank_text?(" \u00A0\t".encode(encoding)), "blank in #{encoding}"
+          refute IOStreams::Utils.blank_text?(" x".encode(encoding)), "not blank in #{encoding}"
+        end
+      end
+
+      it "raises for text of a dummy encoding, without a byte order, as Regexp does" do
+        assert_raises(RegexpError) { IOStreams::Utils.blank_text?(" ".encode("UTF-16LE").force_encoding("UTF-16")) }
       end
 
       it "matches binary text by its ASCII whitespace" do

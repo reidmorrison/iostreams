@@ -571,34 +571,42 @@ module IOStreams
     end
     private_class_method :fingerprint
 
-    # Returns [String] the version of the gpg executable, see .executable, which is only found once for each executable.
+    # Returns [String] the version of the gpg executable, see .executable, which is only found once for each executable,
+    # where class-level state can be set, see `IOStreams::Utils.main_ractor?`, and each time elsewhere.
     # Raises Pgp::Failure when gpg fails, or cannot be run.
     def self.pgp_version
-      @pgp_version ||= begin
-        command          = gpg_command("--version")
-        out, err, status = Gpg.capture3(command)
-        IOStreams.logger&.debug { "IOStreams::Pgp.version: #{command.shelljoin}\n#{err}#{out}" }
-        raise(Pgp::Failure, "GPG Failed calling #{executable} --version: #{err}#{out}") unless status.success?
+      return @pgp_version ||= executable_version if Utils.main_ractor?
 
-        # Sample output
-        #   #{executable} (GnuPG) 2.0.30
-        #   libgcrypt 1.7.6
-        #   Copyright (C) 2015 Free Software Foundation, Inc.
-        #   License GPLv3+: GNU GPL version 3 or later <http://gnu.org/licenses/gpl.html>
-        #   This is free software: you are free to change and redistribute it.
-        #   There is NO WARRANTY, to the extent permitted by law.
-        #
-        #   Home: ~/.gnupg
-        #   Supported algorithms:
-        #   Pubkey: RSA, RSA, RSA, ELG, DSA
-        #   Cipher: IDEA, 3DES, CAST5, BLOWFISH, AES, AES192, AES256, TWOFISH,
-        #           CAMELLIA128, CAMELLIA192, CAMELLIA256
-        #   Hash: MD5, SHA1, RIPEMD160, SHA256, SHA384, SHA512, SHA224
-        #   Compression: Uncompressed, ZIP, ZLIB, BZIP2
-        version = out.lines.first&.[](/(\d+\.\d+.\d+)/, 1)
-        version || raise(Pgp::Failure, "GPG Failed to find the version of #{executable} in its --version output: #{out}")
-      end
+      @pgp_version || executable_version
     end
+
+    # Returns [String] the version of the gpg executable, frozen, from its --version output.
+    def self.executable_version
+      command          = gpg_command("--version")
+      out, err, status = Gpg.capture3(command)
+      IOStreams.logger&.debug { "IOStreams::Pgp.version: #{command.shelljoin}\n#{err}#{out}" }
+      raise(Pgp::Failure, "GPG Failed calling #{executable} --version: #{err}#{out}") unless status.success?
+
+      # Sample output
+      #   #{executable} (GnuPG) 2.0.30
+      #   libgcrypt 1.7.6
+      #   Copyright (C) 2015 Free Software Foundation, Inc.
+      #   License GPLv3+: GNU GPL version 3 or later <http://gnu.org/licenses/gpl.html>
+      #   This is free software: you are free to change and redistribute it.
+      #   There is NO WARRANTY, to the extent permitted by law.
+      #
+      #   Home: ~/.gnupg
+      #   Supported algorithms:
+      #   Pubkey: RSA, RSA, RSA, ELG, DSA
+      #   Cipher: IDEA, 3DES, CAST5, BLOWFISH, AES, AES192, AES256, TWOFISH,
+      #           CAMELLIA128, CAMELLIA192, CAMELLIA256
+      #   Hash: MD5, SHA1, RIPEMD160, SHA256, SHA384, SHA512, SHA224
+      #   Compression: Uncompressed, ZIP, ZLIB, BZIP2
+      version = out.lines.first&.[](/(\d+\.\d+.\d+)/, 1)
+      version || raise(Pgp::Failure, "GPG Failed to find the version of #{executable} in its --version output: #{out}")
+      version.freeze
+    end
+    private_class_method :executable_version
 
     # v2.4.7 output:
     #   pub   rsa3072 2023-05-15 [SC] [expires: 2025-05-14]

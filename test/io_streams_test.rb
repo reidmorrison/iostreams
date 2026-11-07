@@ -247,6 +247,13 @@ module IOStreams
           assert_equal Dir.tmpdir, IOStreams.temp_dir
         end
 
+        it "finds the system's temp directory each time, so that it follows a change to TMPDIR" do
+          IOStreams.instance_variable_set(:@temp_dir, nil)
+
+          Dir.stub(:tmpdir, "/first") { assert_equal "/first", IOStreams.temp_dir }
+          Dir.stub(:tmpdir, "/second") { assert_equal "/second", IOStreams.temp_dir }
+        end
+
         it "can be read in a process that has loaded nothing else" do
           script = %(require "iostreams"; print IOStreams.temp_dir)
           output, = Open3.capture2e(RbConfig.ruby, "-I", File.expand_path("../lib", __dir__), "-e", script)
