@@ -213,7 +213,8 @@ module IOStreams
 
       # Freezes the options too, see #options and `IOStreams::Path#freeze`.
       def freeze
-        @options = Utils.frozen_copy(@options)
+        @options     = Utils.frozen_copy(@options)
+        @bucket_name = Utils.frozen_copy(@bucket_name)
         super
       end
 

@@ -342,7 +342,7 @@ module IOStreams
   # * A local file could be replaced with a symbolic link after it is checked but before it is opened.
   #   Allowed paths do not prevent this, so do not allow paths where untrusted users can create files.
   def self.add_allowed_path(*elements, **args)
-    location = allowed_location(path(*elements, **args))
+    location = Utils.frozen_copy(allowed_location(path(*elements, **args)))
     @allowed_paths_mutex.synchronize { @allowed_paths = (@allowed_paths + [location]).uniq.freeze }
     location
   end
@@ -384,7 +384,7 @@ module IOStreams
     temp_dir = File.expand_path(temp_dir)
     FileUtils.mkdir_p(temp_dir)
 
-    @temp_dir = temp_dir
+    @temp_dir = temp_dir.freeze
   end
 
   # Returns the temporary path used when creating local temp files.
@@ -404,8 +404,13 @@ module IOStreams
   #
   # When SemanticLogger is loaded a SemanticLogger instance is used by default,
   # otherwise no logging is performed unless a logger is assigned via #logger=.
+  #
+  # Returns nil in a Ractor other than the main Ractor when the logger cannot be shared, see `Ractor.shareable?`, such
+  # as SemanticLogger's, so that IOStreams logs nothing there rather than raise.
   def self.logger
     @logger
+  rescue ::Ractor::IsolationError
+    nil
   end
 
   # Replace the logger used by IOStreams.

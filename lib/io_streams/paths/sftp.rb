@@ -26,8 +26,25 @@ module IOStreams
     #       output.write('Hello World')
     #     end
     class SFTP < IOStreams::Path
+      # Each setting keeps a frozen copy of the value supplied, see `IOStreams::Utils.frozen_copy`.
       class << self
-        attr_accessor :sshpass_bin, :sftp_bin, :sshpass_wait_seconds, :before_password_wait_seconds
+        attr_reader :sshpass_bin, :sftp_bin, :sshpass_wait_seconds, :before_password_wait_seconds
+
+        def sshpass_bin=(sshpass_bin)
+          @sshpass_bin = Utils.frozen_copy(sshpass_bin)
+        end
+
+        def sftp_bin=(sftp_bin)
+          @sftp_bin = Utils.frozen_copy(sftp_bin)
+        end
+
+        def sshpass_wait_seconds=(seconds)
+          @sshpass_wait_seconds = Utils.frozen_copy(seconds)
+        end
+
+        def before_password_wait_seconds=(seconds)
+          @before_password_wait_seconds = Utils.frozen_copy(seconds)
+        end
       end
 
       @sftp_bin                     = "sftp"
@@ -294,6 +311,9 @@ module IOStreams
       # Freezes the ssh options too, see #ssh_options and `IOStreams::Path#freeze`.
       def freeze
         @ssh_options = Utils.frozen_copy(@ssh_options)
+        @hostname    = Utils.frozen_copy(@hostname)
+        @username    = Utils.frozen_copy(@username)
+        @password    = Utils.frozen_copy(@password)
         super
       end
 
