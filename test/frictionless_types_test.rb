@@ -207,9 +207,14 @@ class FrictionlessTypesTest < Minitest::Test
         assert_raises(IOStreams::Errors::InvalidValue) { month.cast(Date.new(10_000, 1, 1)) }
       end
 
-      it "reads the ISO 8601 text of the first of a month, such as the text of a cell of a spreadsheet that holds the date" do
+      it "reads the ISO 8601 text of the first of a month, or of midnight on it, as a spreadsheet's cell of the date holds it" do
         assert_equal Date.new(2026, 10, 1), month.cast("2026-10-01")
         assert_equal Date.new(2026, 10, 1), month.load("2026-10-01")
+        assert_equal Date.new(2026, 10, 1), month.cast("2026-10-01T00:00:00")
+        assert_equal Date.new(2026, 10, 1), month.cast("2026-10-01T00:00:00.000-05:00")
+        ["2026-10-02T00:00:00", "2026-10-01T09:30:00", "2026-13-01T00:00:00"].each do |text|
+          assert_raises(IOStreams::Errors::InvalidValue, text) { month.cast(text) }
+        end
       end
 
       it "writes the year and month, and keeps its Date in the :hash format" do
@@ -222,24 +227,29 @@ class FrictionlessTypesTest < Minitest::Test
         assert_raises(IOStreams::Errors::InvalidValue) { field(type: "yearmonth", constraints: {maximum: "2026-06"}).cast("2026-07") }
       end
 
-      it "reads a spreadsheet's cell of a date on the first of a month from its rows, its lines, a CSV copy and its slices" do
+      it "reads a spreadsheet's cell of the first of a month, or of midnight on it, from its rows, its lines, a CSV copy and its slices" do
         path = IOStreams.path(dir, "budgets.xlsx")
         path.writer(:array) do |io|
-          io << %w[month]
-          io << [Date.new(2026, 10, 1)]
+          io << %w[month at]
+          io << [Date.new(2026, 10, 1), Time.utc(2026, 10, 1)]
         end
-        months = path.schema(fields: [{name: "month", type: "yearmonth"}])
+        schema = {fields: [{name: "month", type: "yearmonth"}, {name: "at", type: "yearmonth"}]}
         copy   = IOStreams.path(dir, "budgets.csv")
         copy.copy_from(path)
-        expected = [{"month" => Date.new(2026, 10, 1)}]
+        slices = []
+        IOStreams.path(dir, "budgets.xlsx").each(:slice, size: 10) { |slice| slices << slice }
+        IOStreams.path(dir, "budgets.xlsx").schema(schema).each(:slice, size: 10) { |slice| slices << slice }
+        expected = [{"month" => Date.new(2026, 10, 1), "at" => Date.new(2026, 10, 1)}]
 
-        assert_equal expected, read(months)
-        assert_equal expected, read(copy.schema(months.infer_schema))
-        months.each(:slice, size: 10) do |slice|
+        assert_equal "month,at\n2026-10-01,2026-10-01T00:00:00\n", copy.read
+        assert_equal expected, read(IOStreams.path(dir, "budgets.xlsx").schema(schema))
+        assert_equal expected, read(copy.schema(schema))
+        assert_equal 2, slices.size
+        slices.each do |slice|
           stored = IOStreams.slice(JSON.parse(JSON.generate(slice.to_h)))
 
-          assert_equal expected, read(IOStreams.stream(slice).schema(months.infer_schema))
-          assert_equal expected, read(IOStreams.stream(stored).schema(months.infer_schema))
+          assert_equal expected, read(IOStreams.stream(slice).schema(schema))
+          assert_equal expected, read(IOStreams.stream(stored).schema(schema))
         end
       end
     end

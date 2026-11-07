@@ -490,6 +490,37 @@ class XlsxRowsTest < Minitest::Test
         assert_raises(IOStreams::Errors::InvalidValue) { read(number) }
       end
 
+      it "reads a cell of a date and time at midnight into a date field as its date, as its CSV text, also from its slices" do
+        format_cells([["on", 22, nil, "46296"], ["dmy", 22, nil, "46296"], ["month", 22, nil, "46296"]])
+        schema   = {fields: [{name: "on", type: "date"}, {name: "dmy", type: "date", format: "%d/%m/%Y"},
+                             {name: "month", type: "yearmonth"}]}
+        expected = [{"on" => Date.new(2026, 10, 1), "dmy" => Date.new(2026, 10, 1), "month" => Date.new(2026, 10, 1)}]
+        csv      = File.join(dir, "copy.csv")
+        IOStreams.path(csv).copy_from(file_name)
+        slices = []
+        IOStreams.path(file_name).each(:slice, size: 10) { |slice| slices << slice }
+
+        assert_equal "2026-10-01T00:00:00,2026-10-01T00:00:00,2026-10-01T00:00:00", read(IOStreams.path(file_name), :line).last
+        assert_equal expected, read(IOStreams.path(file_name).schema(schema))
+        assert_equal 1, slices.size
+        assert_equal expected, read(IOStreams.stream(slices.first).schema(schema))
+        assert_equal expected, read(IOStreams.stream(IOStreams.slice(JSON.parse(JSON.generate(slices.first.to_h)))).schema(schema))
+        # A CSV copy is text, which a field with a format reads only in its format.
+        text = {fields: [{name: "on", type: "date"}, {name: "dmy", type: "string"}, {name: "month", type: "yearmonth"}]}
+
+        assert_equal [expected.first.merge("dmy" => "2026-10-01T00:00:00")], read(IOStreams.path(csv).schema(text))
+      end
+
+      it "raises for a cell of a date and time at another time in a date field, as for its CSV text" do
+        format_cells([["late", 22, nil, "46296.395833333336"]])
+        dates = {fields: [{name: "late", type: "date"}]}
+        csv   = File.join(dir, "copy.csv")
+        IOStreams.path(csv).copy_from(file_name)
+
+        assert_raises(IOStreams::Errors::InvalidValue) { read(IOStreams.path(file_name).schema(dates)) }
+        assert_raises(IOStreams::Errors::InvalidValue) { read(IOStreams.path(csv).schema(dates)) }
+      end
+
       it "raises for a cell of a time of day in a field of a date or a date and time, as for its CSV text" do
         format_cells([["clock", 20, nil, "0.39583333333333331"], ["midnight", 21, nil, "0"]])
 
