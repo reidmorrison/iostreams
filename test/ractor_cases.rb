@@ -42,6 +42,16 @@ module RactorCases
     alias years age
   end
 
+  # Every field of a person, as SCHEMA has them, so that the values of each type reach a worker: the text of a date in a
+  # cell of a spreadsheet, and a date or number that a slice of Parquet holds dumped, which IOStreams.slice turns back.
+  class Member < IOStreams::Contract
+    field :name, :string, required: true
+    field :age, :integer
+    field :joined, :date
+    field :score, :number, decimals: 2
+    field :active, :boolean
+  end
+
   # The store of the result slices of a worker, which the worker hands back to the main Ractor.
   class Results
     include IOStreams::Slice::Target
@@ -54,10 +64,10 @@ module RactorCases
       @slices << slice.to_h
     end
 
-    # Returns [Array<Hash>] the slices written to the store, deeply frozen, so that they reach another Ractor without a
-    # copy.
+    # Returns [Array<Hash>] a list of the slices written to the store, deeply frozen, so that it reaches another Ractor
+    # without a copy, while the store can still be written to.
     def to_shareable
-      Ractor.make_shareable(@slices)
+      Ractor.make_shareable(@slices.dup)
     end
   end
 
@@ -79,15 +89,10 @@ module RactorCases
   WORKER_CASES = %i[work_on_slices work_on_spreadsheet_slices work_on_parquet_slices].freeze
 
   # The records of each person a year older, which the workers write.
-  OLDER = Ractor.make_shareable([{"name" => "Jack", "age" => 22}, {"name" => "Jill", "age" => 23}])
+  OLDER = Ractor.make_shareable(ROWS.map { |row| row.merge("age" => row["age"] + 1) })
 
-  def self.write_csv
-    IOStreams.path(DIR, "people.csv").schema(SCHEMA).writer(:hash) { |writer| ROWS.each { |row| writer << row } }
-  end
-
-  def self.write_json
-    IOStreams.path(DIR, "people.json").schema(SCHEMA).writer(:hash) { |writer| ROWS.each { |row| writer << row } }
-  end
+  def self.write_csv = write_people("people.csv")
+  def self.write_json = write_people("people.json")
 
   def self.write_fixed
     IOStreams.path(DIR, "people.fixed").schema(FIXED).writer(:hash) do |writer|
@@ -125,9 +130,8 @@ module RactorCases
   end
 
   def self.read_slices
-    slices = []
-    IOStreams.path(DIR, "people.csv").as(Person).each(:slice, size: 1) { |slice| slices << slice.to_h }
-    expect([21, 22], slices.flat_map { |hash| rows(IOStreams.stream(IOStreams.slice(hash)).as(Person)) }.map { |row| row["age"] })
+    hashes = slices(IOStreams.path(DIR, "people.csv").as(Person))
+    expect([21, 22], hashes.flat_map { |hash| rows(IOStreams.stream(IOStreams.slice(hash)).as(Person)) }.map { |row| row["age"] })
   end
 
   def self.clean_lines = expect(["Jack"], rows(IOStreams.stream(StringIO.new("Ja\x01ck\n")).encoding(cleaner: :printable), :line))
@@ -182,7 +186,7 @@ module RactorCases
   def self.work_on_spreadsheet_slices = expect(OLDER, work_on(write_people("people.xlsx")))
   def self.work_on_parquet_slices = expect(OLDER, work_on(write_people("people.parquet")))
 
-  # Returns [String] the name of the file that the main Ractor writes the people to.
+  # Writes the people of ROWS to the file of the supplied name, by SCHEMA, and returns [String] its name.
   def self.write_people(name)
     IOStreams.path(DIR, name).schema(SCHEMA).writer(:hash) { |writer| ROWS.each { |row| writer << row } }
     name
@@ -191,10 +195,9 @@ module RactorCases
   # Returns [Array<Hash>] the records of the report of the file of people that the main Ractor reads into slices, hands
   # to a worker deeply frozen, without a copy, see .work, and writes the result slices of, in the order of the file.
   def self.work_on(name)
-    slices = []
-    IOStreams.path(DIR, name).as(Person).each(:slice, size: 1) { |slice| slices << slice.to_h }
-    report = IOStreams.path(DIR, "report_of_#{name.tr('.', '_')}.csv").as(Person)
-    report.writer(:slice) { |io| work(Ractor.make_shareable(slices)).flatten.each { |hash| io << IOStreams.slice(hash) } }
+    hashes = slices(IOStreams.path(DIR, name).as(Member))
+    report = IOStreams.path(DIR, "report_of_#{name.tr('.', '_')}.csv").as(Member)
+    report.writer(:slice) { |io| work(Ractor.make_shareable(hashes)).flatten.each { |hash| io << IOStreams.slice(hash) } }
     rows(report)
   end
 
@@ -204,14 +207,21 @@ module RactorCases
     Ractor.new(slices) do |hashes|
       hashes.map do |hash|
         results = Results.new
-        IOStreams.stream(results).as(Person).writer(:hash) do |io|
-          IOStreams.stream(IOStreams.slice(hash)).as(Person).each(:hash) do |person|
-            io << {"name" => person["name"], "age" => person["age"] + 1}
+        IOStreams.stream(results).as(Member).writer(:hash) do |io|
+          IOStreams.stream(IOStreams.slice(hash)).as(Member).each(:hash) do |person|
+            io << person.merge("age" => person["age"] + 1)
           end
         end
         results.to_shareable
       end
     end.value
+  end
+
+  # Returns [Array<Hash>] the slices of the path, one row each, as the Hashes that IOStreams.slice reads.
+  def self.slices(path)
+    slices = []
+    path.each(:slice, size: 1) { |slice| slices << slice.to_h }
+    slices
   end
 
   # Returns [Array] the rows or records of the path in the mode.
@@ -227,11 +237,12 @@ module RactorCases
   end
 
   # Returns [String] the result of the case that the block runs: "ok", or the exception that it raised, in the main
-  # Ractor or in another, and where.
+  # Ractor or in another, and where, also a LoadError, such as of a gem that is not installed, so that the other cases
+  # still report theirs.
   def self.outcome
     yield
     "ok"
-  rescue StandardError => e
+  rescue StandardError, ScriptError => e
     failure = e.is_a?(Ractor::RemoteError) ? e.cause : e
     where   = failure.backtrace&.find { |line| !line.include?("RactorCases.expect") }
     "#{failure.class}: #{failure.message} at #{where}"
