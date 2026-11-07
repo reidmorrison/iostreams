@@ -293,18 +293,35 @@ class StreamTest < Minitest::Test
           assert_equal "name\r\nAna\r\n".encode("UTF-16LE").b, File.binread(File.join(dir, "copy.csv"))
         end
 
-        it "reads the rows of a format that parses it, such as JSON, fixed width and text, and of CSV once converted" do
+        it "reads the rows of JSON as UTF-8, also with a schema, and of text in that encoding, and of CSV once converted" do
           rows = ->(path, mode = :hash) { [].tap { |list| path.each(mode) { |row| list << row } } }
-          json = utf16("people.json", %({"name":"Jos\u00e9"}\n))
+          json = utf16("people.json", %({"name":"Jos\u00e9","age":"21"}\n)).schema(fields: [{name: "name"}, {name: "age", type: "integer"}])
           text = utf16("people.text", "Jos\u00e9\n")
-          fixed = utf16("people.fixed", "Jos\u00e9\n").schema(fields: [{name: "name", width: 4}])
+          csv  = utf16("people.csv", "name\r\nJos\u00e9\r\n").encoding("UTF-16LE:UTF-8")
 
-          assert_equal [{"name" => "Jos\u00e9"}], rows.call(json)
+          assert_equal [{"name" => "Jos\u00e9", "age" => 21}], rows.call(json)
           assert_equal [["Jos\u00e9".encode("UTF-16LE")]], rows.call(text, :array)
-          assert_equal [{"name" => "Jos\u00e9".encode("UTF-16LE")}], rows.call(fixed)
-          csv = utf16("people.csv", "name\r\nJos\u00e9\r\n").encoding("UTF-16LE:UTF-8")
-
           assert_equal [{"name" => "Jos\u00e9"}], rows.call(csv)
+        end
+
+        it "raises ArgumentError for a schema of values in that encoding, such as of fixed width or text, whose text it reads as ASCII" do
+          fixed = utf16("people.fixed", "1234\n").schema(fields: [{name: "n", width: 4, type: "integer"}])
+          text  = utf16("people.text", "NA\n").schema(fields: [{name: "n", missingValues: ["NA"]}])
+
+          [fixed, text].each do |path|
+            error = assert_raises(ArgumentError, path.file_name) { path.each(:hash) { nil } }
+
+            assert_includes error.message, "a schema reads only values in an ASCII compatible encoding", path.file_name
+            assert_includes error.message, 'encoding("UTF-16LE:UTF-8")', path.file_name
+          end
+        end
+
+        it "names the setting that reads the data as UTF-8, from the encoding of the data, when it converts it to another" do
+          File.write(File.join(dir, "people.csv"), "name\nAna\n")
+          path  = IOStreams.path(dir, "people.csv").encoding("Windows-1252:UTF-16LE")
+          error = assert_raises(ArgumentError) { path.each(:hash) { nil } }
+
+          assert_includes error.message, 'encoding("Windows-1252:UTF-8")'
         end
       end
 

@@ -400,6 +400,29 @@ class LineReaderTest < Minitest::Test
         end
       end
 
+      it "raises MalformedDataError for a quoted value left open in text that is not ASCII compatible, naming the quote" do
+        data  = "a\n\"x\n".encode(Encoding::UTF_16LE).b
+        error = assert_raises(IOStreams::Errors::MalformedDataError) do
+          IOStreams.stream(StringIO.new(data)).encoding("UTF-16LE").each(:line, embedded_within: '"') { nil }
+        end
+
+        assert_includes error.message, 'delimiter: "'
+      end
+
+      it "counts a quote that is not ASCII in the encoding of the text, and raises ArgumentError for one that it lacks" do
+        lines = []
+        IOStreams.stream(StringIO.new("a,\xE9x\nb\xE9\nc\n".b)).encoding("ISO-8859-1").each(:line, embedded_within: "\u00e9") do |line|
+          lines << line
+        end
+
+        assert_equal ["a,\xE9x\nb\xE9".b, "c"], lines.map(&:b)
+        error = assert_raises(ArgumentError) do
+          IOStreams.stream(StringIO.new("a\n")).encoding("BINARY").each(:line, embedded_within: "\u00e9") { nil }
+        end
+
+        assert_includes error.message, "embedded_within"
+      end
+
       ["\r\n", "\n", "\r"].each do |delimiter|
         it "autodetect delimiter: #{delimiter.inspect} of text in an encoding that is not ASCII compatible" do
           lines = []
