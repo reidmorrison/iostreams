@@ -99,6 +99,8 @@ module IOStreams
         # Change the delimiters encoding to match that of the input stream
         @delimiter = @delimiter.encode(@encoding)
         @newline   = "\n".encode(@encoding)
+        # The quote character is counted within each line, in its encoding, such as UTF-16LE, see #readline.
+        @embedded_within = @embedded_within&.encode(@encoding)
         # The delimiter as it is searched for within the buffer, see #buffer_encoding.
         @separator = (@crlf ? @newline : @delimiter).dup.force_encoding(@buffer.encoding)
         @return    = "\r".encode(@encoding).force_encoding(@buffer.encoding) if @crlf

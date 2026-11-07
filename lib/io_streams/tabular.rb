@@ -301,6 +301,19 @@ module IOStreams
       self.class.quote_character(format, text_format: @text_format)
     end
 
+    # Raises ArgumentError when the parser of the format parses only text in an encoding that is ASCII compatible, see
+    # `IOStreams::Tabular::Parser::Base.ascii_text?`, such as CSV, and the supplied encoding, that of the text that its
+    # lines are read in, see `IOStreams::Builder#read_encoding`, is not, such as UTF-16LE, read without converting it,
+    # naming the setting that converts it, such as `encoding("UTF-16LE:UTF-8")`, rather than raise
+    # `Encoding::CompatibilityError` once the first line is parsed.
+    def check_text_encoding(encoding)
+      return if encoding.nil? || encoding.ascii_compatible? || !parser.class.ascii_text?
+
+      raise(ArgumentError, "The #{format.inspect} format parses only text in an ASCII compatible encoding, which " \
+                           "#{encoding} is not, so convert it as it is read, such as with " \
+                           "encoding(\"#{encoding}:UTF-8\")")
+    end
+
     # Returns [true|false] whether the rows of the format are lines of text, which a line reader splits and a line writer
     # writes, rather than a binary layout of its own, such as Parquet, see #read_rows.
     def lines?

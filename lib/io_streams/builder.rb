@@ -168,6 +168,16 @@ module IOStreams
       copy
     end
 
+    # Returns [Encoding|nil] the encoding of the text that reading returns, see `IOStreams::Encode.read_encoding`: that
+    # of the encoding set, see #encoding, otherwise that of the supplied default, such as that of a format, see
+    # #with_default_encoding, or the default of the encode stream, UTF-8, or nil when the data is read as it is stored,
+    # see #raw.
+    def read_encoding(default = nil)
+      return if raw?
+
+      IOStreams::Encode.read_encoding(setting(:encode)&.fetch(:encoding, nil) || default)
+    end
+
     # Return the options set for either a stream or option.
     def setting(stream)
       stream = Utils.extension_name(stream)

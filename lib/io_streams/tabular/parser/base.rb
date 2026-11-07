@@ -59,6 +59,17 @@ module IOStreams
           nil
         end
 
+        # Returns [true|false] whether this format parses only lines of text in an encoding that is ASCII compatible,
+        # since it finds the characters that separate and quote its values as ASCII, such as CSV, so that it cannot
+        # parse text in an encoding such as UTF-16LE, see `IOStreams::Tabular#check_text_encoding`. False for a format
+        # that parses text in any encoding, such as JSON, whose parser reads UTF-16 as UTF-8, or fixed width, which
+        # counts characters.
+        #
+        # Defined at the class level since it is a static property of the format, see `.quote_character`.
+        def self.ascii_text?
+          false
+        end
+
         # Returns [true|false] whether each row of this format is a record, a Hash whose keys name its values, such as a
         # line of JSON, rather than its values in the order of its columns, an Array, such as a line of CSV. The parser
         # parses each line into a row of that form, and renders a row of that form, into which the mapping of the columns
