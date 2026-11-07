@@ -35,10 +35,10 @@ gem "net-sftp"
 gem "bcrypt_pbkdf", platform: :ruby # Not needed on JRuby.
 gem "ed25519"
 # net-ssh 8 depends on the openssl gem, which brings jruby-openssl 0.19 to JRuby. Whenever a cipher is the first thing
-# that uses OpenSSL in a process, 0.19 lists aes-256-ctr, so net-ssh uses its AES-CTR, whose keystream does not continue
-# after #final, and each SFTP connection fails as it authenticates. 0.16, which JRuby includes, never lists it, so
-# net-ssh uses its own CTR over AES-ECB instead. See https://github.com/jruby/jruby-openssl/issues/392
-gem "jruby-openssl", "< 0.19", platform: :jruby
+# that uses OpenSSL in a process, 0.19 lists aes-256-ctr, so net-ssh uses its AES-CTR, whose keystream did not continue
+# after #final before 0.19.4, so that each SFTP connection failed as it authenticated.
+# See https://github.com/jruby/jruby-openssl/issues/392
+gem "jruby-openssl", ">= 0.19.4", platform: :jruby
 gem "nokogiri"
 gem "parquet", platform: :ruby # A Rust extension, which JRuby cannot load.
 gem "pg", platform: :ruby # A C extension, which JRuby cannot load, so JRuby reads PostgreSQL with AR-JDBC, see below.
