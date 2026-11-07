@@ -1756,6 +1756,16 @@ class SchemaTest < Minitest::Test
           assert_equal Date.new(2026, 10, 13), date.cast("2026-10-13 00:00:00.000-05:00")
         end
 
+        it "reads the date of the text of a date before the calendar reform of 1582, as from its text, also of a Time" do
+          assert_equal Date.new(1, 1, 1), date.cast("0001-01-01T00:00:00")
+          assert_equal Date.new(1, 1, 1), date.cast(Time.utc(1, 1, 1))
+          assert_equal Date.new(1500, 3, 1), date.cast("1500-03-01T00:00:00")
+          assert_equal "0001-01-01", date.render(Time.utc(1, 1, 1), :text)
+          ["1582-10-10", "1582-10-10T00:00:00", Time.utc(1582, 10, 10)].each do |value|
+            assert_raises(IOStreams::Errors::InvalidValue, value.inspect) { date.cast(value) }
+          end
+        end
+
         it "raises for the text of a date and time that is not midnight, or not on a date that exists, or not ISO 8601" do
           ["2026-10-13T09:30:00", "2026-10-13T00:00:00.5", "2026-02-30T00:00:00", "2026-10-13T00:00:00+99",
            "2026-10-13T00:00", "2026-10-13T24:00:00"].each do |text|

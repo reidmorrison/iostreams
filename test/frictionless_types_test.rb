@@ -212,6 +212,7 @@ class FrictionlessTypesTest < Minitest::Test
         assert_equal Date.new(2026, 10, 1), month.load("2026-10-01")
         assert_equal Date.new(2026, 10, 1), month.cast("2026-10-01T00:00:00")
         assert_equal Date.new(2026, 10, 1), month.cast("2026-10-01T00:00:00.000-05:00")
+        assert_equal Date.new(1500, 3, 1), month.cast("1500-03-01T00:00:00")
         ["2026-10-02T00:00:00", "2026-10-01T09:30:00", "2026-13-01T00:00:00"].each do |text|
           assert_raises(IOStreams::Errors::InvalidValue, text) { month.cast(text) }
         end

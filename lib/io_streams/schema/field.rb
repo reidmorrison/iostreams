@@ -36,9 +36,10 @@ module IOStreams
     #     "boolean":  true or false, see `trueValues` and `falseValues`, or the number 1 or 0, such as the 1.0 or 0.0 of a
     #                 spreadsheet, or a column of numbers of a Parquet file or a query.
     #     "date":     a Date, written as `2026-10-13` unless `format` is set. A Time or DateTime at midnight, by its own
-    #                 clock, as a spreadsheet's date format reads it, is its date, and so, without a `format`, is the
-    #                 ISO 8601 text of one, such as `2026-10-13T00:00:00`, the text of a spreadsheet's cell of a date and
-    #                 time, while any other time raises, rather than lose its time of day.
+    #                 clock, as a spreadsheet's date format reads it, is its date, and so is the ISO 8601 text of one,
+    #                 such as `2026-10-13T00:00:00`, the text of a spreadsheet's cell of a date and time, also as a slice
+    #                 of the spreadsheet holds it, while a field with a `format` reads a file of text only in its
+    #                 format, and any other time raises, rather than lose its time of day.
     #     "datetime": a Time, written as `2026-10-13T09:30:00Z` unless `format` is set. Without a format it reads ISO 8601
     #                 with seconds, with a space in place of the T, such as `2026-10-13 09:30:00`, and an offset from UTC
     #                 with or without a colon, or of hours alone, such as `+05:30`, `+0530` or `+05`, see #cast_datetime.
@@ -256,9 +257,6 @@ module IOStreams
 
       # The text of a year and a month, see `yearmonth` above.
       YEARMONTH = /\A(\d{4})-(\d{2})\z/
-
-      # The ISO 8601 text of the first of a month, which a yearmonth also reads, see `yearmonth` above.
-      FIRST_OF_MONTH = /\A(\d{4})-(\d{2})-01\z/
 
       # What #default_text_value returns for text that is not the default text of the type of the field, see
       # #parse_cell_text, which nil, false and every other value can be.
@@ -1199,13 +1197,13 @@ module IOStreams
         date.day == 1 && date.year <= 9999 ? date : invalid(value)
       end
 
-      # Returns [Date] the date of text such as `2026-10`, `2026-10-01`, or `2026-10-01T00:00:00`, the ISO 8601 text of a
-      # date and time at midnight, see #midnight_text, whose day #cast_yearmonth checks.
+      # Returns [Date] the date of text such as `2026-10`, or of the text of a date that a date field reads without a
+      # format, see #cast_date, such as `2026-10-01` or `2026-10-01T00:00:00`, whose day #cast_yearmonth checks.
       #
       # Raises `IOStreams::Errors::InvalidValue` for any other text.
       def yearmonth_text(text)
-        parts = YEARMONTH.match(text) || FIRST_OF_MONTH.match(text)
-        return midnight_text(text) || invalid(text) unless parts
+        parts = YEARMONTH.match(text)
+        return cast_date(text) unless parts
 
         month = parts[2].to_i
         month.between?(1, 12) ? Date.new(parts[1].to_i, month, 1) : invalid(text)
@@ -1768,11 +1766,20 @@ module IOStreams
         invalid(value)
       end
 
-      # Returns [Date] the date of a Time or DateTime at midnight, by its own clock.
+      # Returns [Date] the date of a Time or DateTime at midnight, by its own clock, see #date_of.
       #
       # Raises `IOStreams::Errors::InvalidValue` for any other time, whose time of day a date would lose.
       def midnight(time)
-        midnight?(time) ? time.to_date : invalid(time)
+        midnight?(time) ? date_of(time) : invalid(time)
+      end
+
+      # Returns [Date] the date of the year, month and day of a Time or DateTime, the date of its text, as #cast_date
+      # reads the text of a date, rather than `Time#to_date`, which moves a date before the calendar reform of 1582,
+      # such as `0001-01-01`, to another day of the Julian calendar, `0001-01-03`.
+      #
+      # Raises `Date::Error` for a date that the reform skipped, such as 1582-10-10, as for its text.
+      def date_of(time)
+        Date.new(time.year, time.month, time.day)
       end
 
       # Returns [true|false] whether a Time or DateTime is midnight, by its own clock.
@@ -1787,7 +1794,7 @@ module IOStreams
       # as a date and time at another time of day, or on a date that does not exist.
       def midnight_text(text)
         time = iso_datetime_text(text)
-        time.to_date if time && midnight?(time)
+        date_of(time) if time && midnight?(time)
       rescue ArgumentError
         nil
       end
