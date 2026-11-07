@@ -31,11 +31,11 @@ module IOStreams
           Errors::NotFound         => Regexp.union(
             /\AFile ".*" not found\.\z/,
             /\A(?:remote open|dest open|Couldn't stat remote file).*: No such file or directory\z/
-          ),
+          ).freeze,
           Errors::PermissionDenied => Regexp.union(
             /\A(?:remote open|dest open|Couldn't stat remote file).*: Permission denied\z/,
             /Permission denied \(.*\)\.\z/
-          ),
+          ).freeze,
           Errors::Unavailable      => Regexp.union(
             /\Assh: connect to host .* port \d+: /,
             # A temporary failure of name resolution, such as a DNS outage. A host that does not resolve, such as a
@@ -46,7 +46,7 @@ module IOStreams
             /\AConnection timed out during banner exchange/,
             /\ATimeout, server .* not responding\./,
             /\Aclient_loop: send disconnect: /
-          )
+          ).freeze
         }.freeze
 
         # The exit status of sshpass when the password is not correct.

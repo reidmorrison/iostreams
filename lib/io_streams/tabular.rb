@@ -695,19 +695,25 @@ module IOStreams
     def self.register_format(format, parser)
       raise(ArgumentError, "Invalid format #{format.inspect}") unless format.to_s =~ /\A\w+\Z/
 
-      @formats[format.to_sym] = parser
+      # Replaces the registry rather than changing it, so that it stays frozen.
+      @formats_mutex.synchronize { @formats = @formats.merge(format.to_sym => parser).freeze }
+      parser
     end
 
     # De-Register a file format
     #
-    # Returns [Symbol] the format removed, or nil if the format was not registered
+    # Returns [Class] the parser class of the format removed, or nil if the format was not registered
     #
     # Example:
     #   deregister_format(:psv)
     def self.deregister_format(format)
       raise(ArgumentError, "Invalid format #{format.inspect}") unless format.to_s =~ /\A\w+\Z/
 
-      @formats.delete(format.to_sym)
+      @formats_mutex.synchronize do
+        removed  = @formats[format.to_sym]
+        @formats = @formats.except(format.to_sym).freeze
+        removed
+      end
     end
 
     # Returns [Array<Symbol>] the list of registered formats
@@ -715,8 +721,10 @@ module IOStreams
       @formats.keys
     end
 
-    # A registry to hold formats for processing files during upload or download
-    @formats = {}
+    # A registry to hold formats for processing files during upload or download, frozen, and replaced when a format is
+    # registered, see .register_format.
+    @formats       = {}.freeze
+    @formats_mutex = Mutex.new
 
     # Returns the registered format that will be used for the supplied file name.
     def self.format_from_file_name(file_name)

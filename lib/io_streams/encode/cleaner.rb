@@ -8,15 +8,18 @@ module IOStreams
       NOT_PRINTABLE = /[^[:print:]\r\n]/
 
       # The built-in rules, by name. Each leaves the data supplied to it as it is, since the writer can be supplied the
-      # caller's string, and returns it when it has nothing to cleanse, rather than a copy of it.
-      RULES = {
-        # Strips all non printable characters
-        printable:             ->(data, _) { data.match?(NOT_PRINTABLE) ? data.gsub(NOT_PRINTABLE, "") : data },
-        # Replaces non printable characters with the value specified in the `replace` option.
-        replace_non_printable: lambda do |data, replace|
-          data.match?(NOT_PRINTABLE) ? data.gsub(NOT_PRINTABLE, replace || "") : data
-        end
-      }.freeze
+      # caller's string, and returns it when it has nothing to cleanse, rather than a copy of it. Each reads only its
+      # arguments and NOT_PRINTABLE, so that it can be shared, see `IOStreams::Utils.shareable`.
+      RULES = Utils.shareable(
+        {
+          # Strips all non printable characters
+          printable:             ->(data, _) { data.match?(NOT_PRINTABLE) ? data.gsub(NOT_PRINTABLE, "") : data },
+          # Replaces non printable characters with the value specified in the `replace` option.
+          replace_non_printable: lambda do |data, replace|
+            data.match?(NOT_PRINTABLE) ? data.gsub(NOT_PRINTABLE, replace || "") : data
+          end
+        }
+      )
 
       # Parameters
       #   rule: [Symbol|Proc]

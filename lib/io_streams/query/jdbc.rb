@@ -11,12 +11,6 @@ module IOStreams
     # database knows what the rest of the exception of its driver means, see the `.failure_kind` of
     # `IOStreams::Query::PostgresqlJdbc`, `IOStreams::Query::MysqlJdbc` and `IOStreams::Query::SqliteJdbc`.
     module Jdbc
-      # The cause that Ruby records for an exception, which `ActiveRecord::JDBCError#cause` does not return for an
-      # exception of Java that AR-JDBC wraps without a `java.sql.SQLException`, see .driver_exception, since it returns
-      # the exception that was being rescued when AR-JDBC created it, if any.
-      CAUSE = ::Exception.instance_method(:cause)
-      private_constant :CAUSE
-
       # Returns [true|false] whether the connection is through an adapter of AR-JDBC, which every adapter of it includes
       # `ArJdbc::Abstract::Core` for, without asking for its raw connection, which would mark the connection of the
       # caller as used by the application, so that Active Record would no longer verify or reconnect it.
@@ -32,7 +26,7 @@ module IOStreams
       #
       # AR-JDBC wraps the `java.sql.SQLException` of a driver, see `ActiveRecord::JDBCError#jdbc_exception`. When it
       # retries a statement on a connection that it then cannot make again, it wraps the exception that caused the
-      # failure to connect instead, such as a `java.net.ConnectException`, as the cause that Ruby records, see CAUSE,
+      # failure to connect instead, such as a `java.net.ConnectException`, as the cause that Ruby records, see .recorded_cause,
       # or raises that exception itself when it is not a checked exception of Java, such as
       # `com.mysql.cj.exceptions.CJCommunicationsException`. A driver can raise a
       # `java.sql.SQLException` itself, rather than a class of its own, so the driver that raised an exception is told
@@ -68,7 +62,7 @@ module IOStreams
       # Returns [java.lang.Throwable|nil] the exception of Java that AR-JDBC wraps in the supplied
       # `ActiveRecord::JDBCError`, see .driver_exception.
       def self.wrapped(error)
-        error.jdbc_exception || CAUSE.bind_call(error)
+        error.jdbc_exception || recorded_cause(error)
       end
       private_class_method :wrapped
 
@@ -113,6 +107,14 @@ module IOStreams
           exception.stack_trace.any? { |frame| frame.class_name.start_with?(driver) }
       end
       private_class_method :raised_by?
+
+      # Returns [Exception|nil] the cause that Ruby records for the exception, which `ActiveRecord::JDBCError#cause` does
+      # not return for an exception of Java that AR-JDBC wraps without a `java.sql.SQLException`, see .driver_exception,
+      # since it returns the exception that was being rescued when AR-JDBC created it, if any.
+      def self.recorded_cause(exception)
+        ::Exception.instance_method(:cause).bind_call(exception)
+      end
+      private_class_method :recorded_cause
     end
   end
 end

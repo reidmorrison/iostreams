@@ -171,7 +171,7 @@ module IOStreams
     UNMATCHED_BINARY = /[^a-z0-9]/n
 
     # The bytes of the byte order mark that some editors, such as Notepad, write at the start of UTF-8 text.
-    BYTE_ORDER_MARK = "\xEF\xBB\xBF".b
+    BYTE_ORDER_MARK = "\xEF\xBB\xBF".b.freeze
 
     # Returns [Array<IOStreams::Schema::Field>] the fields, in the order of the columns of the file.
     attr_reader :fields

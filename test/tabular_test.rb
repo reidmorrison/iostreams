@@ -998,6 +998,35 @@ class TabularTest < Minitest::Test
       end
     end
 
+    describe ".register_format" do
+      let(:parser) { Class.new(IOStreams::Tabular::Parser::Csv) }
+
+      after { IOStreams::Tabular.deregister_format(:tsvx) }
+
+      it "registers the parser of a format, which .deregister_format removes and returns" do
+        assert_same parser, IOStreams::Tabular.register_format(:tsvx, parser)
+        assert_same parser, IOStreams::Tabular.parser_class(:tsvx)
+        assert_equal :tsvx, IOStreams::Tabular.format_from_file_name("a.tsvx")
+        assert_includes IOStreams::Tabular.registered_formats, :tsvx
+
+        assert_same parser, IOStreams::Tabular.deregister_format(:tsvx)
+        assert_nil IOStreams::Tabular.deregister_format(:tsvx)
+        refute_includes IOStreams::Tabular.registered_formats, :tsvx
+        assert_raises(ArgumentError) { IOStreams::Tabular.parser_class(:tsvx) }
+      end
+
+      it "replaces the frozen registry rather than changing it" do
+        registry = IOStreams::Tabular.instance_variable_get(:@formats)
+        IOStreams::Tabular.register_format(:tsvx, parser)
+
+        refute_includes registry, :tsvx
+        assert_predicate IOStreams::Tabular.instance_variable_get(:@formats), :frozen?
+        IOStreams::Tabular.deregister_format(:tsvx)
+
+        assert_predicate IOStreams::Tabular.instance_variable_get(:@formats), :frozen?
+      end
+    end
+
     describe ".format_from_file_name" do
       it "detects the format from the file name" do
         assert_equal :csv, IOStreams::Tabular.format_from_file_name("sample.csv.gz")
