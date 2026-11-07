@@ -5,13 +5,14 @@ require_relative "test_helper"
 # The state of IOStreams that every Ractor can read: each test of the values runs in a process of its own, which loads
 # every constant, see ShareableState.
 class ShareableTest < Minitest::Test
-  # The class-level methods that set the instance variables of their class or module, see ClassStateWriters: those that
-  # configure IOStreams, and those that declare the fields of a contract, which an application calls as it starts, or as
-  # it loads its classes, in the main Ractor, since no other Ractor can set them.
+  # The class-level methods that set the instance variables of a class or module, see ClassStateWriters: those that
+  # configure IOStreams, and those that declare a contract, which an application calls as it starts, or as it loads its
+  # classes, in the main Ractor, since no other Ractor can set them. So a contract built from a Hash, such as by `#as`,
+  # which defines a class, can be built only in the main Ractor.
   CLASS_STATE_WRITERS = %w[
     IOStreams.add_allowed_path IOStreams.add_root IOStreams.delete_allowed_path IOStreams.deregister_extension
     IOStreams.logger= IOStreams.register_extension IOStreams.register_scheme IOStreams.temp_dir=
-    IOStreams::Contract.descriptor= IOStreams::Contract.field
+    IOStreams::Contract.build IOStreams::Contract.descriptor= IOStreams::Contract.field IOStreams::Contract.inherited
     IOStreams::Paths::SFTP.before_password_wait_seconds= IOStreams::Paths::SFTP.sftp_bin=
     IOStreams::Paths::SFTP.sshpass_bin= IOStreams::Paths::SFTP.sshpass_wait_seconds=
     IOStreams::Pgp.executable= IOStreams::Pgp::Reader.default_passphrase= IOStreams::Pgp::Writer.audit_recipient=

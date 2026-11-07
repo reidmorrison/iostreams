@@ -1624,8 +1624,9 @@ class TabularTest < Minitest::Test
           assert IOStreams::Tabular::Parser::Json.send(:hands_text?, hands_text)
           refute IOStreams::Tabular::Parser::Json.send(:hands_text?, raises)
           refute IOStreams::Tabular::Parser::Json.send(:hands_text?, writes)
-          # json 2.16 and later hand it the text on MRI, so that its records are written in one pass in the json gem.
-          return unless RUBY_ENGINE == "ruby" && Gem::Version.new(::JSON::VERSION) >= Gem::Version.new("2.16")
+          # json 2.16 and later hand it the text on MRI, so that its records are written in one pass in the json gem, from
+          # 2.17, since the coder of 2.16 cannot be shared, see `IOStreams::Utils.shareable`.
+          return unless RUBY_ENGINE == "ruby" && Gem::Version.new(::JSON::VERSION) >= Gem::Version.new("2.17")
 
           assert IOStreams::Tabular::Parser::Json.coder, "json #{::JSON::VERSION} hands the coder text, so it should be used"
         end

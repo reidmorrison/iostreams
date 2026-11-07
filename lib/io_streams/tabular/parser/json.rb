@@ -31,7 +31,8 @@ module IOStreams
         # Returns nil before json 2.10, which added `JSON::Coder`, for a version whose coder does not write a key that is
         # not a String the same way, or does not hand its block the text that it does not write as it is, see .hands_text?,
         # and when another library, such as ActiveSupport, has replaced `Hash#to_json`, since the coder would not write
-        # the JSON that it does. The coder is built once, as the class is loaded, see the end of the class.
+        # the JSON that it does, and for one that cannot be shared, see `IOStreams::Utils.shareable`, such as that of json
+        # 2.16. The coder is built once, as the class is loaded, see the end of the class.
         def self.coder
           return unless ::Hash.instance_method(:to_json).owner.name&.start_with?("JSON::")
 

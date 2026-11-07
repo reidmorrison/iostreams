@@ -91,7 +91,8 @@ class UtilsTest < Minitest::Test
 
         assert_same value, IOStreams::Utils.shareable(value)
         assert_predicate value, :frozen?
-        assert_predicate value[:list].last[:key], :frozen?
+        # JRuby has no Ractors, so there it freezes only the value.
+        assert_equal !defined?(Ractor).nil?, value[:list].last[:key].frozen?
       end
     end
 
@@ -177,7 +178,8 @@ class UtilsTest < Minitest::Test
       end
 
       it "raises for text of a dummy encoding, without a byte order, as Regexp does" do
-        assert_raises(RegexpError) { IOStreams::Utils.blank_text?(" ".encode("UTF-16LE").force_encoding("UTF-16")) }
+        # JRuby raises ArgumentError, for its bytes.
+        assert_raises(RegexpError, ArgumentError) { IOStreams::Utils.blank_text?(" ".encode("UTF-16LE").force_encoding("UTF-16")) }
       end
 
       it "matches binary text by its ASCII whitespace" do

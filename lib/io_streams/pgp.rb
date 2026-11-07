@@ -571,13 +571,18 @@ module IOStreams
     end
     private_class_method :fingerprint
 
-    # Returns [String] the version of the gpg executable, see .executable, which is only found once for each executable,
-    # where class-level state can be set, see `IOStreams::Utils.main_ractor?`, and each time elsewhere.
+    # Returns [String] the version of the gpg executable, see .executable, which is only found once for each executable:
+    # for the process in the main Ractor, see `IOStreams::Utils.main_ractor?`, and otherwise by each Ractor for itself,
+    # in its own storage, unless the main Ractor has found it.
     # Raises Pgp::Failure when gpg fails, or cannot be run.
     def self.pgp_version
       return @pgp_version ||= executable_version if Utils.main_ractor?
+      return @pgp_version if @pgp_version
 
-      @pgp_version || executable_version
+      found = ::Ractor.current[:io_streams_pgp_version]
+      return found.last if found&.first == executable
+
+      executable_version.tap { |version| ::Ractor.current[:io_streams_pgp_version] = [executable, version].freeze }
     end
 
     # Returns [String] the version of the gpg executable, frozen, from its --version output.
