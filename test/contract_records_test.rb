@@ -33,6 +33,21 @@ class ContractRecordsTest < Minitest::Test
         assert_nil Order.new(id: 1).zip
       end
 
+      it "reads and writes a field through an alias of its accessor, and in a subclass" do
+        contract = Class.new(Order) do
+          field :note, :string
+          alias_method :identifier, :id
+          alias_method :identifier=, :id=
+        end
+        order = contract.new(id: 1, note: 2)
+        order.identifier = "7"
+
+        assert_equal 7, order.id
+        assert_equal 7, order.identifier
+        assert_equal "2", order.note
+        assert_raises(IOStreams::Errors::InvalidValue) { order.identifier = "x" }
+      end
+
       it "raises where it is made for a bad value, or no value for a required field" do
         assert_raises(IOStreams::Errors::InvalidValue) { Order.new(id: "x") }
         assert_raises(IOStreams::Errors::InvalidValue) { Order.new(amount: 1) }
