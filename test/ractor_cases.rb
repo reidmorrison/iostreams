@@ -144,7 +144,7 @@ module RactorCases
   # Not yet: a contract built from a Hash defines a class, whose instance variables only the main Ractor can set. Once
   # it can be built here, this case fails, so that it is changed to read the file through it.
   def self.contract_of_hash
-    rows(IOStreams.path(DIR, "people.csv").as({fieldsMatch: "subset", fields: [{name: "name", type: "string"}]}))
+    IOStreams.path(DIR, "people.csv").as({fieldsMatch: "subset", fields: [{name: "name", type: "string"}]})
     raise("Built a contract from a Hash, which is now worth a case of its own")
   rescue Ractor::IsolationError
     nil
