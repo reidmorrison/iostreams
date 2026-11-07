@@ -84,6 +84,8 @@ Metrics/ClassLength:
     - "lib/io_streams/tabular.rb"
     # Implements every operation of a path on a store of the S3 API, for S3 and for Google Cloud Storage, see gcs.rb.
     - "lib/io_streams/paths/s3.rb"
+    # Owns the header-row protocol of the readers and writers, and the registry of tabular formats and what each one is.
+    - "lib/io_streams/tabular.rb"
 
 # TODO: Soften Limits for phase 1 only
 Metrics/CyclomaticComplexity:

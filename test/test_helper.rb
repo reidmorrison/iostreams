@@ -15,6 +15,7 @@ end
 
 require "yaml"
 require "fileutils"
+require "open3"
 require "minitest/autorun"
 require "minitest/mock"
 require "iostreams"
@@ -228,6 +229,19 @@ module PathAssertions
   end
 end
 Minitest::Test.include(PathAssertions)
+
+# Runs a Ruby script in a process of its own, with the lib and test directories on its load path, for a test of what the
+# script loads, which the other tests must not see, such as every constant of IOStreams, see test/shareable_state.rb.
+module ScriptAssertions
+  # Returns [Array<String>] the lines that the script prints, failing the test unless it succeeds.
+  def run_script(script)
+    out, err, status = Open3.capture3(RbConfig.ruby, "-I", File.expand_path("../lib", __dir__), "-I", __dir__, "-e", script)
+
+    assert_predicate status, :success?, err
+    out.split("\n")
+  end
+end
+Minitest::Test.include(ScriptAssertions)
 
 # Collects the deprecation warnings that IOStreams reports, see `IOStreams::Deprecation`, while a test runs, rather than
 # writing them to `$stderr`, so that a test asserts each one that it expects with #assert_deprecated, and any other one

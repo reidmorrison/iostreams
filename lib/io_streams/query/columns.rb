@@ -31,7 +31,7 @@ module IOStreams
       }.freeze
 
       # The type that casts the value of a column as the text that the database returns, see #initialize.
-      TEXT = ActiveModel::Type::String.new
+      TEXT = Utils.shareable(ActiveModel::Type::String.new)
 
       # The raw text of a time of day, as the databases return it: optionally a date, such as Active Record writes on
       # SQLite, then the hour, which MySQL allows to be negative, or of more than two digits, see #check_clock.

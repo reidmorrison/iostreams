@@ -17,7 +17,7 @@ module IOStreams
       ::Encoding::UTF_16BE => "\x00\n", ::Encoding::UTF_16LE => "\n\x00", ::Encoding::UTF_16 => "\x00\n",
       ::Encoding::UTF_32BE => "\x00\x00\x00\n", ::Encoding::UTF_32LE => "\n\x00\x00\x00",
       ::Encoding::UTF_32 => "\x00\x00\x00\n"
-    }.transform_values(&:b).freeze
+    }.transform_values { |newline| newline.b.freeze }.freeze
 
     # Like `IO#write`: writes the text of each object, see #text_of, and returns [Integer] the number of bytes written.
     def write(*objects)
