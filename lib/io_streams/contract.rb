@@ -241,9 +241,11 @@ module IOStreams
       end
 
       # Returns [Hash<Symbol, IOStreams::Schema::Field>] the field of each accessor of the records of the contract, see
-      # .accessors, in order, found as the fields are set, see .descriptor=.
+      # .accessors, in order, found as the fields are set, see .descriptor=, so only a contract without fields has none,
+      # for which .schema raises.
       def record_fields
-        @record_fields || accessors.zip(fields).to_h.freeze
+        schema unless @record_fields
+        @record_fields
       end
 
       # Returns [IOStreams::Contract] a record of the contract of the values of a record read through it, by their keys
@@ -349,11 +351,10 @@ module IOStreams
         record_fields.each do |accessor, field|
           name   = field.name
           writer = :"#{accessor}="
-          define_method(accessor, &IOStreams::Utils.shareable(proc { @values[name] })) unless method_defined?(accessor)
+          define_method(accessor, &Utils.shareable(proc { @values[name] })) unless method_defined?(accessor)
           next if method_defined?(writer)
 
-          write = proc { |value| @values[name] = self.class.record_fields.fetch(accessor).cast(value) }
-          define_method(writer, &IOStreams::Utils.shareable(write))
+          define_method(writer, &Utils.shareable(proc { |v| @values[name] = self.class.record_fields.fetch(accessor).cast(v) }))
         end
       end
 
