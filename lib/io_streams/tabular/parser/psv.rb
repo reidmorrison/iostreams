@@ -8,6 +8,11 @@ module IOStreams
         # The characters that a value is cleansed of when it is written, see #render.
         CLEANSED = /[|\r\n]/
 
+        # Its `|` is found as ASCII, see `IOStreams::Tabular::Parser::Base.ascii_text?`.
+        def self.ascii_text?
+          true
+        end
+
         # Parameters:
         #   schema: [IOStreams::Schema|nil]
         #     With a schema, the empty values at the end of a line, such as the last of `a|b|`, are empty text, `""`, as

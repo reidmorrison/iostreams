@@ -22,6 +22,11 @@ module IOStreams
           '"'
         end
 
+        # Its commas and quotes are found as ASCII, see `IOStreams::Tabular::Parser::Base.ascii_text?`.
+        def self.ascii_text?
+          true
+        end
+
         # Returns [String] the supplied text of a row, that a format that holds the text of each row as it is writes as
         # CSV, such as `:text` written to a spreadsheet, as one row of CSV, see
         # `IOStreams::Tabular::Parser::Base.one_row`, as it is, once it checks that its quoting is valid.

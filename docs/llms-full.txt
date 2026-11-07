@@ -1274,6 +1274,11 @@ With just one encoding, such as `encoding("Windows-1252")`, the strings read are
 converted to UTF-8, and cannot be combined with UTF-8 text. `encoding("BINARY")` reads lines, rows and records as
 binary strings.
 
+An encoding that is not ASCII compatible, such as UTF-16LE, reads lines in that encoding, but CSV and PSV find the
+commas, bars and quotes between their values as ASCII, so reading their rows or records raises `ArgumentError` before
+the file is opened. Convert the text as it is read instead, with `encoding("UTF-16LE:UTF-8")`. JSON, fixed width and
+`:text` read their rows from such text: JSON as UTF-8, the others in that encoding.
+
 `#encoding` also takes these options, which change how the text is converted:
 
 * `replace:` replaces each character that is not valid, or that the target encoding does not have, rather than raising,

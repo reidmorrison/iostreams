@@ -79,6 +79,9 @@ Metrics/ClassLength:
     - "lib/io_streams/schema/columns.rb"
     # Holds the rows of a slice and their numbers, and is responsible for every change to them, see CLAUDE.md.
     - "lib/io_streams/slice.rb"
+    # Owns the header-row protocol of the readers and writers, and asks the parser of each format what it reads, see
+    # lib/io_streams/CLAUDE.md.
+    - "lib/io_streams/tabular.rb"
     # Implements every operation of a path on a store of the S3 API, for S3 and for Google Cloud Storage, see gcs.rb.
     - "lib/io_streams/paths/s3.rb"
 
