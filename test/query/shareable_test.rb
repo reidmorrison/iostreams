@@ -1,7 +1,6 @@
 # frozen_string_literal: true
 
 require_relative "query_helper"
-require "open3"
 
 # The constants of IOStreams::Query, which test/shareable_test.rb leaves out, since they need Active Record, in a
 # process of its own, see ShareableState.
@@ -16,12 +15,8 @@ class QueryShareableTest < Minitest::Test
         require "iostreams"
         puts ShareableState.unshareable_constants(ShareableState.modules(IOStreams::Query))
       RUBY
-      lib  = File.expand_path("../../lib", __dir__)
-      test = File.expand_path("..", __dir__)
-      out, err, status = Open3.capture3(RbConfig.ruby, "-I", lib, "-I", test, "-e", script)
 
-      assert_predicate status, :success?, err
-      assert_equal [], out.split("\n")
+      assert_equal [], run_script(script)
     end
   end
 end

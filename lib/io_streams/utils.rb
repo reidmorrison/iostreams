@@ -512,8 +512,10 @@ module IOStreams
 
     # Returns the value deeply frozen, with every object within it, so that every Ractor can read it, such as a constant
     # of a Hash of Arrays, or a lambda that reads only its arguments and constants. It freezes the value itself rather
-    # than a copy, so supply only a value that IOStreams built, see .frozen_copy for one that a caller supplied. JRuby
-    # has no Ractors, so there it freezes only the value.
+    # than a copy, so supply only a value that holds nothing but objects of IOStreams' own: never one that a caller
+    # supplied, see .frozen_copy, nor an object that another library caches or shares, such as the `Gem::Version`s that
+    # RubyGems caches for the whole process, which a `Gem::Requirement` holds. JRuby has no Ractors, so there it freezes
+    # only the value.
     def self.shareable(value)
       defined?(::Ractor) ? ::Ractor.make_shareable(value) : value.freeze
     end
