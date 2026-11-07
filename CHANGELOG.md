@@ -4,7 +4,7 @@ All notable changes to this project are documented here.
 
 This project adheres to [Semantic Versioning](https://semver.org/).
 
-## [2.2.0] - Unreleased
+## [2.2.0] - 2026-11-07
 
 v2.2 prepares applications for v3.0: it adds the methods that replace those that v3.0 deprecates or removes, so that
 an application can move to them before it upgrades. What is deprecated still works as before: using it reports a Ruby
