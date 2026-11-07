@@ -120,9 +120,11 @@ module IOStreams
     end
     private_class_method :in_dirs?
 
-    # Returns [Array<String>] the directories of the installed gems, which Bundler can change once it is loaded.
+    # Returns [Array<String>] the directories of the installed gems, which Bundler can change once it is loaded. None in
+    # a Ractor other than the main Ractor, see `IOStreams::Utils.main_ractor?`, which cannot read the paths of RubyGems,
+    # so that a line of a gem is taken there as the line of the application.
     def self.installed_gem_dirs
-      return [] unless defined?(::Gem)
+      return [] unless defined?(::Gem) && Utils.main_ractor?
 
       ::Gem.path.map { |dir| dir.end_with?("/") ? dir : "#{dir}/" }
     end

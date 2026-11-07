@@ -1,9 +1,10 @@
 # frozen_string_literal: true
 
-# Finds the state of IOStreams that only the main Ractor can read: the constants whose values are not shareable, see
-# `Ractor.shareable?`. It loads every constant, so a test runs it in a process of its own, see test/shareable_test.rb,
-# since the other tests rely on loading the gems of the formats only when a format is used. Require it before IOStreams,
-# so that it records the names of their private constants, which Ruby does not list, see .private_constants.
+# Finds the state of IOStreams that only the main Ractor can read: the constants, and the instance variables of its
+# classes and modules, whose values are not shareable, see `Ractor.shareable?`. It loads every constant, so a test runs
+# it in a process of its own, see test/shareable_test.rb, since the other tests rely on loading the gems of the formats
+# only when a format is used. Require it before IOStreams, so that it records the names of their private constants,
+# which Ruby does not list, see .private_constants.
 module ShareableState
   if $LOADED_FEATURES.any? { |feature| feature.end_with?("/iostreams.rb") }
     raise(LoadError, "Require shareable_state before iostreams, so that it finds the private constants of IOStreams")
@@ -50,6 +51,18 @@ module ShareableState
       names(mod).filter_map do |name|
         value = constant(mod, name)
         "#{mod.name}::#{name}" unless value.is_a?(Module) || Ractor.shareable?(value)
+      end
+    end
+  end
+
+  # Returns [Array<String>] each instance variable of the supplied modules whose value is not shareable, such as
+  # "IOStreams::Tabular @formats (Hash)", apart from a Mutex, which only the methods that configure IOStreams lock, in
+  # the main Ractor.
+  def self.unshareable_class_state(modules)
+    modules.flat_map do |mod|
+      mod.instance_variables.filter_map do |name|
+        value = mod.instance_variable_get(name)
+        "#{mod.name} #{name} (#{value.class})" unless value.is_a?(Thread::Mutex) || Ractor.shareable?(value)
       end
     end
   end
