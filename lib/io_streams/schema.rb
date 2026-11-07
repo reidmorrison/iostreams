@@ -242,7 +242,9 @@ module IOStreams
     def initialize(descriptor) # rubocop:disable Metrics/AbcSize -- one check for each property of a schema
       raise(ArgumentError, "A schema must be a Hash: #{descriptor.inspect}") unless descriptor.is_a?(Hash)
 
-      descriptor = descriptor.transform_keys(&:to_s)
+      # A frozen copy, so that the schema holds none of the caller's Hashes, Arrays or Strings, which the caller can still
+      # change, and which freezing a schema, such as that of a contract, would freeze.
+      descriptor = Utils.frozen_copy(descriptor.transform_keys(&:to_s))
       check_properties(descriptor)
       @missing      = build_missing_values(descriptor)
       primary_key   = check_key("primaryKey", primary_key_names(descriptor["primaryKey"]))
@@ -859,9 +861,10 @@ module IOStreams
     # Returns [Hash] a frozen copy of the properties of the schema other than its fields, with Symbol keys, also within
     # the objects of its `missingValues`, see #to_h.
     def properties_of(descriptor)
+      # The descriptor is already a frozen copy, see #initialize, so only what this builds is frozen here.
       properties = descriptor.except("fields").transform_keys(&:to_sym)
-      properties[:missingValues] = @missing.descriptor if properties.key?(:missingValues)
-      Utils.frozen_copy(properties)
+      properties[:missingValues] = Utils.frozen_copy(@missing.descriptor) if properties.key?(:missingValues)
+      properties.freeze
     end
 
     # Returns [Array<String>] the names of the fields of the `primaryKey`, see above, a String or an Array of them, each

@@ -2,6 +2,7 @@
 
 require_relative "test_helper"
 require "json"
+require "open3"
 
 class ContractTest < Minitest::Test
   class Order < IOStreams::Contract
@@ -198,6 +199,72 @@ class ContractTest < Minitest::Test
 
         assert_equal "ContractTest::Order", Order.inspect
         assert_equal "#<IOStreams::Contract #{hash.inspect}>", IOStreams::Contract.new(hash).inspect
+      end
+
+      it "holds its schema frozen, without freezing the Hashes, Arrays and Strings that it was built from" do
+        descriptor = JSON.parse(<<~JSON)
+          {"fieldsMatch": "subset", "fields": [
+            {"name": "id", "type": "integer", "constraints": {"enum": [1, 2]}},
+            {"name": "code", "type": "string", "constraints": {"pattern": "[A-Z]+"}},
+            {"name": "at", "type": "datetime", "format": "%Y-%m-%d %H:%M", "timeZone": "America/New_York"},
+            {"name": "tags", "type": "list", "itemType": "string"}
+          ]}
+        JSON
+        contract = IOStreams::Contract.new(descriptor)
+        # The values within the descriptor, since Ruby freezes each String key of a Hash itself.
+        texts    = []
+        walk     = lambda do |value|
+          texts << value if value.is_a?(String) || value.is_a?(Hash) || value.is_a?(Array)
+          value.each { |item| walk.call(item) } if value.is_a?(Array)
+          value.each_value { |item| walk.call(item) } if value.is_a?(Hash)
+        end
+        walk.call(descriptor)
+
+        assert_equal [], texts.select(&:frozen?)
+        assert_predicate contract.schema.fields.first.type, :frozen?
+        assert_predicate contract.record_fields, :frozen?
+        descriptor["fields"].first["type"].upcase!
+
+        assert_equal "integer", contract.schema.fields.first.type
+        # A copy, which the caller can change.
+        assert_equal 5, (contract.to_h[:fields] << {name: "more"}).size
+      end
+
+      it "holds its schema and the field of each accessor in a form that every Ractor can read" do
+        skip("#{RUBY_ENGINE} has no Ractors") unless defined?(Ractor)
+
+        assert Ractor.shareable?(Order.schema)
+        assert Ractor.shareable?(Order.record_fields)
+        assert Ractor.shareable?(Class.new(Order) { field :note }.record_fields)
+      end
+
+      it "reads and writes its records in a Ractor, through an alias of an accessor, and in a subclass" do
+        skip("#{RUBY_ENGINE} has no Ractors") unless defined?(Ractor)
+
+        script = <<~RUBY
+          require "iostreams"
+          Warning[:experimental] = false
+          class Order < IOStreams::Contract
+            field :id, :integer
+            alias_method :identifier, :id
+            alias_method :identifier=, :id=
+          end
+          class Note < Order
+            field :text, :string
+          end
+          # Loads what the records use in the main Ractor, which Ruby 3.3 cannot load from another.
+          Note.new(id: 1, text: "a").identifier = 2
+          ractor = Ractor.new do
+            note            = Note.new(id: "1", text: 2)
+            note.identifier = "7"
+            [note.id, note.identifier, note.text, note.to_h]
+          end
+          p(ractor.respond_to?(:value) ? ractor.value : ractor.take)
+        RUBY
+        out, err, status = Open3.capture3(RbConfig.ruby, "-I", File.expand_path("../lib", __dir__), "-e", script)
+
+        assert_predicate status, :success?, err
+        assert_equal [7, 7, "2", {"id" => 7, "text" => "2"}].inspect, out.chomp
       end
     end
 

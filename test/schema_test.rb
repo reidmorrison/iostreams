@@ -18,6 +18,19 @@ class SchemaTest < Minitest::Test
         assert_equal %w[integer integer], schema.fields.map(&:type)
       end
 
+      it "holds copies of the Hashes, Arrays and Strings of the descriptor, which the caller can still change" do
+        descriptor = JSON.parse(%({"fieldsMatch": "subset", "fields": [{"name": "id", "type": "integer"}]}))
+        schema     = IOStreams::Schema.new(descriptor)
+        descriptor["fieldsMatch"].replace("exact")
+        descriptor["fields"].first["type"].replace("string")
+        descriptor["fields"] << {"name" => "more"}
+
+        assert_equal "subset", schema.fields_match
+        assert_equal "integer", schema.fields.first.type
+        assert_equal ["id"], schema.fields.map(&:name)
+        refute_predicate descriptor["fields"].first["name"], :frozen?
+      end
+
       it "defaults the type to any, as Frictionless does" do
         assert_equal "any", field.type
       end
