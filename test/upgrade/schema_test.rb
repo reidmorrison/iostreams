@@ -266,6 +266,15 @@ class UpgradeSchemaTest < Minitest::Test
           assert_equal 18_000, time.utc_offset
         end
 
+        it "reads an offset of -0000 or -00 as UTC, and keeps an offset of +0000, as it writes it" do
+          times = read("at\n2026-10-31T09:30:00-0000\n2026-10-31 09:30:00-00\n2026-10-31T09:30:00+0000\n", schema: schema).map { |row| row["at"] }
+
+          assert_equal [Time.utc(2026, 10, 31, 9, 30)] * 3, times
+          assert_equal [true, true, false], times.map(&:utc?)
+          assert_equal "at\n2026-10-31T09:30:00Z\n2026-10-31T09:30:00Z\n2026-10-31T09:30:00+00:00\n",
+                       write(times.map { |time| {"at" => time} }, schema: schema)
+        end
+
         it "still raises without seconds, or without a time" do
           assert_raises(IOStreams::Errors::InvalidValue) { read("at\n2026-10-31 09:30\n", schema: schema) }
           assert_raises(IOStreams::Errors::InvalidValue) { read("at\n2026-10-31\n", schema: schema) }
