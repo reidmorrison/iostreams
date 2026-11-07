@@ -12,7 +12,8 @@ class ShareableTest < Minitest::Test
   CLASS_STATE_WRITERS = %w[
     IOStreams.add_allowed_path IOStreams.add_root IOStreams.delete_allowed_path IOStreams.deregister_extension
     IOStreams.logger= IOStreams.register_extension IOStreams.register_scheme IOStreams.temp_dir=
-    IOStreams::Contract.build IOStreams::Contract.descriptor= IOStreams::Contract.field IOStreams::Contract.inherited
+    IOStreams::Contract.add_field IOStreams::Contract.build IOStreams::Contract.descriptor= IOStreams::Contract.field
+    IOStreams::Contract.inherited IOStreams::Contract.set_property
     IOStreams::Paths::SFTP.before_password_wait_seconds= IOStreams::Paths::SFTP.sftp_bin=
     IOStreams::Paths::SFTP.sshpass_bin= IOStreams::Paths::SFTP.sshpass_wait_seconds=
     IOStreams::Pgp.executable= IOStreams::Pgp::Reader.default_passphrase= IOStreams::Pgp::Writer.audit_recipient=

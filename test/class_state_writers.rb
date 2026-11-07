@@ -4,12 +4,12 @@ require "prism"
 
 # Finds the class-level methods of Ruby files that set an instance variable of their class or module, or change the
 # value of one in place, other than in the branch of an `if IOStreams::Utils.main_ractor?`, since a Ractor other than
-# the main Ractor can never set them, see test/shareable_test.rb: an assignment, `instance_variable_set` on the class
-# itself, a class-level writer of these files called with `send` on it or another class, such as a subclass, and the
-# writers that `attr_writer`
-# and `attr_accessor` define on it. `instance_variable_set` on another object is not counted, since it is how a class
-# method builds an instance, such as one that it allocates. A block of a Proc or a method that a class method defines
-# runs on another object, so the instance variables within it are not those of the class.
+# the main Ractor can never set them, see test/shareable_test.rb: an assignment; `instance_variable_set` on the class
+# itself, or on the class that a hook such as `inherited` is given; a call of a class-level writer of these files, such
+# as `self.descriptor = descriptor`, or with `send` on another class, such as a subclass; and the writers that
+# `attr_writer` and `attr_accessor` define on it. `instance_variable_set` on another object is not counted, since it is
+# how a class method builds an instance, such as one that it allocates. A block of a Proc or a method that a class
+# method defines runs on another object, so the instance variables within it are not those of the class.
 class ClassStateWriters < Prism::Visitor
   # The methods that change a Hash or an Array in place.
   MUTATORS = %i[[]= << delete store push concat clear update merge! replace shift pop unshift insert delete_if keep_if
@@ -23,6 +23,9 @@ class ClassStateWriters < Prism::Visitor
 
   # The methods that call another, such as a writer.
   SENDERS = %i[send public_send __send__].freeze
+
+  # The hooks that Ruby calls with a class or module, whose instance variables `instance_variable_set` sets.
+  HOOKS = %i[inherited included extended prepended].freeze
 
   # Returns [Array<String>] the methods that do, such as "IOStreams.add_root", in the supplied files.
   def self.find(files)
@@ -38,6 +41,7 @@ class ClassStateWriters < Prism::Visitor
   def initialize
     super
     @writers       = []
+    @hook          = false
     @class_methods = []
     @sent          = []
     @namespace     = []
@@ -64,7 +68,10 @@ class ClassStateWriters < Prism::Visitor
   def visit_def_node(node)
     class_level = node.receiver.is_a?(Prism::SelfNode) || @singleton.positive?
     @class_methods << node.name if class_level
+    @hook = class_level && HOOKS.include?(node.name)
     in_method(class_level ? "#{@namespace.join('::')}.#{node.name}" : nil) { super }
+  ensure
+    @hook = false
   end
 
   # Only the branch of `if Utils.main_ractor?` is guarded, not its else, nor that of a negated condition.
@@ -83,8 +90,8 @@ class ClassStateWriters < Prism::Visitor
 
   def visit_call_node(node)
     record if ivar?(node.receiver) && (MUTATORS.include?(node.name) || node.attribute_write?)
-    record if node.name == :instance_variable_set && (node.receiver.nil? || node.receiver.is_a?(Prism::SelfNode))
-    @sent << [@method, node.arguments.arguments.first.unescaped.to_sym] if sends_writer?(node) && @method && @guarded.zero?
+    record if node.name == :instance_variable_set && sets_class?(node)
+    record_sent(node)
     record_attr_writers(node) if ATTR_WRITERS.include?(node.name) && class_level_attr?(node)
     return super unless OTHER_SELF.include?(node.name)
 
@@ -136,6 +143,22 @@ class ClassStateWriters < Prism::Visitor
     @guarded -= 1
   end
 
+  # Returns [true|false] whether `instance_variable_set` sets the instance variable of a class: of the class itself, or
+  # of the class that a hook is given.
+  def sets_class?(node)
+    node.receiver.nil? || node.receiver.is_a?(Prism::SelfNode) || @hook
+  end
+
+  # Records a writer that a class-level method calls, such as `self.descriptor = descriptor`, or sends to an object,
+  # such as `contract.send(:descriptor=, descriptor)`, which counts once every file is read when the writer is a
+  # class-level method, see .find.
+  def record_sent(node)
+    return unless @method && @guarded.zero?
+
+    @sent << [@method, node.arguments.arguments.first.unescaped.to_sym] if sends_writer?(node)
+    @sent << [@method, node.name] if node.attribute_write? && !ivar?(node.receiver)
+  end
+
   # Returns [true|false] whether the call sends a writer, such as `contract.send(:descriptor=, value)`.
   def sends_writer?(node)
     name = node.arguments&.arguments&.first
@@ -150,12 +173,13 @@ class ClassStateWriters < Prism::Visitor
     node.receiver.is_a?(Prism::CallNode) && node.receiver.name == :singleton_class
   end
 
-  # Records the writer of each name of an `attr_writer` or `attr_accessor` on a class.
+  # Records the writer of each name of an `attr_writer` or `attr_accessor` on a class, which is a class-level method.
   def record_attr_writers(node)
     node.arguments&.arguments&.each do |name|
       next unless name.is_a?(Prism::SymbolNode) || name.is_a?(Prism::StringNode)
 
       @writers << "#{@namespace.join('::')}.#{name.unescaped}="
+      @class_methods << :"#{name.unescaped}="
     end
   end
 

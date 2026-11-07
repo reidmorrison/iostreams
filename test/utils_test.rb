@@ -179,7 +179,8 @@ class UtilsTest < Minitest::Test
 
       it "raises for text of a dummy encoding, without a byte order, as Regexp does" do
         # JRuby raises ArgumentError, for its bytes.
-        assert_raises(RegexpError, ArgumentError) { IOStreams::Utils.blank_text?(" ".encode("UTF-16LE").force_encoding("UTF-16")) }
+        error = RUBY_ENGINE == "jruby" ? ArgumentError : RegexpError
+        assert_raises(error) { IOStreams::Utils.blank_text?(" ".encode("UTF-16LE").force_encoding("UTF-16")) }
       end
 
       it "matches binary text by its ASCII whitespace" do

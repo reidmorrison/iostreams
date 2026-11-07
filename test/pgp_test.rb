@@ -73,6 +73,22 @@ class PgpTest < Minitest::Test
         assert_match(/\A\d+\.\d+\.\d+\z/, IOStreams::Pgp.pgp_version)
       end
 
+      it "is remembered by a Ractor other than the main Ractor for itself, until the main Ractor has found it" do
+        skip("Ractors are checked from Ruby 4") unless defined?(Ractor) && RUBY_VERSION.to_i >= 4
+
+        script = <<~RUBY
+          require "iostreams"
+          Warning[:experimental] = false
+          p(Ractor.new { [IOStreams::Pgp.pgp_version, IOStreams::Pgp.pgp_version, Ractor.current[:io_streams_pgp_version]] }.value)
+          p IOStreams::Pgp.instance_variable_get(:@pgp_version)
+          IOStreams::Pgp.pgp_version
+          p(Ractor.new { [IOStreams::Pgp.pgp_version, IOStreams::Pgp.pgp_version, Ractor.current[:io_streams_pgp_version]] }.value)
+        RUBY
+        version = IOStreams::Pgp.pgp_version
+
+        assert_equal [[version, version, ["gpg", version]], nil, [version, version, nil]].map(&:inspect), run_script(script)
+      end
+
       it "is the version of the executable that is set" do
         installed = IOStreams::Pgp.pgp_version
         Dir.mktmpdir do |dir|
