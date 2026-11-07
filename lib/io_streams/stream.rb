@@ -62,11 +62,9 @@ module IOStreams
     # writer accepts, so that a writer, and a copy, which uses its options to write its target, raise for them, rather
     # than ignore them. Each reader and writer declares the options that it accepts.
     def self.read_option_names
-      @read_option_names ||= begin
-        readers = [IOStreams::Line::Reader, IOStreams::Row::Reader, IOStreams::Record::Reader, IOStreams::Slice::Reader]
-        writers = [IOStreams::Line::Writer, IOStreams::Row::Writer, IOStreams::Record::Writer, IOStreams::Slice::Writer]
-        (readers.flat_map(&:option_names) - writers.flat_map(&:option_names)).uniq.freeze
-      end
+      readers = [IOStreams::Line::Reader, IOStreams::Row::Reader, IOStreams::Record::Reader, IOStreams::Slice::Reader]
+      writers = [IOStreams::Line::Writer, IOStreams::Row::Writer, IOStreams::Record::Writer, IOStreams::Slice::Writer]
+      (readers.flat_map(&:option_names) - writers.flat_map(&:option_names)).uniq.freeze
     end
 
     # Returns [Module|nil] the format of the rows of the tabular format of the supplied name, such as `IOStreams::Parquet`

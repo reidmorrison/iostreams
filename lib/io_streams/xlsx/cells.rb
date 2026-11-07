@@ -57,6 +57,10 @@ module IOStreams
       # stops there, rather than scan the rest of the code again from each `[` of a workbook's code that never closes.
       LITERALS = /"[^"]*"|\\.|_.|\*.|\[(?![hms]+\])[^\[\]]*\]/i
 
+      # A field of type `time`, which writes the text of a time of day.
+      TIME_OF_DAY_FIELD = Utils.shareable(Schema::Field.new({name: "time", type: "time"}))
+      private_constant :TIME_OF_DAY_FIELD
+
       # Returns [Array<Symbol|nil>] the class of the number format of each style of a workbook, by the index of the style,
       # as a cell names it with its `s` attribute: `:date`, `:time`, `:elapsed` or `:date_time`, or nil for a number,
       # from Excel's own number formats, see BUILT_IN_FORMATS and .custom_format, rather than as creek finds them.
@@ -173,7 +177,7 @@ module IOStreams
         return unless TIME_FORMATS.include?(style) && (type.nil? || type == "n") && text && !text.empty?
 
         days = days(text)
-        time_of_day_field.render(time_of_day(days), :text) if days && days < 1
+        TIME_OF_DAY_FIELD.render(time_of_day(days), :text) if days && days < 1
       rescue ArgumentError, ZeroDivisionError
         nil
       end
@@ -230,7 +234,7 @@ module IOStreams
         case style
         when :date then (base_date + days.floor).iso8601
         when :date_time then Schema::Field.clock_text(date_time(days, base_date))
-        when :time then time_of_day_field.render(time_of_day(days), :text)
+        when :time then TIME_OF_DAY_FIELD.render(time_of_day(days), :text)
         end
       rescue ArgumentError, ZeroDivisionError
         text
@@ -247,7 +251,7 @@ module IOStreams
       # the date and time that .value reads, rather than the time of its clock without its days, which Excel does not
       # show for an elapsed time.
       def self.elapsed_text(days, base_date)
-        return time_of_day_field.render(time_of_day(days), :text) if days < 1
+        return TIME_OF_DAY_FIELD.render(time_of_day(days), :text) if days < 1
 
         Schema::Field.clock_text(date_time(days, base_date))
       end
@@ -258,11 +262,6 @@ module IOStreams
       def self.days(text)
         days = Float(text)
         Rational(text) if days >= 0 && days < LAST_DAY
-      end
-
-      # Returns [IOStreams::Schema::Field] a field of type `time`, which writes the text of a time of day.
-      def self.time_of_day_field
-        @time_of_day_field ||= Schema::Field.new({name: "time", type: "time"})
       end
 
       # Returns [Time] the time, in UTC, of the clock of the days since the first day of the workbook, to the millisecond
@@ -282,8 +281,8 @@ module IOStreams
       def self.seconds(days)
         ((days - days.floor) * DAY).round(3)
       end
-      private_class_method :number, :number_text, :plain_text, :elapsed_text, :duration_text, :days, :time_of_day_field,
-                           :date_time, :time_of_day, :seconds
+      private_class_method :number, :number_text, :plain_text, :elapsed_text, :duration_text, :days, :date_time,
+                           :time_of_day, :seconds
     end
   end
 end

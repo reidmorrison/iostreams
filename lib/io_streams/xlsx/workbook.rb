@@ -34,11 +34,11 @@ module IOStreams
       FIRST_DAY = [1899, 12, 30].freeze
 
       # Raises `IOStreams::Errors::Error` unless the version of `xlsxtream` writes its styles and the cells of a date
-      # and time as this workbook expects, see .problem, which is found once for each process, before anything is
-      # written, so that an existing file is not replaced, see `IOStreams::Xlsx::Writer.check`.
+      # and time as this workbook expects, see .problem, which is found once for each process, as the class is loaded,
+      # see the end of the class, before anything is written, so that an existing file is not replaced, see
+      # `IOStreams::Xlsx::Writer.check`.
       def self.check
-        @problem ||= [problem]
-        raise(IOStreams::Errors::Error, @problem.first) if @problem.first
+        raise(IOStreams::Errors::Error, @problem) if @problem
       end
 
       # Returns [String|nil] why this workbook cannot write the styles of the version of `xlsxtream` that is loaded, or
@@ -161,6 +161,10 @@ module IOStreams
         end
       end
       private_constant :StyledParts
+
+      # The problem, see .check, found as the class is loaded, which Ruby does in the main Ractor, since a class-level
+      # cache could only be set there, see `IOStreams::Utils.main_ractor?`.
+      @problem = problem&.freeze
     end
   end
 end
