@@ -432,7 +432,8 @@ class XlsxWriterTest < Minitest::Test
 
       describe "a version of xlsxtream whose styles it does not know" do
         # The gem that each test changes, which IOStreams loads only once it writes a spreadsheet, and the workbook,
-        # which reads the styles of the gem as its class is loaded, so that it does so before a test changes them.
+        # which reads xlsxtream's style of a date and time, `Row::TIME_STYLE`, as its class is loaded, so that it does
+        # so before a test changes it.
         before do
           require "xlsxtream"
           IOStreams::Xlsx::Workbook
