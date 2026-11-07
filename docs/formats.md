@@ -461,7 +461,8 @@ end
 ~~~
 
 With a schema, the columns are matched to its fields, and each value is converted to the type of its field, as for any
-other format, see [Schemas](schemas).
+other format, see [Schemas](schemas). Each row is a record, also when every value is null, so it is never a
+[blank row](streams#blank-rows).
 
 Writing needs a schema, or a [contract](contracts), since a Parquet file records the type of each of its columns; a copy
 gives one from a source of typed rows, see [Copying and moving](copy_files#choosing-the-columns). Its fields are the

@@ -949,14 +949,17 @@ or `#path`. Where the code needs a `File`, copy the file to a local file first, 
 
 ### Blank rows
 
-A blank row holds no data. It is the same in every format, so that a file holds the same rows whichever format it is
-in:
+A blank row holds no data. It is the same in every format that can hold one, so that a file holds the same rows
+whichever of them it is in:
 
 * a line that is empty, or only whitespace, including Unicode whitespace such as a no-break space, as Rails'
   `String#blank?` matches it;
 * a row or record whose every value is `nil` or such text, such as a line of CSV of only commas, a row of empty
-  spreadsheet cells, a fixed width line whose every field is spaces, a JSON line of `null` or `{}`, or a JSON or
-  Parquet record whose every value is null.
+  spreadsheet cells, a fixed width line whose every field is spaces, a JSON line of `null` or `{}`, or a JSON record
+  whose every value is null.
+
+A row of a Parquet file is always a record, also when every value is null, as a row of a
+[query](queries) is, since the file holds no blank lines.
 
 A value such as `false` or `0` is data, so a row that holds one is not blank. `each(:array)` and `each(:hash)` yield
 `nil` for each blank row, so that the rows yielded count the records of the file. Supply `skip_blanks: true` to skip
@@ -971,8 +974,7 @@ end
 * The header row is the first row that is not blank, with or without `skip_blanks`.
 * A blank row is not checked against a [schema](schemas), so it does not raise for a field that is required, as
   a row with other values does.
-* Only the values that are read count: the fields of a fixed width line, not its filler, and of a Parquet file read
-  with a schema that skips columns, only the columns of its fields.
+* Only the values that are read count: the fields of a fixed width line, not its filler.
 * A copy always skips blank rows, so `#copy_from` and `#writer` raise `ArgumentError` for `skip_blanks:`, which only
   applies when reading.
 * `each(:line)` and `each(:slice)` hand on every row as it is in the file, so they do not take `skip_blanks:`. Supply it
@@ -3306,7 +3308,8 @@ end
 ~~~
 
 With a schema, the columns are matched to its fields, and each value is converted to the type of its field, as for any
-other format, see [Schemas](schemas).
+other format, see [Schemas](schemas). Each row is a record, also when every value is null, so it is never a
+[blank row](streams#blank-rows).
 
 Writing needs a schema, or a [contract](contracts), since a Parquet file records the type of each of its columns; a copy
 gives one from a source of typed rows, see [Copying and moving](copy_files#choosing-the-columns). Its fields are the
@@ -4669,7 +4672,8 @@ out, and any other `fieldsMatch` raises `ArgumentError` for `"keep"`, since it d
 A field whose `constraints` are `required`, as Frictionless defines it, must have a value: a header row, or JSON
 record, without the field raises `IOStreams::Errors::InvalidHeader`, whatever `fieldsMatch` is, and a value that is
 `nil`, or a missing value, such as empty text, raises `IOStreams::Errors::InvalidValue`, both when reading and when
-writing, including a blank record or row written, such as `{}`, which is otherwise written as a blank line. A blank row
+writing, including a blank record or row written, such as `{}`, which is otherwise written as a blank line, or to
+Parquet as a row of nulls. A blank row
 read, whose every value is `nil` or blank text, is `nil` instead, as a blank line is, see
 [Blank rows](streams#blank-rows). Text that is only spaces is a value, as in Frictionless, so a `string` field keeps it,
 in a row that has other values, while any other type raises `IOStreams::Errors::InvalidValue` for it, see
@@ -10530,8 +10534,8 @@ end
 
 A row whose every value is `nil` or blank text is now read as `nil`, as a blank line already was, in every format, see
 [Blank rows](streams#blank-rows). Previously `each(:array)` and `each(:hash)` returned a row or record of `nil` values
-for a line of CSV of only commas, such as those that Excel writes after the last row, a JSON or Parquet record whose
-every value is null, and a fixed width line whose every field is blank, while a row of empty spreadsheet cells was
+for a line of CSV of only commas, such as those that Excel writes after the last row, a JSON record whose every value
+is null, and a fixed width line whose every field is blank, while a row of empty spreadsheet cells was
 already `nil`. Text of only Unicode whitespace, such as a no-break space, is now blank as well, as Rails'
 `String#blank?` matches it, where only spaces, tabs and line endings were.
 

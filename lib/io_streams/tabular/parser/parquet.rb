@@ -18,6 +18,13 @@ module IOStreams
           false
         end
 
+        # Returns [false] a row of a Parquet file is a record, also when its every value is null, as a row of a database
+        # query is, since the file holds no blank lines, so that a read of only some of its columns, see
+        # `IOStreams::Schema#projection`, reads the same records as a read of every column, and as its slices.
+        def self.blank_rows?
+          false
+        end
+
         # Returns [Hash] the record supplied, or the row supplied, an Array that is already parsed, as it is, see
         # `IOStreams::Tabular#record_parse`.
         def parse(row)

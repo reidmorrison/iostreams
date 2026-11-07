@@ -708,7 +708,8 @@ out, and any other `fieldsMatch` raises `ArgumentError` for `"keep"`, since it d
 A field whose `constraints` are `required`, as Frictionless defines it, must have a value: a header row, or JSON
 record, without the field raises `IOStreams::Errors::InvalidHeader`, whatever `fieldsMatch` is, and a value that is
 `nil`, or a missing value, such as empty text, raises `IOStreams::Errors::InvalidValue`, both when reading and when
-writing, including a blank record or row written, such as `{}`, which is otherwise written as a blank line. A blank row
+writing, including a blank record or row written, such as `{}`, which is otherwise written as a blank line, or to
+Parquet as a row of nulls. A blank row
 read, whose every value is `nil` or blank text, is `nil` instead, as a blank line is, see
 [Blank rows](streams#blank-rows). Text that is only spaces is a value, as in Frictionless, so a `string` field keeps it,
 in a row that has other values, while any other type raises `IOStreams::Errors::InvalidValue` for it, see

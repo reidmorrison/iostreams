@@ -66,6 +66,31 @@ class SliceTest < Minitest::Test
         assert_equal({"rows" => [[nil, nil]], "header" => %w[name age], "format" => "array", "blank_rows" => false}, records.to_h)
       end
 
+      it "holds blank_rows: false for a slice of a format whose rows are never blank, such as Parquet, however it is built" do
+        schema = {fields: [{name: "name", type: "string"}]}
+        built  = IOStreams::Slice.new([{"name" => nil}], format: :parquet, schema: schema)
+        read   = IOStreams::Slice.new([{"name" => nil}], format: :parquet, schema: schema, blank_rows: false)
+
+        refute_predicate built, :blank_rows?
+        assert_equal read, built
+        assert_equal read, IOStreams.slice("rows" => [{"name" => nil}], "format" => "parquet", "schema" => schema)
+        assert_equal({"blank_rows" => false}, built.to_h.slice("blank_rows"))
+      end
+
+      it "raises for blank_rows: true of a format whose rows are never blank, rather than ignore it" do
+        error = assert_raises(ArgumentError) { IOStreams::Slice.new([{"name" => nil}], format: :parquet, blank_rows: true) }
+        assert_equal "A slice of the :parquet format cannot have blank_rows: true, since each of its rows is a record, " \
+                     "also when every value is null", error.message
+        assert_raises(ArgumentError) { IOStreams.slice("rows" => [], "format" => "parquet", "blank_rows" => true) }
+        assert_predicate IOStreams::Slice.new([], format: :csv, blank_rows: true), :blank_rows?
+        assert_predicate IOStreams::Slice.new([], format: :csv), :blank_rows?
+      end
+
+      it "raises for a blank_rows that is not true, false or nil" do
+        error = assert_raises(ArgumentError) { IOStreams::Slice.new([], format: :csv, blank_rows: "no") }
+        assert_equal 'The blank_rows of a slice must be true or false: "no"', error.message
+      end
+
       it "holds the line that the first row starts on, when the slice has one" do
         numbered = IOStreams::Slice.new(%w[a], format: :csv, line_number: 7)
 
