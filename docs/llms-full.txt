@@ -7677,7 +7677,8 @@ slice.to_h
 * The rows of a file are Strings, and the header row is an Array of Strings, so JSON keeps the Hash as it is. That
   suits every job queue, including Sidekiq's own jobs, whose arguments must be JSON.
 * `IOStreams.slice` takes the keys, and the format, as Strings or Symbols, since a queue may change them, and raises
-  `ArgumentError` for a Hash that does not describe a slice.
+  `ArgumentError` for a Hash that does not describe a slice, such as one without `"rows"`. It ignores keys that a slice
+  does not have, such as the `_id` that a database adds, so a stored record can be passed to it as it is.
 * The header row travels with every slice, so each job reads its rows by the columns of their own file, even when the
   files that feed the same job have their columns in different orders.
 * The rows and records that a program writes to a [store of slices](#a-store-of-slices) in the `:array` or `:hash` mode

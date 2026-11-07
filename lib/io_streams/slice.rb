@@ -45,35 +45,32 @@ module IOStreams
     autoload :TargetStream, "io_streams/slice/target_stream"
     autoload :Writer, "io_streams/slice/writer"
 
-    # The keys of the Hash of a slice, see #to_h.
-    KEYS = %w[rows header format blank_rows cell_text schema line_number record_number jumps].freeze
-
     # Returns [IOStreams::Slice] the slice that the supplied Hash describes, which #to_h returned, see `IOStreams.slice`.
     # Its keys can be Strings or Symbols, and its format a String or a Symbol, as storing it may have changed them. The
     # header row is a frozen copy, since every slice of a file shares it.
     #
-    # Raises ArgumentError when it does not describe a slice: when it is not a Hash, has no rows, or a key that a slice
-    # does not have, or when its rows are not an Array, its header row is not an Array of Strings, or is blank, see
-    # #header?, its format is not a tabular format, see `IOStreams.tabular_formats`, its `blank_rows` or `cell_text` is
-    # not true or false, its `schema` is not a valid schema, see `IOStreams::Schema`, its `line_number` or
-    # `record_number` is not a positive Integer, or is supplied without rows, or its `jumps` are not those of its rows,
-    # see #to_h. The values of the rows of a slice with a schema are turned back into the types of their fields, see
-    # `IOStreams::Schema::Field#load`.
+    # Only `rows` is required: any other key of #to_h that is missing takes its default, see .new. A key that a slice
+    # does not have is ignored, such as the `_id` that a store adds to each record, so that a record of the store can be
+    # supplied as it is.
+    #
+    # Raises ArgumentError when it does not describe a slice: when it is not a Hash, or has no rows, or when its rows are
+    # not an Array, its header row is not an Array of Strings, or is blank, see #header?, its format is not a tabular
+    # format, see `IOStreams.tabular_formats`, its `blank_rows` or `cell_text` is not true or false, its `schema` is not a
+    # valid schema, see `IOStreams::Schema`, its `line_number` or `record_number` is not a positive Integer, or is
+    # supplied without rows, or its `jumps` are not those of its rows, see #to_h. The values of the rows of a slice with a
+    # schema are turned back into the types of their fields, see `IOStreams::Schema::Field#load`.
     def self.from_h(hash)
       raise(ArgumentError, "A slice must be the Hash that #to_h returns, not #{hash.class.name}") unless hash.is_a?(::Hash)
 
-      values  = hash.transform_keys(&:to_s)
-      unknown = values.keys - KEYS
-      unless unknown.empty?
-        raise(ArgumentError, "Unknown #{unknown.size == 1 ? 'key' : 'keys'} #{unknown.map(&:inspect).join(', ')} of a " \
-                             "slice. Valid keys: #{KEYS.map(&:inspect).join(', ')}")
-      end
-
-      slice = new(rows_of(values["rows"]), header: header_of(values["header"]), format: format_of(values["format"]),
-                                           blank_rows: blank_rows_of(values["blank_rows"]),
-                                           cell_text: cell_text_of(values["cell_text"]),
-                                           schema: values["schema"],
-                                           line_number: values["line_number"], record_number: values["record_number"])
+      values = hash.transform_keys(&:to_s)
+      slice  = new(rows_of(values["rows"]),
+                   header:        header_of(values["header"]),
+                   format:        format_of(values["format"]),
+                   blank_rows:    blank_rows_of(values["blank_rows"]),
+                   cell_text:     cell_text_of(values["cell_text"]),
+                   schema:        values["schema"],
+                   line_number:   values["line_number"],
+                   record_number: values["record_number"])
       slice.send(:jumps=, values["jumps"])
       slice.send(:load_rows)
       slice
