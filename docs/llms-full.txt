@@ -5579,7 +5579,8 @@ With its own `trueValues` and `falseValues`, the field reads only those: `custom
   timestamp column of a query, at midnight. Any other time raises, rather than lose its time of day.
 * **Also reads** the ISO 8601 text of a date and time at midnight, by its own clock, as its date, such as
   `2026-10-13T00:00:00`, the CSV text of a spreadsheet's date and time cell at midnight, so that its CSV text and its
-  slices read the cell as its rows do. A field with a `format` reads only text in its format.
+  slices read the cell as its rows do. A field with a `format` reads a file of text, such as a CSV copy of the
+  spreadsheet, only in its format, while the slices of the spreadsheet still read the cell as its rows do.
 * **Written as** `2026-10-13`, or in its `format`.
 
 ~~~ruby
