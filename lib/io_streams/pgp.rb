@@ -51,8 +51,9 @@ module IOStreams
       @executable
     end
 
+    # Keeps a frozen copy of the name, see `IOStreams::Utils.frozen_copy`, as each setting of IOStreams does.
     def self.executable=(executable)
-      @executable  = executable
+      @executable  = Utils.frozen_copy(executable)
       # The version is that of the executable, see .pgp_version.
       @pgp_version = nil
     end

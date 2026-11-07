@@ -236,6 +236,64 @@ module IOStreams
         end
       end
 
+      describe "settings" do
+        # Each setting of a String, by the class or module that holds it.
+        let(:settings) do
+          [
+            [IOStreams::Pgp, :executable], [IOStreams::Pgp::Reader, :default_passphrase],
+            [IOStreams::Pgp::Writer, :default_signer], [IOStreams::Pgp::Writer, :default_signer_passphrase],
+            [IOStreams::Pgp::Writer, :audit_recipient], [IOStreams::Paths::SFTP, :sftp_bin],
+            [IOStreams::Paths::SFTP, :sshpass_bin]
+          ]
+        end
+
+        it "keeps a frozen copy of the String supplied to each one, leaving the caller's String as it is" do
+          settings.each do |owner, name|
+            original = owner.instance_variable_get(:"@#{name}")
+            value    = +"value"
+            owner.public_send(:"#{name}=", value)
+            kept = owner.instance_variable_get(:"@#{name}")
+
+            assert_equal "value", kept, "#{owner}.#{name}"
+            assert_predicate kept, :frozen?, "#{owner}.#{name}"
+            refute_predicate value, :frozen?, "#{owner}.#{name}"
+          ensure
+            owner.instance_variable_set(:"@#{name}", original)
+          end
+        end
+
+        it "keeps a temp directory frozen" do
+          temp_dir = IOStreams.instance_variable_get(:@temp_dir)
+          IOStreams.temp_dir = Dir.tmpdir.dup
+
+          assert_predicate IOStreams.temp_dir, :frozen?
+        ensure
+          IOStreams.instance_variable_set(:@temp_dir, temp_dir)
+        end
+      end
+
+      describe ".logger" do
+        it "is nil in a Ractor other than the main Ractor when the logger cannot be shared, which a shared one is not" do
+          skip("#{RUBY_ENGINE} has no Ractors") unless defined?(Ractor)
+
+          script = <<~RUBY
+            require "iostreams"
+            require "logger"
+            Warning[:experimental] = false
+            result = ->(ractor) { ractor.respond_to?(:value) ? ractor.value : ractor.take }
+            IOStreams.logger = Logger.new($stderr)
+            unshared = result.call(Ractor.new { IOStreams.logger.inspect })
+            IOStreams.logger = Ractor.make_shareable(Struct.new(:name).new("shared"))
+            shared = result.call(Ractor.new { IOStreams.logger.name })
+            p [unshared, shared, IOStreams.logger.name]
+          RUBY
+          out, err, status = Open3.capture3(RbConfig.ruby, "-I", File.expand_path("../lib", __dir__), "-e", script)
+
+          assert_predicate status, :success?, err
+          assert_equal %w[nil shared shared].inspect, out.chomp
+        end
+      end
+
       describe ".temp_dir" do
         before { @temp_dir = IOStreams.instance_variable_get(:@temp_dir) }
 

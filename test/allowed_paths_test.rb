@@ -42,6 +42,11 @@ class AllowedPathsTest < Minitest::Test
       assert_raises(IOStreams::Errors::AccessDenied, &)
     end
 
+    it "holds each allowed path frozen, as the list of them is" do
+      assert_predicate IOStreams.allowed_paths, :frozen?
+      assert(IOStreams.allowed_paths.all?(&:frozen?))
+    end
+
     describe "sftp paths within the login directory" do
       before { IOStreams.add_allowed_path("sftp://example.org/~/outbound") }
 

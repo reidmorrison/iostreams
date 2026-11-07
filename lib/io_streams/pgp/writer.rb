@@ -15,19 +15,28 @@ module IOStreams
         %i[signer_passphrase]
       end
 
+      # Each setting keeps a frozen copy of the value supplied, see `IOStreams::Utils.frozen_copy`.
       class << self
         # Sign all encrypted files with this users key.
         # Default: Do not sign encrypted files.
-        attr_writer :default_signer
+        def default_signer=(signer)
+          @default_signer = Utils.frozen_copy(signer)
+        end
 
         # Passphrase to use to open the private key when signing the file.
         # Default: None.
-        attr_writer :default_signer_passphrase
+        def default_signer_passphrase=(passphrase)
+          @default_signer_passphrase = Utils.frozen_copy(passphrase)
+        end
 
         # Encrypt all pgp output files with this recipient for audit purposes.
         # Allows the generated pgp files to be decrypted with this email address.
         # Useful for audit or problem resolution purposes.
-        attr_accessor :audit_recipient
+        attr_reader :audit_recipient
+
+        def audit_recipient=(recipient)
+          @audit_recipient = Utils.frozen_copy(recipient)
+        end
 
         private
 

@@ -48,7 +48,7 @@ class ShareableTest < Minitest::Test
         assert_equal [], run_script(script)
       end
 
-      it "holds a shareable value in every instance variable of its classes, once each has remembered what it remembers" do
+      it "holds a shareable value in every instance variable of its classes, once each has found what it finds, and is configured" do
         script = <<~RUBY
           require "shareable_state"
           require "iostreams"
@@ -66,6 +66,20 @@ class ShareableTest < Minitest::Test
           IOStreams::Pgp.pgp_version
           IOStreams::Paths::S3::Sdk.unknown_options([:unknown])
           IOStreams.temp_dir
+          # Each setting, with a String that the caller can still change.
+          IOStreams.temp_dir = Dir.tmpdir.dup
+          IOStreams.add_allowed_path(Dir.tmpdir.dup)
+          IOStreams.add_root(:default, Dir.tmpdir.dup)
+          IOStreams.add_root(:sftp, +"sftp://example.org/data", username: +"jack", password: +"secret")
+          IOStreams::Pgp.executable = +"gpg"
+          IOStreams::Pgp::Reader.default_passphrase = +"secret"
+          IOStreams::Pgp::Writer.default_signer = +"jack@example.org"
+          IOStreams::Pgp::Writer.default_signer_passphrase = +"secret"
+          IOStreams::Pgp::Writer.audit_recipient = +"audit@example.org"
+          IOStreams::Paths::SFTP.sftp_bin = +"sftp"
+          IOStreams::Paths::SFTP.sshpass_bin = +"sshpass"
+          IOStreams::Paths::SFTP.sshpass_wait_seconds = 5
+          IOStreams::Paths::SFTP.before_password_wait_seconds = 2
           puts ShareableState.unshareable_class_state(modules)
         RUBY
 
