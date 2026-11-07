@@ -301,6 +301,32 @@ module IOStreams
       self.class.quote_character(format, text_format: @text_format)
     end
 
+    # Raises ArgumentError, naming the setting that reads the text as UTF-8, such as `encoding("UTF-16LE:UTF-8")`,
+    # when the supplied `encoding` option, which its lines are read with, see `IOStreams::Builder#read_encoding`, reads
+    # text in an encoding that is not ASCII compatible, such as UTF-16LE, see `IOStreams::Encode.read_encoding`, and
+    # either the parser of the format parses only ASCII compatible text, see
+    # `IOStreams::Tabular::Parser::Base.ascii_text?`, such as CSV, or a schema reads the values of the rows, whose
+    # missing values, and the text of each type, it finds as ASCII, while the values are in the encoding of the text,
+    # see `IOStreams::Tabular::Parser::Base.utf8_values?`, such as fixed width. So it raises before the file is opened,
+    # rather than `Encoding::CompatibilityError` once the first row is read, or leave a missing value such as `NA`
+    # unmatched.
+    def check_text_encoding(encoding)
+      text = IOStreams::Encode.read_encoding(encoding)
+      return if text.ascii_compatible?
+
+      reason =
+        if parser.class.ascii_text?
+          "the #{format.inspect} format parses only text in an ASCII compatible encoding"
+        elsif schema && !parser.class.utf8_values?
+          "a schema reads only values in an ASCII compatible encoding, while the #{format.inspect} format reads " \
+            "them in the encoding of the text"
+        end
+      return unless reason
+
+      raise(ArgumentError, "Reading text in #{text}, which is not ASCII compatible: #{reason}, so read it as UTF-8 " \
+                           "with encoding(#{IOStreams::Encode.utf8_encoding(encoding).inspect})")
+    end
+
     # Returns [true|false] whether the rows of the format are lines of text, which a line reader splits and a line writer
     # writes, rather than a binary layout of its own, such as Parquet, see #read_rows.
     def lines?

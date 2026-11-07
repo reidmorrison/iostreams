@@ -99,6 +99,9 @@ module IOStreams
         # Change the delimiters encoding to match that of the input stream
         @delimiter = @delimiter.encode(@encoding)
         @newline   = "\n".encode(@encoding)
+        # The quote character as it is counted within each line, in the encoding of the text, such as UTF-16LE, see
+        # #readline, while its errors name it as it was supplied.
+        @quote = quote_in_text
         # The delimiter as it is searched for within the buffer, see #buffer_encoding.
         @separator = (@crlf ? @newline : @delimiter).dup.force_encoding(@buffer.encoding)
         @return    = "\r".encode(@encoding).force_encoding(@buffer.encoding) if @crlf
@@ -161,11 +164,11 @@ module IOStreams
       def readline
         line               = _readline
         @start_line_number = @line_number if line
-        if line && @embedded_within
+        if line && @quote
           # Count the delimiters incrementally, since recounting the whole line each time is quadratic.
           # For the same reason limit the size of the line in bytes, since `#length` counts the characters
           # in a multi-byte string such as UTF-8 each time it is called.
-          embedded_count = line.count(@embedded_within)
+          embedded_count = line.count(@quote)
           while embedded_count.odd?
             if eof? || line.bytesize > self.class.max_embedded_bytes(@buffer_size)
               raise(Errors::MalformedDataError.new(
@@ -174,7 +177,7 @@ module IOStreams
                     ))
             end
             line << @ending
-            embedded_count += @ending.count(@embedded_within)
+            embedded_count += @ending.count(@quote)
             next_line = _readline
             if next_line.nil?
               raise(Errors::MalformedDataError.new(
@@ -183,7 +186,7 @@ module IOStreams
                     ))
             end
             line << next_line
-            embedded_count += next_line.count(@embedded_within)
+            embedded_count += next_line.count(@quote)
           end
         end
         line
@@ -202,6 +205,16 @@ module IOStreams
       end
 
       private
+
+      # Returns [String|nil] the quote character, `embedded_within`, in the encoding of the text, see #initialize.
+      #
+      # Raises ArgumentError when the encoding of the text has no such character, such as "é" in binary text.
+      def quote_in_text
+        @embedded_within&.encode(@encoding)
+      rescue Encoding::UndefinedConversionError
+        raise(ArgumentError, "Invalid embedded_within #{@embedded_within.inspect}: the text is read in #{@encoding}, " \
+                             "which has no such character")
+      end
 
       def _readline
         return if eof?

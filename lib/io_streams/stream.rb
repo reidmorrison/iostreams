@@ -1386,6 +1386,7 @@ module IOStreams
         end
       end
 
+      tabular.check_text_encoding(builder.read_encoding(tabular.encoding))
       open_line_reader(tabular.encoding, delimiter: delimiter, embedded_within: tabular.quote_character,
                                          buffer_size: buffer_size, &)
     end

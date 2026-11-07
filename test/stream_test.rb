@@ -248,6 +248,83 @@ class StreamTest < Minitest::Test
         assert_equal [%w[name city], %w[José Zürich]], rows
       end
 
+      describe "text in an encoding that is not ASCII compatible, read without converting it" do
+        let(:dir) { Dir.mktmpdir("iostreams") }
+
+        after { FileUtils.rm_rf(dir) }
+
+        # Writes the supplied text to the named file in UTF-16LE, and returns its path, read with encoding("UTF-16LE").
+        def utf16(name, text)
+          File.binwrite(File.join(dir, name), text.encode("UTF-16LE"))
+          IOStreams.path(dir, name).encoding("UTF-16LE")
+        end
+
+        it "reads the lines of CSV in that encoding, also a quoted value that holds a line break" do
+          lines = []
+          utf16("people.csv", "\uFEFFname,city\r\n\"Jos\u00e9\nJr\",M\u00e1laga\r\n").each(:line) { |line| lines << line }
+
+          assert_equal(["name,city", "\"Jos\u00e9\nJr\",M\u00e1laga"].map { |line| line.encode("UTF-16LE") }, lines)
+        end
+
+        it "raises ArgumentError for the rows, records and slices of CSV and PSV, naming the encoding that converts it" do
+          utf16("people.csv", "name,city\r\nJos\u00e9,M\u00e1laga\r\n")
+          utf16("people.psv", "name|city\nJos\u00e9|M\u00e1laga\n")
+          %w[people.csv people.psv missing.csv].each do |name|
+            path = IOStreams.path(dir, name).encoding("UTF-16LE")
+            [-> { path.each(:array) { nil } }, -> { path.each(:hash) { nil } },
+             -> { path.each(:slice, size: 10) { nil } }, -> { path.infer_schema }].each do |read|
+              error = assert_raises(ArgumentError, name) { read.call }
+
+              assert_includes error.message, 'encoding("UTF-16LE:UTF-8")', name
+            end
+          end
+          error = assert_raises(ArgumentError) { IOStreams.path(dir, "people.csv").encoding("UTF-16").each(:hash) { nil } }
+
+          assert_includes error.message, 'encoding("UTF-16:UTF-8")'
+        end
+
+        it "raises ArgumentError for a copy of its rows before the target is opened, while a copy of its data copies it" do
+          source = utf16("people.csv", "name\r\nAna\r\n")
+
+          assert_raises(ArgumentError) { IOStreams.path(dir, "people.json").copy_from(source) }
+          refute_path_exists File.join(dir, "people.json")
+          IOStreams.path(dir, "copy.csv").copy_from(source)
+
+          assert_equal "name\r\nAna\r\n".encode("UTF-16LE").b, File.binread(File.join(dir, "copy.csv"))
+        end
+
+        it "reads the rows of JSON as UTF-8, also with a schema, and of text in that encoding, and of CSV once converted" do
+          rows = ->(path, mode = :hash) { [].tap { |list| path.each(mode) { |row| list << row } } }
+          json = utf16("people.json", %({"name":"Jos\u00e9","age":"21"}\n)).schema(fields: [{name: "name"}, {name: "age", type: "integer"}])
+          text = utf16("people.text", "Jos\u00e9\n")
+          csv  = utf16("people.csv", "name\r\nJos\u00e9\r\n").encoding("UTF-16LE:UTF-8")
+
+          assert_equal [{"name" => "Jos\u00e9", "age" => 21}], rows.call(json)
+          assert_equal [["Jos\u00e9".encode("UTF-16LE")]], rows.call(text, :array)
+          assert_equal [{"name" => "Jos\u00e9"}], rows.call(csv)
+        end
+
+        it "raises ArgumentError for a schema of values in that encoding, such as of fixed width or text, whose text it reads as ASCII" do
+          fixed = utf16("people.fixed", "1234\n").schema(fields: [{name: "n", width: 4, type: "integer"}])
+          text  = utf16("people.text", "NA\n").schema(fields: [{name: "n", missingValues: ["NA"]}])
+
+          [fixed, text].each do |path|
+            error = assert_raises(ArgumentError, path.file_name) { path.each(:hash) { nil } }
+
+            assert_includes error.message, "a schema reads only values in an ASCII compatible encoding", path.file_name
+            assert_includes error.message, 'encoding("UTF-16LE:UTF-8")', path.file_name
+          end
+        end
+
+        it "names the setting that reads the data as UTF-8, from the encoding of the data, when it converts it to another" do
+          File.write(File.join(dir, "people.csv"), "name\nAna\n")
+          path  = IOStreams.path(dir, "people.csv").encoding("Windows-1252:UTF-16LE")
+          error = assert_raises(ArgumentError) { path.each(:hash) { nil } }
+
+          assert_includes error.message, 'encoding("Windows-1252:UTF-8")'
+        end
+      end
+
       it "keeps the byte order mark when reading the whole file, like File.read" do
         Dir.mktmpdir do |dir|
           path = IOStreams.path(dir, "excel.csv")

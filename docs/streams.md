@@ -412,6 +412,12 @@ With just one encoding, such as `encoding("Windows-1252")`, the strings read are
 converted to UTF-8, and cannot be combined with UTF-8 text. `encoding("BINARY")` reads lines, rows and records as
 binary strings.
 
+An encoding that is not ASCII compatible, such as UTF-16LE, reads lines in that encoding, but CSV and PSV find the
+commas, bars and quotes between their values as ASCII, and a schema finds its missing values and the text of each type
+as ASCII, so reading the rows or records of CSV or PSV, or reading them with a schema, raises `ArgumentError` before the
+file is opened. Convert the text as it is read instead, with `encoding("UTF-16LE:UTF-8")`. JSON reads such text as
+UTF-8, also with a schema, and `:text` without a schema reads each line in that encoding.
+
 `#encoding` also takes these options, which change how the text is converted:
 
 * `replace:` replaces each character that is not valid, or that the target encoding does not have, rather than raising,

@@ -54,6 +54,25 @@ module IOStreams
       [Encoding.find(external), Encoding.find(internal)]
     end
 
+    # Returns [Encoding] the encoding of the text that reading returns with the supplied `encoding` option, before it is
+    # read, as `IOStreams::Encode::Reader#chunk_encoding` returns it once it reads: the internal encoding of
+    # "external:internal", which the text is converted to, otherwise the external encoding, such as UTF-16LE for
+    # "UTF-16LE", or the default encoding without one, see .default_encoding. "UTF-16" and "UTF-32", whose byte order
+    # mark the reader reads first, are returned as they are, since neither byte order is ASCII compatible.
+    #
+    # Raises ArgumentError for an encoding that Ruby does not know.
+    def self.read_encoding(encoding)
+      external, internal = external_and_internal(encoding || default_encoding)
+      internal || Encoding.find(external.to_s)
+    end
+
+    # Returns [String] the `encoding` option that reads the data of the supplied one as UTF-8, its external encoding
+    # converted to UTF-8, such as "UTF-16LE:UTF-8" for "UTF-16LE", and "Windows-1252:UTF-8" for "Windows-1252:UTF-16LE".
+    def self.utf8_encoding(encoding)
+      external, = external_and_internal(encoding || default_encoding)
+      "#{Encoding.find(external.to_s)}:#{Encoding::UTF_8}"
+    end
+
     # Returns [Array<Encoding>] the encodings of the byte orders of text in the supplied encoding, big-endian first,
     # when it starts with a byte order mark that tells its byte order, "UTF-16" or "UTF-32", see BYTE_ORDERS, otherwise
     # nil. Ruby converts such text one String at a time, writing a byte order mark at the start of each String, and
