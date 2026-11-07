@@ -115,7 +115,7 @@ module IOStreams
 
         check_accessor(accessor, name)
         declared   = @accessors
-        @accessors = (declared || {}).merge(name => accessor)
+        @accessors = (declared || {}).merge(name => accessor).freeze
         begin
           add_field(field_descriptor(name, type, required, properties))
         rescue StandardError
@@ -241,9 +241,9 @@ module IOStreams
       end
 
       # Returns [Hash<Symbol, IOStreams::Schema::Field>] the field of each accessor of the records of the contract, see
-      # .accessors, in order.
+      # .accessors, in order, found as the fields are set, see .descriptor=.
       def record_fields
-        @record_fields ||= accessors.zip(fields).to_h.freeze
+        @record_fields || accessors.zip(fields).to_h.freeze
       end
 
       # Returns [IOStreams::Contract] a record of the contract of the values of a record read through it, by their keys
@@ -280,7 +280,7 @@ module IOStreams
       # A subclass of a contract starts with its fields.
       def inherited(subclass)
         super
-        subclass.instance_variable_set(:@accessors, @accessors.dup) if @accessors
+        subclass.instance_variable_set(:@accessors, @accessors) if @accessors
         subclass.send(:descriptor=, @descriptor) if @descriptor
       end
 
@@ -342,15 +342,18 @@ module IOStreams
 
       # Defines a reader and a writer of each field of the records of the contract, see #record_fields, that neither it
       # nor a contract that it inherits from has, so that a method that a contract defines itself is kept. The writer
-      # converts and checks the value, as .new does.
+      # converts and checks the value, as .new does. Each is defined with a shareable Proc, see
+      # `IOStreams::Utils.shareable`, which reads only the name of its field and its accessor, so that it can be called
+      # in every Ractor.
       def define_accessors
         record_fields.each do |accessor, field|
           name   = field.name
           writer = :"#{accessor}="
-          define_method(accessor) { @values[name] } unless method_defined?(accessor)
+          define_method(accessor, &IOStreams::Utils.shareable(proc { @values[name] })) unless method_defined?(accessor)
           next if method_defined?(writer)
 
-          define_method(writer) { |value| @values[name] = self.class.record_fields.fetch(accessor).cast(value) }
+          write = proc { |value| @values[name] = self.class.record_fields.fetch(accessor).cast(value) }
+          define_method(writer, &IOStreams::Utils.shareable(write))
         end
       end
 
@@ -421,9 +424,10 @@ module IOStreams
                                "the schema of the file, with #schema, which the contract meets by the names of its fields")
         end
 
-        @descriptor    = schema.to_h.freeze
-        @schema        = schema
-        @record_fields = nil
+        # Frozen, with every object within them, so that every Ractor can read them, see `IOStreams::Utils.shareable`.
+        @descriptor    = IOStreams::Utils.shareable(schema.to_h)
+        @schema        = IOStreams::Utils.shareable(schema)
+        @record_fields = IOStreams::Utils.shareable(accessors.zip(fields).to_h)
         define_accessors
       end
 

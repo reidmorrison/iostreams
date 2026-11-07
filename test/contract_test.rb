@@ -199,6 +199,27 @@ class ContractTest < Minitest::Test
         assert_equal "ContractTest::Order", Order.inspect
         assert_equal "#<IOStreams::Contract #{hash.inspect}>", IOStreams::Contract.new(hash).inspect
       end
+
+      it "freezes its schema and fields, but not the descriptor that it was built from" do
+        fields   = [{name: "id", type: "integer", constraints: {enum: [1, 2]}}, {name: "flag", type: "boolean", trueValues: ["Y"]}]
+        contract = IOStreams::Contract.new(fields: fields)
+
+        assert_predicate contract.schema, :frozen?
+        assert(contract.schema.fields.all?(&:frozen?))
+        assert_predicate contract.record_fields, :frozen?
+        refute_predicate fields, :frozen?
+        refute_predicate fields.first[:constraints][:enum], :frozen?
+        refute_predicate fields.last[:trueValues], :frozen?
+        contract.to_h[:fields] << {name: "more"}
+      end
+
+      it "holds its schema and the field of each accessor in a form that every Ractor can read" do
+        skip("#{RUBY_ENGINE} has no Ractors") unless defined?(Ractor)
+
+        assert Ractor.shareable?(Order.schema)
+        assert Ractor.shareable?(Order.record_fields)
+        assert Ractor.shareable?(Class.new(Order) { field :note }.record_fields)
+      end
     end
 
     describe ".to_dsl" do
