@@ -46,11 +46,12 @@ module IOStreams
     autoload :Writer, "io_streams/slice/writer"
 
     # Returns [IOStreams::Slice] the slice that the supplied Hash describes, which #to_h returned, see `IOStreams.slice`.
-    # Its keys can be Strings or Symbols, and its format a String or a Symbol, as storing it may have changed them. The
-    # header row is a frozen copy, since every slice of a file shares it.
+    # Its keys can be Strings or Symbols, the String being read when it holds both, and its format a String or a Symbol,
+    # as storing it may have changed them. The header row is a frozen copy, since every slice of a file shares it.
     #
-    # Only `rows` is required: any other key of #to_h that is missing takes its default, see .new. A key that a slice
-    # does not have is ignored, such as the `_id` that a store adds to each record, so that a record of the store can be
+    # Only `rows` is required: a missing `blank_rows` is true and a missing `cell_text` false, as #to_h leaves them out
+    # then, and any other key that is missing is nil. A key that a slice does not have is ignored, never read, such as
+    # the `_id` of a database document that holds the keys of #to_h as its own fields, so that the document can be
     # supplied as it is.
     #
     # Raises ArgumentError when it does not describe a slice: when it is not a Hash, or has no rows, or when its rows are
@@ -62,19 +63,25 @@ module IOStreams
     def self.from_h(hash)
       raise(ArgumentError, "A slice must be the Hash that #to_h returns, not #{hash.class.name}") unless hash.is_a?(::Hash)
 
-      values = hash.transform_keys(&:to_s)
-      slice  = new(rows_of(values["rows"]),
-                   header:        header_of(values["header"]),
-                   format:        format_of(values["format"]),
-                   blank_rows:    blank_rows_of(values["blank_rows"]),
-                   cell_text:     cell_text_of(values["cell_text"]),
-                   schema:        values["schema"],
-                   line_number:   values["line_number"],
-                   record_number: values["record_number"])
-      slice.send(:jumps=, values["jumps"])
+      slice = new(rows_of(value_of(hash, "rows")),
+                  header:        header_of(value_of(hash, "header")),
+                  format:        format_of(value_of(hash, "format")),
+                  blank_rows:    blank_rows_of(value_of(hash, "blank_rows")),
+                  cell_text:     cell_text_of(value_of(hash, "cell_text")),
+                  schema:        value_of(hash, "schema"),
+                  line_number:   value_of(hash, "line_number"),
+                  record_number: value_of(hash, "record_number"))
+      slice.send(:jumps=, value_of(hash, "jumps"))
       slice.send(:load_rows)
       slice
     end
+
+    # Returns the value of the supplied key of the Hash of a slice, see .from_h, held by its String, otherwise by its
+    # Symbol, or nil when the Hash holds neither, without reading any other key, which a slice ignores.
+    def self.value_of(hash, key)
+      hash.fetch(key) { hash.fetch(key.to_sym, nil) }
+    end
+    private_class_method :value_of
 
     # Returns [Array] the rows of the Hash of a slice, see .from_h.
     def self.rows_of(rows)

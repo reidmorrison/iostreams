@@ -517,7 +517,8 @@ module IOStreams
   # Parameters:
   #   hash: [Hash]
   #     What `IOStreams::Slice#to_h` returned, as it was stored, with String or Symbol keys. Only `rows` is required,
-  #     and a key that a slice does not have is ignored, such as the `_id` that a store adds to each record.
+  #     and a key that a slice does not have is ignored, such as the `_id` of a database document that holds the keys
+  #     of `#to_h` as its own fields.
   #
   # Raises ArgumentError when it does not describe a slice, such as a Hash without `rows`, see
   # `IOStreams::Slice.from_h`.
