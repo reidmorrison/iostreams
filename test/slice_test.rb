@@ -142,15 +142,25 @@ class SliceTest < Minitest::Test
       end
 
       it "raises for a Hash without rows, or whose rows are not an Array" do
-        assert_raises(ArgumentError) { IOStreams.slice("header" => nil) }
+        error = assert_raises(ArgumentError) { IOStreams.slice("header" => nil) }
+        assert_equal "The Hash of a slice has no rows", error.message
+        error = assert_raises(ArgumentError) { IOStreams.slice("rows" => nil) }
+        assert_equal "The Hash of a slice has no rows", error.message
         error = assert_raises(ArgumentError) { IOStreams.slice("rows" => "Jack,21") }
         assert_match(/rows of a slice must be an Array, not String/, error.message)
       end
 
-      it "raises for a key that a slice does not have" do
-        error = assert_raises(ArgumentError) { IOStreams.slice("rows" => [], "line" => 1) }
-        assert_equal 'Unknown key "line" of a slice. Valid keys: "rows", "header", "format", "blank_rows", ' \
-                     '"cell_text", "schema", "line_number", "record_number", "jumps"', error.message
+      it "ignores a key that a slice does not have, such as one that its store adds" do
+        slice  = IOStreams::Slice.new(%w[Jack,21], header: %w[Name AGE].freeze, format: :csv, line_number: 2)
+        stored = slice.to_h.merge("_id" => "65a1f0c2", "created_at" => "2026-11-07T09:30:00Z", :attempts => 1)
+
+        assert_equal slice, IOStreams.slice(stored)
+        assert_equal slice.to_h, IOStreams.slice(stored).to_h
+      end
+
+      it "still requires rows when the Hash holds keys that a slice does not have" do
+        error = assert_raises(ArgumentError) { IOStreams.slice("_id" => "65a1f0c2", "header" => %w[Name AGE]) }
+        assert_equal "The Hash of a slice has no rows", error.message
       end
 
       it "turns back the line that the first row starts on, once stored as JSON, or nil for a Hash without one" do

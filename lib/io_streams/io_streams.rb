@@ -516,9 +516,11 @@ module IOStreams
   #
   # Parameters:
   #   hash: [Hash]
-  #     What `IOStreams::Slice#to_h` returned, as it was stored, with String or Symbol keys.
+  #     What `IOStreams::Slice#to_h` returned, as it was stored, with String or Symbol keys. Only `rows` is required,
+  #     and a key that a slice does not have is ignored, such as the `_id` that a store adds to each record.
   #
-  # Raises ArgumentError when it does not describe a slice, see `IOStreams::Slice.from_h`.
+  # Raises ArgumentError when it does not describe a slice, such as a Hash without `rows`, see
+  # `IOStreams::Slice.from_h`.
   #
   # Example:
   #   IOStreams.path("people.csv").schema("people.json").each(:slice, size: 100) { |slice| store << slice.to_h }
