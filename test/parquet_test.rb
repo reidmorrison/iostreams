@@ -761,18 +761,40 @@ class ParquetTest < Minitest::Test
     end
 
     describe "a schema that skips the columns that it does not list" do
-      # Returns [Array] the columns that each read asks the gem for, and the records read.
-      def read_columns(source)
+      # Returns [Array] the columns that each read within the block asks the gem for.
+      def requested_columns(&)
         requested = []
         each_row  = ::Parquet.method(:each_row)
-        list      = nil
         ::Parquet.stub(:each_row, lambda { |file, **options, &block|
           requested << options[:columns]
           each_row.call(file, **options, &block)
-        }) do
-          list = read(source)
+        }, &)
+        requested
+      end
+
+      # Returns [Array] the columns that each read asks the gem for, and the records read.
+      def read_columns(source)
+        list = nil
+        [requested_columns { list = read(source) }, list]
+      end
+
+      it "reads every column into its slices, which carry the schema of the whole file" do
+        write
+        contract = Class.new(IOStreams::Contract) do
+          fields_match "subset"
+          field :id, :integer
+          field :born, :date
         end
-        [requested, list]
+        slices    = []
+        requested = requested_columns do
+          path.as(contract).each(:slice, size: 10) { |slice| slices << IOStreams.slice(JSON.parse(JSON.generate(slice.to_h))) }
+        end
+
+        assert_equal [nil], requested
+        assert_equal path.infer_schema, slices.first.schema
+        assert_equal(expected, slices.flat_map { |slice| read(IOStreams.stream(slice)) })
+        assert_equal([{"id" => 1, "born" => Date.new(2000, 2, 29)}, {"id" => 2, "born" => nil}],
+                     slices.flat_map { |slice| read(IOStreams.stream(slice).as(contract)) })
       end
 
       it "reads only the columns of its fields" do

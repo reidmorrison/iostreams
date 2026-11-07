@@ -39,16 +39,23 @@ module IOStreams
       #     since a Parquet file stores each column on its own. The schema is not an option of the stream, since it is set
       #     on the path, see `IOStreams::Stream#schema`, as for the writer, see `IOStreams::Parquet::Writer.file`.
       #     Default: nil, which reads every column.
-      def self.file(file_name, schema: nil)
+      #
+      #   every_column: [true|false]
+      #     Whether to read every column of the file, also those that the schema skips, such as for the slices of the
+      #     file, which hold every column, see `IOStreams::Stream#open_slice_rows`, as the schema that the reader
+      #     declares describes them, see #declared_schema. The schema still reads a time of day in the zone of its
+      #     field, see #time_fields.
+      #     Default: false, only the columns of the fields of a schema that skips the others.
+      def self.file(file_name, schema: nil, every_column: false)
         Parquet.load_dependency
-        yield new(file_name, schema)
+        yield new(file_name, schema, every_column: every_column)
       end
 
-      def initialize(file_name, schema = nil)
+      def initialize(file_name, schema = nil, every_column: false)
         super(nil)
         @file_name = file_name
         @schema    = schema
-        @columns   = schema&.projection { labels }
+        @columns   = schema&.projection { labels } unless every_column
       end
 
       # Yields [Hash<String, Object>] each row, by the names of its columns, in the order of the columns, with each time of

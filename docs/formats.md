@@ -518,7 +518,8 @@ end
 
 A Parquet file stores each column on its own, so with a schema whose `fieldsMatch` is `"subset"` or `"partial"`, which
 skip the columns that it does not list, only the columns of its fields are read and decoded, which is faster for a
-wide file. The other values of `fieldsMatch` read every column, so that they can check the others.
+wide file. The other values of `fieldsMatch` read every column, so that they can check the others. Its slices,
+`each(:slice)`, always hold every column, as the lines of a CSV file do, see [Background jobs](background_jobs).
 
 A Parquet file records its columns at its end, so it is read from a local file, and a file stored elsewhere, such as
 on S3, is first copied into a temp file. Likewise it is written to a temp file, which is then copied to the path. The

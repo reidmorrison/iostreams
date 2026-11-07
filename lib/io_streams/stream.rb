@@ -1345,8 +1345,13 @@ module IOStreams
     # Without a schema or contract, the rows of a stream that reads them itself, such as the cells of a spreadsheet, see
     # #stream_rows?, hold the default text of each value, as its lines do, see #default_text?, so that its slices read
     # the same values with a schema as the stream, and as the slices of its lines, once a schema reads them.
+    #
+    # The slices hold every column, as the lines of CSV do, so a format that can read only some of its columns, such as
+    # Parquet, reads every column, also those that the schema skips, so that a slice holds the columns that the schema
+    # it carries describes, whatever schema or contract read the file. That schema or contract still reads a time of day
+    # in the zone of its field, see `IOStreams::Parquet::Reader#time_fields`.
     def open_slice_rows(tabular, delimiter, buffer_size)
-      open_rows_reader(tabular, delimiter, buffer_size, text: tabular.schema.nil?) do |rows|
+      open_rows_reader(tabular, delimiter, buffer_size, text: tabular.schema.nil?, every_column: true) do |rows|
         lines_of_file = tabular.lines? && builder.lines_of_file?
         yield(lines_of_file ? IOStreams::Slice::LineRows.new(rows) : IOStreams::Slice::Rows.new(rows))
       end
@@ -1361,9 +1366,12 @@ module IOStreams
     # The rows that a stream reads itself, see #stream_rows?, are its typed values, or with `text: true`, the text of
     # each one, as its lines hold it, such as `Xlsx::Cells.text` of each cell of a spreadsheet.
     #
+    # A format whose rows are not lines reads only the columns of the schema when it can, unless `every_column: true`,
+    # see `IOStreams::Tabular#read_rows`.
+    #
     # Raises ArgumentError when `delimiter` or `buffer_size` is supplied, or an encoding is set, for a format without
     # lines, see #reject_line_options!.
-    def open_rows_reader(tabular, delimiter, buffer_size, text: false, &)
+    def open_rows_reader(tabular, delimiter, buffer_size, text: false, every_column: false, &)
       if stream_rows?
         reject_row_options!(tabular, delimiter: delimiter, buffer_size: buffer_size)
         decimals = (-> { tabular.decimal_positions } if tabular.schema&.decimals?)
@@ -1377,7 +1385,7 @@ module IOStreams
       unless tabular.lines?
         reject_line_options!(tabular, delimiter: delimiter, buffer_size: buffer_size)
         return stream_reader do |io|
-          tabular.read_rows(io) do |rows|
+          tabular.read_rows(io, every_column: every_column) do |rows|
             tabular.check_declared_types { rows.declared_schema }
             yield rows
           end
