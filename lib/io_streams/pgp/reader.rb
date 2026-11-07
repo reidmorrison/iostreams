@@ -20,9 +20,12 @@ module IOStreams
         %i[passphrase]
       end
 
-      # Passphrase to use to open the private key to decrypt the received file
       class << self
-        attr_writer :default_passphrase
+        # Passphrase to use to open the private key to decrypt the received file, of which it keeps a frozen copy, see
+        # `IOStreams::Utils.frozen_copy`.
+        def default_passphrase=(passphrase)
+          @default_passphrase = Utils.frozen_copy(passphrase)
+        end
 
         private
 
