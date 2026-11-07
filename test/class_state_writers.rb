@@ -41,7 +41,7 @@ class ClassStateWriters < Prism::Visitor
   def initialize
     super
     @writers       = []
-    @hook          = false
+    @hook          = nil
     @class_methods = []
     @sent          = []
     @namespace     = []
@@ -68,10 +68,11 @@ class ClassStateWriters < Prism::Visitor
   def visit_def_node(node)
     class_level = node.receiver.is_a?(Prism::SelfNode) || @singleton.positive?
     @class_methods << node.name if class_level
-    @hook = class_level && HOOKS.include?(node.name)
+    outer_hook = @hook
+    @hook      = (hook_class(node) if class_level && HOOKS.include?(node.name))
     in_method(class_level ? "#{@namespace.join('::')}.#{node.name}" : nil) { super }
   ensure
-    @hook = false
+    @hook = outer_hook
   end
 
   # Only the branch of `if Utils.main_ractor?` is guarded, not its else, nor that of a negated condition.
@@ -106,13 +107,21 @@ class ClassStateWriters < Prism::Visitor
     end
   end
 
-  # Such as `@cache[key] ||= value` or `@settings.name += 1`, which change the value of the instance variable.
+  # Such as `@cache[key] ||= value` or `@settings.name += 1`, which change the value of the instance variable, or
+  # `self.level += 1`, which calls a writer.
   %i[index_or_write_node index_and_write_node index_operator_write_node call_or_write_node call_and_write_node
      call_operator_write_node].each do |type|
     define_method(:"visit_#{type}") do |node|
       record if ivar?(node.receiver)
+      record_call(node.write_name) if node.respond_to?(:write_name) && class_receiver?(node.receiver)
       super(node)
     end
+  end
+
+  # Such as `self.setting, self.level = 1, 2`, which calls writers.
+  def visit_call_target_node(node)
+    record_call(node.name) if class_receiver?(node.receiver)
+    super
   end
 
   private
@@ -146,17 +155,33 @@ class ClassStateWriters < Prism::Visitor
   # Returns [true|false] whether `instance_variable_set` sets the instance variable of a class: of the class itself, or
   # of the class that a hook is given.
   def sets_class?(node)
-    node.receiver.nil? || node.receiver.is_a?(Prism::SelfNode) || @hook
+    node.receiver.nil? || class_receiver?(node.receiver)
+  end
+
+  # Returns [Symbol|nil] the name of the parameter of a hook that is the class or module that it is given, such as
+  # `subclass` of `inherited`.
+  def hook_class(node)
+    parameter = node.parameters&.requireds&.first
+    parameter.name if parameter.respond_to?(:name)
+  end
+
+  # Returns [true|false] whether the receiver can be a class: itself, a constant, or the class that a hook is given.
+  def class_receiver?(receiver)
+    receiver.is_a?(Prism::SelfNode) || receiver.is_a?(Prism::ConstantReadNode) || receiver.is_a?(Prism::ConstantPathNode) ||
+      (receiver.is_a?(Prism::LocalVariableReadNode) && receiver.name == @hook)
   end
 
   # Records a writer that a class-level method calls, such as `self.descriptor = descriptor`, or sends to an object,
   # such as `contract.send(:descriptor=, descriptor)`, which counts once every file is read when the writer is a
   # class-level method, see .find.
   def record_sent(node)
-    return unless @method && @guarded.zero?
+    record_call(node.arguments.arguments.first.unescaped.to_sym) if sends_writer?(node)
+    record_call(node.name) if node.attribute_write? && class_receiver?(node.receiver)
+  end
 
-    @sent << [@method, node.arguments.arguments.first.unescaped.to_sym] if sends_writer?(node)
-    @sent << [@method, node.name] if node.attribute_write? && !ivar?(node.receiver)
+  # Records the call of a writer, which counts once every file is read when it is a class-level method.
+  def record_call(writer)
+    @sent << [@method, writer] if @method && @guarded.zero?
   end
 
   # Returns [true|false] whether the call sends a writer, such as `contract.send(:descriptor=, value)`.

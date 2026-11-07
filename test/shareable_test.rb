@@ -8,7 +8,9 @@ class ShareableTest < Minitest::Test
   # The class-level methods that set the instance variables of a class or module, see ClassStateWriters: those that
   # configure IOStreams, and those that declare a contract, which an application calls as it starts, or as it loads its
   # classes, in the main Ractor, since no other Ractor can set them. So a contract built from a Hash, such as by `#as`,
-  # which defines a class, can be built only in the main Ractor.
+  # which defines a class, can be built only in the main Ractor. The check does not follow a call of a class method,
+  # so a helper that is listed, such as Contract.set_property, allows each method that calls it, such as
+  # Contract.fields_match.
   CLASS_STATE_WRITERS = %w[
     IOStreams.add_allowed_path IOStreams.add_root IOStreams.delete_allowed_path IOStreams.deregister_extension
     IOStreams.logger= IOStreams.register_extension IOStreams.register_scheme IOStreams.temp_dir=
