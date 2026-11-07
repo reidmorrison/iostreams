@@ -248,6 +248,7 @@ module IOStreams
         end
 
         it "keeps a frozen copy of the String supplied to each one, leaving the caller's String as it is" do
+          version = IOStreams::Pgp.instance_variable_get(:@pgp_version)
           settings.each do |owner, name|
             original = owner.instance_variable_get(:"@#{name}")
             value    = +"value"
@@ -260,6 +261,9 @@ module IOStreams
           ensure
             owner.instance_variable_set(:"@#{name}", original)
           end
+        ensure
+          # Setting the executable forgets the version of gpg.
+          IOStreams::Pgp.instance_variable_set(:@pgp_version, version)
         end
 
         it "keeps a temp directory frozen" do

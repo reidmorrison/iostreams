@@ -342,7 +342,7 @@ module IOStreams
   # * A local file could be replaced with a symbolic link after it is checked but before it is opened.
   #   Allowed paths do not prevent this, so do not allow paths where untrusted users can create files.
   def self.add_allowed_path(*elements, **args)
-    location = allowed_location(path(*elements, **args)).freeze
+    location = Utils.frozen_copy(allowed_location(path(*elements, **args)))
     @allowed_paths_mutex.synchronize { @allowed_paths = (@allowed_paths + [location]).uniq.freeze }
     location
   end
