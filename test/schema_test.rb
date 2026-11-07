@@ -1566,6 +1566,9 @@ class SchemaTest < Minitest::Test
 
           assert_equal Time.utc(2026, 10, 31, 9, 30), time
           assert_equal 0, time.utc_offset
+          assert_predicate time, :utc?
+          assert_predicate datetime.cast("2026-10-31T09:30:00-00"), :utc?
+          refute_predicate datetime.cast("2026-10-31T09:30:00+0000"), :utc?
         end
 
         it "still writes ISO 8601 with a T, and an offset with a colon, or Z" do

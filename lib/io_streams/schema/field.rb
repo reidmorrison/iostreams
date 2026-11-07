@@ -178,9 +178,9 @@ module IOStreams
       # the hours, with or without minutes, below 60, with or without a colon between them, such as `+05:30`, `+0530` or
       # `+05`, as PostgreSQL writes it, or none, which is UTC. The date, the time and the offset are captured.
       DATETIME = /\A(\d{4}-\d{2}-\d{2})[T ]((?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d+)?)(Z|[+-]\d{2}(?::?[0-5]\d)?)?\z/
-      # The zones of text read with a format that are UTC, rather than an offset of zero, such as `+00:00` or `+0000`,
-      # which a time keeps, as `Time.iso8601` reads them, see #cast_datetime: `Z`, `UTC`, `UT`, and `-00:00`, `-0000` or
-      # `-00`, which RFC 3339 and RFC 2822 give a time in UTC whose local offset is not known.
+      # The zones of text that are UTC, rather than an offset of zero, such as `+00:00` or `+0000`, which a time keeps,
+      # see #zero_offset? and #at_offset: `Z`, `UTC`, `UT`, and `-00:00`, `-0000` or `-00`, which RFC 3339 and RFC 2822
+      # give a time in UTC whose local offset is not known.
       UTC_ZONE = /\A(?:Z|UTC?|-00(?::?00)?)\z/i
 
       # Returns [String|Symbol] the name of the field, as it was given.
@@ -831,7 +831,7 @@ module IOStreams
       # reads the same on every server.
       #
       # Text without a format must match DATETIME, and is read with `Time.iso8601`, which reads each form of its offset,
-      # so that only a space in place of the T is replaced, and Z added to text without an offset.
+      # so that only a space in place of the T is replaced, and Z added to text without an offset, see #at_offset.
       def cast_datetime(value)
         return value if value.is_a?(Time)
         return self.class.time_of(value) if value.is_a?(DateTime)
@@ -841,9 +841,17 @@ module IOStreams
         date, time, offset = DATETIME.match(value)&.captures
         return invalid(value) unless date && Date.valid_date?(date[0, 4].to_i, date[5, 2].to_i, date[8, 2].to_i)
 
-        Time.iso8601("#{date}T#{time}#{offset || 'Z'}")
+        at_offset(Time.iso8601("#{date}T#{time}#{offset || 'Z'}"), offset)
       rescue ArgumentError
         invalid(value)
+      end
+
+      # Returns [Time] the time that `Time.iso8601` read from text with the supplied offset: in UTC without an offset, or
+      # for an offset that UTC_ZONE names, such as `-0000`, and otherwise at the offset, such as `+0000`. `Time.iso8601`
+      # does not tell them apart alike everywhere: from the time gem 0.5.0 it reads the text with `Time.new`, which on
+      # JRuby reads `-0000` and `-00` as an offset of zero, see https://github.com/jruby/jruby/issues/10016.
+      def at_offset(time, offset)
+        offset.nil? || UTC_ZONE.match?(offset) ? time.utc : time
       end
 
       # Returns [Date|Time] the text read with the strptime pattern of the format, which must match all of the text, with
