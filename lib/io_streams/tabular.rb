@@ -340,13 +340,21 @@ module IOStreams
     #
     # The reader is given the schema, as the writer is, see #write_rows, so that a reader that can read only some of the
     # columns of a file, such as Parquet, reads only those of its fields when the schema skips the others, see
-    # `IOStreams::Parquet::Reader.file`, unless the caller needs every column, `every_column: true`, such as for the
-    # slices of the file, which hold every column.
+    # `IOStreams::Parquet::Reader.file`, and reads a time of day in the zone of its field, unless the caller needs the
+    # rows as they are in the file, `as_in_file: true`, such as for the slices of the file.
     #
     # Returns the result of the block.
-    def read_rows(io, every_column: false, &)
-      arguments = {schema: schema, every_column: every_column}
+    def read_rows(io, as_in_file: false, &)
+      arguments = {schema: schema, as_in_file: as_in_file}
       parser.class.row_format.open_stream(:reader, io, @row_format_options, name: format, arguments: arguments, &)
+    end
+
+    # Returns [#read|nil] the times of day of the rows of the format, when it holds them as clocks without a zone, such
+    # as Parquet, in the columns that the supplied schema of the file declares as `time`, such as that of a slice of its
+    # rows, read in the zone of the field of this tabular's schema that reads each one, as reading the file reads them,
+    # see `IOStreams::Tabular::Parser::Base.clocks`, or nil, for a format whose rows need nothing more.
+    def clocks(declared)
+      parser.class.clocks(declared, schema)
     end
 
     # Yields [#<<] the writer of the rows of a format whose rows are not lines, see #lines?, to the supplied stream of

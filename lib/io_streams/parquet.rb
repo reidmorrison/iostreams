@@ -15,6 +15,7 @@ module IOStreams
   module Parquet
     extend StreamFormat
 
+    autoload :Clocks, "io_streams/parquet/clocks"
     autoload :Column, "io_streams/parquet/column"
     autoload :Reader, "io_streams/parquet/reader"
     autoload :Writer, "io_streams/parquet/writer"

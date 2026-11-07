@@ -651,6 +651,27 @@ class FrictionlessTypesTest < Minitest::Test
         assert_equal [{"opens" => Time.new(2000, 1, 1, 9, 30, 0, "-05:00")}] * 2, read(IOStreams.path(dir, "shops.parquet").as(contract))
       end
 
+      it "reads the times of day of a slice of Parquet in the zone of a contract, as it reads the file, also once stored" do
+        skip "The parquet gem is a Rust extension, which JRuby cannot load" if defined?(JRuby)
+
+        contract = {fields: [{name: "opens", type: "time", timeZone: "America/New_York"}]}
+        File.write(File.join(dir, "shops.csv"), "opens\n09:30:00\n")
+        IOStreams.path(dir, "shops.parquet").copy_from(IOStreams.path(dir, "shops.csv").as(contract), mode: :hash)
+        plain       = []
+        by_contract = []
+        IOStreams.path(dir, "shops.parquet").each(:slice, size: 10) { |slice| plain << slice }
+        IOStreams.path(dir, "shops.parquet").as(contract).each(:slice, size: 10) { |slice| by_contract << slice }
+        stored = plain.map { |slice| IOStreams.slice(JSON.parse(JSON.generate(slice.to_h))) }
+        clock  = [{"opens" => Time.new(2000, 1, 1, 9, 30, 0, "-05:00")}]
+
+        assert_equal clock, read(IOStreams.path(dir, "shops.parquet").as(contract))
+        [plain, by_contract, stored].each do |slices|
+          assert_equal(clock, slices.flat_map { |slice| read(IOStreams.stream(slice).as(contract)) })
+        end
+        # A slice holds the clock of the file, whatever read it.
+        assert_equal([{"opens" => Time.utc(2000, 1, 1, 9, 30)}], by_contract.flat_map { |slice| read(IOStreams.stream(slice)) })
+      end
+
       it "reads a time of day without an offset in its zone on 2000-01-01, and writes the clock of the zone" do
         clock = field(type: "time", timeZone: "America/New_York")
 

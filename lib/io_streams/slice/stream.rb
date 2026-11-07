@@ -155,19 +155,35 @@ module IOStreams
         NumberedRows.new(io_stream)
       end
 
+      # Yields [NumberedRows] the rows of the slice, see #rows, which the readers of rows and records read by the supplied
+      # tabular, with each time of day of a format that holds them as clocks without a zone, such as Parquet, read in the
+      # zone of the field of the tabular that reads it, see `IOStreams::Tabular#clocks`, as reading its file reads it,
+      # so that a schema or contract reads the slice as it reads the file. The slice keeps its rows as they are.
+      def open_rows(tabular)
+        yield NumberedRows.new(io_stream, tabular.clocks(io_stream.schema))
+      end
+
       # The rows of a slice, after its header row, when it carries one, with the line of the file that each one starts
       # on and its record number, see `IOStreams::Slice#each`, which a slice reader reads, see
       # `IOStreams::Slice::Reader`, so that the slices that it reads from them keep their numbers.
       class NumberedRows
-        def initialize(slice)
-          @slice = slice
+        # Parameters
+        #   slice: [IOStreams::Slice]
+        #
+        #   clocks: [#read|nil]
+        #     Reads the times of day of each row, see `IOStreams::Tabular#clocks`, or nil for rows that need nothing.
+        def initialize(slice, clocks = nil)
+          @slice  = slice
+          @clocks = clocks
         end
 
         # Yields the header row, which is neither on a line nor a record, nil, nil, and then each row with its line
-        # number and record number, see `IOStreams::Slice#each`.
-        def each(&)
+        # number and record number, see `IOStreams::Slice#each`, with its times of day read, see #initialize.
+        def each(&block)
           yield(@slice.header, nil, nil) if @slice.header?
-          @slice.each(&)
+          return @slice.each(&block) unless @clocks
+
+          @slice.each { |row, line_number, record_number| block.call(@clocks.read(row), line_number, record_number) }
         end
 
         # Yields each row as #each does, for a reader of rows or records, see `IOStreams::Row::Numbered#each_numbered`.
