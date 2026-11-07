@@ -93,8 +93,11 @@ in:
 * a line that is empty, or only whitespace, including Unicode whitespace such as a no-break space, as Rails'
   `String#blank?` matches it;
 * a row or record whose every value is `nil` or such text, such as a line of CSV of only commas, a row of empty
-  spreadsheet cells, a fixed width line whose every field is spaces, a JSON line of `null` or `{}`, or a JSON or
-  Parquet record whose every value is null.
+  spreadsheet cells, a fixed width line whose every field is spaces, a JSON line of `null` or `{}`, or a JSON record
+  whose every value is null.
+
+A row of a Parquet file is always a record, also when every value is null, as a row of a
+[query](queries) is, since the file holds no blank lines.
 
 A value such as `false` or `0` is data, so a row that holds one is not blank. `each(:array)` and `each(:hash)` yield
 `nil` for each blank row, so that the rows yielded count the records of the file. Supply `skip_blanks: true` to skip
@@ -109,8 +112,7 @@ end
 * The header row is the first row that is not blank, with or without `skip_blanks`.
 * A blank row is not checked against a [schema](schemas), so it does not raise for a field that is required, as
   a row with other values does.
-* Only the values that are read count: the fields of a fixed width line, not its filler, and of a Parquet file read
-  with a schema that skips columns, only the columns of its fields.
+* Only the values that are read count: the fields of a fixed width line, not its filler.
 * A copy always skips blank rows, so `#copy_from` and `#writer` raise `ArgumentError` for `skip_blanks:`, which only
   applies when reading.
 * `each(:line)` and `each(:slice)` hand on every row as it is in the file, so they do not take `skip_blanks:`. Supply it

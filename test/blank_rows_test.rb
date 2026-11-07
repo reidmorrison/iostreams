@@ -81,7 +81,7 @@ class BlankRowsTest < Minitest::Test
         assert_equal [jack, jill], read(target, :hash, skip_blanks: true)
       end
 
-      it "of a Parquet file are a record whose every value is null" do
+      it "of a Parquet file are none, since a record whose every value is null is a record, as a row of a query is" do
         skip "The parquet gem is a Rust extension, which JRuby cannot load" if defined?(JRuby)
 
         schema = {fields: [{name: "name", type: "string"}, {name: "age", type: "integer"}]}
@@ -92,8 +92,10 @@ class BlankRowsTest < Minitest::Test
           writer << {"name" => "Jill", "age" => 22}
         end
 
-        assert_equal [{"name" => "Jack", "age" => 21}, nil, {"name" => "Jill", "age" => 22}], read(target, :hash)
-        assert_equal [{"name" => "Jack", "age" => 21}, {"name" => "Jill", "age" => 22}], read(target, :hash, skip_blanks: true)
+        records = [{"name" => "Jack", "age" => 21}, {"name" => nil, "age" => nil}, {"name" => "Jill", "age" => 22}]
+
+        assert_equal records, read(target, :hash)
+        assert_equal records, read(target, :hash, skip_blanks: true)
       end
     end
 

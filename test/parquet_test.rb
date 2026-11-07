@@ -281,8 +281,8 @@ class ParquetTest < Minitest::Test
         at = read(path.schema(fields: [{name: "at", type: "time"}], fieldsMatch: "subset"))
         id = read(path.schema(fields: [{name: "id", type: "integer"}], fieldsMatch: "subset"))
 
-        # The last record, whose only value is null, is a blank row.
-        assert_equal(clocks, at.map { |record| record&.fetch("at") })
+        # The last record, whose only value read is null, is still a record.
+        assert_equal(clocks, at.map { |record| record.fetch("at") })
         assert_equal([0, 1, 2, 3], id.map { |record| record["id"] })
       end
 
@@ -797,6 +797,30 @@ class ParquetTest < Minitest::Test
                      slices.flat_map { |slice| read(IOStreams.stream(slice).as(contract)) })
       end
 
+      it "reads a row whose columns read are all null as a record, as its slices and a file of CSV do" do
+        write
+        born = Class.new(IOStreams::Contract) do
+          fields_match "subset"
+          field :born, :date
+        end
+        required = Class.new(IOStreams::Contract) do
+          fields_match "subset"
+          field :born, :date, required: true
+        end
+        slices = []
+        path.as(born).each(:slice, size: 10) { |slice| slices << slice }
+        csv = path("people.csv")
+        csv.copy_from(path, mode: :hash)
+
+        assert_equal [{"born" => Date.new(2000, 2, 29)}, {"born" => nil}], read(path.as(born))
+        assert_equal(read(path.as(born)), slices.flat_map { |slice| read(IOStreams.stream(slice).as(born)) })
+        assert_equal read(csv.as(born)), read(path.as(born))
+        [path, csv, IOStreams.stream(slices.first)].each do |source|
+          error = assert_raises(IOStreams::Errors::InvalidValue) { read(source.as(required)) }
+          assert_match(/Field "born" is required, but has no value, in record 2/, error.message)
+        end
+      end
+
       it "reads only the columns of its fields" do
         write
         subset = {fieldsMatch: "subset", fields: [{name: "Name", type: "string"}, {name: "ID", type: "integer"}]}
@@ -814,9 +838,8 @@ class ParquetTest < Minitest::Test
         requested, list = read_columns(path.schema(partial))
 
         assert_equal [%w[born]], requested
-        # The record of the second row holds no value in the only column read, so it is blank, as a line of CSV of only
-        # commas is.
-        assert_equal [{"born" => Date.new(2000, 2, 29)}, nil], list
+        # The record of the second row holds no value in the only column read, and is still a record, as its row is.
+        assert_equal [{"born" => Date.new(2000, 2, 29)}, {"born" => nil}], list
       end
 
       it "reads every column when the schema keeps the others, after its fields" do

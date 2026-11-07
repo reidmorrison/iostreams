@@ -115,7 +115,8 @@ module IOStreams
     #     Whether a row whose every value is blank, such as a line of CSV of only commas, is a blank row, read as nil, see
     #     `IOStreams::Tabular::Mapping`. False for rows that are each a record whatever their values, such as the rows of
     #     a database query, see `IOStreams::Query::Stream`, and of a slice that says so, see `IOStreams::Slice::Stream`.
-    #     Not an option of a call that reads or writes rows.
+    #     A format whose rows are never blank, such as Parquet, see `IOStreams::Tabular::Parser::Base.blank_rows?`, reads
+    #     each row as a record whatever this says. Not an option of a call that reads or writes rows.
     #     Default: true
     #
     #   headerless: [true|false|nil]
@@ -192,7 +193,7 @@ module IOStreams
       @text_format        = text_format
       @value_form         = value_form
       @parser             = build_parser
-      @mapping            = build_mapping(blank_rows, headerless, typed, part_of_file)
+      @mapping            = build_mapping(blank_rows && parser.class.blank_rows?, headerless, typed, part_of_file)
     end
 
     # Returns [IOStreams::Tabular] a new tabular with the same schema that reads the rows of the supplied format, such as
