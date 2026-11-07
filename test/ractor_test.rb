@@ -11,9 +11,10 @@ class RactorTest < Minitest::Test
     it "reads and writes in Ractors other than the main Ractor" do
       skip("Ractors are checked from Ruby 4") unless defined?(Ractor) && RUBY_VERSION.to_i >= 4
 
-      results = JSON.parse(run_script(%(require "ractor_cases")).last)
+      results  = JSON.parse(run_script(%(require "ractor_cases")).last)
+      failures = results.reject { |_name, result| result == "ok" }
 
-      assert_equal(results.keys.to_h { |name| [name, "ok"] }, results)
+      assert_empty failures, failures.map { |name, result| "#{name}: #{result}" }.join("\n")
     end
   end
 end
