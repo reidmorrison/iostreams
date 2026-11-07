@@ -36,8 +36,10 @@ module IOStreams
     #     "boolean":  true or false, see `trueValues` and `falseValues`, or the number 1 or 0, such as the 1.0 or 0.0 of a
     #                 spreadsheet, or a column of numbers of a Parquet file or a query.
     #     "date":     a Date, written as `2026-10-13` unless `format` is set. A Time or DateTime at midnight, by its own
-    #                 clock, as a spreadsheet's date format reads it, is its date, while any other time raises, rather
-    #                 than lose its time of day.
+    #                 clock, as a spreadsheet's date format reads it, is its date, and so is the ISO 8601 text of one,
+    #                 such as `2026-10-13T00:00:00`, the text of a spreadsheet's cell of a date and time, also as a slice
+    #                 of the spreadsheet holds it, while a field with a `format` reads a file of text only in its
+    #                 format, and any other time raises, rather than lose its time of day.
     #     "datetime": a Time, written as `2026-10-13T09:30:00Z` unless `format` is set. Without a format it reads ISO 8601
     #                 with seconds, with a space in place of the T, such as `2026-10-13 09:30:00`, and an offset from UTC
     #                 with or without a colon, or of hours alone, such as `+05:30`, `+0530` or `+05`, see #cast_datetime.
@@ -58,8 +60,9 @@ module IOStreams
     #     "year":     an Integer from 0 to 9999, read from text of 4 digits, such as `2026`, or from a whole number, and
     #                 written as 4 digits.
     #     "yearmonth": a Date on the first of its month, read from text such as `2026-10`, or the ISO 8601 text of the
-    #                 first of a month, such as `2026-10-01`, the text of a cell of a spreadsheet that holds the date, or
-    #                 from a Date on the first of its month, of a year up to 9999, and written as `2026-10`.
+    #                 first of a month, or of midnight on it, such as `2026-10-01` or `2026-10-01T00:00:00`, the text of
+    #                 a cell of a spreadsheet that holds the date, or from a Date on the first of its month, or a Time
+    #                 at midnight on it, of a year up to 9999, and written as `2026-10`.
     #     "geopoint": a point on the earth, `[lon, lat]`, two BigDecimals, read from and written in the form of its
     #                 `format`, see `IOStreams::Schema::Geopoint`.
     #     "any":      the value as it is read, without converting it, apart from empty text, which is nil.
@@ -254,9 +257,6 @@ module IOStreams
 
       # The text of a year and a month, see `yearmonth` above.
       YEARMONTH = /\A(\d{4})-(\d{2})\z/
-
-      # The ISO 8601 text of the first of a month, which a yearmonth also reads, see `yearmonth` above.
-      FIRST_OF_MONTH = /\A(\d{4})-(\d{2})-01\z/
 
       # What #default_text_value returns for text that is not the default text of the type of the field, see
       # #parse_cell_text, which nil, false and every other value can be.
@@ -1190,18 +1190,23 @@ module IOStreams
         year.between?(0, 9999) ? year : invalid(value)
       end
 
-      # Returns [Date] the first of the month of text such as `2026-10` or `2026-10-01`, or of a Date on the first of its
-      # month, or a Time or DateTime at midnight on it, see `yearmonth` above.
+      # Returns [Date] the first of the month of its text, see #yearmonth_text, or of a Date on the first of its month, or
+      # a Time or DateTime at midnight on it, see `yearmonth` above.
       def cast_yearmonth(value)
-        if value.is_a?(String)
-          parts = YEARMONTH.match(value) || FIRST_OF_MONTH.match(value)
-          month = parts && parts[2].to_i
-          return invalid(value) unless month&.between?(1, 12)
-
-          return Date.new(parts[1].to_i, month, 1)
-        end
-        date = cast_date(value)
+        date = value.is_a?(String) ? yearmonth_text(value) : cast_date(value)
         date.day == 1 && date.year <= 9999 ? date : invalid(value)
+      end
+
+      # Returns [Date] the date of text such as `2026-10`, or of the text of a date that a date field reads without a
+      # format, see #cast_date, such as `2026-10-01` or `2026-10-01T00:00:00`, whose day #cast_yearmonth checks.
+      #
+      # Raises `IOStreams::Errors::InvalidValue` for any other text.
+      def yearmonth_text(text)
+        parts = YEARMONTH.match(text)
+        return cast_date(text) unless parts
+
+        month = parts[2].to_i
+        month.between?(1, 12) ? Date.new(parts[1].to_i, month, 1) : invalid(text)
       end
 
       # Returns [String] the text of a value of this type, once it is converted, see #cast, such as "12.50" for the
@@ -1747,27 +1752,51 @@ module IOStreams
 
       # A Date passes through, and a Time or DateTime is a Date only when it is midnight, by its own clock, as a
       # spreadsheet's date format reads it, so that a time of day is never lost, nor a zone guessed: any other time raises.
+      # Without a format, the ISO 8601 text of a date and time at midnight is its date too, see #midnight_text.
       def cast_date(value)
         return value if value.instance_of?(Date)
         return midnight(value) if value.is_a?(Time) || value.is_a?(DateTime)
         return value.to_date if value.is_a?(Date)
         return invalid(value) unless value.is_a?(String)
         return parse_time(Date, value) if @format
-        return invalid(value) unless DATE.match?(value)
+        return midnight_text(value) || invalid(value) unless DATE.match?(value)
 
         Date.new(*value.split("-").map { |part| Integer(part, 10) })
       rescue Date::Error
         invalid(value)
       end
 
-      # Returns [Date] the date of a Time or DateTime at midnight, by its own clock.
+      # Returns [Date] the date of a Time or DateTime at midnight, by its own clock, see #date_of.
       #
       # Raises `IOStreams::Errors::InvalidValue` for any other time, whose time of day a date would lose.
       def midnight(time)
-        fraction = time.is_a?(Time) ? time.subsec : time.sec_fraction
-        return time.to_date if time.hour.zero? && time.min.zero? && time.sec.zero? && fraction.zero?
+        midnight?(time) ? date_of(time) : invalid(time)
+      end
 
-        invalid(time)
+      # Returns [Date] the date of the year, month and day of a Time or DateTime, the date of its text, as #cast_date
+      # reads the text of a date, rather than `Time#to_date`, which moves a date before the calendar reform of 1582,
+      # such as `0001-01-01`, to another day of the Julian calendar, `0001-01-03`.
+      #
+      # Raises `Date::Error` for a date that the reform skipped, such as 1582-10-10, as for its text.
+      def date_of(time)
+        Date.new(time.year, time.month, time.day)
+      end
+
+      # Returns [true|false] whether a Time or DateTime is midnight, by its own clock.
+      def midnight?(time)
+        fraction = time.is_a?(Time) ? time.subsec : time.sec_fraction
+        time.hour.zero? && time.min.zero? && time.sec.zero? && fraction.zero?
+      end
+
+      # Returns [Date|nil] the date of the ISO 8601 text of a date and time at midnight, by its own clock, as #midnight
+      # reads a Time, such as `2026-10-01T00:00:00`, the text of a spreadsheet's cell of a date and time format that holds
+      # a date, see `IOStreams::Xlsx::Cells.text`, or `2026-10-01T00:00:00.000-05:00`, or nil for any other text, such
+      # as a date and time at another time of day, or on a date that does not exist.
+      def midnight_text(text)
+        time = iso_datetime_text(text)
+        date_of(time) if time && midnight?(time)
+      rescue ArgumentError
+        nil
       end
 
       # `Time` moves a day past the end of its month into the next month, such as February 30 into March 2, so the
@@ -1926,7 +1955,7 @@ module IOStreams
       def default_time(text)
         value =
           case type
-          when "date" then cast_date_text(text) if DATE.match?(text)
+          when "date" then DATE.match?(text) ? cast_date_text(text) : midnight_text(text)
           when "datetime" then iso_datetime_text(text)
           else iso_clock_text(text)
           end

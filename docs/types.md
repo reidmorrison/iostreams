@@ -513,6 +513,10 @@ With its own `trueValues` and `falseValues`, the field reads only those: `custom
   `2026-02-30`, raises.
 * **From other sources** a `Time` at midnight is its date, such as a date and time cell of a spreadsheet, or a
   timestamp column of a query, at midnight. Any other time raises, rather than lose its time of day.
+* **Also reads** the ISO 8601 text of a date and time at midnight, by its own clock, as its date, such as
+  `2026-10-13T00:00:00`, the CSV text of a spreadsheet's date and time cell at midnight, so that its CSV text and its
+  slices read the cell as its rows do. A field with a `format` reads a file of text, such as a CSV copy of the
+  spreadsheet, only in its format, while the slices of the spreadsheet still read the cell as its rows do.
 * **Written as** `2026-10-13`, or in its `format`.
 
 ~~~ruby
@@ -540,6 +544,8 @@ end
 * The spec defines the `format` `any`, for any text that a tool can read as a date, and does not recommend it.
   frictionless-py reads it. IOStreams raises `ArgumentError` for it when the schema is read, for a `date`, `datetime`
   or `time`.
+* IOStreams reads a date and time at midnight, such as `2026-10-13T00:00:00`, as its date. The spec and frictionless-py
+  raise for it.
 
 ### `datetime`
 
@@ -748,7 +754,8 @@ See [Time zones](schemas#time-zones). Neither the spec nor frictionless-py has `
 ### `yearmonth`
 
 * **Read as** a `Date` on the first of its month, from `YYYY-MM`, such as `2026-10`, or from the date of the first of a
-  month, `2026-10-01`, the text of a spreadsheet's cell that holds that date.
+  month, `2026-10-01`, or of midnight on it, `2026-10-01T00:00:00`, the text of a spreadsheet's cell that holds that
+  date.
 * **Written as** `2026-10`.
 
 ~~~ruby
@@ -777,7 +784,8 @@ end
 * frictionless-py writes the year 26 as `26`, which it then cannot read, since it reads only 4 digits. IOStreams
   writes `0026`, or the number `26` in JSON.
 * frictionless-py reads a month of one digit, such as `2026-1`. The spec and IOStreams require `YYYY-MM`, while
-  IOStreams also reads `2026-10-01`, and raises for any other day, such as `2026-10-02`.
+  IOStreams also reads `2026-10-01` and `2026-10-01T00:00:00`, and raises for any other day, such as `2026-10-02`, or
+  time, such as `2026-10-01T09:30:00`.
 * frictionless-py reads a `yearmonth` as a pair of its year and month, `(2026, 10)`, where IOStreams reads a `Date` on
   the first of the month.
 * frictionless-py also reads a JSON array of the year and month, such as `[2026, 10]`, which IOStreams raises for.
@@ -1153,6 +1161,7 @@ properties that IOStreams adds to the spec, such as `aliases` and `allowBlank`, 
 | `number`, `integer` | `bareNumber: false` and `12-` or `(12` | up to each tool | `12` | raises |
 | `boolean` | the number `1` or `0`, such as of JSON | not defined | raises | `true` or `false` |
 | `date` | `2026-1-5` | raises | reads | raises |
+| `date`, `yearmonth` | `2026-10-01T00:00:00`, a date and time at midnight | raises | raises | `2026-10-01` |
 | `date`, `datetime`, `time` | `format: "any"` | any form, not recommended | reads any form | raises `ArgumentError` |
 | `date`, `datetime`, `time` | the directives `%s`, `%N` and `%L` of a `format` | not defined | raises | reads |
 | `datetime` | `2026-10-13 09:30:00`, a space for the `T` | raises | reads | reads |
