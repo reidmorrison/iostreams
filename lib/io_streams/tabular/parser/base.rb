@@ -43,6 +43,15 @@ module IOStreams
           true
         end
 
+        # Returns [#read|nil] the times of day of the rows of the format, when it holds them as clocks without a zone, such
+        # as Parquet, in the columns that the schema of the file, which the block returns, declares as `time`, read by
+        # the fields of the supplied schema that reads the rows, see `IOStreams::Tabular#read_declared`, or nil for any
+        # other format, whose values hold their own offset, or are text, which the fields read themselves, without
+        # calling the block.
+        def self.clocks(_schema)
+          nil
+        end
+
         # Returns [true|false] whether the format takes the position of each value of a line from a schema, such as fixed
         # width, which a contract never gives, see `IOStreams::Contract`, rather than from the line itself.
         def self.layout?

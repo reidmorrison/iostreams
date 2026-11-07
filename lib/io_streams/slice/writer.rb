@@ -113,6 +113,7 @@ module IOStreams
                                                     typed: slice.typed?, cell_text: slice.cell_text?)
         @as_is  = @tabular.lines? && slice.format == @tabular.format && slice.header? == @tabular.requires_header? &&
                   !slice.cell_text?
+        @reader.read_declared { slice.schema }
         @as_is ? start_as_is(slice) : start_rows(slice)
       end
 

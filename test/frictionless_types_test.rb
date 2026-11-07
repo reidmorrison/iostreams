@@ -651,6 +651,72 @@ class FrictionlessTypesTest < Minitest::Test
         assert_equal [{"opens" => Time.new(2000, 1, 1, 9, 30, 0, "-05:00")}] * 2, read(IOStreams.path(dir, "shops.parquet").as(contract))
       end
 
+      it "reads the times of day of a slice of Parquet in the zone of a contract, as it reads the file, also once stored" do
+        skip "The parquet gem is a Rust extension, which JRuby cannot load" if defined?(JRuby)
+
+        contract = {fields: [{name: "opens", type: "time", timeZone: "America/New_York"}]}
+        File.write(File.join(dir, "shops.csv"), "opens\n09:30:00\n")
+        IOStreams.path(dir, "shops.parquet").copy_from(IOStreams.path(dir, "shops.csv").as(contract), mode: :hash)
+        plain       = []
+        by_contract = []
+        IOStreams.path(dir, "shops.parquet").each(:slice, size: 10) { |slice| plain << slice }
+        IOStreams.path(dir, "shops.parquet").as(contract).each(:slice, size: 10) { |slice| by_contract << slice }
+        stored = plain.map { |slice| IOStreams.slice(JSON.parse(JSON.generate(slice.to_h))) }
+        clock  = [{"opens" => Time.new(2000, 1, 1, 9, 30, 0, "-05:00")}]
+
+        assert_equal clock, read(IOStreams.path(dir, "shops.parquet").as(contract))
+        [plain, by_contract, stored].each do |slices|
+          assert_equal(clock, slices.flat_map { |slice| read(IOStreams.stream(slice).as(contract)) })
+        end
+        # A slice holds the clock of the file, whatever read it.
+        assert_equal([{"opens" => Time.utc(2000, 1, 1, 9, 30)}], by_contract.flat_map { |slice| read(IOStreams.stream(slice)) })
+      end
+
+      it "writes the times of day of slices of Parquet, and checks them, in the zone of a contract, as it reads the file" do
+        skip "The parquet gem is a Rust extension, which JRuby cannot load" if defined?(JRuby)
+
+        contract = {fields: [{name: "opens", type: "time", timeZone: "America/New_York", constraints: {minimum: "08:00:00"}}]}
+        File.write(File.join(dir, "shops.csv"), "opens\n09:30:00\n")
+        source = IOStreams.path(dir, "shops.parquet")
+        source.copy_from(IOStreams.path(dir, "shops.csv").as(contract), mode: :hash)
+        %w[copy.parquet copy.csv].each do |name|
+          IOStreams.path(dir, name).as(contract).writer(:slice) do |io|
+            IOStreams.path(dir, "shops.parquet").as(contract).each(:slice, size: 10) { |slice| io << slice }
+          end
+        end
+        sizes = []
+        IOStreams.path(dir, "shops.parquet").as(contract).each(:slice, size: 10, validate: true) { |slice| sizes << slice.size }
+
+        assert_equal [{"opens" => Time.new(2000, 1, 1, 9, 30, 0, "-05:00")}], read(IOStreams.path(dir, "copy.parquet").as(contract))
+        assert_equal "opens\n09:30:00\n", File.read(File.join(dir, "copy.csv"))
+        assert_equal [1], sizes
+      end
+
+      it "reads the rows of a slice of Parquet, and reports only its values that are not valid, in the zone of a contract" do
+        skip "The parquet gem is a Rust extension, which JRuby cannot load" if defined?(JRuby)
+
+        written = {fields: [{name: "opens", type: "time", timeZone: "America/New_York"}, {name: "name", type: "string"}]}
+        checked = {
+          fields: [
+            {name: "opens", type: "time", timeZone: "America/New_York", constraints: {minimum: "08:00:00"}},
+            {name: "name", type: "string", constraints: {required: true}}
+          ]
+        }
+        File.write(File.join(dir, "shops.csv"), "opens,name\n09:30:00,\n")
+        IOStreams.path(dir, "shops.parquet").copy_from(IOStreams.path(dir, "shops.csv").as(written), mode: :hash)
+        slices = []
+        IOStreams.path(dir, "shops.parquet").each(:slice, size: 10) { |slice| slices << slice }
+        problems = []
+        records  = []
+        IOStreams.stream(slices.first).as(checked).each(:hash, on_invalid: ->(row) { problems << row }) { |record| records << record }
+        rows = []
+        IOStreams.stream(slices.first).as(written).each(:array) { |row| rows << row }
+
+        assert_equal([%w[name]], problems.map { |problem| problem.errors.map(&:field) })
+        assert_empty records
+        assert_equal [%w[opens name], [Time.new(2000, 1, 1, 9, 30, 0, "-05:00"), nil]], rows
+      end
+
       it "reads a time of day without an offset in its zone on 2000-01-01, and writes the clock of the zone" do
         clock = field(type: "time", timeZone: "America/New_York")
 

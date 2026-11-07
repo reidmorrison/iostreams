@@ -447,8 +447,9 @@ describes itself, such as a CSV file with a header row, JSON, a spreadsheet or P
 
 [Apache Parquet](https://parquet.apache.org/) files hold the type of each column, so their records are read with typed
 values, such as an `Integer`, `BigDecimal`, `Date` or `Time`, even without a schema, apart from the columns that
-[Limitations](#parquet-limitations) names. A column of times of day is read as a `Time` on 2000-01-01, in UTC, as a
-`time` field reads it, and empty text, or empty binary data, as `nil`, a missing value, as a field reads it, see
+[Limitations](#parquet-limitations) names. A column of times of day holds a clock without a zone, which is read as a
+`Time` on 2000-01-01, in UTC, as a `time` field reads it, or in the `timeZone` of the `time` field that reads it, and
+empty text, or empty binary data, as `nil`, a missing value, as a field reads it, see
 [Types](schemas#types). A `.parquet` file name selects the format, and it can also be compressed or encrypted, such as
 `data.parquet.pgp`. Install the [parquet](https://github.com/njaremko/parquet-ruby) gem, which is not available on
 JRuby.
@@ -520,7 +521,9 @@ end
 A Parquet file stores each column on its own, so with a schema whose `fieldsMatch` is `"subset"` or `"partial"`, which
 skip the columns that it does not list, only the columns of its fields are read and decoded, which is faster for a
 wide file. The other values of `fieldsMatch` read every column, so that they can check the others. Its slices,
-`each(:slice)`, always hold every column, as the lines of a CSV file do, see [Background jobs](background_jobs).
+`each(:slice)`, always hold every column, as the lines of a CSV file do, and each time of day as the clock that the
+file holds, which a schema or contract that reads a slice reads in its `timeZone`, as it reads the file, see
+[Background jobs](background_jobs).
 
 A Parquet file records its columns at its end, so it is read from a local file, and a file stored elsewhere, such as
 on S3, is first copied into a temp file. Likewise it is written to a temp file, which is then copied to the path. The

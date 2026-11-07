@@ -107,9 +107,16 @@ module IOStreams
       # such cells, the default text of the type of each field first, such as `1234.5` rather than with its `groupChar`,
       # see `IOStreams::Slice#cell_text?`, in the form of a cell, `:scalar`, see `IOStreams::Schema::Field#parse`, so that
       # a `Time` of a cell is the clock that it holds, read in the `timeZone` of its field.
+      #
+      # The rows are those that the schema of the slice describes, so that a schema or contract reads them as it reads
+      # the rows of the file, such as the time of day of a Parquet file, which it reads in the zone of its field, see
+      # `IOStreams::Tabular#read_declared`.
       def tabular(**)
-        super(default_schema: io_stream.schema, blank_rows: io_stream.blank_rows?, headerless: !io_stream.header?,
-              typed: io_stream.typed?, part_of_file: true, cell_text: cell_text?, value_form: (:scalar if cell_text?), **)
+        tabular = super(default_schema: io_stream.schema, blank_rows: io_stream.blank_rows?, headerless: !io_stream.header?,
+                        typed: io_stream.typed?, part_of_file: true, cell_text: cell_text?,
+                        value_form: (:scalar if cell_text?), **)
+        tabular.read_declared { io_stream.schema }
+        tabular
       end
 
       # Returns [true|false] whether the values of the rows of the slice are the cells of a source of typed values, such

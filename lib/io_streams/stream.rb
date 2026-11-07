@@ -1348,8 +1348,8 @@ module IOStreams
     #
     # The slices hold every column, as the lines of CSV do, so a format that can read only some of its columns, such as
     # Parquet, reads every column, also those that the schema skips, so that a slice holds the columns that the schema
-    # it carries describes, whatever schema or contract read the file. That schema or contract still reads a time of day
-    # in the zone of its field, see `IOStreams::Parquet::Reader#time_fields`.
+    # it carries describes, whatever schema or contract read the file, with each time of day as the clock that the file
+    # holds, which a schema or contract reads in its zone when it reads the slice, see `IOStreams::Tabular#read_declared`.
     def open_slice_rows(tabular, delimiter, buffer_size)
       open_rows_reader(tabular, delimiter, buffer_size, text: tabular.schema.nil?, every_column: true) do |rows|
         lines_of_file = tabular.lines? && builder.lines_of_file?
@@ -1367,7 +1367,8 @@ module IOStreams
     # each one, as its lines hold it, such as `Xlsx::Cells.text` of each cell of a spreadsheet.
     #
     # A format whose rows are not lines reads only the columns of the schema when it can, unless `every_column: true`,
-    # see `IOStreams::Tabular#read_rows`.
+    # see `IOStreams::Tabular#read_rows`, and the tabular takes the schema that its rows declare, see
+    # `IOStreams::Tabular#read_declared`, so that it reads them as that schema describes them.
     #
     # Raises ArgumentError when `delimiter` or `buffer_size` is supplied, or an encoding is set, for a format without
     # lines, see #reject_line_options!.
@@ -1387,6 +1388,7 @@ module IOStreams
         return stream_reader do |io|
           tabular.read_rows(io, every_column: every_column) do |rows|
             tabular.check_declared_types { rows.declared_schema }
+            tabular.read_declared { rows.declared_schema }
             yield rows
           end
         end
