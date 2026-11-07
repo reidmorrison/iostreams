@@ -158,9 +158,26 @@ class SliceTest < Minitest::Test
         assert_equal slice.to_h, IOStreams.slice(stored).to_h
       end
 
+      it "ignores a key that is neither a String nor a Symbol, even one whose text is that of a key of a slice" do
+        slice  = IOStreams::Slice.new(%w[Jack,21], format: :csv)
+        stored = slice.to_h.merge(1 => "x", nil => "y", %w[rows] => "z", ["format"] => "gz")
+
+        assert_equal slice, IOStreams.slice(stored)
+      end
+
+      it "reads the String of a key that the Hash holds both as a String and as a Symbol, whatever their order" do
+        assert_equal %w[a], IOStreams.slice("rows" => %w[a], :rows => %w[b]).rows
+        assert_equal %w[a], IOStreams.slice(:rows => %w[b], "rows" => %w[a]).rows
+      end
+
       it "still requires rows when the Hash holds keys that a slice does not have" do
         error = assert_raises(ArgumentError) { IOStreams.slice("_id" => "65a1f0c2", "header" => %w[Name AGE]) }
         assert_equal "The Hash of a slice has no rows", error.message
+      end
+
+      it "still checks the keys of a slice when the Hash holds keys that a slice does not have" do
+        error = assert_raises(ArgumentError) { IOStreams.slice("_id" => "65a1f0c2", "rows" => [], "format" => "gz") }
+        assert_match(/\AUnknown format of a slice: "gz"/, error.message)
       end
 
       it "turns back the line that the first row starts on, once stored as JSON, or nil for a Hash without one" do
