@@ -847,9 +847,9 @@ module IOStreams
       end
 
       # Returns [Time] the time that `Time.iso8601` read from text with the supplied offset: in UTC without an offset, or
-      # for an offset that UTC_ZONE names, such as `-0000`, and otherwise at the offset, such as `+0000`. `Time.iso8601`
-      # does not tell them apart alike everywhere: from the time gem 0.5.0 it reads the text with `Time.new`, which on
-      # JRuby reads `-0000` and `-00` as an offset of zero, see https://github.com/jruby/jruby/issues/10016.
+      # for an offset that UTC_ZONE names, such as `-0000`, and otherwise at the offset, such as `+0000`. The time gem
+      # 0.5.0's `Time.iso8601` reads the text with `Time.new`, which on JRuby reads `-0000` and `-00` as an offset of zero
+      # rather than UTC, see https://github.com/jruby/jruby/issues/10016.
       def at_offset(time, offset)
         offset.nil? || UTC_ZONE.match?(offset) ? time.utc : time
       end
