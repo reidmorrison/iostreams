@@ -222,9 +222,12 @@ class ContractTest < Minitest::Test
 
         assert_equal [], texts.select(&:frozen?)
         assert_predicate contract.schema.fields.first.type, :frozen?
+        assert_predicate contract.record_fields, :frozen?
         descriptor["fields"].first["type"].upcase!
 
         assert_equal "integer", contract.schema.fields.first.type
+        # A copy, which the caller can change.
+        assert_equal 5, (contract.to_h[:fields] << {name: "more"}).size
       end
 
       it "holds its schema and the field of each accessor in a form that every Ractor can read" do

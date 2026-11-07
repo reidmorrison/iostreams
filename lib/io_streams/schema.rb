@@ -861,9 +861,10 @@ module IOStreams
     # Returns [Hash] a frozen copy of the properties of the schema other than its fields, with Symbol keys, also within
     # the objects of its `missingValues`, see #to_h.
     def properties_of(descriptor)
+      # The descriptor is already a frozen copy, see #initialize, so only what this builds is frozen here.
       properties = descriptor.except("fields").transform_keys(&:to_sym)
-      properties[:missingValues] = @missing.descriptor if properties.key?(:missingValues)
-      Utils.frozen_copy(properties)
+      properties[:missingValues] = Utils.frozen_copy(@missing.descriptor) if properties.key?(:missingValues)
+      properties.freeze
     end
 
     # Returns [Array<String>] the names of the fields of the `primaryKey`, see above, a String or an Array of them, each
