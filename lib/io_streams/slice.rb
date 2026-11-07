@@ -730,7 +730,8 @@ module IOStreams
       return dumped_rows if schema
       return @rows.dup unless IOStreams::Tabular.renders_values?(format)
 
-      @rows.map { |row| map_values(row, Hash.new(true)) { |_field, value| stored_value(value) } }
+      every = Hash.new(true)
+      @rows.map { |row| map_values(row, [every, every]) { |_field, value| stored_value(value) } }
     end
 
     # Returns the value of a row of a slice without a schema in a form that JSON keeps, see

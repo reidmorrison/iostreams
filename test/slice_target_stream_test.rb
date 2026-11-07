@@ -789,6 +789,14 @@ class SliceTargetStreamTest < Minitest::Test
         assert_equal [{"name" => "Jack", "on" => Date.new(2026, 1, 2)}], slice.rows
       end
 
+      it "are stored without a schema in a format whose rows hold the values themselves, each value as JSON keeps it" do
+        stream.format(:hash).writer(:hash) { |io| io << {"name" => "Jack", "on" => Date.new(2026, 1, 2)} }
+        slice = store.slices.first
+
+        refute_predicate slice, :typed?
+        assert_equal [{"name" => "Jack", "on" => "2026-01-02"}], slice.to_h["rows"]
+      end
+
       it "are typed in the :array format too, after their header row" do
         stream.format(:array).schema(typed_schema).writer(:array) { |io| io << ["Jack", Date.new(2026, 1, 2)] }
         slice = store.slices.first
