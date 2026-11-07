@@ -25,6 +25,11 @@ module IOStreams
           true
         end
 
+        # Returns [true] the json gem reads text in any Unicode encoding, such as UTF-16LE, as UTF-8.
+        def self.utf8_values?
+          true
+        end
+
         # Returns [JSON::Coder|nil] a coder that writes a record as `.json_value(record).to_json` does, in one pass over its
         # values in the json gem, rather than one pass in Ruby, then another to write them.
         #
