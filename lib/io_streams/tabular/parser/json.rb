@@ -53,7 +53,9 @@ module IOStreams
 
             json.is_a?(String) ? json_text(json) : json
           end
-          coder if coder.dump({1 => nil}) == '{"1":null}' && hands_text?(coder)
+          # Shareable, see `IOStreams::Utils.shareable`, or nil when this version of the json gem cannot share it, such as
+          # 2.16.
+          Utils.shareable(coder) if coder.dump({1 => nil}) == '{"1":null}' && hands_text?(coder)
         rescue StandardError
           nil
         end
@@ -344,8 +346,8 @@ module IOStreams
         end
 
         # The coder, see .coder, built as the class is loaded, since a class-level cache could only be set in the main
-        # Ractor, see `IOStreams::Utils.main_ractor?`, and shareable, see `IOStreams::Utils.shareable`.
-        @coder = Utils.shareable(build_coder)
+        # Ractor, see `IOStreams::Utils.main_ractor?`.
+        @coder = build_coder
       end
     end
   end

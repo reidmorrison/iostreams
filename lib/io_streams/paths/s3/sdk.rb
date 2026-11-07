@@ -43,7 +43,7 @@ module IOStreams
           return false if @not_installed
 
           installed = Utils.soft_dependency_installed?("aws-sdk-s3", "AWS S3")
-          @not_installed = true if !installed && Utils.main_ractor?
+          @not_installed = !installed if Utils.main_ractor?
           installed
         end
 

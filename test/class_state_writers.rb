@@ -3,9 +3,10 @@
 require "prism"
 
 # Finds the class-level methods of Ruby files that set an instance variable of their class or module, or change the
-# value of one in place, other than under `IOStreams::Utils.main_ractor?`, since a Ractor other than the main Ractor can
-# never set them, see test/shareable_test.rb. A block of a Proc or a method that a class method defines runs on another
-# object, so the instance variables within it are not those of the class.
+# value of one in place, other than in the branch of an `if IOStreams::Utils.main_ractor?`, since a Ractor other than
+# the main Ractor can never set them, see test/shareable_test.rb: an assignment, `instance_variable_set` on the class
+# itself, and the writers that `attr_writer` and `attr_accessor` define on it. A block of a Proc or a method that a class
+# method defines runs on another object, so the instance variables within it are not those of the class.
 class ClassStateWriters < Prism::Visitor
   # The methods that change a Hash or an Array in place.
   MUTATORS = %i[[]= << delete store push concat clear update merge! replace shift pop unshift insert delete_if keep_if
@@ -13,6 +14,9 @@ class ClassStateWriters < Prism::Visitor
 
   # The methods whose block runs on another object than the class.
   OTHER_SELF = %i[proc lambda define_method define_singleton_method instance_exec instance_eval].freeze
+
+  # The methods that define a writer of an instance variable.
+  ATTR_WRITERS = %i[attr_writer attr_accessor].freeze
 
   # Returns [Array<String>] the methods that do, such as "IOStreams.add_root", in the supplied files.
   def self.find(files)
@@ -54,12 +58,14 @@ class ClassStateWriters < Prism::Visitor
     in_method(class_level ? "#{@namespace.join('::')}.#{node.name}" : nil) { super }
   end
 
+  # Only the branch of `if Utils.main_ractor?` is guarded, not its else, nor that of a negated condition.
   def visit_if_node(node)
-    guarded = node.predicate.slice.include?("main_ractor?")
-    @guarded += 1 if guarded
-    super
-  ensure
-    @guarded -= 1 if guarded
+    predicate = node.predicate
+    return super unless predicate.is_a?(Prism::CallNode) && predicate.name == :main_ractor?
+
+    visit(predicate)
+    guarded { visit(node.statements) }
+    visit(node.respond_to?(:subsequent) ? node.subsequent : node.consequent)
   end
 
   def visit_lambda_node(node)
@@ -68,6 +74,8 @@ class ClassStateWriters < Prism::Visitor
 
   def visit_call_node(node)
     record if ivar?(node.receiver) && (MUTATORS.include?(node.name) || node.attribute_write?)
+    record if node.name == :instance_variable_set && (node.receiver.nil? || node.receiver.is_a?(Prism::SelfNode))
+    record_attr_writers(node) if ATTR_WRITERS.include?(node.name) && @singleton.positive? && @method.nil?
     return super unless OTHER_SELF.include?(node.name)
 
     in_method(nil) { super }
@@ -109,6 +117,20 @@ class ClassStateWriters < Prism::Visitor
 
   def ivar?(node)
     node.is_a?(Prism::InstanceVariableReadNode)
+  end
+
+  def guarded
+    @guarded += 1
+    yield
+  ensure
+    @guarded -= 1
+  end
+
+  # Records the writer of each name of an `attr_writer` or `attr_accessor` within `class << self`.
+  def record_attr_writers(node)
+    node.arguments&.arguments&.each do |name|
+      @writers << "#{@namespace.join('::')}.#{name.unescaped}=" if name.is_a?(Prism::SymbolNode)
+    end
   end
 
   def record

@@ -86,9 +86,13 @@ module IOStreams
       end
 
       # Returns [true|false] whether the installed gpg is at least the supplied version, such as "2.1".
-      # Versions are compared by their numbers, so that for example 2.10 is later than 2.4.
+      # Versions are compared by their numbers, so that for example 2.10 is later than 2.4, and 2.1 is 2.1.0, without
+      # RubyGems' `Gem::Version`, which only the main Ractor can create.
       def self.version_at_least?(version)
-        Gem::Version.new(Pgp.pgp_version.to_s) >= Gem::Version.new(version)
+        installed = Pgp.pgp_version.to_s.split(".").map(&:to_i)
+        required  = version.split(".").map(&:to_i)
+        size      = [installed.size, required.size].max
+        (Array.new(size) { |index| installed[index] || 0 } <=> Array.new(size) { |index| required[index] || 0 }) >= 0
       end
 
       # Returns [Array<String>] the arguments that stop gpg from asking pinentry for a passphrase, which fails without

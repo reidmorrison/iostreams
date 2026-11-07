@@ -389,9 +389,12 @@ module IOStreams
 
   # Returns the temporary path used when creating local temp files.
   #
-  # Default, found each time, see `Dir.tmpdir`:
+  # Default, see `Dir.tmpdir`, found once for each process where class-level state can be set, see
+  # `IOStreams::Utils.main_ractor?`, and each time elsewhere:
   #   ENV['TMPDIR'], or ENV['TMP'], or ENV['TEMP'], or `Etc.systmpdir`, or '/tmp', otherwise '.'
   def self.temp_dir
+    return @temp_dir ||= Dir.tmpdir.freeze if Utils.main_ractor?
+
     @temp_dir || Dir.tmpdir
   end
 

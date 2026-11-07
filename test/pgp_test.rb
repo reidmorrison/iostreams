@@ -198,6 +198,15 @@ class PgpTest < Minitest::Test
           end
         end
 
+        it "compares versions of a different number of parts as if the missing parts were 0" do
+          with_pgp_version("2.1.0") do
+            assert IOStreams::Pgp::Gpg.version_at_least?("2.1")
+            assert IOStreams::Pgp::Gpg.version_at_least?("2.0.30")
+            refute IOStreams::Pgp::Gpg.version_at_least?("2.1.14")
+          end
+          with_pgp_version("2.4") { assert IOStreams::Pgp::Gpg.version_at_least?("2.4.0") }
+        end
+
         it "is false for any version when the version is not known" do
           with_pgp_version(nil) do
             IOStreams::Pgp.stub(:pgp_version, nil) do
