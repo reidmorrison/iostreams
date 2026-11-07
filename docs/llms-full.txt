@@ -4109,7 +4109,7 @@ IOStreams.path("orders.csv").schema(IOStreams::Schema.new(JSON.parse(File.read("
 | `integer` | an `Integer`, from text such as `42`, `-12` or `0042`, or a whole number with a decimal point, such as `12.0`, as a spreadsheet stores it | `42` |
 | `number` | a `BigDecimal`, from text such as `12.5`, `-1.5E3`, `NaN`, `INF` or `-INF`, whatever their case, or `Infinity` and `-Infinity`, as Ruby and JavaScript write them, and frictionless-py also reads them, or a number, including a `Rational`, or a `Float` with `floatNumber: true`, rounded to its `decimals` when it has them | `12.5`, a whole number without a decimal point, such as `42` for `42`, `42.0` or the text `42.0`, or `12.50` and `42.00` with `decimals: 2`, and one that is not finite as `NaN`, `INF` or `-INF`, except to JSON, which cannot hold it, so that it raises `IOStreams::Errors::InvalidValue` |
 | `boolean` | `true` or `false`, from one of its `trueValues` or `falseValues`, or the number `1` or `0`, such as `1.0` of a spreadsheet, or a number of JSON, a Parquet file or a query; any other number raises | the first of its `trueValues` or `falseValues` |
-| `date` | a `Date`, from `2026-10-13`, or text in its `format`, or a `Time` at midnight, by its own clock; any other time raises, rather than lose its time of day | `2026-10-13`, or text in its `format` |
+| `date` | a `Date`, from `2026-10-13`, or text in its `format`, or a `Time` at midnight, by its own clock, or its text, such as `2026-10-13T00:00:00`; any other time raises, rather than lose its time of day | `2026-10-13`, or text in its `format` |
 | `datetime` | a `Time`, from ISO 8601 with seconds, such as `2026-10-13T09:30:00Z`, also with a space in place of the `T`, such as `2026-10-13 09:30:00`, and an offset from UTC with or without a colon, or of hours alone, such as `+05:30`, `+0530` or `+05`, or text in its `format`. Text without an offset from UTC is read as UTC, or in its `timeZone`, and a date without a time raises | ISO 8601, such as `2026-10-13T09:30:00Z`, or text in its `format` |
 | `time` | a time of day, a `Time` on 2000-01-01, as Active Record holds a `time` column, from ISO 8601 with seconds, such as `09:30:00`, `09:30:00.250`, `09:30:00-05:00` or `09:30:00-0500`, or text in its `format`. Text without an offset from UTC is read as UTC, or in its `timeZone`. A `Time` on another day keeps the time of its clock and its offset | the time of its clock, such as `09:30:00`, without its offset, or text in its `format` |
 | `duration` | an `ActiveSupport::Duration`, from ISO 8601, such as `PT8H30M` or `P1M2DT3H`, keeping its months and days apart from its seconds. **Needs the `activesupport` gem**, see below | ISO 8601, such as `P1M2DT3H`, also in JSON |
@@ -4117,7 +4117,7 @@ IOStreams.path("orders.csv").schema(IOStreams::Schema.new(JSON.parse(File.read("
 | `array` | an `Array`, from the text of a JSON array, such as `[1,2]`, or an `Array` as JSON holds it, see below | that JSON text, or in JSON an array |
 | `list` | an `Array` of items of its `itemType`, from text of the items separated by its `delimiter`, such as `a,b,c`, each in the default form of its type, or from an `Array`, or a single value that is not text as a list of that one item | the items separated by its `delimiter`, or in JSON an array |
 | `year` | an `Integer` from 0 to 9999, from text of 4 digits, such as `2026`, or a whole number | 4 digits, or in JSON a number |
-| `yearmonth` | a `Date` on the first of its month, from text such as `2026-10` or `2026-10-01`, or a `Date` on the first of its month, up to the year 9999 | `2026-10` |
+| `yearmonth` | a `Date` on the first of its month, from text such as `2026-10`, `2026-10-01` or `2026-10-01T00:00:00`, or a `Date` on the first of its month, up to the year 9999 | `2026-10` |
 | `geopoint` | a point on the earth, `[lon, lat]`, two `BigDecimal`s, from the form of its `format`: `default`, the text `90.50, 45.50`; `array`, a JSON array, such as `[90.50, 45.50]`, or its text; or `object`, a JSON object, such as `{"lon": 90.50, "lat": 45.50}`, or its text | the form of its `format` |
 | `any` | the value as it is read | the value, with a `BigDecimal`, `Date` or `Time` as its text, and in a format of text a `Hash` or an `Array` as JSON, see [Values without a field](#values-without-a-field) |
 
@@ -5577,6 +5577,9 @@ With its own `trueValues` and `falseValues`, the field reads only those: `custom
   `2026-02-30`, raises.
 * **From other sources** a `Time` at midnight is its date, such as a date and time cell of a spreadsheet, or a
   timestamp column of a query, at midnight. Any other time raises, rather than lose its time of day.
+* **Also reads** the ISO 8601 text of a date and time at midnight, by its own clock, as its date, such as
+  `2026-10-13T00:00:00`, the CSV text of a spreadsheet's date and time cell at midnight, so that its CSV text and its
+  slices read the cell as its rows do. A field with a `format` reads only text in its format.
 * **Written as** `2026-10-13`, or in its `format`.
 
 ~~~ruby
@@ -5604,6 +5607,8 @@ end
 * The spec defines the `format` `any`, for any text that a tool can read as a date, and does not recommend it.
   frictionless-py reads it. IOStreams raises `ArgumentError` for it when the schema is read, for a `date`, `datetime`
   or `time`.
+* IOStreams reads a date and time at midnight, such as `2026-10-13T00:00:00`, as its date. The spec and frictionless-py
+  raise for it.
 
 ### `datetime`
 
@@ -5812,7 +5817,8 @@ See [Time zones](schemas#time-zones). Neither the spec nor frictionless-py has `
 ### `yearmonth`
 
 * **Read as** a `Date` on the first of its month, from `YYYY-MM`, such as `2026-10`, or from the date of the first of a
-  month, `2026-10-01`, the text of a spreadsheet's cell that holds that date.
+  month, `2026-10-01`, or of midnight on it, `2026-10-01T00:00:00`, the text of a spreadsheet's cell that holds that
+  date.
 * **Written as** `2026-10`.
 
 ~~~ruby
@@ -5841,7 +5847,8 @@ end
 * frictionless-py writes the year 26 as `26`, which it then cannot read, since it reads only 4 digits. IOStreams
   writes `0026`, or the number `26` in JSON.
 * frictionless-py reads a month of one digit, such as `2026-1`. The spec and IOStreams require `YYYY-MM`, while
-  IOStreams also reads `2026-10-01`, and raises for any other day, such as `2026-10-02`.
+  IOStreams also reads `2026-10-01` and `2026-10-01T00:00:00`, and raises for any other day, such as `2026-10-02`, or
+  time, such as `2026-10-01T09:30:00`.
 * frictionless-py reads a `yearmonth` as a pair of its year and month, `(2026, 10)`, where IOStreams reads a `Date` on
   the first of the month.
 * frictionless-py also reads a JSON array of the year and month, such as `[2026, 10]`, which IOStreams raises for.
@@ -6217,6 +6224,7 @@ properties that IOStreams adds to the spec, such as `aliases` and `allowBlank`, 
 | `number`, `integer` | `bareNumber: false` and `12-` or `(12` | up to each tool | `12` | raises |
 | `boolean` | the number `1` or `0`, such as of JSON | not defined | raises | `true` or `false` |
 | `date` | `2026-1-5` | raises | reads | raises |
+| `date`, `yearmonth` | `2026-10-01T00:00:00`, a date and time at midnight | raises | raises | `2026-10-01` |
 | `date`, `datetime`, `time` | `format: "any"` | any form, not recommended | reads any form | raises `ArgumentError` |
 | `date`, `datetime`, `time` | the directives `%s`, `%N` and `%L` of a `format` | not defined | raises | reads |
 | `datetime` | `2026-10-13 09:30:00`, a space for the `T` | raises | reads | reads |

@@ -1750,6 +1750,23 @@ class SchemaTest < Minitest::Test
           assert_equal Date.new(2026, 10, 13), date.cast(Time.utc(2026, 10, 13))
         end
 
+        it "reads the ISO 8601 text of a date and time at midnight, by its own clock, as the text of a spreadsheet's cell" do
+          assert_equal Date.new(2026, 10, 13), date.cast("2026-10-13T00:00:00")
+          assert_equal Date.new(2026, 10, 13), date.cast("2026-10-13T00:00:00Z")
+          assert_equal Date.new(2026, 10, 13), date.cast("2026-10-13 00:00:00.000-05:00")
+        end
+
+        it "raises for the text of a date and time that is not midnight, or not on a date that exists, or not ISO 8601" do
+          ["2026-10-13T09:30:00", "2026-10-13T00:00:00.5", "2026-02-30T00:00:00", "2026-10-13T00:00:00+99",
+           "2026-10-13T00:00", "2026-10-13T24:00:00"].each do |text|
+            assert_raises(IOStreams::Errors::InvalidValue, text) { date.cast(text) }
+          end
+        end
+
+        it "reads only the text of its format with a format, as for the text of a date" do
+          assert_raises(IOStreams::Errors::InvalidValue) { field(type: "date", format: "%d/%m/%Y").cast("2026-10-13T00:00:00") }
+        end
+
         it "raises for a Time or DateTime that is not midnight, rather than lose its time of day" do
           assert_raises(IOStreams::Errors::InvalidValue) { date.cast(DateTime.new(2026, 10, 13, 9, 30)) }
           assert_raises(IOStreams::Errors::InvalidValue) { date.cast(Time.new(2026, 10, 13, 9, 30)) }
