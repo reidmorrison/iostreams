@@ -1973,7 +1973,11 @@ class SchemaTest < Minitest::Test
           assert_equal Time.utc(2026, 10, 31, 9, 30), datetime.cast("2026-10-31T09:30:00-0000")
           assert_equal 0, datetime.cast("2026-10-31T09:30:00-0000").utc_offset
           assert_predicate datetime.cast("2026-10-31T09:30:00-0000"), :utc?
+          assert_predicate datetime.cast("2026-10-31T09:30:00-00"), :utc?
+          refute_predicate datetime.cast("2026-10-31T09:30:00+0000"), :utc?
           assert_equal Time.new(2000, 1, 1, 9, 30, 0, "+05:00"), field(type: "time").cast("09:30:00+05")
+          assert_predicate field(type: "time").cast("09:30:00-0000"), :utc?
+          refute_predicate field(type: "time").cast("09:30:00+00"), :utc?
         end
 
         it "raises for minutes of an offset, or seconds, of 60 or more, and for text after a line break" do
