@@ -10,8 +10,6 @@
 
 ## Architecture
 
-The public entry points are `IOStreams.path(...)` (returns a `Path` subclass based on URI scheme) and `IOStreams.stream(io)` (wraps an existing IO). Both return an `IOStreams::Stream` which is configured via chained `#stream`/`#option` calls and consumed via `#reader`, `#writer`, `#each`, `#read`, `#write`, `#copy_from`, etc.
-
 **Public API boundary:** The `IOStreams` module itself is the only public entry point. Everyone starts from `IOStreams.path`/`IOStreams.stream`/`IOStreams.join`, and the instance methods on the `Stream`/`Path` they return are then public. Everything else (`Path` subclasses, the `Reader`/`Writer` classes, and the format/storage submodules) is internal: nothing else should be instantiated or called directly, including method signatures like `Zip::Writer.stream`. This keeps the user-facing API tiny and lets the internals be refactored freely without breaking callers. When changing code, preserve the `IOStreams.*` module methods and the `Stream`/`Path` instance methods; treat the rest as private and changeable.
 
 **Backward compatibility is mandatory for the public interface.** This library must never break backward compatibility in its public interface; everything else can be refactored freely as needed. The `IOStreams` module is the public interface, but whatever it returns or otherwise makes accessible is also part of that public interface. For example, `IOStreams.path` returns `Path` objects, so those are public. `Builder` is itself hidden, but its arguments and formatting options are exposed through the public API (e.g. via `#stream`/`#option` and file-name format detection), so they must remain backward compatible too. Evolve these by adding or extending new values, never by removing or changing the meaning of existing features that end users of the API may depend on.
@@ -19,8 +17,6 @@ The public entry points are `IOStreams.path(...)` (returns a `Path` subclass bas
 **Paths are configuration, not code.** A path or url is meant to be externalized, for example into a centralized configuration system or an environment variable, so the exact same application code runs against local files in development and a completely different file store in staging or production. For example, while migrating production from on-prem to the cloud, the on-prem instance can use local files while the cloud instance uses S3, with only the configuration differing. Code should never need to know which file store a path refers to. So when a concept exists in one scheme, give the other schemes the equivalent form where it makes sense, even when that bends a url standard: `sftp://hostname/~/data/a.csv` is within the login directory, so `file://~/data/a.csv` is within the home directory, letting one setting switch between the two. Likewise, keep path operations behaving the same across schemes.
 
 **The internals of `lib/io_streams/`**, how the builder, schema, tabular mappings, Parquet, slices, readers, writers and format registries fit together, are in [lib/io_streams/CLAUDE.md](lib/io_streams/CLAUDE.md), which loads when working with the files there, and how an Active Record query is read is in [lib/io_streams/query/CLAUDE.md](lib/io_streams/query/CLAUDE.md).
-
-`lib/iostreams.rb` defines the top-level autoloads, and each format module autoloads its own reader and writer; everything is lazy-loaded so optional dependencies are only required when the corresponding format is used.
 
 ## Documentation
 
