@@ -780,11 +780,11 @@ class SliceTargetStreamTest < Minitest::Test
         list
       end
 
-      # Returns [Array] the rows of the supplied slice, after its header row, as each(:array) reads them.
+      # Returns [Array] the rows of the supplied slice after its header row, which each(:array) reads first.
       def read_rows(slice)
         list = []
         IOStreams.stream(slice).each(:array) { |row| list << row }
-        list
+        list.drop(1)
       end
 
       it "are typed in a format whose rows hold the values themselves, and each one is a record" do
@@ -897,7 +897,7 @@ class SliceTargetStreamTest < Minitest::Test
           assert_equal rows, slice.rows, format
           assert_equal [{"name" => "Jack", "age" => "21"}, {"name" => nil, "age" => nil}, {"name" => nil, "age" => nil}],
                        read(slice, nil), format
-          assert_equal [%w[Jack 21], [nil, nil], [nil, nil]], read_rows(slice).drop(1), format
+          assert_equal [%w[Jack 21], [nil, nil], [nil, nil]], read_rows(slice), format
           assert_equal %({"name":"Jack","age":"21"}\n#{%({"name":null,"age":null}\n) * 2}), json.string, format
         end
       end
