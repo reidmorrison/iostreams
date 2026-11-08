@@ -189,17 +189,22 @@ end
 
 * The line number counts from 1, the header row and blank lines included, as a text editor numbers them. A row whose
   quoted value holds line breaks is on the line that it starts on. Rows that are not lines of a file have no line
-  number, `nil`, such as the rows of a Parquet file, a spreadsheet or a query.
+  number, `nil`, such as the rows of a Parquet file, a spreadsheet, also read as `:text`, or a query.
 * The record number counts from 1, without the header row, blank rows included, as the slices of the file and an
-  `IOStreams::Errors::InvalidValue` number them. The header row that `:array` yields first has none, `nil`, and no line
-  number either when it is not a line of its own, such as the keys of the first record of JSON without a schema.
+  `IOStreams::Errors::InvalidValue` number them. The header row that `:array` yields first has none, `nil`, nor has a
+  blank line before it, which `:array` yields as `nil`. The header row has no line number either when it is not a line
+  of its own, such as the keys of the first record of JSON without a schema.
 * It takes the options of `#each` in that mode, such as `skip_blanks:`, `resume_at:` and `on_invalid:`, and every row
   keeps the numbers of its file.
 * The rows of a slice, `IOStreams.stream(slice).each_with_numbers(:hash)`, have the numbers of their rows in the file
-  that the slice was read from, see [Find a row in the file](background_jobs#find-a-row-in-the-file).
+  that the slice was read from, see [Find a row in the file](background_jobs#find-a-row-in-the-file), and none, `nil`,
+  for a row added without numbers to a slice of numbered rows, while the rows of a slice that holds no record numbers,
+  such as one built of rows without them, are counted from 1. A slice does not hold the line of its header row, so the
+  header row that `:array` yields first has no line number.
 * `slice.each` yields the rows of a slice as they are with their numbers, and the line reader of `reader(:line)`
   yields each line with its number, `each_with_line_number`, so `each_with_numbers` raises `ArgumentError` for the
-  `:slice` and `:line` modes. It needs a mode, and a block, as `#each` does.
+  `:slice` and `:line` modes. It needs a mode, unlike `#each`, whose mode defaults to `:line`, and a block, as `#each`
+  does.
 
 ### Resuming at a record
 

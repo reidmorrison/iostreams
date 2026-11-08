@@ -42,6 +42,11 @@ module IOStreams
     # #reject_writer_of_other_mode!. A writer of lines takes text, as an IO does, so it is written in any mode.
     OWN_MODE_WRITERS = %i[array hash slice].freeze
 
+    # The modes whose readers yield rows or records, each with the private method that opens its reader, which #reader
+    # calls, and whose readers also yield the numbers of each one, see #each_with_numbers.
+    ROWS_READERS = {array: :row_reader, hash: :record_reader, record: :contract_record_reader}.freeze
+    private_constant :ROWS_READERS
+
     # How to set each of the settings of rows and records that describe the file on the path instead, with an example,
     # rather than supply it to each call of a reader or writer, which raises, see `IOStreams::Tabular::FORMAT_OPTION_NAMES`.
     # A file name supplied to a call only chose the format, when the path had none, and not the streams, as #file_name
@@ -378,17 +383,22 @@ module IOStreams
     #   record_number: [Integer|nil]
     #     The number of the record, counting from 1 without the header row, blank rows included, as the slices of the
     #     file number them, and as an `IOStreams::Errors::RowError` names a record, also with `resume_at:`. The header row
-    #     that the `:array` mode yields first is not a record, so its record number is nil, as is its line number when it
-    #     is not a line of its own, such as the keys of the first record of JSON without a schema.
+    #     that the `:array` mode yields first is not a record, nor is a blank line before it, which it yields as nil, so
+    #     their record number is nil. The line number of the header row is nil too when it is not a line of its own, such
+    #     as the keys of the first record of JSON without a schema.
     #
     # The rows of a slice, `IOStreams.stream(slice)`, have the numbers that the slice holds, see `IOStreams::Slice#each`,
-    # which are those of the file that it was read from.
+    # which are those of the file that it was read from, and none, nil, for a row that a slice of numbered rows holds
+    # without them, such as one added with `slice << row`, while the rows of a slice that holds no record numbers, such
+    # as one built of rows without them, are counted from 1. A slice does not hold the line of its header row, so the
+    # header row that the `:array` mode yields first has no line number either. The rows of a spreadsheet have no line
+    # number, also when its rows are read as `:text`, since the lines of its CSV text are not the rows of the sheet.
     #
     # Raises ArgumentError for any other mode, before the file is opened: `slice.each` yields the rows of a slice with
     # their numbers, and `reader(:line) { |lines| lines.each_with_line_number { |line, line_number| ... } }` the lines
     # of a file with theirs.
     def each_with_numbers(mode, **args, &block)
-      unless %i[array hash record].include?(mode)
+      unless ROWS_READERS.key?(mode)
         raise(
           ArgumentError,
           "Invalid mode: #{mode.inspect}. #each_with_numbers reads the :array, :hash and :record modes; the rows of " \
@@ -414,16 +424,13 @@ module IOStreams
         stream_reader(&block)
       when :line
         line_reader(**args, &block)
-      when :array
-        row_reader(**args, &block)
-      when :hash
-        record_reader(**args, &block)
-      when :record
-        contract_record_reader(**args, &block)
       when :slice
         slice_reader(**args, &block)
       else
-        raise(ArgumentError, "Invalid mode: #{mode.inspect}")
+        rows_reader = ROWS_READERS[mode]
+        raise(ArgumentError, "Invalid mode: #{mode.inspect}") unless rows_reader
+
+        send(rows_reader, **args, &block)
       end
     end
 
@@ -1410,14 +1417,30 @@ module IOStreams
     # holds, which a schema or contract reads in its zone when it reads the slice, see `IOStreams::Tabular#read_declared`.
     def open_slice_rows(tabular, delimiter, buffer_size)
       open_rows_reader(tabular, delimiter, buffer_size, text: tabular.schema.nil?, every_column: true) do |rows|
-        lines_of_file = tabular.lines? && builder.lines_of_file?
-        yield(lines_of_file ? IOStreams::Slice::LineRows.new(rows) : IOStreams::Slice::Rows.new(rows))
+        if lines_of_file?(tabular)
+          yield IOStreams::Slice::LineRows.new(rows)
+        else
+          # The lines of text that are not those of the file are already rows that start on no line, see
+          # #open_rows_lines.
+          yield(rows.is_a?(IOStreams::Slice::Rows) ? rows : IOStreams::Slice::Rows.new(rows))
+        end
       end
     end
 
+    # Returns [true|false] whether the rows of the supplied tabular are the lines of the file, so that the number of
+    # each one names the line of the file that it starts on: a format of lines, see `IOStreams::Tabular#lines?`, whose
+    # text is that of the file, see `IOStreams::Builder#lines_of_file?`, rather than text that a stream turns its data
+    # into, such as the CSV text of a spreadsheet, whose lines are not the rows of the sheet. Decides it for the readers
+    # of rows and records, see #open_rows_lines, and of slices, see #open_slice_rows.
+    def lines_of_file?(tabular)
+      tabular.lines? && builder.lines_of_file?
+    end
+
     # Yields [#each] the rows of the format of the tabular: its lines, split where the format expects, within the quote
-    # character of its values, see `IOStreams::Tabular#quote_character`, or the rows of a format that holds them in a
-    # binary layout of its own, such as Parquet, read from its bytes, see `IOStreams::Tabular#read_rows`.
+    # character of its values, see `IOStreams::Tabular#quote_character`, which give the line of the file that each one
+    # starts on only when they are the lines of the file, see `IOStreams::Builder#lines_of_file?`, or the rows of a
+    # format that holds them in a binary layout of its own, such as Parquet, read from its bytes, see
+    # `IOStreams::Tabular#read_rows`.
     #
     # The line reader reads in blocks of `buffer_size` bytes, or of its own default when it is nil.
     #
@@ -1452,9 +1475,19 @@ module IOStreams
         end
       end
 
+      open_rows_lines(tabular, delimiter, buffer_size, &)
+    end
+
+    # Yields [#each] the lines of the rows of the tabular, see #open_rows_reader, read by a line reader, which gives the
+    # line that each one starts on when they are the lines of the file, see #lines_of_file?. The lines of the text that a
+    # stream turns the data of a file into, such as the CSV text of a spreadsheet, are not, so they are rows that start
+    # on no line, `IOStreams::Slice::Rows`, as the slices of them are, see #open_slice_rows.
+    def open_rows_lines(tabular, delimiter, buffer_size)
       tabular.check_text_encoding(builder.read_encoding(tabular.encoding))
       open_line_reader(tabular.encoding, delimiter: delimiter, embedded_within: tabular.quote_character,
-                                         buffer_size: buffer_size, &)
+                                         buffer_size: buffer_size) do |lines|
+        yield(lines_of_file?(tabular) ? lines : IOStreams::Slice::Rows.new(lines))
+      end
     end
 
     # Yields [#<<] the writer of the rows of the format of the tabular: a line writer, or the writer of a format that
