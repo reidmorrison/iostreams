@@ -324,8 +324,24 @@ class BlankRowsTest < Minitest::Test
       it "by writer(:array) as the first row without a schema raises, since it is the header row, as [] does" do
         to = ->(io) { IOStreams.stream(io).format(:csv) }
 
-        assert_raises(IOStreams::Errors::MissingHeader) { written(to, :array, [nil]) }
+        error = assert_raises(IOStreams::Errors::MissingHeader) { written(to, :array, [nil]) }
+        assert_match(/The header row of the :csv format needs columns, which without a schema are the first row/,
+                     error.message)
         assert_raises(IOStreams::Errors::MissingHeader) { written(to, :array, [[]]) }
+      end
+
+      it "by writer(:hash) as the first record without a schema raises where its keys give the header row, as {} does" do
+        %i[csv psv].each do |format|
+          to = ->(io) { IOStreams.stream(io).format(format) }
+
+          assert_raises(IOStreams::Errors::MissingHeader, format.to_s) { written(to, :hash, [nil, jack]) }
+          assert_raises(IOStreams::Errors::MissingHeader, format.to_s) { written(to, :hash, [{}, jack]) }
+        end
+        assert_raises(IOStreams::Errors::MissingHeader) { path("people.xlsx").writer(:hash) { |writer| writer << nil } }
+        assert_raises(IOStreams::Errors::MissingHeader) do
+          IOStreams.stream(store_class.new).format(:csv).writer(:hash) { |writer| writer << nil }
+        end
+        assert_equal "\n#{JSON.generate(jack)}\n", written(->(io) { IOStreams.stream(io).format(:json) }, :hash, [nil, jack])
       end
 
       it "to a spreadsheet is a row without cells, read as a blank row" do
@@ -371,13 +387,16 @@ class BlankRowsTest < Minitest::Test
           refute_predicate store.slices.first, :blank_rows?, format
         end
 
-        store = store_class.new
-        IOStreams.stream(store).format(:array).writer(:array) do |writer|
-          writer << %w[name age]
-          writer << nil
-        end
+        {csv: [","], psv: ["|"], array: [[nil, nil]]}.each_pair do |format, rows|
+          store = store_class.new
+          IOStreams.stream(store).format(format).writer(:array) do |writer|
+            writer << %w[name age]
+            writer << nil
+          end
 
-        assert_equal [[]], store.slices.first.rows
+          assert_equal rows, store.slices.first.rows, format
+          assert_equal [{"name" => nil, "age" => nil}], read(IOStreams.stream(store.slices.first), :hash), format
+        end
       end
 
       it "is the only row or record that is not an Array or a Hash" do
