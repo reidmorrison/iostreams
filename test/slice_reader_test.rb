@@ -191,6 +191,24 @@ class SliceReaderTest < Minitest::Test
         assert_raises(IOStreams::Errors::InvalidHeader) { slices(stream("age\n21\n").schema(required), size: 2) }
       end
 
+      it "may repeat a key without a schema, since the slices may be read as rows, which #infer_schema of a slice checks" do
+        repeated = slices(stream("a,A\n1,2\n3,4\n").format(:csv), size: 1)
+
+        assert_equal 2, repeated.size
+
+        rows = []
+        IOStreams.stream(repeated.first).each(:array) { |row| rows << row }
+
+        assert_equal [%w[a A], %w[1 2]], rows
+        error = assert_raises(IOStreams::Errors::InvalidHeader) { IOStreams.stream(repeated.first).infer_schema }
+        assert_match(/\AThe columns "a" and "A" are the same key, "a"/, error.message)
+        assert_raises(IOStreams::Errors::InvalidHeader) { IOStreams.stream(repeated.first).each(:hash) { nil } }
+
+        distinct = slices(stream("a,B\n1,2\n").format(:csv), size: 1).first
+
+        assert_equal %w[a b], IOStreams.stream(distinct).infer_schema.fields.map(&:name)
+      end
+
       it "is held by the reader once it is read, also when the file has no rows" do
         header = stream("Name,AGE\n").reader(:slice, size: 2) do |reader|
           reader.each { |_slice| nil }

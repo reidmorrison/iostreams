@@ -89,6 +89,9 @@ Without a [schema](schemas), every value is read as text, and written as its tex
   rather than keep the value of only one of them. Writing rows to JSON, whose keys are the columns as they are, raises
   only for two columns of exactly the same name, such as `a` and `a`, and writes `First Name` and `first_name` as two
   keys. `each(:array)` still reads the rows, and a [schema](schemas) can name both, with two fields of the same name.
+  So `each(:slice)` does not check the keys of the header row, since its slices may be read as rows: a job that reads
+  a slice of such a file with `each(:hash)` raises instead, see
+  [Check the file before handing it on](background_jobs#check-the-file-before-handing-it-on).
 * `each(:array)` yields the header row as it is, then each row of values. A JSON or Parquet file has no header row, so
   its first row is a header row of the keys of its first record, and each row after it the values of a record in
   that order, see [JSON files](#json-files). The header row is an `IOStreams::Row::HeaderRow`, an Array that says
