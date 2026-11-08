@@ -129,7 +129,10 @@ module IOStreams
 
       # Adds the supplied row of the file, as the format holds it: a line of text, or for a format whose rows are not
       # lines, such as Parquet, the row that its reader returns. The header row is read instead, see
-      # `IOStreams::Tabular#read_line`. A nil line is a blank line, as a writer of lines writes it.
+      # `IOStreams::Tabular#read_line`. A nil row is a blank row, which the tabular reads as an empty line, and the slice
+      # holds as nil, which every format reads, see `IOStreams::Slice#add`, such as a blank row of a slice of the
+      # `:array` or `:hash` format that is read into slices again. Any other row is added as it is, which is the line
+      # that the tabular hands on.
       #
       # Parameters, all positional
       #   row: [String|Array|Hash|nil]
@@ -168,7 +171,7 @@ module IOStreams
         end
         unless text.nil?
           @started = true
-          collect(text, line_number, number)
+          collect(text, row, line_number, number)
         end
         header_read if @on_header
         self
@@ -197,15 +200,17 @@ module IOStreams
 
       private
 
-      # Adds the supplied line of a record, see #add, to the slice, which it hands on once it holds `size` rows, when it
-      # has a size.
-      def collect(text, line_number, number)
+      # Adds the supplied row of a record, see #add, whose line the tabular handed on as the supplied text, to the slice,
+      # as it is, so that a blank row of a slice, nil, stays nil, which the slice reads as it does the blank line of a
+      # file, and which a slice of values, such as of `:hash`, takes, see `IOStreams::Slice#add`. The slice is handed on
+      # once it holds `size` rows, when it has a size.
+      def collect(text, row, line_number, number)
         @record_number = number if number
         @count        += 1
         validate(text, line_number, number) if @validate
         @slice ||= Slice.new(header: header, format: @tabular.format, blank_rows: @tabular.blank_rows?,
                              cell_text: @tabular.cell_text?, schema: @schema)
-        @slice.add(text, line_number: line_number, record_number: number)
+        @slice.add(row, line_number: line_number, record_number: number)
         flush if @size && @slice.size >= @size
       end
 

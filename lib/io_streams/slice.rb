@@ -203,11 +203,11 @@ module IOStreams
     # A slice without rows has no numbers, since they are those of its first row: supply them when the row is added,
     # see #add.
     #
-    # Raises ArgumentError when the rows are not an Array, for a header row that is not an Array, or is blank, for a
-    # `schema` that is not a valid schema, or of a format whose rows are text, for a `blank_rows` that is not true,
-    # false or nil, or that is true of a format whose rows are never blank, for a `cell_text` that is not true or false,
-    # for a line number or record number that is not a positive Integer, nor nil, or for one without rows, rather than
-    # ignore it.
+    # Raises ArgumentError when the rows are not an Array, for a row that the format does not read, see #add, for a
+    # header row that is not an Array, or is blank, for a `schema` that is not a valid schema, or of a format whose rows
+    # are text, for a `blank_rows` that is not true, false or nil, or that is true of a format whose rows are never
+    # blank, for a `cell_text` that is not true or false, for a line number or record number that is not a positive
+    # Integer, nor nil, or for one without rows, rather than ignore it.
     def initialize(rows = [], header: nil, format: nil, blank_rows: nil, cell_text: false, schema: nil,
                    line_number: nil, record_number: nil)
       raise(ArgumentError, "The rows of a slice must be an Array, not #{rows.class.name}") unless rows.is_a?(::Array)
@@ -218,12 +218,18 @@ module IOStreams
       @rows          = rows.dup
       @header        = checked_header(header)
       @format        = format
+      # The parser class of the format, which says which rows it reads, see #add, looked up once rather than for each
+      # row, or nil for a format that is nil or not registered, which no format says otherwise of.
+      @parser        = IOStreams::Tabular.parser_of(format)
       @blank_rows    = checked_blank_rows(blank_rows, format)
       @cell_text     = cell_text
       @schema        = checked_schema(schema, format)
       @line_number   = checked_number("line_number", line_number)
       @record_number = checked_number("record_number", record_number)
       @jumps         = nil
+      if @parser && (index = @parser.unread_row_index(@rows))
+        invalid_row(@rows[index], index)
+      end
       check_numbers_of_rows
       follow_last_row
     end
@@ -364,7 +370,11 @@ module IOStreams
     #   slice.add("Jack,21", line_number: 2, record_number: 1)
     #
     # A row is added as the format of the slice holds it: a line of text, such as `"Jack,21"` for CSV, or for a format
-    # whose rows are not lines, such as Parquet, the row that its reader returns.
+    # whose rows are not lines, such as Parquet, the row that its reader returns. A row already parsed, an Array of its
+    # values, such as `["Jack", 21]`, is read by every format, and nil is a blank row. A row that the format does not
+    # read, such as a line of text in the `:hash` format, or a Hash in the `:csv` or `:array` format, raises, see
+    # `IOStreams::Tabular::Parser::Base.row?`, so that a slice that could not be read is not stored, and found only where it is
+    # processed.
     #
     # Parameters
     #   row: [String|Array|Hash|nil]
@@ -380,9 +390,10 @@ module IOStreams
     #
     # Returns self, so that calls can be chained.
     #
-    # Raises ArgumentError for a line number or record number that is not a positive Integer, nor nil, and FrozenError
-    # once the slice is frozen.
+    # Raises ArgumentError for a row that the format does not read, naming its class, and for a line number or record
+    # number that is not a positive Integer, nor nil, and FrozenError once the slice is frozen.
     def add(row, line_number: nil, record_number: nil)
+      invalid_row(row, @rows.size) unless @parser.nil? || @parser.row?(row)
       if @rows.empty?
         first          = [checked_number("line_number", line_number), checked_number("record_number", record_number)]
         @line_number   = first[0]
@@ -443,13 +454,14 @@ module IOStreams
     #
     #   slice[3] = "Jack,21"
     #
-    # Raises IndexError when the slice has no row at the index, ArgumentError for an index that is not an Integer, and
-    # FrozenError once the slice is frozen.
+    # Raises IndexError when the slice has no row at the index, ArgumentError for an index that is not an Integer, or
+    # for a row that the format does not read, see #add, and FrozenError once the slice is frozen.
     def []=(index, row)
       position = position_of(index)
       raise(IndexError, outside(index)) unless position
 
       check_frozen
+      invalid_row(row, position) unless @parser.nil? || @parser.row?(row)
       @rows[position] = row
     end
 
@@ -521,7 +533,7 @@ module IOStreams
     #
     #   slice.with_rows(slice.rows.reject { |row| row.nil? })
     #
-    # Raises ArgumentError when the rows are not an Array.
+    # Raises ArgumentError when the rows are not an Array, or for a row that the format does not read, see #add.
     def with_rows(rows = [])
       self.class.new(rows, header: header, format: format, blank_rows: blank_rows?, cell_text: cell_text?,
                            schema: schema)
@@ -1119,6 +1131,16 @@ module IOStreams
       return if same_file?(other)
 
       raise(ArgumentError, "#{reason}: a slice #{other.described} cannot follow one #{described}")
+    end
+
+    # Raises ArgumentError for the supplied row, at the supplied index, which the format of the slice does not read, see
+    # `IOStreams::Tabular::Parser::Base.row?`, naming its class, the format, and the rows that the format reads, before
+    # it is added, see #add, or FrozenError once the slice is frozen, which is checked first, as for any change.
+    def invalid_row(row, index)
+      check_frozen
+      raise(ArgumentError, "The row at index #{index} of a slice of the #{@format.inspect} format is of class " \
+                           "#{row.class.name || row.class.inspect}, which that format does not read: add each row as " \
+                           "#{@parser.rows_read}, or nil for a blank row")
     end
 
     # Raises FrozenError once the slice is frozen, before it is changed.

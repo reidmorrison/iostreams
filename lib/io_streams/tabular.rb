@@ -800,8 +800,15 @@ module IOStreams
     # `IOStreams::Tabular::Parser::Base.blank_rows?`: false for a format whose every row is a record, such as Parquet.
     # True when the format is nil, or not registered, whose rows no format says otherwise of.
     def self.blank_rows?(format)
-      parser = @formats[format.to_sym] if format.respond_to?(:to_sym)
+      parser = parser_of(format)
       parser.nil? || parser.blank_rows?
+    end
+
+    # Returns [Class|nil] the parser class of the registered format, see .parser_class, such as to ask it which rows it
+    # reads, see `IOStreams::Tabular::Parser::Base.row?`, which a slice of its rows looks up once, see
+    # `IOStreams::Slice#add`. Returns nil, rather than raise, when the format is nil, or not registered.
+    def self.parser_of(format)
+      @formats[format.to_sym] if format.respond_to?(:to_sym)
     end
 
     # Returns [true|false] whether a copy without a mode converts the rows of the registered format `source` into the
@@ -859,7 +866,7 @@ module IOStreams
     # supplied name, when its rows are not lines, see `IOStreams::Tabular::Parser::Base.row_format`, such as
     # `IOStreams::Parquet` for `:parquet`, otherwise nil, including when no format has that name.
     def self.row_format(format)
-      @formats[format.to_sym]&.row_format if format.respond_to?(:to_sym)
+      parser_of(format)&.row_format
     end
 
     # Returns [String] the encoding that the lines of text are read and written in, see #encoding: that of the format of

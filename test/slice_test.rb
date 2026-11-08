@@ -949,6 +949,115 @@ class SliceTest < Minitest::Test
       end
     end
 
+    describe "the rows that its format reads" do
+      # The rows that each format reads, and some that it does not, which a slice raises for where it is built, rather
+      # than where its rows are read.
+      read_rows = {
+        array:   [[["Jack", 21], nil], ["Jack,21", {"name" => "Jack"}, 21]],
+        csv:     [["Jack,21", ["Jack", 21], nil], [{"name" => "Jack"}, 21, :jack]],
+        fixed:   [["Jack 21", ["Jack", 21], nil], [{"name" => "Jack"}, 21]],
+        hash:    [[{"name" => "Jack"}, ["Jack", 21], nil], ["Jack,21", 21]],
+        json:    [[%({"name":"Jack"}), {"name" => "Jack"}, ["Jack", 21], nil], [21, :jack]],
+        parquet: [[{"name" => "Jack"}, ["Jack", 21], nil], [%({"name":"Jack"}), 21]],
+        psv:     [["Jack|21", ["Jack", 21], nil], [{"name" => "Jack"}, 21]],
+        text:    [["Jack", ["Jack"], nil], [{"name" => "Jack"}, 21]]
+      }.freeze
+
+      it "covers every format" do
+        assert_equal IOStreams.tabular_formats.sort, read_rows.keys.sort
+      end
+
+      read_rows.each_pair do |format, (read, unread)|
+        it "holds the rows that the #{format.inspect} format reads, and raises for any other, naming its class" do
+          blank_rows = format == :parquet ? nil : true
+
+          assert_equal read, IOStreams::Slice.new(read, format: format, blank_rows: blank_rows).rows
+
+          unread.each do |row|
+            error = assert_raises(ArgumentError) { IOStreams::Slice.new([row], format: format) }
+            assert_includes error.message, "The row at index 0 of a slice of the #{format.inspect} format is of " \
+                                           "class #{row.class.name}, which that format does not read: add each row " \
+                                           "as #{IOStreams::Tabular.parser_class(format).rows_read}, or nil for a " \
+                                           "blank row"
+          end
+        end
+      end
+
+      it "names the rows that the format reads, rather than those of another format" do
+        error = assert_raises(ArgumentError) { IOStreams::Slice.new(["Jack,21"], format: :array) }
+        assert_equal "The row at index 0 of a slice of the :array format is of class String, which that format does " \
+                     "not read: add each row as an Array of its values, or nil for a blank row", error.message
+
+        error = assert_raises(ArgumentError) { IOStreams::Slice.new([21], format: :csv) }
+        assert_match(/add each row as a line of text, or nil for a blank row\z/, error.message)
+
+        error = assert_raises(ArgumentError) { IOStreams::Slice.new(["Jack,21"], format: :hash) }
+        assert_match(/add each row as a Hash of its record, or, with a schema, an Array of the values of its fields, /,
+                     error.message)
+      end
+
+      it "names an anonymous class of a row by its inspect" do
+        row   = Struct.new(:name).new("Jack")
+        error = assert_raises(ArgumentError) { IOStreams::Slice.new([row], format: :csv) }
+
+        assert_match(/ format is of class #<Class:0x\h+>, which that format does not read/, error.message)
+      end
+
+      it "checks rows of several classes one at a time, such as with a blank row among them" do
+        assert_equal ["a", nil, %w[b], "c"], IOStreams::Slice.new(["a", nil, %w[b], "c"], format: :csv).rows
+
+        error = assert_raises(ArgumentError) { IOStreams::Slice.new(["a", nil, "b", {"c" => 1}, 2], format: :csv) }
+        assert_match(/\AThe row at index 3 of a slice of the :csv format is of class Hash/, error.message)
+        error = assert_raises(ArgumentError) { IOStreams::Slice.new([nil, "a", 2], format: :csv) }
+        assert_match(/\AThe row at index 2 /, error.message)
+      end
+
+      it "names the index of the row" do
+        error = assert_raises(ArgumentError) { IOStreams::Slice.new(["a", "b", {"c" => 1}], format: :csv) }
+        assert_match(/\AThe row at index 2 of a slice of the :csv format is of class Hash/, error.message)
+      end
+
+      it "holds any row of a slice without a format, or of a format that is not registered" do
+        assert_equal [{"a" => 1}, 21], IOStreams::Slice.new([{"a" => 1}, 21]).rows
+        assert_equal [{"a" => 1}, 21], IOStreams::Slice.new([{"a" => 1}, 21], format: :unknown).rows
+      end
+
+      it "raises for a row added, or that replaces another, which it leaves as it was" do
+        built = IOStreams::Slice.new(["Jack,21"], format: :csv, line_number: 2, record_number: 1)
+
+        assert_raises(ArgumentError) { built.add({"name" => "Jill"}, line_number: 3, record_number: 2) }
+        assert_raises(ArgumentError) { built << 22 }
+        assert_raises(ArgumentError) { built[0] = {"name" => "Jill"} }
+        assert_equal [["Jack,21", 2, 1]], built.each.to_a
+
+        built.add(%w[Jill 22], line_number: 3, record_number: 2)
+        built[0] = nil
+
+        assert_equal [[nil, 2, 1], [%w[Jill 22], 3, 2]], built.each.to_a
+      end
+
+      it "raises FrozenError for a row that the format does not read, once the slice is frozen, as for any change" do
+        frozen = IOStreams::Slice.new(["Jack,21"], format: :csv).freeze
+
+        assert_raises(FrozenError) { frozen.add({"name" => "Jill"}) }
+        assert_raises(FrozenError) { frozen[0] = {"name" => "Jill"} }
+        assert_equal ["Jack,21"], frozen.rows
+      end
+
+      it "raises for a row of another format that a copy is given, see #with_rows" do
+        records = IOStreams::Slice.new([{"name" => "Jack"}], format: :hash)
+
+        error = assert_raises(ArgumentError) { records.with_rows(["Jill,22"]) }
+        assert_match(/\AThe row at index 0 of a slice of the :hash format is of class String/, error.message)
+        assert_equal [%w[Jill 22]], records.with_rows([%w[Jill 22]]).rows
+      end
+
+      it "raises for the Hash of a slice of rows that its format does not read, see IOStreams.slice" do
+        error = assert_raises(ArgumentError) { IOStreams.slice({"rows" => ["Jill,22"], "format" => "hash"}) }
+        assert_match(/\AThe row at index 0 of a slice of the :hash format is of class String/, error.message)
+      end
+    end
+
     describe "changing the rows" do
       # Rows on lines 2, 3 and 4, 5, and 6, so that the third row is a jump, as after a quoted value with a line break.
       let(:numbered) do

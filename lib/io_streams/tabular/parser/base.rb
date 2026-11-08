@@ -157,6 +157,36 @@ module IOStreams
           nil
         end
 
+        # Returns [true|false] whether this format reads the supplied row, see #parse, so that a slice of its rows
+        # raises as soon as it is given one that it does not, see `IOStreams::Slice#add`, rather than when its rows are
+        # read, where the slice was processed: a line of text, a String, a row already parsed, an Array, as every parser
+        # takes one, or nil, a blank row. A format of keyed records, or of Ruby objects, reads other rows, see its own
+        # `.row?`. It decides by the class of the row alone, never by its contents, so that rows of the class of one
+        # that it reads are read too, see .unread_row_index.
+        #
+        # Defined at the class level since it is a static property of the format, see `.quote_character`.
+        def self.row?(row)
+          row.is_a?(::String) || row.is_a?(::Array) || row.nil?
+        end
+
+        # Returns [Integer|nil] the index of the first of the supplied rows that this format does not read, see .row?,
+        # or nil when it reads them all, such as the rows that a slice is built with, see `IOStreams::Slice.new`. The
+        # rows of a slice are nearly always of one class, such as the lines of CSV, which `Array#all?` checks without
+        # calling a block for each row, so that a slice read back from where it was stored, see `IOStreams.slice`, is
+        # checked at little cost. Rows of several classes, such as blank rows among them, are checked one at a time.
+        def self.unread_row_index(rows)
+          first = rows.first
+          return if !first.nil? && row?(first) && rows.all?(first.class)
+
+          rows.index { |row| !row?(row) }
+        end
+
+        # Returns [String] the rows that this format reads, see .row?, as a slice that is given another says them, see
+        # `IOStreams::Slice#add`.
+        def self.rows_read
+          "a line of text"
+        end
+
         # Returns [true|false] whether a header row is required for this format.
         def requires_header?
           true

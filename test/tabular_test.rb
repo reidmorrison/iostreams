@@ -996,6 +996,47 @@ class TabularTest < Minitest::Test
 
         assert_raises(IOStreams::Errors::TypeMismatch) { decimals.parse("[1.5]") }
       end
+
+      it "read each row that .row? says that they read, and raise for a row of any other class, apart from nil, a blank row" do
+        fixed = IOStreams::Schema.new(fields: [{name: "id", width: 2}, {name: "code", width: 4}])
+        lines = {json: %({"a":1}), fixed: "07ab  "}
+        IOStreams.tabular_formats.each do |format|
+          parser_class = IOStreams::Tabular.parser_class(format)
+          parser       = format == :fixed ? parser_class.new(schema: fixed) : parser_class.new
+
+          assert parser_class.row?(nil), "#{format} reads nil, a blank row"
+          [lines.fetch(format, "07,ab"), %w[07 ab], {"a" => 1}, 21, :a].each do |row|
+            if parser_class.row?(row)
+              refute_nil parser.parse(row), "#{format} #{row.inspect}"
+            else
+              assert_raises(IOStreams::Errors::TypeMismatch, "#{format} #{row.inspect}") { parser.parse(row) }
+            end
+          end
+        end
+      end
+    end
+
+    describe ".unread_row_index" do
+      it "returns the index of the first row that the parser does not read, or nil when it reads them all" do
+        csv = IOStreams::Tabular::Parser::Csv
+
+        assert_nil csv.unread_row_index([])
+        assert_nil csv.unread_row_index(%w[a b])
+        assert_nil csv.unread_row_index([nil, "a", %w[b], nil])
+        assert_equal 0, csv.unread_row_index([{"a" => 1}, "b"])
+        assert_equal 2, csv.unread_row_index(["a", "b", 3])
+        assert_equal 1, IOStreams::Tabular::Parser::Array.unread_row_index([%w[a], "b"])
+        assert_nil IOStreams::Tabular::Parser::Hash.unread_row_index([{"a" => 1}, nil, %w[b]])
+      end
+    end
+
+    describe ".parser_of" do
+      it "returns the parser class of a registered format, and nil for nil or a format that is not registered" do
+        assert_same IOStreams::Tabular::Parser::Csv, IOStreams::Tabular.parser_of(:csv)
+        assert_same IOStreams::Tabular::Parser::Hash, IOStreams::Tabular.parser_of("hash")
+        assert_nil IOStreams::Tabular.parser_of(nil)
+        assert_nil IOStreams::Tabular.parser_of(:unknown)
+      end
     end
 
     describe ".register_format" do
