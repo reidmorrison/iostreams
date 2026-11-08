@@ -334,7 +334,8 @@ end
 * As for any writer, the file is kept when the block returns, and not when it raises.
 * A job whose input slice holds more rows than the `slice_size` of its store of results, 100 unless the store says
   otherwise, writes more than one result slice, each with the number of its input slice, so they are still in the
-  order of the input.
+  order of the input. A store whose `slice_size` is `nil` writes all of the results of each job as one slice, see
+  [A store of slices](#a-store-of-slices).
 
 ## One job that resumes
 
@@ -613,7 +614,7 @@ class PeopleSlices
     @upload_id = upload_id
   end
 
-  # Optional: the number of rows of each slice, 100 by default.
+  # Optional: the number of rows of each slice, 100 by default, or nil for one slice of every row of each write.
   def slice_size
     500
   end
@@ -662,7 +663,10 @@ end
   for the upload of a file. Without it, a write checks none of them, in any mode, since it may be the results of one
   job, only a part of the output file, which `writer(:slice, validate: true)` checks once every job has finished.
 
-The store decides the size of its slices, rather than each call, since it knows how it keeps them.
+The store decides the size of its slices, rather than each call, since it knows how it keeps them. A `slice_size` of
+`nil` writes every row of each write as one slice, however many there are, such as the results of one job, which the
+store can then keep under the id of its input slice, so that a job that runs again replaces its results rather than
+adds to them. `each(:slice)` always takes a `size:`, so that a slice never holds the whole of a large file.
 
 ### Slices of a query
 

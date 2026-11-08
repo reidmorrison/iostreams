@@ -69,8 +69,11 @@ module IOStreams
       #   tabular: [IOStreams::Tabular]
       #     Reads the header row, see `IOStreams::Tabular#read_line`, and parses each row when `validate` is true.
       #
-      #   size: [Integer]
-      #     The number of rows of each slice, apart from the last, which holds the rows that are left.
+      #   size: [Integer|nil]
+      #     The number of rows of each slice, apart from the last, which holds the rows that are left, or nil for one
+      #     slice of every row added, such as every row of a write to a store of slices whose `slice_size` is nil, see
+      #     `IOStreams::Slice::Target#slice_size`. A call that reads a file supplies a size, see .check, so that a
+      #     slice never holds the whole of a file that is too large to hold.
       #
       #   validate: [true|false]
       #     Whether to parse each row before it is added to its slice, so that a row that the format or the schema
@@ -97,7 +100,8 @@ module IOStreams
       #     Default: nil, the schema of the tabular when its values are those of its fields, see
       #     `IOStreams::Tabular#typed?`, otherwise none, for rows of text.
       #
-      # Yields [IOStreams::Slice] each slice, once it holds `size` rows, and the last one when #finish is called.
+      # Yields [IOStreams::Slice] each slice, once it holds `size` rows, and the last one when #finish is called, which
+      # is the only one without a size.
       #
       # The caller checks the options before anything is opened, see .check. `resume_at` is checked again, since #add
       # compares each record number with it.
@@ -157,7 +161,7 @@ module IOStreams
           @slice ||= Slice.new(header: header, format: @tabular.format, blank_rows: @tabular.blank_rows?,
                                cell_text: @tabular.cell_text?, schema: @schema)
           @slice.add(text, line_number: line_number, record_number: number)
-          flush if @slice.size >= @size
+          flush if @size && @slice.size >= @size
         end
         header_read if @on_header
         self
@@ -181,7 +185,7 @@ module IOStreams
       # Returns [String] the class, the format of the rows and the size of the slices, rather than every instance
       # variable, such as the tabular and the slice that it collects.
       def inspect
-        "#<#{self.class.name} format=#{@tabular.format.inspect} size=#{@size}>"
+        "#<#{self.class.name} format=#{@tabular.format.inspect} size=#{@size.inspect}>"
       end
 
       private

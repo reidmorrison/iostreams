@@ -36,8 +36,10 @@ module IOStreams
     # from, such as the #write and #<< of a queue, and a method of that class of the same name is called rather than the
     # default here.
     module Target
-      # Returns [Integer] the number of rows of each slice that is written to the store, apart from the last, which
-      # holds the rows that are left. Override it for slices of another size.
+      # Returns [Integer|nil] the number of rows of each slice that is written to the store, apart from the last, which
+      # holds the rows that are left, or nil for one slice of every row of each write, however many there are, such as
+      # the results of one job, which the store keeps as one slice, so that writing them again replaces it. Override it
+      # for slices of another size.
       # Default: 100
       def slice_size
         defined?(super) ? super : 100

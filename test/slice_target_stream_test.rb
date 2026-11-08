@@ -1210,6 +1210,57 @@ class SliceTargetStreamTest < Minitest::Test
       end
     end
 
+    describe "a slice size of nil" do
+      # A store that keeps every row of each write in one slice, such as the results of one job.
+      let(:whole) do
+        Class.new(Store) do
+          def slice_size
+            nil
+          end
+        end.new
+      end
+
+      it "writes every row of each write in one slice, however many there are" do
+        rows = (1..250).map { |number| "name#{number}" }
+        IOStreams.stream(whole).writer(:line) do |io|
+          io << "name"
+          rows.each { |row| io << row }
+        end
+
+        assert_equal 1, whole.slices.size
+        assert_equal rows, whole.slices.first.rows
+        assert_equal [[rows.last, 251, 250]], whole.slices.first.each.to_a.last(1)
+      end
+
+      it "writes one slice for each write" do
+        IOStreams.stream(whole).format(:hash).writer(:hash) { |io| 150.times { |index| io << {"id" => index} } }
+        IOStreams.stream(whole).format(:hash).writer(:hash) { |io| io << {"id" => 150} }
+
+        assert_equal [150, 1], whole.slices.map(&:size)
+      end
+
+      it "copies every row of the source in one slice" do
+        data = "name\n#{(1..120).map { |number| "n#{number}" }.join("\n")}\n"
+        IOStreams.stream(whole).copy_from(StringIO.new(data), mode: :line)
+
+        assert_equal [120], whole.slices.map(&:size)
+        assert_equal [[:header, %w[name]], [:slice, (1..120).map { |number| "n#{number}" }]], whole.events
+      end
+
+      it "writes no slice for a write without rows" do
+        IOStreams.stream(whole).writer(:line) { |io| io << "name" }
+
+        assert_empty whole.slices
+        assert_equal [[:header, %w[name]]], whole.events
+      end
+
+      it "is not a size of each(:slice), which reads a file of any size" do
+        error = assert_raises(ArgumentError) { IOStreams.stream(StringIO.new("a\n1\n")).each(:slice, size: nil) { nil } }
+
+        assert_match(/Invalid size nil/, error.message)
+      end
+    end
+
     describe "options" do
       it "lists the options of the mode" do
         error = assert_raises(ArgumentError) { stream.writer(:hash, delimiter: "|") { nil } }
@@ -1223,13 +1274,15 @@ class SliceTargetStreamTest < Minitest::Test
         assert_equal "Unknown option :size for the :line mode. Valid options: :validate.", error.message
       end
 
-      it "raises for a slice size of the store that is not a positive Integer, before the block is called" do
+      it "raises for a slice size of the store that is neither a positive Integer nor nil, before the block is called" do
         error = assert_raises(ArgumentError) do
           IOStreams.stream(Store.new(slice_size: 0)).writer(:line) { flunk("called the block") }
         end
 
-        assert_equal "Invalid slice_size 0 of SliceTargetStreamTest::Store: return the number of rows of each slice",
-                     error.message
+        assert_equal "Invalid slice_size 0 of SliceTargetStreamTest::Store: return the number of rows of each slice, " \
+                     "or nil for one slice of every row of each write", error.message
+        assert_raises(ArgumentError) { IOStreams.stream(Store.new(slice_size: "5")).writer(:hash) { flunk("called") } }
+        assert_raises(ArgumentError) { IOStreams.stream(Store.new(slice_size: 2.0)).writer(:array) { flunk("called") } }
       end
 
       it "raises for a validate that is not true or false" do
