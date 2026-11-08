@@ -773,6 +773,13 @@ module IOStreams
         end
       end
 
+      # Returns [true|false] whether this field takes a value of any type, a field of type "any", also one without a
+      # type, so that its type does not say the type of its value, which a slice therefore keeps once stored, see
+      # `IOStreams::Slice#to_h`.
+      def any_type?
+        type == "any"
+      end
+
       # Returns [true|false] whether the values of this field are, or hold, text: a string field, and a list of strings,
       # so that a format that reads its numbers as Floats, such as a spreadsheet, reads as text the number that each cell
       # holds, to the digits that Excel displays, see `IOStreams::Schema::Columns#string_positions`, as the text of the
@@ -964,9 +971,10 @@ module IOStreams
       # ISO 8601, a datetime with as many digits of its fraction of a second as it needs and its offset, a time of day as
       # its clock with its offset, such as "09:30:00.250-04:00", and any other value as it is, apart from the value of a
       # field of type "any", which is held as JSON holds it, see .any_data, as a slice without a schema holds each of
-      # its values: a time, a date or a BigDecimal as its text, see .any_text, which therefore comes back as that text,
-      # since the field does not say what type it is, and a Symbol, and each key of a Hash, as its text, also within a
-      # Hash or an Array, as JSON holds them.
+      # its values: a time, a date or a BigDecimal as its text, see .any_text, which #load reads back as that text,
+      # since the field does not say what type it is, so a slice notes the type of such a value, which it turns back
+      # into it, see `IOStreams::Slice#to_h`, and a Symbol, and each key of a Hash, as its text, also within a Hash or an
+      # Array, as JSON holds them.
       def dump(value)
         return value if value.nil?
 

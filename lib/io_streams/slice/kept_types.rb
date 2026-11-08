@@ -6,7 +6,8 @@ module IOStreams
     # them back into those types once the slice is stored, see `IOStreams::Slice#to_h`: a Time, a Date, a BigDecimal,
     # an `ActiveSupport::Duration` and an Integer outside of the integers that BSON holds, see
     # `IOStreams::Schema::Field.kept_type`, of a value that no field of a schema describes, such as a value of a row
-    # written without a schema to a store of slices in the `:array` or `:hash` format.
+    # written without a schema to a store of slices in the `:array` or `:hash` format, or a value of a field of type
+    # "any", whose type does not say what it holds, see `IOStreams::Slice#dumped_rows`.
     #
     # It holds them by column, the position of a value of a row that is an Array, or the key of a value of a row that is
     # a Hash, see #dump, as `[column, type]` when every value of the column that is not nil is of that type, otherwise
@@ -134,6 +135,8 @@ module IOStreams
       def initialize
         # The rows of each column of each type: {column => {type => [index, ...]}}.
         @columns = {}
+        # The index of the last row of each column noted, see #dump.
+        @last    = {}
         @fields  = {}
       end
 
@@ -146,10 +149,15 @@ module IOStreams
       #   column: [Integer|String]
       #     The position of the value within a row that is an Array, or its key, as its text, within a row that is a
       #     Hash.
+      #
+      # A row that holds a column twice, such as a record of a schema with both the key "due" and the key `:due`, which
+      # JSON holds as one key, has the type of the first value that it notes, and its other values of the column are
+      # held as the block returns them, so that a row is never noted twice, which `.plan` raises for.
       def dump(value, column, index)
         type = IOStreams::Schema::Field.kept_type(value)
-        return yield(value) unless type
+        return yield(value) if type.nil? || @last[column] == index
 
+        @last[column] = index
         ((@columns[column] ||= {})[type] ||= []) << index
         (@fields[type] ||= IOStreams::Schema::Field.new({"name" => type, "type" => type})).dump(value)
       end
