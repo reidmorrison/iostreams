@@ -557,8 +557,10 @@ module IOStreams
     # and keeps its type: a Time, a Date, a BigDecimal, an `ActiveSupport::Duration` and an Integer outside of a signed
     # 64 bit integer, such as `2**70`, which neither of them holds as it is, as their text, see
     # `IOStreams::Schema::Field.kept_type`, which `"types"` says the type of, so that `IOStreams.slice` turns each one
-    # back into it, a DateTime into a Time, and any other value as JSON holds it, such as a Symbol as its text, and each
-    # key and value within a Hash or an Array, which an object or array field reads as JSON holds it:
+    # back into it, a DateTime into a Time, apart from a date or time whose year is outside 0 to 9999, such as 10000,
+    # which stays its text, and any other value as JSON holds it, such as a Symbol as its text, and each
+    # key and value within a Hash or an Array, which an object or array field reads as JSON holds it, so that an Integer
+    # within one that BSON does not hold, such as `2**70`, is held as it is, which only JSON can store:
     # - `"types"`, only when it holds such a value: `[column, type]` for each column whose every value that is not nil
     #   is of the type, otherwise `[column, type, indexes]`, the index of each row, counting from 0, whose value of the
     #   column is of the type, the column being the position of the value within a row that is an Array, or its key
@@ -582,11 +584,12 @@ module IOStreams
     #   #     "types" => [[1, "datetime"], [2, "number", [0]]], "record_number" => 1}
     def to_h
       kept = KeptTypes.new
-      hash = {"rows" => stored_rows(kept), "header" => header, "format" => format&.to_s}
+      rows = stored_rows(kept)
+      hash = {"rows" => rows, "header" => header, "format" => format&.to_s}
       hash["blank_rows"]    = false unless blank_rows?
       hash["cell_text"]     = true if cell_text?
       hash["schema"]        = Utils.string_keys(schema.to_h) if schema
-      types                 = kept.to_a
+      types                 = kept.to_a(rows)
       hash["types"]         = types if types
       hash["line_number"]   = line_number if line_number
       hash["record_number"] = record_number if record_number
@@ -754,15 +757,21 @@ module IOStreams
       return dumped_rows if schema
       return @rows.dup unless IOStreams::Tabular.renders_values?(format)
 
-      @rows.each_with_index.map do |row, index|
+      index = -1
+      @rows.map do |row|
+        index += 1
         case row
         when ::Array
-          row.each_with_index.map { |value, position| stored_value(value, kept, position, index) }
+          Array.new(row.size) { |position| stored_value(row[position], kept, position, index) }
         when ::Hash
-          row.to_h do |key, value|
-            text = key.to_s
-            [text, stored_value(value, kept, text, index)]
+          if row.all? { |key, _value| key.is_a?(::String) }
+            next row.to_h { |key, value| [key, stored_value(value, kept, key, index)] }
           end
+
+          # The keys as their text first, so that the value of a key whose text another key also has is the one held, in
+          # the copy that #transform_keys returns.
+          row = row.transform_keys(&:to_s)
+          row.each_pair { |key, value| row[key] = stored_value(value, kept, key, index) }
         else row
         end
       end
@@ -783,6 +792,8 @@ module IOStreams
     # `IOStreams::Schema::Field.clock_text`, so that a field reads it in its `timeZone` once the slice is stored, as it
     # reads the cell.
     def stored_value(value, kept, column, index)
+      # The most common values first, which JSON and BSON hold as they are, so that they skip the checks below.
+      return value if IOStreams::Schema::Field.stored_as_is?(value)
       return kept.dump(value, column, index) { |other| IOStreams::Schema::Field.any_data(other) } unless cell_text?
       return IOStreams::Schema::Field.clock_text(value) if value.is_a?(Time)
 
@@ -793,18 +804,20 @@ module IOStreams
     # hold as it is back into that type, see `IOStreams::Slice::KeptTypes.plan`, for .from_h, in a copy of its row.
     #
     # Raises ArgumentError for types that are not those of the rows, or of a slice whose values are not held without a
-    # schema, such as a slice of lines of CSV, or of the cells of a spreadsheet, whose #to_h holds no types.
-    # Raises `IOStreams::Errors::InvalidValue` for a value that its type cannot hold, naming the record that it is in,
-    # and the line that the record starts on.
+    # schema, such as a slice of lines of CSV, or of the cells of a spreadsheet, or of a slice with a schema, whose
+    # fields say the type of each value, whose #to_h holds no types.
+    # Raises `IOStreams::Errors::InvalidValue` for a value that its type cannot hold, naming its column, the record that
+    # it is in, and the line that the record starts on.
     def restore_types(types)
       return if types.nil?
-      unless IOStreams::Tabular.renders_values?(format) && !cell_text?
-        raise(ArgumentError, "A slice of the #{format.inspect} format#{' of cells' if cell_text?} has no types, since " \
-                             "its values are held as they are: only a slice of the values of a format that holds them " \
-                             "itself, such as :hash or :array, has them")
+      unless IOStreams::Tabular.renders_values?(format) && !cell_text? && schema.nil?
+        raise(ArgumentError, "A slice of the #{format.inspect} format#{' of cells' if cell_text?}" \
+                             "#{' with a schema' if schema} has no types, since its values are held as they are, or as " \
+                             "its fields say: only a slice of the values of a format that holds them itself, such as " \
+                             ":hash or :array, without a schema, has them")
       end
 
-      KeptTypes.plan(types, @rows).each do |index, keys|
+      KeptTypes.plan(types, @rows, header).each do |index, keys|
         row = @rows[index].dup
         keys.each { |key, field| row[key] = field.load(row[key]) }
         @rows[index] = row

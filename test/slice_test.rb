@@ -482,7 +482,8 @@ class SliceTest < Minitest::Test
 
         [
           {}, [[0]], [[0, "time"]], [[-1, "date"]], [[:on, "date"]], [[0, "date", []]], [[0, "date", [2]]],
-          [[0, "date", [1, 0]]], [[0, "date", "0"]], [[0, "date", [0], 1]]
+          [[0, "date", [1, 0]]], [[0, "date", "0"]], [[0, "date", [0], 1]], [[0, "date", [nil, 1]]], [[0, "date", [{}, 1]]],
+          [[0, "date", [1]]], [%w[on date]], [[1, "date"]], [[0, "date"], [0, "date"]], [[0, "date"], [0, "number", [0]]]
         ].each do |types|
           assert_raises(ArgumentError, types.inspect) { IOStreams.slice(rows.merge("types" => types)) }
         end
@@ -492,6 +493,47 @@ class SliceTest < Minitest::Test
         assert_raises(ArgumentError) do
           IOStreams.slice("rows" => [["2026-01-02"]], "format" => "array", "cell_text" => true, "types" => [[0, "date"]])
         end
+        error = assert_raises(ArgumentError) do
+          IOStreams.slice(rows.merge("schema" => {"fields" => [{"name" => "on", "type" => "string"}]}, "types" => [[0, "date"]]))
+        end
+        assert_match(/with a schema has no types/, error.message)
+      end
+
+      it "holds a date or a time whose year ISO 8601 does not write in 4 digits as its text, which comes back as text" do
+        rows  = [[Date.new(10_000, 1, 1), Time.utc(-1, 1, 1), Date.new(2026, 1, 2)]]
+        slice = IOStreams::Slice.new(rows, header: %w[a b c], format: :array)
+        hash  = slice.to_h
+
+        assert_equal [[2, "date"]], hash["types"]
+        assert_equal [["10000-01-01", "-0001-01-01T00:00:00Z", Date.new(2026, 1, 2)]], IOStreams.slice(hash).rows
+      end
+
+      it "judges the year of a time as its text writes it, in UTC when its offset has seconds, such as a local mean time" do
+        rows  = [[Time.new(0, 1, 1, 0, 0, 0, "+00:00:30"), Time.new(9999, 12, 31, 23, 59, 50, "-00:00:30"),
+                  DateTime.new(0, 1, 1, 0, 0, 0, Rational(30, 86_400)), Time.new(1900, 1, 1, 0, 0, 0, "+05:21:10")]]
+        slice = IOStreams::Slice.new(rows, header: %w[a b c d], format: :array)
+        hash  = slice.to_h
+
+        assert_equal [[3, "datetime"]], hash["types"]
+        assert_equal ["-0001-12-31T23:59:30Z", "10000-01-01T00:00:20Z", "-0001-12-31T23:59:30Z", Time.utc(1899, 12, 31, 18, 38, 50)],
+                     IOStreams.slice(JSON.parse(JSON.generate(hash))).rows.first
+      end
+
+      it "keeps the value of the last key of a record whose keys have the same text, and its type" do
+        slice = IOStreams::Slice.new([{a: Date.new(2026, 1, 2), "a" => 1}, {"a" => Date.new(2026, 1, 3), b: 2}], format: :hash)
+        hash  = slice.to_h
+
+        assert_equal [{"a" => 1}, {"a" => "2026-01-03", "b" => 2}], hash["rows"]
+        assert_equal [["a", "date", [1]]], hash["types"]
+        assert_equal [{"a" => 1}, {"a" => Date.new(2026, 1, 3), "b" => 2}], IOStreams.slice(hash).rows
+      end
+
+      it "names the column of a value that its type cannot hold, by the header row or the key" do
+        rows    = {"rows" => [%w[Jack x]], "header" => %w[name updated_on], "format" => "array", "types" => [[1, "date"]]}
+        records = {"rows" => [{"due" => "x"}], "format" => "hash", "types" => [%w[due date]]}
+
+        assert_equal "updated_on", assert_raises(IOStreams::Errors::InvalidValue) { IOStreams.slice(rows) }.field
+        assert_equal "due", assert_raises(IOStreams::Errors::InvalidValue) { IOStreams.slice(records) }.field
       end
 
       it "turns back a value whose type it keeps without changing the row that the Hash holds" do
