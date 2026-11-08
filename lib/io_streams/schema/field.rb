@@ -314,7 +314,7 @@ module IOStreams
 
       # The types that .kept_type returns, whose fields keep the type of a value that no field describes, once a slice is
       # stored, see `IOStreams::Slice#to_h`.
-      KEPT_TYPES = %w[datetime date number duration integer].freeze
+      KEPT_TYPES = %w[datetime date number duration integer object array].freeze
 
       INTEGER  = /\A[+-]?\d+\z/
       # A whole number with a decimal point, such as "12.0", since a spreadsheet stores every number as a double, and the
@@ -648,11 +648,13 @@ module IOStreams
       # neither JSON nor BSON holds as it is, once a slice that holds it without a field that says its type is stored,
       # see `IOStreams::Slice#to_h`: "datetime" for a Time, also an `ActiveSupport::TimeWithZone`, or a DateTime, which
       # comes back as a Time, "date" for a Date, "number" for a BigDecimal, "duration" for an `ActiveSupport::Duration`,
-      # and "integer" for an Integer that BSON does not hold, see .stored_integer?, such as `2**70`. Returns nil for any
-      # other value, which JSON holds as it is, such as a String, an Integer, a Float, true, false or nil, see
-      # .stored_as_is?, or as its text, such as a Symbol, or within it, such as a Hash or an Array, as an object or array
-      # field holds it, see .json_data. A Time, a DateTime or a Date of any year is kept, also one outside 0 to 9999,
-      # such as 10000 or -1, whose text, such as "10000-01-01", #load reads too.
+      # "integer" for an Integer that BSON does not hold, see .stored_integer?, such as `2**70`, and "object" for a Hash,
+      # or "array" for an Array, that holds such an Integer, at any depth, see .unstored_integer_within?, which the field
+      # of its type holds as its JSON text, see #dump. Returns nil for any other value, which JSON holds as it is, such as
+      # a String, an Integer, a Float, true, false or nil, see .stored_as_is?, or as its text, such as a Symbol, or within
+      # it, such as any other Hash or Array, as an object or array field holds it, see .json_data. A Time, a DateTime or
+      # a Date of any year is kept, also one outside 0 to 9999, such as 10000 or -1, whose text, such as "10000-01-01",
+      # #load reads too.
       def self.kept_type(value)
         # A String first, the most common value of a field of type "any", whose values reach this method without
         # .stored_as_is?, see `IOStreams::Slice#dumped_rows`, so that it skips the checks below.
@@ -662,8 +664,29 @@ module IOStreams
         return stored_integer?(value) ? nil : "integer" if value.is_a?(Integer)
         return "datetime" if value.is_a?(Time) || value.is_a?(DateTime)
         return "date" if value.is_a?(Date)
+        return "number" if value.is_a?(::BigDecimal)
+        return "object" if value.is_a?(::Hash) && unstored_integer_within?(value)
 
-        "number" if value.is_a?(::BigDecimal)
+        "array" if value.is_a?(::Array) && unstored_integer_within?(value)
+      end
+
+      # Returns [true|false] whether the supplied Hash or Array holds an Integer that BSON does not hold, see
+      # .stored_integer?, as a value, at any depth, such as `{"ids" => [2**70]}`, which .json_data holds as it is, so
+      # that an object or array field, and a slice that keeps the type of the value, hold it as its JSON text instead,
+      # see #dump and .kept_type. A duration, which answers `is_a?(Integer)`, is written as its text, see .any_json.
+      #
+      # Raises `JSON::NestingError` for Hashes and Arrays nested more than MAX_NESTING deep, as .json_data does.
+      def self.unstored_integer_within?(value, depth = 0)
+        case value
+        when ::Hash
+          nesting(depth + 1)
+          value.each_value.any? { |item| unstored_integer_within?(item, depth + 1) }
+        when ::Array
+          nesting(depth + 1)
+          value.any? { |item| unstored_integer_within?(item, depth + 1) }
+        when Integer then !stored_integer?(value) && !duration?(value)
+        else false
+        end
       end
 
       # Returns [true|false] whether JSON and BSON both hold the value as it is, so that a slice holds it without
@@ -966,9 +989,10 @@ module IOStreams
       # of typed values is the same once a job queue or store has held it as JSON or BSON, see `IOStreams::Slice#to_h`:
       # a number as the text of its digits, without rounding them, such as "12.50" for a field with 2 decimals, or a
       # Float, which JSON keeps, apart from NaN and the infinities, which are text, an integer as it is, apart from one
-      # that BSON cannot hold, such as `2**70`, of an integer or a number field, as its digits, see #integer_dump, but
-      # not one within the Hash or the Array of an object or array field, which is held as JSON holds it, since the field
-      # does not say its type, so that its digits would come back as text, a date, a datetime and a duration in
+      # that BSON cannot hold, such as `2**70`, of an integer or a number field, as its digits, see #integer_dump, the
+      # Hash or the Array of an object or array field that holds one, at any depth, as its JSON text, see
+      # #structure_dump, which the field reads back as it reads the JSON text of a file, since the field does not say
+      # the type of a value within it, so that its digits would come back as text, a date, a datetime and a duration in
       # ISO 8601, a datetime with as many digits of its fraction of a second as it needs and its offset, a time of day as
       # its clock with its offset, such as "09:30:00.250-04:00", and any other value as it is, apart from the value of a
       # field of type "any", which is held as JSON holds it, see .any_data, as a slice without a schema holds each of
@@ -987,7 +1011,7 @@ module IOStreams
         when "duration" then value.respond_to?(:iso8601) ? value.iso8601 : value
         when "any" then self.class.any_data(value)
         when "integer" then integer_dump(value)
-        when "string", "list", "yearmonth", "geopoint" then other_dump(value)
+        when "string", "list", "yearmonth", "geopoint", "object", "array" then other_dump(value)
         else value
         end
       end
@@ -1349,14 +1373,15 @@ module IOStreams
         end.join(@delimiter)
       end
 
-      # Returns the value of a string, list, yearmonth or geopoint in a form that JSON keeps exactly, see #dump: bytes as
-      # their base64 text, the items of a list as its item field dumps them, a yearmonth as its text, and a geopoint as
-      # the digits of its numbers.
+      # Returns the value of a string, list, yearmonth, geopoint, object or array in a form that JSON keeps exactly, see
+      # #dump: bytes as their base64 text, the items of a list as its item field dumps them, a yearmonth as its text, an
+      # object or array as it is, or as its JSON text, see #structure_dump, and a geopoint as the digits of its numbers.
       def other_dump(value)
         case type
         when "string" then binary? && value.is_a?(String) ? [value].pack("m0") : value
         when "list" then value.is_a?(::Array) ? value.map { |item| @item.dump(item) } : value
         when "yearmonth" then value.is_a?(Date) ? value.strftime("%Y-%m") : value
+        when "object", "array" then structure_dump(value)
         else value.is_a?(::Array) ? value.map { |number| number_dump(number) } : value
         end
       end
@@ -1998,6 +2023,20 @@ module IOStreams
       # digits when BSON does not hold it, see .stored_integer?, such as `2**70`, which #load reads back as the Integer.
       def integer_dump(value)
         value.is_a?(Integer) && !self.class.stored_integer?(value) ? value.to_s : value
+      end
+
+      # Returns [Hash|Array|String] the Hash or Array of an object or array field in a form that JSON and BSON keep
+      # exactly, see #dump: as it is, or as its JSON text when it holds an Integer that BSON does not hold, at any depth,
+      # see .unstored_integer_within?, such as `{"id" => 2**70}`, which #load reads back as the field reads the JSON
+      # text of a file, with the Integer. One that also holds a value that JSON cannot hold, such as NaN, or text that is
+      # not valid UTF-8, is returned as it is, as any other Hash or Array is, so that `IOStreams::Slice#to_h` holds it,
+      # while `IOStreams::Slice#to_json` raises for it, naming its record.
+      def structure_dump(value)
+        return value unless self.class.unstored_integer_within?(value)
+
+        IOStreams::Tabular::Parser::Json.generate(value)
+      rescue IOStreams::Errors::InvalidValue, IOStreams::Errors::InvalidEncoding
+        value
       end
 
       # Returns [String|Float|Integer] the number in a form that JSON and BSON keep exactly, see #dump: the digits of a

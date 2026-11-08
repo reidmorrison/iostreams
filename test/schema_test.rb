@@ -2269,6 +2269,19 @@ class SchemaTest < Minitest::Test
           assert_raises(IOStreams::Errors::InvalidValue) { datetime.cast("10000-01-01T00:00:00Z") }
         end
 
+        it "reads the JSON text that #dump gives an object or array field that holds an Integer that BSON cannot hold" do
+          object = field(type: "object")
+          array  = field(type: "array")
+
+          assert_equal %({"a":[1180591620717411303424]}), object.dump({"a" => [2**70]})
+          assert_equal({"a" => [2**70]}, object.load(object.dump({"a" => [2**70]})))
+          assert_equal [[-(2**63) - 1]], array.load(array.dump([[-(2**63) - 1]]))
+          assert_equal({"a" => [(2**63) - 1]}, object.dump({"a" => [(2**63) - 1]}))
+          day = field(type: "duration").cast("P1D")
+
+          assert_equal [day], array.dump([day])
+        end
+
         it "reads the items of a list of dates or datetimes whose year is outside 0 to 9999 as #dump writes them" do
           dates = field(type: "list", itemType: "date")
           times = field(type: "list", itemType: "datetime")

@@ -359,6 +359,42 @@ class SliceTest < Minitest::Test
         assert_equal [Integer, Integer, Integer], [copy.rows.first["id"], *copy.rows.first["ids"]].map(&:class)
       end
 
+      it "holds the Hash or Array of an object or array field that holds an integer that BSON cannot hold as its JSON text" do
+        nested = {fields: [{name: "data", type: "object"}, {name: "ids", type: "array"}]}
+        slice  = IOStreams::Slice.new([{"data" => {"a" => {"b" => [-(2**70)]}}, "ids" => [1, 2**64]}, {"data" => {"a" => 1}, "ids" => [1]}],
+                                      format: :hash, schema: nested)
+        hash   = slice.to_h
+
+        assert_equal [{"data" => %({"a":{"b":[-1180591620717411303424]}}), "ids" => "[1,18446744073709551616]"},
+                      {"data" => {"a" => 1}, "ids" => [1]}], hash["rows"]
+        refute hash.key?("types")
+        assert_equal slice, IOStreams.slice(hash)
+        assert_equal slice, IOStreams.slice(JSON.parse(JSON.generate(hash)))
+      end
+
+      it "keeps a Hash or Array that holds an integer that BSON cannot hold as its JSON text, without a field that says so" do
+        any   = {fields: [{name: "id", type: "integer"}, {name: "data"}]}
+        typed = IOStreams::Slice.new([[1, {kind: :big, ids: [2**70]}], [2, {kind: :small}]], header: %w[id data], format: :array,
+                                                                                            schema: any)
+        bare  = IOStreams::Slice.new([{"data" => [[2**63]], "other" => [1]}], format: :hash)
+
+        assert_equal [[1, %({"kind":"big","ids":[1180591620717411303424]})], [2, {"kind" => "small"}]], typed.to_h["rows"]
+        assert_equal [[1, "object", [0]]], typed.to_h["types"]
+        assert_equal [[1, {"kind" => "big", "ids" => [2**70]}], [2, {"kind" => "small"}]],
+                     IOStreams.slice(JSON.parse(JSON.generate(typed.to_h))).rows
+        assert_equal [{"data" => "[[9223372036854775808]]", "other" => [1]}], bare.to_h["rows"]
+        assert_equal [%w[data array]], bare.to_h["types"]
+        assert_equal bare, IOStreams.slice(JSON.parse(JSON.generate(bare.to_h)))
+      end
+
+      it "holds a Hash that also holds a value that JSON cannot hold as it is, for #to_json to raise for, naming its record" do
+        slice = IOStreams::Slice.new([{"data" => {"id" => 2**70, "ratio" => Float::NAN}}], format: :hash, record_number: 5)
+
+        assert_same slice.rows.first["data"], slice.to_h["rows"].first["data"]
+        error = assert_raises(IOStreams::Errors::InvalidValue) { slice.to_json }
+        assert_equal 5, error.record_number
+      end
+
       it "holds an Integer of a number field that BSON cannot hold as its digits, such as a decimal(20,0) column of a query" do
         wide  = {fields: [{name: "id", type: "number", decimals: 0}]}
         slice = IOStreams::Slice.new([[(2**64) - 1], [7]], header: %w[id], format: :array, schema: wide)
