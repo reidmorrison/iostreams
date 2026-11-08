@@ -760,7 +760,9 @@ A slice holds its rows, and is responsible for them and their numbers, so it is 
   positive Integer, and belongs to a row, so an empty slice has none: give the first row its numbers as it is added.
 * `slice.concat(other)` adds the rows of other slices of the same file after its rows, each with its own numbers, such
   as the results of a run that resumes after those that an earlier run wrote, and raises `ArgumentError` for a slice of
-  another file, see `slice.same_file?(other)`: of another header row, format or schema.
+  another file, see `slice.same_file?(other)`: of another header row or format, or that differs in whether its blank
+  rows are records, whether its values are the cells of a source of typed values, such as a spreadsheet, or its
+  schema.
 * `slice[index] = row` replaces a row, such as to correct one that could not be processed, and it keeps the numbers of
   the row that it replaces.
 * `slice.delete_at(index)` and `slice.delete_if { |row, line_number, record_number| ... }` remove rows, and the rows

@@ -683,25 +683,23 @@ class SliceTest < Minitest::Test
         refute typed.same_file?([[1]])
       end
 
-      describe "#check_same_file" do
+      describe "#check_same_file, which is private" do
         it "returns nothing for a slice of the same file" do
-          assert_nil typed.check_same_file(typed.with_rows([[2]]), "Not the same file")
+          assert_nil typed.send(:check_same_file, typed.with_rows([[2]]), "Not the same file")
         end
 
         it "raises for a slice of another file, starting with the reason and naming what describes each" do
           other = IOStreams::Slice.new([[1]], header: %w[total], format: :array)
-          error = assert_raises(ArgumentError) { typed.check_same_file(other, "Not the same file") }
+          error = assert_raises(ArgumentError) { typed.send(:check_same_file, other, "Not the same file") }
 
           assert_equal "Not the same file: a slice with the header row [\"total\"], format :array, blank_rows true, " \
                        "cell_text false and schema nil cannot follow one with the header row [\"amount\"], format " \
-                       ":array, blank_rows true, cell_text false and schema {fields: [{name: \"amount\", type: " \
-                       "\"integer\"}]}", error.message
+                       ":array, blank_rows true, cell_text false and schema #{amounts.inspect}", error.message
         end
 
-        it "raises for anything but a slice" do
-          error = assert_raises(ArgumentError) { typed.check_same_file([[1]], "Not the same file") }
-
-          assert_equal "Not the same file: Array is not an IOStreams::Slice", error.message
+        it "is not a method of the public interface of a slice, whose callers ask #same_file?" do
+          refute_respond_to typed, :check_same_file
+          refute_respond_to typed, :numbered_rows
         end
       end
     end

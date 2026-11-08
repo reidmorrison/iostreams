@@ -429,11 +429,10 @@ module IOStreams
         check_same_file(slice, "Only the rows of a slice of the same file can be added")
       end
 
-      # Every row is read before any is added, so that a slice that adds its own rows adds those that it held.
+      # Every row is read before any is added, so that a slice that adds its own rows adds those that it held. A block
+      # rather than `&:numbered_rows`, whose Proc is not within this slice, so cannot call a protected method.
       numbered = []
-      slices.each do |slice|
-        slice.each { |row, line_number, record_number| numbered << [row, line_number, record_number] }
-      end
+      slices.each { |slice| numbered.concat(slice.numbered_rows) }
       numbered.each { |row, line_number, record_number| add(row, line_number: line_number, record_number: record_number) }
       self
     end
@@ -662,18 +661,6 @@ module IOStreams
       other.is_a?(Slice) && other.description == description
     end
 
-    # Raises ArgumentError when the supplied slice is not of the same file as this one, see #same_file?, whose rows are
-    # then not read as those of this slice, with a message that starts with the supplied reason and names what
-    # describes each, such as for #concat, and for a writer of slices, which writes the rows of every slice as those of
-    # one file, see `IOStreams::Slice::Writer`. For IOStreams itself, rather than an application, which asks
-    # #same_file?.
-    def check_same_file(other, reason)
-      return if same_file?(other)
-      raise(ArgumentError, "#{reason}: #{other.class.name} is not an IOStreams::Slice") unless other.is_a?(Slice)
-
-      raise(ArgumentError, "#{reason}: a slice #{other.described} cannot follow one #{described}")
-    end
-
     # Slices are equal when they hold the same rows, with the same numbers, of the same header row and format, see #to_h.
     def ==(other)
       other.is_a?(Slice) && other.contents == contents
@@ -722,6 +709,14 @@ module IOStreams
     def described
       "with the header row #{header.inspect}, format #{format.inspect}, blank_rows #{blank_rows?}, cell_text " \
         "#{cell_text?} and schema #{schema&.to_h.inspect}"
+    end
+
+    # Returns [Array<Array>] each row with its numbers, `[row, line_number, record_number]`, see #each, in an Array of
+    # their own, to change them, see #renumber, or to add them to another slice, see #concat.
+    def numbered_rows
+      numbered = []
+      each { |row, line_number, record_number| numbered << [row, line_number, record_number] }
+      numbered
     end
 
     private
@@ -1090,14 +1085,6 @@ module IOStreams
       "index #{index} outside of the rows of the slice: #{-@rows.size}...#{@rows.size}"
     end
 
-    # Returns [Array<Array>] each row with its numbers, `[row, line_number, record_number]`, see #each, in an Array of
-    # their own, to change them, see #renumber.
-    def numbered_rows
-      numbered = []
-      each { |row, line_number, record_number| numbered << [row, line_number, record_number] }
-      numbered
-    end
-
     # Holds the supplied rows with their numbers, `[row, line_number, record_number]`, see #numbered_rows, as the rows of
     # the slice, adding each one as #add does, so that its jumps are those of the rows, see #to_h.
     def renumber(numbered)
@@ -1121,6 +1108,17 @@ module IOStreams
 
       raise(ArgumentError, "A slice without rows has no line_number or record_number, since they are those of its " \
                            "first row: supply them when it is added, with #add(row, line_number:, record_number:)")
+    end
+
+    # Raises ArgumentError when the supplied slice is not of the same file as this one, see #same_file?, whose rows are
+    # then not read as those of this slice, with a message that starts with the supplied reason and names what
+    # describes each, for #concat, and for a writer of slices, which writes the rows of every slice as those of one
+    # file, see `IOStreams::Slice::Writer`, which calls it with `send`, so that it is not a method of the public
+    # interface of a slice, whose callers ask #same_file?. Each caller checks that it is given a slice.
+    def check_same_file(other, reason)
+      return if same_file?(other)
+
+      raise(ArgumentError, "#{reason}: a slice #{other.described} cannot follow one #{described}")
     end
 
     # Raises FrozenError once the slice is frozen, before it is changed.
