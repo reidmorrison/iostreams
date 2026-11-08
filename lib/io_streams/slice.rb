@@ -408,6 +408,36 @@ module IOStreams
       add(row)
     end
 
+    # Adds the rows of the supplied slices after the rows of this slice, in order, each with its own numbers, see #add,
+    # such as the results of a run that resumes after the rows that an earlier run wrote, so that every row keeps the
+    # line and record numbers of its file. Each slice is of the same file as this one, see #same_file?, since this
+    # slice reads their rows as its own: of the same header row and format, and alike in whether their blank rows are
+    # records, whether their values are the cells of a source of typed values, and their schema. A slice can add the
+    # rows of itself, which it then holds twice. The slices supplied are left as they are, also when they are frozen.
+    #
+    #   slice.concat(resumed)
+    #
+    # Returns self, so that calls can be chained.
+    #
+    # Raises ArgumentError for anything but a Slice of the same file, and FrozenError once this slice is frozen, before
+    # it changes anything.
+    def concat(*slices)
+      check_frozen
+      slices.each do |slice|
+        raise(ArgumentError, "Concatenate an IOStreams::Slice, not a #{slice.class.name}") unless slice.is_a?(Slice)
+
+        check_same_file(slice, "Only the rows of a slice of the same file can be added")
+      end
+
+      # Every row is read before any is added, so that a slice that adds its own rows adds those that it held.
+      numbered = []
+      slices.each do |slice|
+        slice.each { |row, line_number, record_number| numbered << [row, line_number, record_number] }
+      end
+      numbered.each { |row, line_number, record_number| add(row, line_number: line_number, record_number: record_number) }
+      self
+    end
+
     # Replaces the row at the supplied index, which keeps its numbers, see #each, such as to correct a row that could not
     # be processed, before it is processed again. The index counts from 0, or from the end when it is negative, as for
     # #[].
@@ -632,6 +662,18 @@ module IOStreams
       other.is_a?(Slice) && other.description == description
     end
 
+    # Raises ArgumentError when the supplied slice is not of the same file as this one, see #same_file?, whose rows are
+    # then not read as those of this slice, with a message that starts with the supplied reason and names what
+    # describes each, such as for #concat, and for a writer of slices, which writes the rows of every slice as those of
+    # one file, see `IOStreams::Slice::Writer`. For IOStreams itself, rather than an application, which asks
+    # #same_file?.
+    def check_same_file(other, reason)
+      return if same_file?(other)
+      raise(ArgumentError, "#{reason}: #{other.class.name} is not an IOStreams::Slice") unless other.is_a?(Slice)
+
+      raise(ArgumentError, "#{reason}: a slice #{other.described} cannot follow one #{described}")
+    end
+
     # Slices are equal when they hold the same rows, with the same numbers, of the same header row and format, see #to_h.
     def ==(other)
       other.is_a?(Slice) && other.contents == contents
@@ -673,6 +715,13 @@ module IOStreams
     # #same_file?.
     def description
       [header, format&.to_s, blank_rows?, cell_text?, schema]
+    end
+
+    # Returns [String] what describes how the rows of the slice are read, see #description, in words, for
+    # #check_same_file.
+    def described
+      "with the header row #{header.inspect}, format #{format.inspect}, blank_rows #{blank_rows?}, cell_text " \
+        "#{cell_text?} and schema #{schema&.to_h.inspect}"
     end
 
     private

@@ -158,18 +158,9 @@ module IOStreams
       end
 
       # Raises ArgumentError for a slice whose rows are not read as those of the first slice, see
-      # `IOStreams::Slice#same_file?`, since one reader reads the rows of every slice, see #start.
+      # `IOStreams::Slice#check_same_file`, since one reader reads the rows of every slice, see #start.
       def check_same_file(slice)
-        return if slice.same_file?(@first)
-
-        raise(ArgumentError, "Every slice written is of the same file as the first: a slice #{described(slice)} " \
-                             "cannot follow one #{described(@first)}")
-      end
-
-      # Returns [String] what describes how the rows of the slice are read, see #check_same_file.
-      def described(slice)
-        "with the header row #{slice.header.inspect}, format #{slice.format.inspect}, blank_rows " \
-          "#{slice.blank_rows?}, cell_text #{slice.cell_text?} and schema #{slice.schema&.to_h.inspect}"
+        @first.check_same_file(slice, "Every slice written is of the same file as the first")
       end
     end
   end
