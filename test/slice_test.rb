@@ -367,6 +367,17 @@ class SliceTest < Minitest::Test
         assert_equal [["2024-01-02T03:04:05.123Z", "12.5"]], slice.to_h["rows"]
       end
 
+      it "holds a Symbol of a field of type any, and the keys and values within its Hash, as JSON holds them, as without a schema" do
+        any     = {fields: [{name: "kind", type: "string"}, {name: "other"}, {name: "data", type: "any"}]}
+        records = IOStreams::Slice.new([{"kind" => "admin", "other" => :sym, "data" => {total: :due, at: [Date.new(2026, 1, 2)]}}],
+                                       format: :hash, schema: any)
+        stored  = [{"kind" => "admin", "other" => "sym", "data" => {"total" => "due", "at" => ["2026-01-02"]}}]
+
+        assert_equal stored, records.to_h["rows"]
+        assert_equal records.to_h, JSON.parse(JSON.generate(records.to_h))
+        assert_equal stored, IOStreams.slice(records.to_h).rows
+      end
+
       it "holds a date or a BigDecimal of a record without a schema as its text, as it does of a row" do
         records = IOStreams::Slice.new([{"on" => Date.new(2026, 1, 2), "amount" => BigDecimal("12.5"), "count" => 3}, nil],
                                        format: :hash)
