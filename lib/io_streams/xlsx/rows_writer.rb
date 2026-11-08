@@ -6,7 +6,8 @@ module IOStreams
   module Xlsx
     # Writes rows to a worksheet, each an Array of the values of its cells, which keep their types, see
     # `IOStreams::Xlsx::Writer.stream`'s `rows: true`, so that a number is a number, a Date or Time a date or time, and
-    # text is text, such as `01234`, rather than every cell text, or a guess. A time is written in UTC, and as its text
+    # text is text, such as `01234`, rather than every cell text, or a guess, or nil for a blank row, written as a row
+    # without cells. A time is written in UTC, and as its text
     # before 1899-12-31, the first date and time of a cell, see #time_cell, a BigDecimal as the Float that Excel holds,
     # a whole number of more digits than Excel keeps, or NaN or an infinity, as its text, a Hash or an Array as its
     # JSON, and any other value as its text, see `IOStreams::Schema::Field.any_text`.

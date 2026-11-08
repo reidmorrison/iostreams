@@ -83,7 +83,8 @@ module IOStreams
       #
       #   rows: [true|false]
       #     Whether the block writes rows rather than CSV text, see `IOStreams::Xlsx.rows_format`: each an Array of the
-      #     values of its cells, which keep their types, see `IOStreams::Xlsx::RowsWriter`.
+      #     values of its cells, which keep their types, or nil for a blank row, written as a row without cells, see
+      #     `IOStreams::Xlsx::RowsWriter`.
       #     Default: false
       #
       #   text_columns: [Array<Integer>]
