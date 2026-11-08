@@ -850,12 +850,39 @@ module IOStreams
     # slice of the cells of a spreadsheet, see #cell_text?, whose fields read the text of its cells.
     def dumped_rows(kept)
       fields = row_fields
-      @rows.each_with_index.map do |row, index|
-        map_values(row, fields) do |field, value, column|
-          next field.dump(value) unless field.any_type? && !cell_text?
+      # Most schemas, such as those of a query or a Parquet file, have no field of type "any", so their values skip the
+      # checks of #dumped_value.
+      return @rows.map { |row| map_values(row, fields) { |field, value| field.dump(value) } } unless keeps_any_types?
 
-          kept.dump(value, column.is_a?(::Symbol) ? column.to_s : column, index) { |other| field.dump(other) }
+      index = -1
+      @rows.map do |row|
+        index += 1
+        map_values(row, fields) do |field, value, column|
+          # A field of type "any" is asked once, and its value noted in the types, see `IOStreams::Slice::KeptTypes#dump`.
+          next field.dump(value) unless field.any_type? && (column = kept_column(row, column))
+
+          kept.dump(value, column, index) { |other| field.dump(other) }
         end
+      end
+    end
+
+    # Returns [true|false] whether #to_h notes the types of the values of a field of the schema, see #dumped_rows: one of
+    # type "any" of a slice whose values are not the cells of a spreadsheet, see #cell_text?, which its fields read.
+    def keeps_any_types?
+      !cell_text? && schema.fields.any?(&:any_type?)
+    end
+
+    # Returns [Integer|String] the column of a value of the supplied row whose type the types of the slice can note, see
+    # #dumped_rows: its position within an Array, or its key within a Hash as its text, `Symbol#name`, which Ruby keeps
+    # frozen, rather than a String for each value.
+    # Returns nil for any other key of a Hash, such as an Integer, which a record that a program builds may have, and
+    # which no store turns back into the key, since JSON holds every key as its text.
+    def kept_column(row, column)
+      return column if row.is_a?(::Array)
+
+      case column
+      when ::String then column
+      when ::Symbol then column.name
       end
     end
 

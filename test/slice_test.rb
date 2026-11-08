@@ -399,7 +399,7 @@ class SliceTest < Minitest::Test
         end
       end
 
-      it "keeps the type of a value of a field of type any of a record, also by a Symbol key, and checks its constraints" do
+      it "keeps the type of a value of a field of type any of a record, also by a Symbol key" do
         any   = {keyType: "symbol", fields: [{name: "name", type: "string"}, {name: "due", constraints: {required: true}}]}
         slice = IOStreams::Slice.new([{name: "Jack", due: Date.new(2026, 1, 2)}], format: :hash, schema: any)
         hash  = slice.to_h
@@ -411,6 +411,46 @@ class SliceTest < Minitest::Test
         IOStreams.stream(IOStreams.slice(JSON.parse(JSON.generate(hash)))).each(:hash) { |record| records << record }
 
         assert_equal [{name: "Jack", due: Date.new(2026, 1, 2)}], records
+      end
+
+      it "checks the constraints of a field of type any against the value whose type it keeps, as reading the slice does" do
+        any   = {fields: [{name: "due", constraints: {enum: ["2026-01-02"]}}]}
+        slice = IOStreams::Slice.new([{"due" => Date.new(2026, 1, 2)}], format: :hash, schema: any)
+
+        assert_raises(IOStreams::Errors::InvalidValue) { IOStreams.stream(slice).each(:hash) { nil } }
+        assert_raises(IOStreams::Errors::InvalidValue) { IOStreams.slice(JSON.parse(JSON.generate(slice.to_h))) }
+      end
+
+      it "holds no types of a slice of the cells of a spreadsheet with a schema, whose fields read the text of its cells" do
+        slice = IOStreams::Slice.new([[Date.new(2026, 1, 2)]], header: %w[due], format: :array, cell_text: true,
+                                                              schema: {fields: [{name: "due"}]})
+
+        refute slice.to_h.key?("types")
+      end
+
+      it "raises for types of a column of a slice with a schema that has no field" do
+        hash  = {"rows" => [{"due" => "2026-01-02", "other" => "2026-01-03"}], "format" => "hash",
+                 "schema" => {"fields" => [{"name" => "due"}], "fieldsMatch" => "subset"}, "types" => [%w[other date]]}
+        error = assert_raises(ArgumentError) { IOStreams.slice(hash) }
+
+        assert_match(/not "other", whose column has no field/, error.message)
+      end
+
+      it "notes the type of a record that holds a key both as a String and as a Symbol once, which it turns back" do
+        slice = IOStreams::Slice.new([{"due" => Date.new(2026, 1, 2), due: Date.new(2026, 1, 3)}], format: :hash,
+                                                                                                   schema: {fields: [{name: "due"}]})
+        hash  = slice.to_h
+
+        assert_equal [%w[due date]], hash["types"]
+        assert_equal Date.new(2026, 1, 2), IOStreams.slice(hash).rows.first["due"]
+      end
+
+      it "holds the value of a field of type any of a key that is neither a String nor a Symbol without its type" do
+        slice = IOStreams::Slice.new([{1 => Date.new(2026, 1, 2)}], format: :hash, schema: {fields: [{name: "1"}]})
+        hash  = slice.to_h
+
+        assert_equal [{1 => "2026-01-02"}], hash["rows"]
+        refute hash.key?("types")
       end
 
       it "holds a Symbol of a field of type any, and the keys and values within its Hash, as JSON holds them, as without a schema" do
