@@ -344,6 +344,18 @@ class SliceTest < Minitest::Test
         assert_equal(-4 * 3600, copy.rows.first[1].utc_offset)
       end
 
+      it "holds an integer that BSON cannot hold, outside of a signed 64 bit integer, as its digits, which come back as it" do
+        big   = {fields: [{name: "id", type: "integer"}, {name: "ids", type: "list", itemType: "integer"}]}
+        slice = IOStreams::Slice.new([{"id" => 2**70, "ids" => [2**63, (2**63) - 1]}, {"id" => -(2**63), "ids" => [-(2**63) - 1]}],
+                                     format: :hash, schema: big)
+
+        assert_equal [{"id" => "1180591620717411303424", "ids" => ["9223372036854775808", 9_223_372_036_854_775_807]},
+                      {"id" => -9_223_372_036_854_775_808, "ids" => ["-9223372036854775809"]}], slice.to_h["rows"]
+        assert_equal slice, IOStreams.slice(slice.to_h)
+        assert_equal slice, IOStreams.slice(JSON.parse(JSON.generate(slice.to_h)))
+        assert_equal [2**63, (2**63) - 1], IOStreams.slice(slice.to_h).rows.first["ids"]
+      end
+
       it "holds the values of rows without a header row in the positions of every field, past a field that is skipped" do
         layout = {header: false, fields: [{name: "name"}, {name: "x", skip: true}, {name: "on", type: "date"},
                                           {name: "amount", type: "number", decimals: 2}]}

@@ -312,6 +312,10 @@ module IOStreams
       # Array literal does.
       NUMERIC_TYPES = %w[integer number].freeze
 
+      # The integers that every store of a slice holds as a number, see #dump: those of a signed 64 bit integer, which BSON
+      # holds, while JSON holds any integer.
+      STORED_INTEGERS = (-(2**63)...(2**63))
+
       INTEGER  = /\A[+-]?\d+\z/
       # A whole number with a decimal point, such as "12.0", since a spreadsheet stores every number as a double, and the
       # layout of a fixed width file, before v3.0 replaced it with a schema, read the column with `to_i`.
@@ -897,7 +901,8 @@ module IOStreams
       # Returns the value of this field in a form that JSON keeps exactly, which #load turns back into it, so that a slice
       # of typed values is the same once a job queue or store has held it as JSON or BSON, see `IOStreams::Slice#to_h`:
       # a number as the text of its digits, without rounding them, such as "12.50" for a field with 2 decimals, or a
-      # Float, which JSON keeps, apart from NaN and the infinities, which are text, a date, a datetime and a duration in
+      # Float, which JSON keeps, apart from NaN and the infinities, which are text, an integer as it is, apart from one
+      # that BSON cannot hold, such as `2**70`, as its digits, see #integer_dump, a date, a datetime and a duration in
       # ISO 8601, a datetime with as many digits of its fraction of a second as it needs and its offset, a time of day as
       # its clock with its offset, such as "09:30:00.250-04:00", and any other value as it is, apart from the value of a
       # field of type "any", which is held as JSON holds it, see .any_data, as a slice without a schema holds each of
@@ -914,6 +919,7 @@ module IOStreams
         when "time" then value.is_a?(Time) ? clock_dump(value) : value
         when "duration" then value.respond_to?(:iso8601) ? value.iso8601 : value
         when "any" then self.class.any_data(value)
+        when "integer" then integer_dump(value)
         when "string", "list", "yearmonth", "geopoint" then other_dump(value)
         else value
         end
@@ -1906,6 +1912,13 @@ module IOStreams
       # a summer day, whose offset differs from that of the zone on 2000-01-01, keeps its clock.
       def zone_time_of_day(time)
         @zone.at_clock(@zone.convert(time), 2000, 1, 1)
+      end
+
+      # Returns [Integer|String] the integer in a form that JSON and BSON keep exactly, see #dump: as it is, or as its
+      # digits when it is outside of the integers that BSON holds, see STORED_INTEGERS, such as `2**70`, which #load reads
+      # back as the Integer.
+      def integer_dump(value)
+        value.is_a?(Integer) && !STORED_INTEGERS.cover?(value) ? value.to_s : value
       end
 
       # Returns [String|Float|Integer] the number in a form that JSON keeps exactly, see #dump: the digits of a BigDecimal,
