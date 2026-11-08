@@ -71,11 +71,18 @@ module IOStreams
       #
       # Returns self, so that calls can be chained.
       #
-      # Raises ArgumentError for a slice of another file than the first one written: with another header row or format.
+      # Raises ArgumentError for a slice of another file than the first one written, see `IOStreams::Slice#same_file?`:
+      # with another header row or format, or that differs in whether its blank rows are records, whether its values
+      # are the cells of a source of typed values, or its schema, since one reader reads the rows of every slice, see
+      # #start.
       def <<(slice)
         raise(ArgumentError, "Write an IOStreams::Slice, not a #{slice.class.name}") unless slice.is_a?(Slice)
 
-        @first ? check_same_file(slice) : start(slice)
+        if @first
+          @first.send(:check_same_file, slice, "Every slice written is of the same file as the first")
+        else
+          start(slice)
+        end
         @as_is ? write_as_is(slice) : write_rows(slice)
         self
       end
@@ -155,21 +162,6 @@ module IOStreams
         slice.each do |row, _line_number, _record_number|
           @reader.read_row(row) { |parsed| @rows << parsed unless parsed.nil? }
         end
-      end
-
-      # Raises ArgumentError for a slice whose rows are not read as those of the first slice, see
-      # `IOStreams::Slice#same_file?`, since one reader reads the rows of every slice, see #start.
-      def check_same_file(slice)
-        return if slice.same_file?(@first)
-
-        raise(ArgumentError, "Every slice written is of the same file as the first: a slice #{described(slice)} " \
-                             "cannot follow one #{described(@first)}")
-      end
-
-      # Returns [String] what describes how the rows of the slice are read, see #check_same_file.
-      def described(slice)
-        "with the header row #{slice.header.inspect}, format #{slice.format.inspect}, blank_rows " \
-          "#{slice.blank_rows?}, cell_text #{slice.cell_text?} and schema #{slice.schema&.to_h.inspect}"
       end
     end
   end

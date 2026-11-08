@@ -682,6 +682,26 @@ class SliceTest < Minitest::Test
                                                             blank_rows: false))
         refute typed.same_file?([[1]])
       end
+
+      describe "#check_same_file, which is private" do
+        it "returns nothing for a slice of the same file" do
+          assert_nil typed.send(:check_same_file, typed.with_rows([[2]]), "Not the same file")
+        end
+
+        it "raises for a slice of another file, starting with the reason and naming what describes each" do
+          other = IOStreams::Slice.new([[1]], header: %w[total], format: :array)
+          error = assert_raises(ArgumentError) { typed.send(:check_same_file, other, "Not the same file") }
+
+          assert_equal "Not the same file: a slice with the header row [\"total\"], format :array, blank_rows true, " \
+                       "cell_text false and schema nil cannot follow one with the header row [\"amount\"], format " \
+                       ":array, blank_rows true, cell_text false and schema #{amounts.inspect}", error.message
+        end
+
+        it "is not a method of the public interface of a slice, whose callers ask #same_file?" do
+          refute_respond_to typed, :check_same_file
+          refute_respond_to typed, :numbered_rows
+        end
+      end
     end
 
     describe "#with_rows" do
@@ -1080,6 +1100,83 @@ class SliceTest < Minitest::Test
           error = assert_raises(ArgumentError) { numbered.drop(-1) }
           assert_equal "The number of rows to drop from a slice must be an Integer of 0 or more: -1", error.message
           assert_raises(ArgumentError) { numbered.drop("1") }
+        end
+      end
+
+      describe "#concat" do
+        # Rows of the same file, after those of the slice.
+        let(:later) do
+          built = IOStreams::Slice.new(header: %w[name], format: :csv)
+          built.add("f", line_number: 7, record_number: 5)
+          built.add("g", line_number: 8, record_number: 6)
+        end
+
+        it "adds the rows of the slices after its own, each with its numbers, and returns self" do
+          other = IOStreams::Slice.new(["h"], header: %w[name], format: :csv, line_number: 20, record_number: 15)
+
+          assert_same numbered, numbered.concat(later, other)
+          assert_equal [["a", 2, 1], [%("b\nc"), 3, 2], ["d", 5, 3], ["e", 6, 4], ["f", 7, 5], ["g", 8, 6], ["h", 20, 15]],
+                       numbered.each.to_a
+          assert_equal 2, later.size
+        end
+
+        it "holds a row that does not follow the row before it as a jump, which its Hash keeps" do
+          resumed = IOStreams::Slice.new(%w[x y], header: %w[name], format: :csv, record_number: 1)
+          numbered.concat(resumed)
+
+          assert_equal [[2, 5, 3], [4, nil, 1]], numbered.to_h["jumps"]
+          assert_equal numbered, IOStreams.slice(JSON.parse(JSON.generate(numbered.to_h)))
+          assert_equal [["e", 6, 4], ["x", nil, 1], ["y", nil, 2]], numbered.each.to_a.last(3)
+        end
+
+        it "adds rows without numbers as rows without numbers" do
+          numbered.concat(IOStreams::Slice.new(%w[x], header: %w[name], format: :csv))
+
+          assert_equal ["x", nil, nil], numbered.each.to_a.last
+        end
+
+        it "adds the rows of itself, which it then holds twice" do
+          numbered.concat(numbered)
+
+          assert_equal 8, numbered.size
+          assert_equal [["a", 2, 1], [%("b\nc"), 3, 2]], numbered.each.to_a[4, 2]
+        end
+
+        it "adds nothing for no slices, or slices without rows, and takes the rows of a frozen slice" do
+          assert_equal 4, numbered.concat.size
+          assert_equal 4, numbered.concat(IOStreams::Slice.new(header: %w[name], format: :csv)).size
+          assert_equal 6, numbered.concat(later.freeze).size
+        end
+
+        it "adds the rows of a slice of typed values, which keep their values" do
+          schema = {fields: [{name: "joined", type: "date"}]}
+          first  = IOStreams::Slice.new([{"joined" => Date.new(2026, 1, 2)}], format: :hash, schema: schema, record_number: 1)
+          second = first.with_rows([{"joined" => Date.new(2026, 1, 3)}])
+          first.concat(second)
+
+          assert_equal [{"joined" => Date.new(2026, 1, 2)}, {"joined" => Date.new(2026, 1, 3)}], first.rows
+          assert_equal first, IOStreams.slice(first.to_h)
+        end
+
+        it "raises for anything but a slice of the same file, before it adds any row" do
+          error = assert_raises(ArgumentError) { numbered.concat(later, "f") }
+          assert_equal "Concatenate an IOStreams::Slice, not a String", error.message
+
+          other = IOStreams::Slice.new(%w[f], header: %w[NAME], format: :csv)
+          error = assert_raises(ArgumentError) { numbered.concat(later, other) }
+          assert_match(/Only the rows of a slice of the same file can be added: a slice with the header row \["NAME"\]/,
+                       error.message)
+          assert_raises(ArgumentError) { numbered.concat(IOStreams::Slice.new(%w[f], header: %w[name], format: :psv)) }
+          assert_raises(ArgumentError) do
+            numbered.concat(IOStreams::Slice.new(%w[f], header: %w[name], format: :csv, blank_rows: false))
+          end
+          assert_equal 4, numbered.size
+        end
+
+        it "raises once the slice is frozen, before it adds any row" do
+          error = assert_raises(FrozenError) { numbered.freeze.concat(later) }
+          assert_match(/can't modify frozen IOStreams::Slice/, error.message)
+          assert_equal 4, numbered.size
         end
       end
 
