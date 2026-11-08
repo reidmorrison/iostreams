@@ -157,6 +157,17 @@ module IOStreams
           nil
         end
 
+        # Returns [true|false] whether this format reads the supplied row, see #parse, so that a slice of its rows
+        # raises as soon as it is given one that it does not, see `IOStreams::Slice#add`, rather than when its rows are
+        # read, where the slice was processed: a line of text, a String, a row already parsed, an Array, as every parser
+        # takes one, or nil, a blank row. A format of keyed records, or of Ruby objects, reads other rows, see its own
+        # `.row?`.
+        #
+        # Defined at the class level since it is a static property of the format, see `.quote_character`.
+        def self.row?(row)
+          row.is_a?(::String) || row.is_a?(::Array) || row.nil?
+        end
+
         # Returns [true|false] whether a header row is required for this format.
         def requires_header?
           true

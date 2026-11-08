@@ -20,6 +20,12 @@ module IOStreams
           true
         end
 
+        # Returns [true|false] whether the row is a record, a Hash, a row already parsed, an Array, or nil, a blank row,
+        # see `IOStreams::Tabular::Parser::Base.row?`: the rows of the format are never text.
+        def self.row?(row)
+          row.is_a?(::Hash) || row.is_a?(::Array) || row.nil?
+        end
+
         # Returns [Hash] the record supplied, or the row supplied, an Array that is already parsed, as it is, see
         # `IOStreams::Tabular#record_parse`.
         def parse(row)

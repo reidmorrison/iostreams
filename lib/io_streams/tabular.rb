@@ -804,6 +804,13 @@ module IOStreams
       parser.nil? || parser.blank_rows?
     end
 
+    # Returns [Class|nil] the parser class of the registered format, see .parser_class, such as to ask it which rows it
+    # reads, see `IOStreams::Tabular::Parser::Base.row?`, which a slice of its rows looks up once, see
+    # `IOStreams::Slice#add`. Returns nil, rather than raise, when the format is nil, or not registered.
+    def self.parser_of(format)
+      @formats[format.to_sym] if format.respond_to?(:to_sym)
+    end
+
     # Returns [true|false] whether a copy without a mode converts the rows of the registered format `source` into the
     # format `target`, see `IOStreams::Stream#copy_mode_to`, rather than copy the data as it is: when both are known,
     # they differ, and each is the format of a file of its own, see .file_format?.
