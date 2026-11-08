@@ -312,10 +312,6 @@ module IOStreams
       # Array literal does.
       NUMERIC_TYPES = %w[integer number].freeze
 
-      # The integers that every store of a slice holds as a number, see #dump: those of a signed 64 bit integer, which BSON
-      # holds, while JSON holds any integer.
-      STORED_INTEGERS = (-(2**63)...(2**63))
-
       INTEGER  = /\A[+-]?\d+\z/
       # A whole number with a decimal point, such as "12.0", since a spreadsheet stores every number as a double, and the
       # layout of a fixed width file, before v3.0 replaced it with a schema, read the column with `to_i`.
@@ -640,6 +636,13 @@ module IOStreams
         value.is_a?(Time) || value.is_a?(Date) || value.is_a?(::BigDecimal) || duration?(value)
       end
 
+      # Returns [true|false] whether every store of a slice holds the Integer as a number, see #dump: one of a signed 64
+      # bit integer, from `-(2**63)` to `2**63 - 1`, which BSON holds, while JSON holds any integer. Its length in bits,
+      # which leaves out the sign, rather than a Range, whose ends are Bignums that each value is compared with.
+      def self.stored_integer?(integer)
+        integer.bit_length < 64
+      end
+
       # Returns [true|false] whether the value is an `ActiveSupport::Duration`, which .any_text writes as its ISO 8601
       # text, such as `P1D`, rather than its number of seconds, which does not say what it counts, as a `duration`
       # field writes it. A duration answers `is_a?(Integer)`, or `Float`, for the class of its seconds.
@@ -902,7 +905,9 @@ module IOStreams
       # of typed values is the same once a job queue or store has held it as JSON or BSON, see `IOStreams::Slice#to_h`:
       # a number as the text of its digits, without rounding them, such as "12.50" for a field with 2 decimals, or a
       # Float, which JSON keeps, apart from NaN and the infinities, which are text, an integer as it is, apart from one
-      # that BSON cannot hold, such as `2**70`, as its digits, see #integer_dump, a date, a datetime and a duration in
+      # that BSON cannot hold, such as `2**70`, of an integer or a number field, as its digits, see #integer_dump, but
+      # not one within the Hash or the Array of an object or array field, which is held as JSON holds it, since the field
+      # does not say its type, so that its digits would come back as text, a date, a datetime and a duration in
       # ISO 8601, a datetime with as many digits of its fraction of a second as it needs and its offset, a time of day as
       # its clock with its offset, such as "09:30:00.250-04:00", and any other value as it is, apart from the value of a
       # field of type "any", which is held as JSON holds it, see .any_data, as a slice without a schema holds each of
@@ -1915,18 +1920,19 @@ module IOStreams
       end
 
       # Returns [Integer|String] the integer in a form that JSON and BSON keep exactly, see #dump: as it is, or as its
-      # digits when it is outside of the integers that BSON holds, see STORED_INTEGERS, such as `2**70`, which #load reads
-      # back as the Integer.
+      # digits when BSON does not hold it, see .stored_integer?, such as `2**70`, which #load reads back as the Integer.
       def integer_dump(value)
-        value.is_a?(Integer) && !STORED_INTEGERS.cover?(value) ? value.to_s : value
+        value.is_a?(Integer) && !self.class.stored_integer?(value) ? value.to_s : value
       end
 
-      # Returns [String|Float|Integer] the number in a form that JSON keeps exactly, see #dump: the digits of a BigDecimal,
-      # with the decimals of the field when it has fewer, never rounded, a finite Float as it is, and NaN and the
-      # infinities as their text.
+      # Returns [String|Float|Integer] the number in a form that JSON and BSON keep exactly, see #dump: the digits of a
+      # BigDecimal, with the decimals of the field when it has fewer, never rounded, a finite Float as it is, NaN and the
+      # infinities as their text, and an Integer as it is, apart from one that BSON does not hold, see #integer_dump,
+      # such as the `2**64 - 1` of a MySQL `bigint unsigned` or a `decimal(20,0)` column of a query, whose field is a
+      # number of 0 decimals, as its digits, which #load reads back as the number.
       def number_dump(value)
         return number_text(value) if value.is_a?(Float) ? !value.finite? : (bigdecimal?(value) && !value.finite?)
-        return value unless bigdecimal?(value)
+        return integer_dump(value) unless bigdecimal?(value)
 
         whole, fraction = value.to_s("F").split(".")
         fraction        = fraction.to_s.sub(/0+\z/, "").ljust(@decimals || 0, "0")
