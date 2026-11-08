@@ -45,6 +45,11 @@ module IOStreams
           row.is_a?(::String) || row.is_a?(::Hash) || row.is_a?(::Array) || row.nil?
         end
 
+        # Returns [String] the rows that the `:json` format reads, see .row?.
+        def self.rows_read
+          "a line of JSON, a Hash of its record, or, with a schema, an Array of the values of its fields"
+        end
+
         # Returns [true] the json gem reads text in any Unicode encoding, such as UTF-16LE, as UTF-8.
         def self.utf8_values?
           true

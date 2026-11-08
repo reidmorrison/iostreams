@@ -84,8 +84,9 @@ module IOStreams
       # Returns the result of the block.
       #
       # Raises ArgumentError for any other mode, or option, or a slice size of the store that is neither a positive
-      # Integer nor nil, or in the `:array` or `:hash` mode once `replace:` or `cleaner:` is set, see #encoding, before
-      # the block is called.
+      # Integer nor nil, or in the `:array` or `:hash` mode once `replace:` or `cleaner:` is set, see #encoding, or in the
+      # `:line` mode for a format whose rows are values rather than lines of text, such as `:hash`, before the block is
+      # called.
       def writer(mode = :stream, **args, &block)
         require_block!(:writer, block)
         return write_contract_records(slice_options(mode, args), &block) if mode == :record
@@ -105,8 +106,9 @@ module IOStreams
       # line break.
       #
       # Raises ArgumentError without a `mode:`, or with `convert: false`, since the store holds slices of rows rather
-      # than bytes, or in the `:line` mode when the format of the stream is not that of the source, or in the `:array`
-      # or `:hash` mode once `replace:` or `cleaner:` is set, see #encoding, before the source is opened.
+      # than bytes, or in the `:line` mode when the format of the stream is not that of the source, or is one whose rows
+      # are values rather than lines of text, such as `:hash`, or in the `:array` or `:hash` mode once `replace:` or
+      # `cleaner:` is set, see #encoding, before the source is opened.
       def copy_from(source, convert: true, mode: nil, **args)
         unless convert && MODES.include?(mode)
           raise(ArgumentError, "A #{source_name} is copied to in the #{modes(MODES)} mode, " \
@@ -114,7 +116,7 @@ module IOStreams
         end
 
         source = to_stream(source)
-        with_lines_format(source) if mode == :line
+        check_lines_of_text(with_lines_format(source).format) if mode == :line
         super(source, mode: mode, **args)
       end
 
@@ -199,6 +201,7 @@ module IOStreams
                        &block)
         rendering       = tabular(blank_rows: blank_rows, part_of_file: true) unless mode == :line
         tabular         = rows_tabular(blank_rows, rendering&.renders_field_values? || false, cell_text)
+        check_lines_of_text(tabular.format) if mode == :line
         quote_character = tabular.quote_character if quote_character == :auto
 
         Collector.write(io_stream, tabular: tabular, **options) do |collector|
@@ -556,6 +559,18 @@ module IOStreams
 
         raise(ArgumentError, "The #{tabular.format.inspect} format has no lines, so its rows cannot be written to a " \
                              "#{source_name}")
+      end
+
+      # Raises ArgumentError, before anything is written, when the rows of the supplied format are not lines of text,
+      # such as those of `:array` and `:hash`, which hold the values themselves, see `IOStreams::Tabular.lines_of_text?`,
+      # since the `:line` mode writes lines of text, which such a slice does not read, see `IOStreams::Slice#add`. A
+      # format that is not set is that of the lines of the tabular, CSV.
+      def check_lines_of_text(format)
+        return if format.nil? || IOStreams::Tabular.lines_of_text?(format)
+
+        raise(ArgumentError, "The rows of the #{format.inspect} format are values rather than lines of text, " \
+                             "so a #{source_name} of that format is written in the :array or :hash mode, not the " \
+                             ":line mode")
       end
     end
   end

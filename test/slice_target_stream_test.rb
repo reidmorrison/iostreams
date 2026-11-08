@@ -117,6 +117,29 @@ class SliceTargetStreamTest < Minitest::Test
     end
 
     describe "#writer(:line)" do
+      it "raises for a format whose rows are values rather than lines of text, before anything is written" do
+        %i[hash array].each do |format|
+          error = assert_raises(ArgumentError) do
+            IOStreams.stream(store).format(format).writer(:line) { |_io| flunk("called the block") }
+          end
+          assert_equal "The rows of the #{format.inspect} format are values rather than lines of text, so a slice " \
+                       "target of that format is written in the :array or :hash mode, not the :line mode", error.message
+        end
+        assert_empty store.events
+      end
+
+      it "raises for a copy of lines in a format whose rows are values, before the source is opened" do
+        message = "The rows of the :hash format are values rather than lines of text, so a slice target of that " \
+                  "format is written in the :array or :hash mode, not the :line mode"
+        source  = IOStreams.path(File.join(Dir.tmpdir, "missing-#{Process.pid}.json")).format(:hash)
+
+        error = assert_raises(ArgumentError) { IOStreams.stream(store).format(:hash).copy_from(source, mode: :line) }
+        assert_equal message, error.message
+        error = assert_raises(ArgumentError) { IOStreams.stream(store).copy_from(source, mode: :line) }
+        assert_equal message, error.message
+        assert_empty store.events
+      end
+
       it "writes the lines in slices of the slice size of the store, each carrying the header row as it was written" do
         small = Store.new(slice_size: 2)
         IOStreams.stream(small).writer(:line) do |io|

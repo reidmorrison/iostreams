@@ -1016,6 +1016,20 @@ class TabularTest < Minitest::Test
       end
     end
 
+    describe ".unread_row_index" do
+      it "returns the index of the first row that the parser does not read, or nil when it reads them all" do
+        csv = IOStreams::Tabular::Parser::Csv
+
+        assert_nil csv.unread_row_index([])
+        assert_nil csv.unread_row_index(%w[a b])
+        assert_nil csv.unread_row_index([nil, "a", %w[b], nil])
+        assert_equal 0, csv.unread_row_index([{"a" => 1}, "b"])
+        assert_equal 2, csv.unread_row_index(["a", "b", 3])
+        assert_equal 1, IOStreams::Tabular::Parser::Array.unread_row_index([%w[a], "b"])
+        assert_nil IOStreams::Tabular::Parser::Hash.unread_row_index([{"a" => 1}, nil, %w[b]])
+      end
+    end
+
     describe ".parser_of" do
       it "returns the parser class of a registered format, and nil for nil or a format that is not registered" do
         assert_same IOStreams::Tabular::Parser::Csv, IOStreams::Tabular.parser_of(:csv)

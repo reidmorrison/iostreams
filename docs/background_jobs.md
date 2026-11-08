@@ -773,8 +773,9 @@ A slice holds its rows, and is responsible for them and their numbers, so it is 
   schema.
 * `slice[index] = row` replaces a row, such as to correct one that could not be processed, and it keeps the numbers of
   the row that it replaces.
-* A row is in the form that the format of the slice reads: a line of text of CSV, PSV, fixed width or `:text`, a Hash
-  of `:hash` or Parquet, and either of JSON, while every format reads an Array of the values of a row, and `nil`, a
+* A row is in the form that the format of the slice reads: a line of text of CSV, PSV, fixed width or `:text`, an
+  Array of the values of a row of `:array`, a Hash of `:hash` or Parquet, and a line of JSON or a Hash of JSON, while
+  `:hash`, Parquet and JSON also read an Array of the values of the fields of a schema, and every format reads `nil`, a
   blank row. So `IOStreams.slice`, `slice.add`, `slice[index] = row` and `slice.with_rows` raise `ArgumentError` for a
   row of another form, such as a line of text in a slice of `:hash`, or a Hash in a slice of CSV, naming its class and
   index, rather than store a slice that a job could not read.

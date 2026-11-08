@@ -26,6 +26,11 @@ module IOStreams
           row.is_a?(::Hash) || row.is_a?(::Array) || row.nil?
         end
 
+        # Returns [String] the rows that the format reads, see .row?.
+        def self.rows_read
+          "a Hash of its record, or, with a schema, an Array of the values of its fields"
+        end
+
         # Returns [Hash] the record supplied, or the row supplied, an Array that is already parsed, as it is, see
         # `IOStreams::Tabular#record_parse`.
         def parse(row)

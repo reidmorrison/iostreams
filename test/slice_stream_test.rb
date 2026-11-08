@@ -306,6 +306,42 @@ class SliceStreamTest < Minitest::Test
         end
       end
 
+      describe "of a slice that holds a blank row, nil" do
+        let(:arrays) do
+          IOStreams::Slice.new([["Jack", 21], nil, ["Jill", 22]], header: %w[name age].freeze, format: :array,
+                                                                  record_number: 1)
+        end
+        let(:records) do
+          rows = [{"name" => "Jack", "age" => 21}, nil, {"name" => "Jill", "age" => 22}]
+          IOStreams::Slice.new(rows, format: :hash, record_number: 1)
+        end
+
+        it "reads nil for the blank row" do
+          [arrays, records].each do |blank|
+            assert_equal [people.first, nil, people.last], each(IOStreams.stream(blank).schema(schema)), blank.format
+          end
+        end
+
+        it "reads its rows into slices again, which hold the blank row as nil, with its record number" do
+          [arrays, records].each do |blank|
+            list = []
+            IOStreams.stream(blank).each(:slice, size: 10) { |part| list << part }
+
+            assert_equal [blank.each.to_a], list.map { |part| part.each.to_a }, blank.format
+            assert_equal [people.first, nil, people.last], each(IOStreams.stream(list.first).schema(schema)), blank.format
+          end
+        end
+
+        it "resumes at the blank row" do
+          [arrays, records].each do |blank|
+            list = []
+            IOStreams.stream(blank).each(:slice, size: 10, resume_at: 2) { |part| list << part }
+
+            assert_equal [[nil, nil, 2], [blank[2], nil, 3]], list.first.each.to_a, blank.format
+          end
+        end
+      end
+
       describe "of a slice without a header row" do
         let(:in_order) { schema.merge("fieldsMatch" => "exact") }
         let(:headerless) { in_order.merge("header" => false) }

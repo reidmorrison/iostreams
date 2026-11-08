@@ -227,7 +227,9 @@ module IOStreams
       @line_number   = checked_number("line_number", line_number)
       @record_number = checked_number("record_number", record_number)
       @jumps         = nil
-      @rows.each_with_index { |row, index| invalid_row(row, index) unless @parser.nil? || @parser.row?(row) }
+      if @parser && (index = @parser.unread_row_index(@rows))
+        invalid_row(@rows[index], index)
+      end
       check_numbers_of_rows
       follow_last_row
     end
@@ -1132,12 +1134,13 @@ module IOStreams
     end
 
     # Raises ArgumentError for the supplied row, at the supplied index, which the format of the slice does not read, see
-    # `IOStreams::Tabular::Parser::Base.row?`, naming its class and the format, before it is added, see #add.
+    # `IOStreams::Tabular::Parser::Base.row?`, naming its class, the format, and the rows that the format reads, before
+    # it is added, see #add, or FrozenError once the slice is frozen, which is checked first, as for any change.
     def invalid_row(row, index)
-      raise(ArgumentError, "The row at index #{index} of a slice of the #{@format.inspect} format is a " \
-                           "#{row.class.name}, which that format does not read: add each row as the format holds it, " \
-                           "such as a line of text for CSV, a Hash for :hash, or an Array of its values, which every " \
-                           "format reads")
+      check_frozen
+      raise(ArgumentError, "The row at index #{index} of a slice of the #{@format.inspect} format is of class " \
+                           "#{row.class.name || row.class.inspect}, which that format does not read: add each row as " \
+                           "#{@parser.rows_read}, or nil for a blank row")
     end
 
     # Raises FrozenError once the slice is frozen, before it is changed.

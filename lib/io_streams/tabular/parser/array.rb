@@ -16,6 +16,11 @@ module IOStreams
           row.is_a?(::Array) || row.nil?
         end
 
+        # Returns [String] the rows that the `:array` format reads, see .row?.
+        def self.rows_read
+          "an Array of its values"
+        end
+
         # Returns Array
         def parse(row)
           raise(IOStreams::Errors::TypeMismatch, "Format is :array. Invalid input: #{row.class.name}") unless row.is_a?(::Array)
