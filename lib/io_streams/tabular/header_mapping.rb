@@ -156,14 +156,16 @@ module IOStreams
 
       # Returns [Array] the values of the line as the parser parses them, or nil when it is blank. For a format of keyed
       # records, such as JSON, the values of the record of the line in the order of the columns of the rows, see
-      # #row_of, or nil for a record without keys, such as `{}`, or a row already read, an Array, as it is.
+      # #row_of, or nil for a record without keys, such as `{}`, or a row already read, an Array, as it is. When blank
+      # rows are records, a row without values, such as the `[]` that PSV parses from `|`, is a nil for each column,
+      # see #record_row, as CSV parses `,`, so that it is written as a record, such as by a writer of slices to JSON.
       #
       # Raises `IOStreams::Errors::MissingHeader` for a record before the columns of the rows are known, see #read_header.
       def row_parse(line)
         values = parse(line)
-        return values unless @keyed && values.is_a?(::Hash)
+        return row_of(values) if @keyed && values.is_a?(::Hash)
 
-        row_of(values)
+        @blank_rows ? values : record_row(values)
       end
 
       # Returns [Hash] the record of the line, by the columns, see `IOStreams::Tabular::Header#to_hash`, or nil when it
@@ -180,9 +182,12 @@ module IOStreams
       # `IOStreams::Tabular::Header#to_hash`, for a format of keyed records, such as JSON, otherwise its values in the
       # order of the columns, see `IOStreams::Tabular::Header#to_array`, see `IOStreams::Tabular::Parser::Base.keyed?`.
       # Returns nil for a row or record without values, `[]` or `{}`, which is written as a blank line, unless blank rows
-      # are records, see `IOStreams::Tabular::Mapping#initialize`, when it is rendered by the columns as any other.
+      # are records, see `IOStreams::Tabular::Mapping#initialize`, when it is rendered by the columns as any other, a
+      # row without values as a nil for each column, see #record_row, such as `,` for CSV, rather than a blank line.
       def render(row)
         return if @blank_rows && IOStreams::Utils.blank?(row)
+
+        row = record_row(row) unless @blank_rows
 
         # The columns of a format of keyed records, such as JSON, are known once the first row gives them, when the record
         # written has every one of them, otherwise its keys are its columns.
@@ -226,6 +231,16 @@ module IOStreams
         columns = header.columns
         record  = values.each_with_index.to_h { |value, index| [columns[index] || index, value] }
         IOStreams::Tabular::Parser::Json.named_error(error, record)
+      end
+
+      # Returns [Array] the supplied row, or for a row without values, `[]`, of a format whose rows are not keyed, once the
+      # columns are known, a nil for each column, so that it is a record of the columns, as a schema renders it, rather
+      # than a blank row, see #render and #row_parse. Only for blank rows that are records, see
+      # `IOStreams::Tabular::Mapping#initialize`, which the callers check.
+      def record_row(row)
+        return row unless !@keyed && row.is_a?(::Array) && row.empty? && header.columns
+
+        Array.new(header.columns.size)
       end
 
       # The plan of a record whose keys are the columns of the rows, in order, whose values are its row, see #row_plan.
