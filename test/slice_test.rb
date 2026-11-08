@@ -344,6 +344,32 @@ class SliceTest < Minitest::Test
         assert_equal(-4 * 3600, copy.rows.first[1].utc_offset)
       end
 
+      it "holds an integer that BSON cannot hold, outside of a signed 64 bit integer, as its digits, which come back as it" do
+        big   = {fields: [{name: "id", type: "integer"}, {name: "ids", type: "list", itemType: "integer"}]}
+        slice = IOStreams::Slice.new([{"id" => 2**70, "ids" => [2**63, (2**63) - 1]}, {"id" => -(2**63), "ids" => [-(2**63) - 1]}],
+                                     format: :hash, schema: big)
+
+        assert_equal [{"id" => "1180591620717411303424", "ids" => ["9223372036854775808", 9_223_372_036_854_775_807]},
+                      {"id" => -9_223_372_036_854_775_808, "ids" => ["-9223372036854775809"]}], slice.to_h["rows"]
+        assert_equal slice, IOStreams.slice(slice.to_h)
+        assert_equal slice, IOStreams.slice(JSON.parse(JSON.generate(slice.to_h)))
+        copy = IOStreams.slice(JSON.parse(JSON.generate(slice.to_h)))
+
+        assert_equal [2**63, (2**63) - 1], copy.rows.first["ids"]
+        assert_equal [Integer, Integer, Integer], [copy.rows.first["id"], *copy.rows.first["ids"]].map(&:class)
+      end
+
+      it "holds an Integer of a number field that BSON cannot hold as its digits, such as a decimal(20,0) column of a query" do
+        wide  = {fields: [{name: "id", type: "number", decimals: 0}]}
+        slice = IOStreams::Slice.new([[(2**64) - 1], [7]], header: %w[id], format: :array, schema: wide)
+
+        assert_equal [["18446744073709551615"], [7]], slice.to_h["rows"]
+        copy = IOStreams.slice(JSON.parse(JSON.generate(slice.to_h)))
+
+        assert_equal [[BigDecimal("18446744073709551615")], [BigDecimal("7")]], copy.rows
+        assert_instance_of BigDecimal, copy.rows.first.first
+      end
+
       it "holds the values of rows without a header row in the positions of every field, past a field that is skipped" do
         layout = {header: false, fields: [{name: "name"}, {name: "x", skip: true}, {name: "on", type: "date"},
                                           {name: "amount", type: "number", decimals: 2}]}
