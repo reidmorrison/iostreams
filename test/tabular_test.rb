@@ -1009,7 +1009,11 @@ class TabularTest < Minitest::Test
             if parser_class.row?(row)
               refute_nil parser.parse(row), "#{format} #{row.inspect}"
             else
-              assert_raises(IOStreams::Errors::TypeMismatch, "#{format} #{row.inspect}") { parser.parse(row) }
+              # Each row of :text is one value, so it parses an Array of several values, but cannot write it.
+              written = format == :text && row.is_a?(Array)
+              assert_raises(IOStreams::Errors::TypeMismatch, "#{format} #{row.inspect}") do
+                written ? parser.render(row) : parser.parse(row)
+              end
             end
           end
         end

@@ -960,7 +960,7 @@ class SliceTest < Minitest::Test
         json:    [[%({"name":"Jack"}), {"name" => "Jack"}, ["Jack", 21], nil], [21, :jack]],
         parquet: [[{"name" => "Jack"}, ["Jack", 21], nil], [%({"name":"Jack"}), 21]],
         psv:     [["Jack|21", ["Jack", 21], nil], [{"name" => "Jack"}, 21]],
-        text:    [["Jack", ["Jack"], nil], [{"name" => "Jack"}, 21]]
+        text:    [["Jack", ["Jack"], [], nil], [{"name" => "Jack"}, %w[Jack 21], 21]]
       }.freeze
 
       it "covers every format" do
@@ -989,7 +989,7 @@ class SliceTest < Minitest::Test
                      "not read: add each row as an Array of its values, or nil for a blank row", error.message
 
         error = assert_raises(ArgumentError) { IOStreams::Slice.new([21], format: :csv) }
-        assert_match(/add each row as a line of text, or nil for a blank row\z/, error.message)
+        assert_match(/add each row as a line of text, or an Array of its values, or nil for a blank row\z/, error.message)
 
         error = assert_raises(ArgumentError) { IOStreams::Slice.new(["Jack,21"], format: :hash) }
         assert_match(/add each row as a Hash of its record, or, with a schema, an Array of the values of its fields, /,

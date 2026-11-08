@@ -61,6 +61,127 @@ class SliceWriterTest < Minitest::Test
 
         assert_equal json, write(slices(json, format: :json), format: :json)
       end
+
+      describe "that holds rows already parsed" do
+        let(:mixed) do
+          IOStreams::Slice.new([["Jill", 22], "Jack,21", ["Bob, Jr.", nil], nil, %W[Joe line\nbreak]],
+                               header: %w[Name AGE].freeze, format: :csv)
+        end
+
+        it "writes an Array as the format writes a row, in the columns of the header row, and a line as it is" do
+          written = write([mixed])
+
+          assert_equal %(Name,AGE\nJill,22\nJack,21\n"Bob, Jr.",\n\nJoe,"line\nbreak"\n), written
+          rows = []
+          IOStreams.stream(StringIO.new(written)).format(:csv).each(:array) { |row| rows << row }
+
+          assert_equal [%w[Name AGE], %w[Jill 22], %w[Jack 21], ["Bob, Jr.", nil], nil, %W[Joe line\nbreak]], rows
+        end
+
+        it "writes them in the columns of the header row, matched to the schema, also with validate: true" do
+          ordered = IOStreams::Slice.new([%w[21 Jack], "22,Jill"], header: %w[AGE Name].freeze, format: :csv)
+          equal   = schema.merge("fieldsMatch" => "equal", "fields" => [{"name" => "name"}, {"name" => "age"}])
+
+          assert_equal "AGE,Name\n21,Jack\n22,Jill\n", write([ordered], schema: equal, validate: true)
+        end
+
+        it "writes an Array of a slice of :text as its one value" do
+          text = IOStreams::Slice.new([["a@example.com"], "b@example.com", nil], format: :text)
+
+          assert_equal "a@example.com\nb@example.com\n\n", write([text], format: :text)
+        end
+
+        it "writes an Array of a slice without a header row in the order of the fields of the schema" do
+          fixed = {"fields" => [{"name" => "name", "width" => 5}, {"name" => "age", "width" => 3}]}
+          rows  = IOStreams::Slice.new([%w[Jill 22], "Jack 21 "], format: :fixed)
+
+          assert_equal "Jill 22 \nJack 21 \n", write([rows], format: :fixed, schema: fixed)
+        end
+
+        it "writes a Hash of a slice of JSON as a record, and an Array by the fields of the schema" do
+          records = IOStreams::Slice.new([%({"name":"Jack"}), {"name" => "Jill"}], format: :json)
+
+          assert_equal %({"name":"Jack"}\n{"name":"Jill"}\n), write([records], format: :json)
+
+          values = IOStreams::Slice.new([["Jill", 22]], format: :json)
+          [{}, {validate: true}].each do |options|
+            error = assert_raises(ArgumentError) { write([values], format: :json, **options) }
+            assert_match(/\AA row of the :json format that is already parsed, an Array of values, has no keys/,
+                         error.message)
+          end
+          assert_equal %({"first_name":"Jill","age":22}\n), write([values], format: :json, schema: schema)
+        end
+
+        it "writes each value of an Array by the field of its column, such as in its format, as a line of it is read" do
+          paid = {"fields" => [{"name" => "paid", "type" => "boolean", "trueValues" => ["Y"], "falseValues" => ["N"]},
+                               {"name" => "due", "type" => "date", "format" => "%m/%d/%Y"}]}
+          rows = IOStreams::Slice.new([[true, Date.new(2026, 1, 2)], "N,03/04/2026"], header: %w[paid due].freeze,
+                                                                                      format: :csv)
+
+          assert_equal "paid,due\nY,01/02/2026\nN,03/04/2026\n", write([rows], schema: paid)
+        end
+
+        it "writes the value of a column that no field matched as it is" do
+          subset = {"fieldsMatch" => "subset", "fields" => [{"name" => "age", "type" => "integer"}]}
+          rows   = IOStreams::Slice.new([["Jill", 22]], header: %w[name age].freeze, format: :csv)
+
+          assert_equal "name,age\nJill,22\n", write([rows], schema: subset)
+        end
+
+        it "raises InvalidValue for a value that its field cannot hold, naming its record and line" do
+          headerless = {"header" => false, "fields" => [{"name" => "name"}, {"name" => "age", "type" => "integer"}]}
+          rows       = IOStreams::Slice.new(["Jack,21", %w[Jill abc]], format: :csv, line_number: 4, record_number: 3)
+
+          error = assert_raises(IOStreams::Errors::InvalidValue) { write([rows], schema: headerless) }
+          assert_equal 4, error.record_number
+          assert_equal 5, error.line_number
+          assert_match(/\AField "age": "abc" is not a valid integer, in record 4 on line 5/, error.message)
+        end
+
+        it "raises InvalidHeader for an Array with a value after the last column, as reading it does" do
+          rows  = IOStreams::Slice.new([%w[Jill 22 x]], header: %w[name age].freeze, format: :csv, record_number: 1)
+          equal = {"fieldsMatch" => "equal", "fields" => [{"name" => "name"}, {"name" => "age"}]}
+
+          error = assert_raises(IOStreams::Errors::InvalidHeader) { write([rows], schema: equal) }
+          assert_equal 1, error.record_number
+        end
+
+        it "writes a row without values as writer(:array) and writer(:hash) write it" do
+          records = IOStreams::Slice.new([{"a" => 1, "b" => 2}, {}], format: :json)
+          ab      = {"fields" => [{"name" => "a"}, {"name" => "b"}]}
+
+          assert_equal %({"a":1,"b":2}\n\n), write([records], format: :json, schema: ab)
+          assert_equal %({"a":1,"b":2}\n\n), write([records], format: :json)
+
+          required = {"header" => false, "fields" => [{"name" => "a", "constraints" => {"required" => true}}, {"name" => "b"}]}
+          error    = assert_raises(IOStreams::Errors::InvalidValue) do
+            write([IOStreams::Slice.new(["x,y", []], format: :csv)], schema: required)
+          end
+          assert_match(/\AField "a" is required/, error.message)
+        end
+
+        it "writes an Array of a slice of JSON by position, holding the place of a field that is skipped, as it is read" do
+          skips = {"fields" => [{"name" => "a"}, {"name" => "x", "skip" => true}, {"name" => "b", "type" => "integer"}]}
+          rows  = IOStreams::Slice.new([%w[A X 2], ["A"]], format: :json)
+
+          assert_equal %({"a":"A","b":2}\n{"a":"A","b":null}\n), write([rows], format: :json, schema: skips)
+          assert_equal %({"a":"A","b":2}\n{"a":"A","b":null}\n), write([rows], format: :json, schema: skips, validate: true)
+        end
+
+        it "names the column of a value that the format cannot write, as writer(:array) does" do
+          rows = IOStreams::Slice.new([["Jill", {"a" => Float::NAN}]], header: %w[name data].freeze, format: :csv)
+
+          error = assert_raises(IOStreams::Errors::InvalidValue) { write([rows]) }
+          assert_match(/\AField "data": JSON cannot hold a number that is not finite/, error.message)
+        end
+
+        it "checks the keys of the first record of a slice of JSON also after an Array" do
+          rows = IOStreams::Slice.new([["Jill", 3], %({"nme":"Jack","age":1})], format: :json)
+
+          error = assert_raises(IOStreams::Errors::InvalidHeader) { write([rows], format: :json, schema: schema) }
+          assert_match(/the key "nme" is not a field of the schema/, error.message)
+        end
+      end
     end
 
     describe "a slice in another format" do

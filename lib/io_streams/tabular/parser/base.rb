@@ -162,7 +162,8 @@ module IOStreams
         # read, where the slice was processed: a line of text, a String, a row already parsed, an Array, as every parser
         # takes one, or nil, a blank row. A format of keyed records, or of Ruby objects, reads other rows, see its own
         # `.row?`. It decides by the class of the row alone, never by its contents, so that rows of the class of one
-        # that it reads are read too, see .unread_row_index.
+        # that it reads are read too, see .unread_row_index, which a format that decides otherwise overrides, such as
+        # `:text`, see `IOStreams::Tabular::Parser::Text.row?`.
         #
         # Defined at the class level since it is a static property of the format, see `.quote_character`.
         def self.row?(row)
@@ -184,7 +185,7 @@ module IOStreams
         # Returns [String] the rows that this format reads, see .row?, as a slice that is given another says them, see
         # `IOStreams::Slice#add`.
         def self.rows_read
-          "a line of text"
+          "a line of text, or an Array of its values"
         end
 
         # Returns [true|false] whether a header row is required for this format.

@@ -257,16 +257,17 @@ module IOStreams
       # Matches the keys of the first record of a format of keyed records, such as JSON or Parquet, that is not blank to
       # the fields, as #record_parse would, without converting its values, so that a file whose records do not match the
       # schema raises before its rows are handed on without being parsed, see `IOStreams::Tabular#read_line`. The keys of
-      # the other records are matched when they are parsed. A row already read, an Array, has no keys.
+      # the other records are matched when they are parsed. A row already read, an Array, has no keys, so the keys of the
+      # first record after it are matched instead, as after a blank line.
       #
       # Raises `IOStreams::Errors::InvalidHeader` when they do not match, see `IOStreams::Schema::Columns#check_keys`.
       def check_keys(line)
         return if !@keyed || @keys_checked
 
         values = parse(line)
-        return if values.nil?
+        return unless values.is_a?(::Hash)
 
-        @columns.check_keys(values.keys) if values.is_a?(::Hash)
+        @columns.check_keys(values.keys)
         @keys_checked = true
         nil
       end
@@ -316,6 +317,15 @@ module IOStreams
       # is not blank, see #render, even when it supplies none of them.
       def render_fields(row)
         @parser.render(@columns.render(row, @form, @keyed))
+      end
+
+      # Returns [String|Array|Hash] the line that the parser renders for a row of the file that is already parsed, in the
+      # columns read, each value by its field, see `IOStreams::Schema::Columns#render_read`, see
+      # `IOStreams::Tabular#render_read`, or for a row without values, as #render renders it, see #render_blank.
+      def render_read(row)
+        return @columns.render_blank if @blank_rows && IOStreams::Utils.blank?(row)
+
+        @parser.render(@columns.render_read(row, @form, @keyed))
       end
 
       # Returns nil, the line of a blank row or record, which is written as a blank line.

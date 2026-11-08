@@ -138,6 +138,10 @@ module IOStreams
         raise(NotImplementedError, "#{self.class.name} does not implement #render_header")
       end
 
+      def render_read(_row)
+        raise(NotImplementedError, "#{self.class.name} does not implement #render_read")
+      end
+
       def cleanse_header!
         raise(NotImplementedError, "#{self.class.name} does not implement #cleanse_header!")
       end
