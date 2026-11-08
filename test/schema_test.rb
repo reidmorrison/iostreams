@@ -2239,6 +2239,47 @@ class SchemaTest < Minitest::Test
           assert_equal Date.new(2026, 2, 28), date.load("2026-02-28")
         end
 
+        it "reads the text that #dump gives a date or datetime whose year is outside 0 to 9999, which #cast does not" do
+          date     = field(type: "date", format: "%d/%m/%Y")
+          datetime = field(type: "datetime")
+
+          [Date.new(10_000, 1, 1), Date.new(-1, 1, 1), Date.new(-10_000, 12, 31), Date.new(123_456, 2, 29)].each do |value|
+            assert_equal value, date.load(date.dump(value))
+          end
+          [Time.utc(-1, 1, 1, 2, 3, 4.5r), Time.new(12_345, 6, 7, 8, 9, 10, "+05:30"), Time.utc(10_000, 1, 1)].each do |value|
+            loaded = datetime.load(datetime.dump(value))
+
+            assert_equal value, loaded
+            assert_equal value.utc?, loaded.utc?
+            assert_equal value.utc_offset, loaded.utc_offset
+          end
+
+          assert_equal "-0001-01-01", date.dump(Date.new(-1, 1, 1))
+          assert_equal "12345-06-07T08:09:10+05:30", datetime.dump(Time.new(12_345, 6, 7, 8, 9, 10, "+05:30"))
+          ["10000-02-30", "-0001-13-01", "+10000-01-01", "100000"].each do |text|
+            assert_raises(IOStreams::Errors::InvalidValue, text) { date.load(text) }
+          end
+          # -100 is a leap year of the Julian calendar, but not of the proleptic Gregorian calendar of Time.
+          ["-0100-02-29T00:00:00Z", "10000-01-01T24:00:00Z", "10000-01-01T00:00:00"].each do |text|
+            assert_raises(IOStreams::Errors::InvalidValue, text) { datetime.load(text) }
+          end
+          ["10000-01-01", "-0001-01-01"].each do |text|
+            assert_raises(IOStreams::Errors::InvalidValue, text) { field(type: "date").cast(text) }
+          end
+          assert_raises(IOStreams::Errors::InvalidValue) { datetime.cast("10000-01-01T00:00:00Z") }
+        end
+
+        it "reads the items of a list of dates or datetimes whose year is outside 0 to 9999 as #dump writes them" do
+          dates = field(type: "list", itemType: "date")
+          times = field(type: "list", itemType: "datetime")
+
+          assert_equal [Date.new(10_000, 1, 1), nil, Date.new(2026, 1, 2)],
+                       dates.load(dates.dump([Date.new(10_000, 1, 1), nil, Date.new(2026, 1, 2)]))
+          assert_equal [Time.utc(-1, 1, 1)], times.load(times.dump([Time.utc(-1, 1, 1)]))
+          error = assert_raises(IOStreams::Errors::InvalidValue) { dates.load(["10000-02-30"]) }
+          assert_equal "value", error.field
+        end
+
         it "checks the constraints of a date, datetime or time, as for any other type" do
           {
             field(type: "date", constraints: {maximum: "2026-01-01"})               => "2026-06-01",

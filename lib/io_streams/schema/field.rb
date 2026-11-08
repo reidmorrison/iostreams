@@ -339,6 +339,15 @@ module IOStreams
       # see #zero_offset? and #at_offset: `Z`, `UTC`, `UT`, and `-00:00`, `-0000` or `-00`, which RFC 3339 and RFC 2822
       # give a time in UTC whose local offset is not known.
       UTC_ZONE = /\A(?:Z|UTC?|-00(?::?00)?)\z/i
+      # The types whose values #dump writes as STORED_DATE or STORED_DATETIME when their year is outside 0 to 9999, which
+      # #load reads, also as the items of a list, see #stored_items.
+      STORED_YEAR_TYPES = %w[date datetime].freeze
+      # The ISO 8601 text that #dump gives a date or datetime whose year is outside 0 to 9999, which ISO 8601 writes
+      # with more than 4 digits or a minus sign, such as `10000-01-01` or `-0001-01-01T00:00:00Z`, which #load reads,
+      # see #stored_year_value, while the text of a file is read by DATE and DATETIME, whose years have 4 digits. The
+      # year, month and day are captured, and the offset of a datetime, which #dump always writes.
+      STORED_DATE     = /\A(-\d{4,}|\d{5,})-(\d{2})-(\d{2})\z/
+      STORED_DATETIME = /\A(-\d{4,}|\d{5,})-(\d{2})-(\d{2})T(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d+)?(Z|[+-]\d{2}:[0-5]\d)\z/
 
       # The date of a time of day, on which IOStreams and Active Record hold it, see .time_of_day and #time_of_day_text.
       TIME_OF_DAY_DATE = "2000-01-01"
@@ -642,9 +651,8 @@ module IOStreams
       # and "integer" for an Integer that BSON does not hold, see .stored_integer?, such as `2**70`. Returns nil for any
       # other value, which JSON holds as it is, such as a String, an Integer, a Float, true, false or nil, see
       # .stored_as_is?, or as its text, such as a Symbol, or within it, such as a Hash or an Array, as an object or array
-      # field holds it, see .json_data, and for a Time, a DateTime or a Date whose year, as its text writes it, see
-      # .written_time, is outside 0 to 9999, such as 10000 or -1, whose text, such as "10000-01-01", #load does not read,
-      # so that it comes back as its text rather than raise.
+      # field holds it, see .json_data. A Time, a DateTime or a Date of any year is kept, also one outside 0 to 9999,
+      # such as 10000 or -1, whose text, such as "10000-01-01", #load reads too.
       def self.kept_type(value)
         # A String first, the most common value of a field of type "any", whose values reach this method without
         # .stored_as_is?, see `IOStreams::Slice#dumped_rows`, so that it skips the checks below.
@@ -652,9 +660,8 @@ module IOStreams
         # Before the numbers, since a duration answers `is_a?(Integer)`.
         return "duration" if duration?(value)
         return stored_integer?(value) ? nil : "integer" if value.is_a?(Integer)
-        return iso_year?(written_time(value)) ? "datetime" : nil if value.is_a?(Time)
-        return iso_year?(written_time(time_of(value))) ? "datetime" : nil if value.is_a?(DateTime)
-        return iso_year?(value) ? "date" : nil if value.is_a?(Date)
+        return "datetime" if value.is_a?(Time) || value.is_a?(DateTime)
+        return "date" if value.is_a?(Date)
 
         "number" if value.is_a?(::BigDecimal)
       end
@@ -669,12 +676,6 @@ module IOStreams
         when Integer then stored_integer?(value)
         else false
         end
-      end
-
-      # Returns [true|false] whether ISO 8601 writes the year of the supplied Date or Time, as its text writes it, see
-      # .written_time, in the 4 digits that #load reads, from 0 to 9999, see .kept_type.
-      def self.iso_year?(value)
-        value.year.between?(0, 9999)
       end
 
       # Returns [true|false] whether JSON holds the value as its text, see .any_json.
@@ -999,7 +1000,7 @@ module IOStreams
       #
       # Raises `IOStreams::Errors::InvalidValue` as #restore does.
       def load(value)
-        return restore(value) unless value.is_a?(String)
+        return restore(stored_items(value)) unless value.is_a?(String)
 
         case type
         when "number" then cast_typed(NUMBER.match?(value) ? number(value) : special_number(value))
@@ -1008,6 +1009,19 @@ module IOStreams
         end
       rescue ArgumentError
         invalid(value)
+      end
+
+      # Returns the items of a list of dates or datetimes from the text that its item field dumps, see #load, so that an
+      # item of a year outside 0 to 9999, whose text #cast does not read, comes back, or the value as it is for any other
+      # field.
+      #
+      # Raises `IOStreams::Errors::InvalidValue` for an item that its field does not load, naming the list, as #cast does.
+      def stored_items(value)
+        return value unless type == "list" && value.is_a?(::Array) && STORED_YEAR_TYPES.include?(@item.type)
+
+        value.map { |item| item.is_a?(String) ? @item.load(item) : item }
+      rescue IOStreams::Errors::InvalidValue
+        invalid(value, "list of #{@item.type} items")
       end
 
       # Returns [Numeric] the number, of the type of this field, see #cast, rounded to its decimals as its text is
@@ -2075,10 +2089,39 @@ module IOStreams
       # Raises `IOStreams::Errors::InvalidValue` for a date that does not exist, a time that is not on a clock, and a
       # value that does not meet the constraints, as #cast does.
       def load_iso(text)
-        value = iso_value(text)
+        value = iso_value(text) || stored_year_value(text)
         return cast_typed(text) if value.nil?
 
         @checks ? @constraints.check(value, text) : value
+      end
+
+      # Returns [Date|Time|nil] the date or datetime of the ISO 8601 text that #dump gives one whose year is outside 0 to
+      # 9999, see STORED_DATE and STORED_DATETIME, such as `10000-01-01` or `-0001-01-01T00:00:00Z`, or nil for any
+      # other text, so that a slice holds such a value, see #load, while a field reads the text of a file by its 4
+      # digits, see #iso_value. A date is read with `Date.new`, as #cast_date_text reads one, and a datetime with
+      # `Time.iso8601`, once its date is checked in the calendar of `Time`, which moves a day that does not exist into
+      # the next month.
+      #
+      # Raises `Date::Error`, an ArgumentError, for a date that does not exist, which #load rescues.
+      def stored_year_value(text)
+        if type == "date"
+          match = STORED_DATE.match(text)
+          Date.new(*match.captures.map(&:to_i)) if match
+        elsif type == "datetime"
+          match = STORED_DATETIME.match(text)
+          stored_time(text, match) if match
+        end
+      end
+
+      # Returns [Time] the time of the text that STORED_DATETIME matched, see #stored_year_value, at its offset, or in
+      # UTC for Z, see #at_offset.
+      #
+      # Raises `Date::Error` for a date that does not exist.
+      def stored_time(text, match)
+        year, month, day = match.captures.first(3).map(&:to_i)
+        raise(Date::Error, "invalid date") unless Date.valid_date?(year, month, day, Date::GREGORIAN)
+
+        at_offset(Time.iso8601(text), match[4])
       end
 
       # Returns [Time|nil] the time of the ISO 8601 text of a datetime, see DATETIME, or nil for other text, or for a date

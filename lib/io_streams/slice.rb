@@ -598,8 +598,8 @@ module IOStreams
     # and keeps its type: a Time, a Date, a BigDecimal, an `ActiveSupport::Duration` and an Integer outside of a signed
     # 64 bit integer, such as `2**70`, which neither of them holds as it is, as their text, see
     # `IOStreams::Schema::Field.kept_type`, which `"types"` says the type of, so that `IOStreams.slice` turns each one
-    # back into it, a DateTime into a Time, apart from a date or time whose year is outside 0 to 9999, such as 10000,
-    # which stays its text, and any other value as JSON holds it, such as a Symbol as its text, and each
+    # back into it, a DateTime into a Time, also of a year outside 0 to 9999, such as 10000, and any other value as JSON
+    # holds it, such as a Symbol as its text, and each
     # key and value within a Hash or an Array, which an object or array field reads as JSON holds it, so that an Integer
     # within one that BSON does not hold, such as `2**70`, is held as it is, which only JSON can store:
     # - `"types"`, only when it holds such a value: `[column, type]` for each column whose every value that is not nil

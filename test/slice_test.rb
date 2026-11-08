@@ -561,23 +561,40 @@ class SliceTest < Minitest::Test
                      IOStreams.slice(rows.merge("schema" => {"fields" => [{"name" => "on"}]}, "types" => [[0, "date"]])).rows.first.first
       end
 
-      it "holds a date or a time whose year ISO 8601 does not write in 4 digits as its text, which comes back as text" do
-        rows  = [[Date.new(10_000, 1, 1), Time.utc(-1, 1, 1), Date.new(2026, 1, 2)]]
-        slice = IOStreams::Slice.new(rows, header: %w[a b c], format: :array)
+      it "keeps a date or a time whose year ISO 8601 writes in more than 4 digits, or with a minus sign" do
+        rows  = [[Date.new(10_000, 1, 1), Time.utc(-1, 1, 1, 9, 30, 0.25r), Date.new(-10_000, 12, 31),
+                  Time.new(12_345, 6, 7, 8, 9, 10, "+05:30"), Date.new(2026, 1, 2)]]
+        slice = IOStreams::Slice.new(rows, header: %w[a b c d e], format: :array)
         hash  = slice.to_h
 
-        assert_equal [[2, "date"]], hash["types"]
-        assert_equal [["10000-01-01", "-0001-01-01T00:00:00Z", Date.new(2026, 1, 2)]], IOStreams.slice(hash).rows
+        assert_equal [["10000-01-01", "-0001-01-01T09:30:00.250Z", "-10000-12-31", "12345-06-07T08:09:10+05:30", "2026-01-02"]],
+                     hash["rows"]
+        assert_equal [[0, "date"], [1, "datetime"], [2, "date"], [3, "datetime"], [4, "date"]], hash["types"]
+        restored = IOStreams.slice(JSON.parse(JSON.generate(hash))).rows
+
+        assert_equal rows, restored
+        assert_equal 19_800, restored.first[3].utc_offset
       end
 
-      it "judges the year of a time as its text writes it, in UTC when its offset has seconds, such as a local mean time" do
+      it "turns back a date or datetime field whose year is outside 0 to 9999, as #to_h holds it" do
+        schema = {fields: [{name: "on", type: "date"}, {name: "at", type: "datetime"}]}
+        rows   = [[Date.new(10_000, 1, 1), Time.utc(-1, 1, 1)], [Date.new(-1, 12, 31), Time.new(12_345, 6, 7, 8, 9, 10, "+05:30")]]
+        slice  = IOStreams::Slice.new(rows, header: %w[on at], format: :array, schema: schema)
+        hash   = slice.to_h
+
+        assert_equal [%w[10000-01-01 -0001-01-01T00:00:00Z], %w[-0001-12-31 12345-06-07T08:09:10+05:30]], hash["rows"]
+        assert_equal slice, IOStreams.slice(JSON.parse(JSON.generate(hash)))
+      end
+
+      it "keeps a time whose offset has seconds as the same time in UTC, such as a local mean time" do
         rows  = [[Time.new(0, 1, 1, 0, 0, 0, "+00:00:30"), Time.new(9999, 12, 31, 23, 59, 50, "-00:00:30"),
                   DateTime.new(0, 1, 1, 0, 0, 0, Rational(30, 86_400)), Time.new(1900, 1, 1, 0, 0, 0, "+05:21:10")]]
         slice = IOStreams::Slice.new(rows, header: %w[a b c d], format: :array)
         hash  = slice.to_h
 
-        assert_equal [[3, "datetime"]], hash["types"]
-        assert_equal ["-0001-12-31T23:59:30Z", "10000-01-01T00:00:20Z", "-0001-12-31T23:59:30Z", Time.utc(1899, 12, 31, 18, 38, 50)],
+        assert_equal [[0, "datetime"], [1, "datetime"], [2, "datetime"], [3, "datetime"]], hash["types"]
+        assert_equal [Time.utc(-1, 12, 31, 23, 59, 30), Time.utc(10_000, 1, 1, 0, 0, 20), Time.utc(-1, 12, 31, 23, 59, 30),
+                      Time.utc(1899, 12, 31, 18, 38, 50)],
                      IOStreams.slice(JSON.parse(JSON.generate(hash))).rows.first
       end
 
