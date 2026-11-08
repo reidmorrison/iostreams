@@ -44,12 +44,20 @@ module IOStreams
         @tabular.start_records { |line| @line_writer << line }
       end
 
-      # Writes the record, after the header line that the keys of the first record give, when no schema gives it, see
-      # `IOStreams::Tabular#render_record`.
+      # Writes the record, a Hash, or nil for a record without values, which is written as `{}` is, after the header line
+      # that the keys of the first record give, when no schema gives it, see `IOStreams::Tabular#render_record`. A record
+      # without values is a blank row, as `each(:hash)` reads a blank line, nil, which a file of lines writes as a blank
+      # line, while a format whose every row is a record, such as Parquet, or a store of slices, writes it as a record
+      # without values, and a required field raises `IOStreams::Errors::InvalidValue` for it.
       #
       # Returns self, so that calls can be chained.
+      #
+      # Raises ArgumentError for anything else, such as an Array, which `writer(:array)` takes.
       def <<(hash)
-        raise(ArgumentError, "#<< only accepts a Hash argument") unless hash.is_a?(Hash)
+        hash = {} if hash.nil?
+        unless hash.is_a?(Hash)
+          raise(ArgumentError, "Supply a Hash of the values of a record, or nil, not a #{hash.class.name}")
+        end
 
         @tabular.render_record(hash) { |line| @line_writer << line }
         self

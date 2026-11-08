@@ -100,7 +100,8 @@ Without a [schema](schemas), every value is read as text, and written as its tex
   its header row, can be written to another, whatever their formats. A header row after the first row, such as that
   of a second file, is written as a row of values, since its columns cannot be matched to those of the file without a
   [schema](schemas), which takes it as the header row of the rows after it.
-* A blank row, such as an empty line or a line of only commas, is yielded as `nil`, unless `skip_blanks: true`, see
+* A blank row, such as an empty line or a line of only commas, is yielded as `nil`, unless `skip_blanks: true`, and
+  `nil` written with `writer(:array)` or `writer(:hash)` is written as a row or record without values, see
   [Blank rows](streams#blank-rows).
 
 ## CSV and PSV files

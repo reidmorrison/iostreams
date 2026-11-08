@@ -210,10 +210,9 @@ module IOStreams
         return unless @requires_header || (@keyed && columns)
 
         if IOStreams::Utils.blank?(header.columns)
-          raise(
-            Errors::MissingHeader,
-            "Header columns must be set before attempting to render a header for format: #{@format.inspect}"
-          )
+          raise(Errors::MissingHeader, "The header row of the #{@format.inspect} format needs columns, which without a " \
+                                       "schema are the first row written, or the keys of the first record, which has " \
+                                       "none, such as nil, [] or {}")
         end
 
         @parser.render(header.columns) if @requires_header

@@ -1051,7 +1051,8 @@ class StreamTest < Minitest::Test
             end
           end
 
-          assert_equal "Header columns must be set before attempting to render a header for format: :csv", error.message
+          assert_equal "The header row of the :csv format needs columns, which without a schema are the first row " \
+                       "written, or the keys of the first record, which has none, such as nil, [] or {}", error.message
           assert_equal "", io.string
         end
 
@@ -1090,7 +1091,8 @@ class StreamTest < Minitest::Test
             end
           end
 
-          assert_equal "Header columns must be set before attempting to render a header for format: :json", error.message
+          assert_equal "The header row of the :json format needs columns, which without a schema are the first row " \
+                       "written, or the keys of the first record, which has none, such as nil, [] or {}", error.message
           assert_equal "", io.string
         end
 
@@ -1159,7 +1161,8 @@ class StreamTest < Minitest::Test
             end
           end
 
-          assert_equal "Header columns must be set before attempting to render a header for format: :csv", error.message
+          assert_equal "The header row of the :csv format needs columns, which without a schema are the first row " \
+                       "written, or the keys of the first record, which has none, such as nil, [] or {}", error.message
           assert_equal "", io.string
         end
 
