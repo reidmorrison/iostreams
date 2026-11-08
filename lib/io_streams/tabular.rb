@@ -359,8 +359,13 @@ module IOStreams
     # in the zone of the field of this tabular's schema that reads it, before the row is parsed, see #record_parse, as
     # every reader of rows and records, of a file or a slice, parses them, see
     # `IOStreams::Tabular::Parser::Base.clocks`. The block is called only for such a format, with a schema.
-    def read_declared(&)
-      @clocks = parser.class.clocks(schema, &)
+    #
+    # The clocks are read by the supplied schema instead, when there is one, such as the schema of the target that a copy
+    # writes the rows to, which the stream that reads them supplies when it has neither a schema nor a contract of its
+    # own, see `IOStreams::Stream#reading_clocks_by`, so that a copy writes the clock that reading by the target's
+    # fields reads, rather than take the clock in UTC for the time that it is.
+    def read_declared(clocks_schema = nil, &)
+      @clocks = parser.class.clocks(clocks_schema || schema, &)
       nil
     end
 

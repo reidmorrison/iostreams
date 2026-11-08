@@ -292,6 +292,80 @@ class ParquetTest < Minitest::Test
 
         assert_equal "id,at\n0,09:30:15.123456\n1,23:45:00\n2,09:30:00.250\n3,\n", csv.read
       end
+
+      describe "copied into a file whose time field has a timeZone" do
+        let :new_york do
+          {fields: [{name: "id", type: "integer"}, {name: "at", type: "time", timeZone: "America/New_York"}]}
+        end
+
+        # The clocks of the file, which a time field in New York writes as they are.
+        let :clocks_text do
+          "id,at\n0,09:30:15.123456\n1,23:45:00\n2,09:30:00.250\n3,\n"
+        end
+
+        # Returns [String] the text of a CSV file that the records of the source, read through the contract of the
+        # target, are written to through it, which a copy writes too.
+        def read_then_write(source, contract)
+          records = []
+          source.as(contract).each(:hash) { |record| records << record }
+          csv = path("read-then-written.csv").as(contract)
+          csv.writer(:hash) { |writer| records.each { |record| writer << record } }
+          csv.read
+        end
+
+        it "writes the clock that the file holds, as reading it through the contract of the target does, in every mode" do
+          [nil, :array, :hash].each do |mode|
+            csv = path("times-#{mode}.csv").as(new_york)
+            csv.copy_from(path, mode: mode)
+
+            assert_equal clocks_text, csv.read, mode.inspect
+          end
+          assert_equal clocks_text, read_then_write(path, new_york)
+        end
+
+        it "writes the clock with a schema of the file written" do
+          csv = path("times.csv").schema(new_york)
+          csv.copy_from(path)
+
+          assert_equal clocks_text, csv.read
+        end
+
+        it "writes the clock of a slice of the file, which holds it as the file does" do
+          slices = []
+          path.each(:slice, size: 10) { |slice| slices << slice }
+          csv = path("times.csv").as(new_york)
+          csv.copy_from(IOStreams.stream(slices.first))
+
+          assert_equal clocks_text, csv.read
+        end
+
+        it "writes a time of a source with a schema of its own as that schema reads it, a clock in UTC without a zone" do
+          csv = path("times.csv").as(new_york)
+          csv.copy_from(path.schema(times))
+
+          # 09:30 in UTC is 04:30 in New York on 2000-01-01, as reading the source through the contract reads it.
+          assert_equal "id,at\n0,04:30:15.123456\n1,18:45:00\n2,04:30:00.250\n3,\n", csv.read
+          assert_equal csv.read, read_then_write(path.schema(times), new_york)
+        end
+
+        it "leaves the source as it is" do
+          source = path
+          path("times.csv").as(new_york).copy_from(source)
+
+          assert_nil source.schema
+          assert_equal(clocks, read(source).map { |record| record["at"] })
+        end
+      end
+    end
+
+    it "copies a datetime into a file whose datetime field has a timeZone as the time that it is" do
+      write
+      fields   = [{name: "id", type: "integer"}, {name: "at", type: "datetime", timeZone: "America/New_York"}]
+      contract = {fields: fields, fieldsMatch: "subset"}
+      csv = path("at.csv").as(contract)
+      csv.copy_from(path, mode: :hash)
+
+      assert_equal "id,at\n1,2026-10-13T00:30:00Z\n2,\n", csv.read
     end
 
     it "writes a duration as its ISO 8601 text, which a schema with the field reads back as a Duration" do

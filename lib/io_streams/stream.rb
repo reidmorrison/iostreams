@@ -488,6 +488,7 @@ module IOStreams
         mode ||= copy_mode(stream, args)
         if mode
           options = copy_options(mode, args)
+          stream  = stream.reading_clocks_by(copy_clocks_schema) unless mode == :line || open_writer?(mode)
           stream.reader(mode) { |rows| copy_rows(stream, rows, mode, options) }
         else
           stream.reader do |src|
@@ -916,6 +917,32 @@ module IOStreams
     def copy_contract
       tabular_settings.contract
     end
+
+    # Returns [IOStreams::Schema|nil] the schema whose `time` fields write the values of the rows that a copy writes to
+    # this stream, see #copy_from: the schema that was set, otherwise the schema of the contract, see #as, or nil without
+    # either. A copy reads the times of day that the source holds as clocks without a zone, such as those of a Parquet
+    # file, by its fields, see #reading_clocks_by, so that 09:30 is written as 09:30 in the zone of its field, as reading
+    # the source with this contract and then writing it does. Protected, see #copy_schema.
+    def copy_clocks_schema
+      tabular_settings.file_schema || tabular_settings.contract&.schema
+    end
+
+    # Returns [IOStreams::Stream] this stream, or a copy of it that reads the times of day that its rows hold as clocks
+    # without a zone, such as those of a Parquet file, by the `time` fields of the supplied schema, see
+    # `IOStreams::Tabular#read_declared`: the schema of the target of a copy, see #copy_clocks_schema, so that the copy
+    # writes the clock that the file holds, rather than take the clock in UTC for the time that it is, while this stream
+    # still reads the values of its rows as it does without a schema. This stream itself, which reads them by its own
+    # fields, when it has a schema or a contract, or without a supplied schema. Protected, see #copy_schema.
+    def reading_clocks_by(schema)
+      return self if schema.nil? || tabular_settings.file_schema || tabular_settings.contract
+
+      copy = dup
+      copy.clocks_schema = schema
+      copy
+    end
+
+    # Sets the schema that reads the times of day that the rows hold as clocks without a zone, see #reading_clocks_by.
+    attr_writer :clocks_schema
 
     # Raises ArgumentError, before the target of a copy is opened, see #copy_target, when nothing names the columns of the
     # supplied rows, see `IOStreams::Row::Reader#unnamed_columns?`, such as the rows of the :text format without a
@@ -1388,7 +1415,7 @@ module IOStreams
         return stream_reader do |io|
           tabular.read_rows(io, every_column: every_column) do |rows|
             tabular.check_declared_types { rows.declared_schema }
-            tabular.read_declared { rows.declared_schema }
+            tabular.read_declared(@clocks_schema) { rows.declared_schema }
             yield rows
           end
         end
