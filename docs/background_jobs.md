@@ -572,30 +572,24 @@ When a row fails, support staff need to find it in the file. A slice holds the n
 A value that is not valid raises `IOStreams::Errors::InvalidValue`, whose message names them already, such as
 `Field "born": "1990-02-30" is not a valid date, in record 2 on line 3`, and `on_invalid:` hands each bad row to a
 handler with its `#line_number` and `#record_number` instead, see
-[Values that are not valid](streams#values-that-are-not-valid). Name them in what the job reports for any other
+[Values that are not valid](streams#values-that-are-not-valid). `each_with_numbers` yields each record with them, see
+[Row and record numbers](streams#row-and-record-numbers), so that the job names them in what it reports for any other
 failure, such as of its own code:
 
 ~~~ruby
 def perform(rows)
   slice = IOStreams.slice(rows)
-  index = 0
-  IOStreams.stream(slice).as(PersonContract).each(:hash) do |person|
+  IOStreams.stream(slice).as(PersonContract).each_with_numbers(:hash) do |person, line_number, record_number|
     Person.upsert(person) if person
-    index += 1
+  rescue StandardError => e
+    raise(e.exception("Record #{record_number}, on line #{line_number} of the file: #{e.message}"))
   end
-rescue IOStreams::Errors::InvalidValue
-  raise
-rescue StandardError => e
-  raise unless slice && index < slice.size
-
-  record = slice.record_number_at(index)
-  line   = slice.line_number_at(index)
-  raise(e.exception("Record #{record}, on line #{line} of the file: #{e.message}"))
 end
 ~~~
 
-* A row that cannot be parsed raises before it is yielded, so `index` is the index of that row. A blank row is yielded
-  as `nil`, so it counts too, which is why this job does not skip blank rows with `skip_blanks: true`.
+* A row that cannot be parsed raises before it is yielded, outside the block, naming its record and line already, so
+  the block rescues only the failures of its own code. A blank row is yielded as `nil`, with its numbers, unless
+  `skip_blanks: true` skips it.
 * `slice.each { |row, line_number, record_number| }` yields each row as it is in the file, with its numbers, such as
   to list the rows of a slice that failed. `slice.line_number` and `slice.record_number` are those of its first row.
 * Rows that are not lines of a file have no line number, `nil`, only their record number: the rows of a Parquet file,

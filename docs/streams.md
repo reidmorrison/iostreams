@@ -174,6 +174,33 @@ end
 * `on_invalid:` only applies when reading, so `#writer` and `#copy_from` raise `ArgumentError` for it, and so does a
   handler that cannot be called, before the file is opened.
 
+### Row and record numbers
+
+`each_with_numbers` yields each row or record as `#each` does, in the `:array`, `:hash` or `:record` mode, with the
+line of the file that it starts on, and its record number, such as to say which row a program could not process:
+
+~~~ruby
+IOStreams.path("people.csv").each_with_numbers(:hash) do |person, line_number, record_number|
+  Person.create!(person)
+rescue ActiveRecord::RecordInvalid => e
+  puts "Record #{record_number}, on line #{line_number}: #{e.message}"
+end
+~~~
+
+* The line number counts from 1, the header row and blank lines included, as a text editor numbers them. A row whose
+  quoted value holds line breaks is on the line that it starts on. Rows that are not lines of a file have no line
+  number, `nil`, such as the rows of a Parquet file, a spreadsheet or a query.
+* The record number counts from 1, without the header row, blank rows included, as the slices of the file and an
+  `IOStreams::Errors::InvalidValue` number them. The header row that `:array` yields first has none, `nil`, and no line
+  number either when it is not a line of its own, such as the keys of the first record of JSON without a schema.
+* It takes the options of `#each` in that mode, such as `skip_blanks:`, `resume_at:` and `on_invalid:`, and every row
+  keeps the numbers of its file.
+* The rows of a slice, `IOStreams.stream(slice).each_with_numbers(:hash)`, have the numbers of their rows in the file
+  that the slice was read from, see [Find a row in the file](background_jobs#find-a-row-in-the-file).
+* `slice.each` yields the rows of a slice as they are with their numbers, and the line reader of `reader(:line)`
+  yields each line with its number, `each_with_line_number`, so `each_with_numbers` raises `ArgumentError` for the
+  `:slice` and `:line` modes. It needs a mode, and a block, as `#each` does.
+
 ### Resuming at a record
 
 `resume_at:` starts reading at the record of the number supplied, so that a job that stopped part way through a file,
@@ -205,9 +232,9 @@ end
 * A query is read again from its start, so give the relation an order, such as `order(:id)`, so that its rows come back
   in the same order each time. Without one, a database may return them in another order, so that the rows skipped are
   not those that were processed. `in_batches` reads each batch in the order of its primary key.
-* `each(:hash)` yields one record, or `nil` for a blank one, for each record, unless `skip_blanks: true`, so counting
-  the records yielded from `resume_at` gives the number of each one. Each slice holds the line and record number of
-  each of its rows in the file, see [Find a row in the file](background_jobs#find-a-row-in-the-file).
+* `each_with_numbers` yields the record number of each record from `resume_at` on, see
+  [Row and record numbers](#row-and-record-numbers). Each slice holds the line and record number of each of its rows in
+  the file, see [Find a row in the file](background_jobs#find-a-row-in-the-file).
 * A slice resumes at a record number that it holds, as `slice.each` gives them, such as
   `IOStreams.stream(slice).each(:hash, resume_at: 502)` for a slice of records 501 to 600, or at the record after its
   last, which reads no rows. A record between its first and last that it no longer holds, such as one removed with

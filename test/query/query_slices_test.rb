@@ -65,6 +65,19 @@ class QuerySlicesTest < Minitest::Test
         assert_equal expected.drop(1), each(IOStreams.stream(relation), :hash, resume_at: 2)
       end
 
+      it "numbers the records of the query, and of its stored slices, without lines, as a worker reads them" do
+        numbered = lambda do |stream, **options|
+          list = []
+          stream.each_with_numbers(:hash, **options) { |record, line_number, record_number| list << [record, line_number, record_number] }
+          list
+        end
+        expected_numbers = expected.each_with_index.map { |record, index| [record, nil, index + 1] }
+
+        assert_equal expected_numbers, numbered.call(IOStreams.stream(relation))
+        assert_equal expected_numbers.drop(1), numbered.call(IOStreams.stream(relation), resume_at: 2)
+        assert_equal(expected_numbers, stored_slices.flat_map { |slice| numbered.call(IOStreams.stream(slice)) })
+      end
+
       it "copies the records to a store of slices as lines of CSV, by the schema of the query" do
         store = Class.new do
           include IOStreams::Slice::Target

@@ -27,6 +27,18 @@ module IOStreams
         @reader.each { |record| yield(record && @contract.from_record(record)) }
       end
 
+      # Yields each record of the contract as #each does, with the line of the file that it starts on and its record
+      # number, see `IOStreams::Record::Reader#each_with_numbers`.
+      #
+      # Returns an Enumerator of the records and their numbers without a block.
+      def each_with_numbers
+        return enum_for(:each_with_numbers) unless block_given?
+
+        @reader.each_with_numbers do |record, line_number, record_number|
+          yield(record && @contract.from_record(record), line_number, record_number)
+        end
+      end
+
       # Returns [String] the class of the reader and its contract.
       def inspect
         "#<#{self.class.name} contract=#{@contract.inspect}>"
