@@ -428,12 +428,55 @@ class SliceTest < Minitest::Test
         refute slice.to_h.key?("types")
       end
 
-      it "raises for types of a column of a slice with a schema that has no field" do
-        hash  = {"rows" => [{"due" => "2026-01-02", "other" => "2026-01-03"}], "format" => "hash",
-                 "schema" => {"fields" => [{"name" => "due"}], "fieldsMatch" => "subset"}, "types" => [%w[other date]]}
-        error = assert_raises(ArgumentError) { IOStreams.slice(hash) }
+      it "turns back the types of a column of a slice with a schema that has no field, as of a field of type any" do
+        hash = {"rows" => [{"due" => "2026-01-02", "other" => "2026-01-03"}], "format" => "hash",
+                "schema" => {"fields" => [{"name" => "due"}], "fieldsMatch" => "subset"}, "types" => [%w[other date]]}
 
-        assert_match(/not "other", whose column has no field/, error.message)
+        assert_equal [{"due" => "2026-01-02", "other" => Date.new(2026, 1, 3)}], IOStreams.slice(hash).rows
+      end
+
+      describe "a value of a column that the schema does not list" do
+        let(:kept) { {fields: [{name: "id", type: "integer"}], fieldsMatch: "subset", extraColumns: "keep"} }
+
+        it "is held and typed as a value of a field of type any, by its column of the header row" do
+          rows  = [[1, Time.utc(2026, 1, 2, 3, 4, 5), BigDecimal("1.5"), :admin, {kind: :x}], [2, nil, "n/a", "y", [1]]]
+          slice = IOStreams::Slice.new(rows, header: %w[id at amount role data], format: :array, schema: kept)
+          hash  = slice.to_h
+
+          assert_equal [[1, "2026-01-02T03:04:05Z", "1.5", "admin", {"kind" => "x"}], [2, nil, "n/a", "y", [1]]], hash["rows"]
+          assert_equal [[1, "datetime"], [2, "number", [0]]], hash["types"]
+          assert_equal [[1, Time.utc(2026, 1, 2, 3, 4, 5), BigDecimal("1.5"), "admin", {"kind" => "x"}], [2, nil, "n/a", "y", [1]]],
+                       IOStreams.slice(JSON.parse(JSON.generate(hash))).rows
+        end
+
+        it "is held and typed as a value of a field of type any, by its key of a record" do
+          slice = IOStreams::Slice.new([{"id" => 1, "due" => Date.new(2026, 1, 2), extra: :x, 5 => Date.new(2026, 1, 3)}],
+                                       format: :hash, schema: kept)
+          hash  = slice.to_h
+
+          assert_equal [{"id" => 1, "due" => "2026-01-02", extra: "x", 5 => "2026-01-03"}], hash["rows"]
+          assert_equal [%w[due date]], hash["types"]
+          assert_equal [{"id" => 1, "due" => Date.new(2026, 1, 2), "extra" => "x", "5" => "2026-01-03"}],
+                       IOStreams.slice(JSON.parse(JSON.generate(hash))).rows
+        end
+
+        it "is held and typed as a value of a field of type any, past the fields of a row without a header row" do
+          slice = IOStreams::Slice.new([[1, Date.new(2026, 1, 2), 2**70]], format: :array, schema: kept)
+          hash  = slice.to_h
+
+          assert_equal [[1, "2026-01-02", (2**70).to_s]], hash["rows"]
+          assert_equal [[1, "date"], [2, "integer"]], hash["types"]
+          assert_equal slice, IOStreams.slice(JSON.parse(JSON.generate(hash)))
+        end
+
+        it "is held and typed as a value of a field of type any, in the place of a field with skip: true" do
+          schema = {fields: [{name: "id", type: "integer"}, {name: "ignored", skip: true}]}
+          slice  = IOStreams::Slice.new([[1, Date.new(2026, 1, 2)]], format: :array, schema: schema)
+          hash   = slice.to_h
+
+          assert_equal [[1, "date"]], hash["types"]
+          assert_equal slice, IOStreams.slice(JSON.parse(JSON.generate(hash)))
+        end
       end
 
       it "notes the type of a record that holds a key both as a String and as a Symbol once, which it turns back" do
@@ -556,7 +599,8 @@ class SliceTest < Minitest::Test
         error = assert_raises(ArgumentError) do
           IOStreams.slice(rows.merge("schema" => {"fields" => [{"name" => "on", "type" => "string"}]}, "types" => [[0, "date"]]))
         end
-        assert_match(/only the values of its fields of type "any", not 0, whose field is of type "string"/, error.message)
+        assert_match(/only the values of its fields of type "any", and of the columns that it does not list, not 0, whose field is of type "string"/,
+                     error.message)
         assert_equal Date.new(2026, 1, 2),
                      IOStreams.slice(rows.merge("schema" => {"fields" => [{"name" => "on"}]}, "types" => [[0, "date"]])).rows.first.first
       end

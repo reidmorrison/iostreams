@@ -7,7 +7,8 @@ module IOStreams
     # an `ActiveSupport::Duration` and an Integer outside of the integers that BSON holds, see
     # `IOStreams::Schema::Field.kept_type`, of a value that no field of a schema describes, such as a value of a row
     # written without a schema to a store of slices in the `:array` or `:hash` format, or a value of a field of type
-    # "any", whose type does not say what it holds, see `IOStreams::Slice#dumped_rows`.
+    # "any", whose type does not say what it holds, or of a column that the schema of the slice does not list, see
+    # `IOStreams::Slice#dumped_rows`.
     #
     # It holds them by column, the position of a value of a row that is an Array, or the key of a value of a row that is
     # a Hash, see #dump, as `[column, type]` when every value of the column that is not nil is of that type, otherwise

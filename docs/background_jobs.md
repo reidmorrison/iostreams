@@ -145,7 +145,8 @@ slice.to_h
   `IOStreams.slice` turns them back into them, and the job gets the values that the program wrote. Any other value is
   held as JSON holds it, such as a Symbol, and each key of a Hash, as its text. A value of a field of type `any`, such
   as a computed column of a query, whose type does not say what it holds, keeps its type the same way, with `"types"`,
-  while a Symbol, and each key of a Hash, also within a Hash or an Array, is held as its text. To replace the rows of a
+  while a Symbol, and each key of a Hash, also within a Hash or an Array, is held as its text, and so does a value of
+  a column that the schema does not list, such as one kept with `extraColumns: "keep"`. To replace the rows of a
   slice with others in the same form, `slice.with_rows(rows)` returns a new slice that keeps everything else that the
   slice says.
 * The slices of an Excel spreadsheet hold `"cell_text" => true`, those of its cells from `each(:slice)`, and those of
