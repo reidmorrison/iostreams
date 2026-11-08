@@ -115,6 +115,11 @@ end
 * Only the values that are read count: the fields of a fixed width line, not its filler.
 * A copy always skips blank rows, so `#copy_from` and `#writer` raise `ArgumentError` for `skip_blanks:`, which only
   applies when reading.
+* `writer(:array)` and `writer(:hash)` write `nil` as a row or record without values, as they write `[]` and `{}`: a
+  blank line in a format of lines, a row without cells in a spreadsheet, and a record of nulls in a Parquet file or a
+  [store of slices](#a-store-of-slices), whose every row written is a record. A field that is required raises
+  `IOStreams::Errors::InvalidValue` for it. Without a schema, the first row that `writer(:array)` writes is the header
+  row, so `nil` raises `IOStreams::Errors::MissingHeader` for it, as `[]` does.
 * `each(:line)` and `each(:slice)` hand on every row as it is in the file, so they do not take `skip_blanks:`. Supply it
   where the rows of a slice are read, such as `IOStreams.stream(slice).each(:hash, skip_blanks: true)`.
 * A `skip_blanks` that is not true or false raises `ArgumentError` before the file is opened.

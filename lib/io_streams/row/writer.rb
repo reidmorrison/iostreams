@@ -64,16 +64,23 @@ module IOStreams
         self
       end
 
-      # Supply an array of the values of a row to render, otherwise it raises ArgumentError. Without a schema, the first
-      # row is the header row, see `IOStreams::Tabular#render_row`, and with one, every
-      # row is the values of the fields, in order, see above. A header row that `IOStreams::Stream#each(:array)` yields,
+      # Supply an array of the values of a row to render, or nil for a row without values, which is written as `[]` is,
+      # otherwise it raises ArgumentError. Without a schema, the first row is the header row, see
+      # `IOStreams::Tabular#render_row`, so nil, or `[]`, as the first row raises `IOStreams::Errors::MissingHeader`, and
+      # with one, every row is the values of the fields, in order, see above. A row without values is a blank row, as
+      # `each(:array)` reads a blank line, nil, which a file of lines writes as a blank line, while a format whose every
+      # row is a record, such as Parquet, or a store of slices, writes it as a record without values, and a required
+      # field raises `IOStreams::Errors::InvalidValue` for it. A header row that `IOStreams::Stream#each(:array)` yields,
       # an `IOStreams::Row::HeaderRow`, is written as the header row of the rows after it, see #write_header: with a
       # schema, whichever row it is, otherwise as the first row, as any first row is, so that the rows read from one file
       # can be written to another as they are, whatever their formats.
       #
       # Returns self, so that calls can be chained.
       def <<(array)
-        raise(ArgumentError, "Must supply an Array") unless array.is_a?(Array)
+        array = [] if array.nil?
+        unless array.is_a?(Array)
+          raise(ArgumentError, "Supply an Array of the values of a row, or nil, not a #{array.class.name}")
+        end
         return write_header(array) if array.is_a?(HeaderRow)
 
         @tabular.render_row(array) { |line| @line_writer << line }

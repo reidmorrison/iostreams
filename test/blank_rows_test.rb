@@ -263,6 +263,133 @@ class BlankRowsTest < Minitest::Test
       end
     end
 
+    describe "nil written" do
+      # A store of slices, see IOStreams::Slice::Target.
+      let :store_class do
+        Class.new do
+          include IOStreams::Slice::Target
+
+          attr_reader :slices
+
+          def initialize
+            @slices = []
+          end
+
+          def write_slice(slice)
+            @slices << slice
+          end
+        end
+      end
+
+      def written(stream, mode, rows)
+        io = StringIO.new
+        stream.call(io).writer(mode) { |writer| rows.each { |row| writer << row } }
+        io.string
+      end
+
+      it "by writer(:hash) is a record without values, written as {} is, which a format of lines writes as a blank line" do
+        %i[csv psv json].each do |format|
+          to   = ->(io) { IOStreams.stream(io).format(format) }
+          data = written(to, :hash, [jack, nil, jill])
+
+          assert_equal written(to, :hash, [jack, {}, jill]), data, format
+          assert_equal [jack, nil, jill], read(stream(data).format(format), :hash), format
+        end
+      end
+
+      it "by writer(:array) is a row without values, written as [] is, which a format of lines writes as a blank line" do
+        %i[csv psv json].each do |format|
+          to   = ->(io) { IOStreams.stream(io).format(format) }
+          data = written(to, :array, [%w[name age], %w[Jack 21], nil, %w[Jill 22]])
+
+          assert_equal written(to, :array, [%w[name age], %w[Jack 21], [], %w[Jill 22]]), data, format
+          assert_equal [jack, nil, jill], read(stream(data).format(format), :hash), format
+        end
+      end
+
+      it "with a schema is a blank line, which a required field raises for, as for {} and []" do
+        schema = {fields: [{name: "name", constraints: {required: true}}, {name: "age", type: "integer"}]}
+        to     = ->(io) { IOStreams.stream(io).format(:csv).schema(fields: [{name: "name"}, {name: "age"}]) }
+
+        assert_equal "name,age\nJack,21\n\n", written(to, :hash, [jack, nil])
+        assert_equal "name,age\nJack,21\n\n", written(to, :array, [%w[Jack 21], nil])
+
+        required = ->(io) { IOStreams.stream(io).format(:csv).schema(schema) }
+        %i[hash array].each do |mode|
+          error = assert_raises(IOStreams::Errors::InvalidValue) { written(required, mode, [nil]) }
+          assert_match(/Field "name" is required/, error.message)
+        end
+      end
+
+      it "by writer(:array) as the first row without a schema raises, since it is the header row, as [] does" do
+        to = ->(io) { IOStreams.stream(io).format(:csv) }
+
+        assert_raises(IOStreams::Errors::MissingHeader) { written(to, :array, [nil]) }
+        assert_raises(IOStreams::Errors::MissingHeader) { written(to, :array, [[]]) }
+      end
+
+      it "to a spreadsheet is a row without cells, read as a blank row" do
+        target = path("people.xlsx")
+        target.writer(:array) do |writer|
+          writer << %w[name age]
+          writer << %w[Jack 21]
+          writer << nil
+          writer << []
+          writer << %w[Jill 22]
+        end
+
+        assert_equal [jack, nil, nil, jill], read(target, :hash)
+      end
+
+      it "to a Parquet file is a record of nulls, since every row of Parquet is a record" do
+        skip "The parquet gem is a Rust extension, which JRuby cannot load" if defined?(JRuby)
+
+        schema = {fields: [{name: "name", type: "string"}, {name: "age", type: "integer"}]}
+        path("people.parquet").schema(schema).writer(:hash) do |writer|
+          writer << {"name" => "Jack", "age" => 21}
+          writer << nil
+        end
+        path("rows.parquet").schema(schema).writer(:array) do |writer|
+          writer << ["Jack", 21]
+          writer << nil
+        end
+
+        records = [{"name" => "Jack", "age" => 21}, {"name" => nil, "age" => nil}]
+
+        assert_equal records, read(path("people.parquet"), :hash)
+        assert_equal records, read(path("rows.parquet"), :hash)
+      end
+
+      it "to a store of slices is a record without values, since every row written to a store is a record" do
+        {csv: [jack, nil], json: [jack, nil], hash: [jack, nil]}.each_pair do |format, records|
+          store = store_class.new
+          IOStreams.stream(store).format(format).writer(:hash) { |writer| records.each { |record| writer << record } }
+          empty = store_class.new
+          IOStreams.stream(empty).format(format).writer(:hash) { |writer| [jack, {}].each { |record| writer << record } }
+
+          assert_equal empty.slices, store.slices, format
+          refute_predicate store.slices.first, :blank_rows?, format
+        end
+
+        store = store_class.new
+        IOStreams.stream(store).format(:array).writer(:array) do |writer|
+          writer << %w[name age]
+          writer << nil
+        end
+
+        assert_equal [[]], store.slices.first.rows
+      end
+
+      it "is the only row or record that is not an Array or a Hash" do
+        to = ->(io) { IOStreams.stream(io).format(:csv) }
+
+        error = assert_raises(ArgumentError) { written(to, :hash, ["Jack,21"]) }
+        assert_match(/Supply a Hash of the values of a record, or nil, not a String/, error.message)
+        error = assert_raises(ArgumentError) { written(to, :array, [jack]) }
+        assert_match(/Supply an Array of the values of a row, or nil, not a Hash/, error.message)
+      end
+    end
+
     describe "slices" do
       let(:data) { "name,age\nJack,21\n,\n\nJill,22\nBob,23\n" }
 
