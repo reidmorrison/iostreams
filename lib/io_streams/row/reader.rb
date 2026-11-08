@@ -128,7 +128,10 @@ module IOStreams
       # - The record number of the row, counting from 1 without the header row, as the slices of the file and an
       #   `IOStreams::Errors::RowError` number them, see `IOStreams::Slice#record_number_at`, or nil for the header row,
       #   which is not a record.
-      # The rows of a slice have the numbers that the slice holds, see `IOStreams::Slice::Stream`.
+      # The rows of a slice have the numbers that the slice holds, see `IOStreams::Slice::Stream`, nil for a row that a
+      # slice of numbered rows holds without them, while the rows of a slice that holds no record numbers are counted, and
+      # its header row, whose line it does not hold, has no line number either. A blank line
+      # before the header row, which is yielded as nil, has its line, and no record number.
       #
       # The header row of the file has its line, while a header row that is not a line of its own has none, such as the
       # keys of the first record of JSON without a schema, or the names of the fields of a file without a header row, see
@@ -181,24 +184,32 @@ module IOStreams
       # Reads the rows for #each and #each_with_numbers, yielding each row alone, or with its line number and record
       # number when `numbered` is true, so that both share one loop, which yields to the block of the caller without a
       # block of its own for each row.
-      def read_rows(numbered)
+      def read_rows(numbered, &)
         skip    = @skip
         records = 0
+        # Whether the source gives the record number of each row, such as a slice, see #records_numbered?, otherwise
+        # the records are counted.
+        source_numbers = records_numbered?
+        # Yields a header row, or the first row, that the methods of the reader read once for a file, see #read_header,
+        # #skip_record and #read_first, which yield each one with its numbers, as the caller asks. Each other row is
+        # yielded below, without a block of its own. A lambda, so that #each yields the row alone, which a Proc that
+        # yields its arguments would not, since it would hand the numbers on too.
+        once    = numbered ? ->(row, *numbers) { yield(row, *numbers) } : ->(row, *) { yield(row) }
         # Whether the rows that the tabular yields have started, after the header row, once it is read, or the header
         # row that the rows of a file without one start with, such as the keys of the first record of JSON without a
         # schema, see `IOStreams::Tabular#rows_header?`, after which every line is one row.
         started = false
         each_numbered do |line, line_number, record_number|
           if !started && @tabular.header?
-            read_header(line, line_number) { |row, *numbers| numbered ? yield(row, *numbers) : yield(row) }
+            read_header(line, line_number, &once)
             next
           end
 
           records += 1
-          number = record_number || records
+          number = source_numbers ? record_number : records
           if skip.positive?
             skip -= 1
-            skip_record(line, line_number, number) { |row, *numbers| numbered ? yield(row, *numbers) : yield(row) }
+            skip_record(line, line_number, number, &once)
           elsif started || !@tabular.rows_header?
             started = true
             # Rescued here, rather than in `IOStreams::Row::Locator.locate`, whose block would cost each row more.
@@ -213,7 +224,7 @@ module IOStreams
 
             numbered ? yield(row, line_number, number) : yield(row)
           else
-            read_first(line, line_number, number) { |row, *numbers| numbered ? yield(row, *numbers) : yield(row) }
+            read_first(line, line_number, number, &once)
           end
         end
       end

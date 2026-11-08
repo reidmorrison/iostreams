@@ -28,8 +28,8 @@ module IOStreams
       # reader, nor writing what it read, so that an error that they raise is not taken for one of the row.
       #
       # The path of each row of a reader or writer rescues the error itself instead, since the block costs each row more:
-      # `IOStreams::Row::Reader#each`, `IOStreams::Record::Reader#each`, `IOStreams::Slice::Collector#add`, and the
-      # rows that `IOStreams::Slice::Writer` writes.
+      # `IOStreams::Row::Reader#read_rows`, `IOStreams::Record::Reader#read_records`, `IOStreams::Slice::Collector#add`,
+      # and the rows that `IOStreams::Slice::Writer` writes.
       def self.locate(line_number: nil, record_number: nil)
         yield
       rescue IOStreams::Errors::RowError => e

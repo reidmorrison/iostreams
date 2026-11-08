@@ -582,7 +582,9 @@ def perform(rows)
   IOStreams.stream(slice).as(PersonContract).each_with_numbers(:hash) do |person, line_number, record_number|
     Person.upsert(person) if person
   rescue StandardError => e
-    raise(e.exception("Record #{record_number}, on line #{line_number} of the file: #{e.message}"))
+    # Rows that are not lines, such as of a Parquet file, a spreadsheet or a query, have no line number.
+    where = line_number ? "Record #{record_number}, on line #{line_number}" : "Record #{record_number}"
+    raise(e.exception("#{where} of the file: #{e.message}"))
   end
 end
 ~~~

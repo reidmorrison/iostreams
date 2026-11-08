@@ -98,6 +98,58 @@ class EachWithNumbersTest < Minitest::Test
           assert_equal [[%w[name age], nil, nil], [nil, 6, 3], [%w[Bob abc], 7, 4]], numbered(IOStreams.stream(stored), :array)
         end
 
+        it "yields a row that a slice of numbered rows holds without numbers without them, also in the error of such a row" do
+          slices = []
+          stream.schema(schema).each(:slice, size: 10) { |slice| slices << slice }
+          slice = slices.first
+          slice << "Ann,24"
+
+          # The blank row, record 3 on line 6, is numbered, and Bob's age is not an integer, so read without a schema.
+          assert_equal [[nil, 6, 3], [{"name" => "Bob", "age" => "abc"}, 7, 4], [{"name" => "Ann", "age" => "24"}, nil, nil]],
+                       numbered(IOStreams.stream(slice.drop(2)), :hash)
+          assert_equal [%w[Ann 24], nil, nil], numbered(IOStreams.stream(slice.drop(2)), :array).last
+
+          bad = IOStreams::Slice.new(["Jack,21"], header: %w[name age], format: :csv, line_number: 3, record_number: 1) << "Ann,abc"
+          error = assert_raises(IOStreams::Errors::InvalidValue) { numbered(IOStreams.stream(bad).schema(schema), :hash) }
+
+          assert_equal [nil, nil], [error.line_number, error.record_number]
+          error = assert_raises(IOStreams::Errors::InvalidValue) { numbered(IOStreams.stream(bad).schema(schema), :array) }
+
+          assert_equal [nil, nil], [error.line_number, error.record_number]
+          invalid = []
+          numbered(IOStreams.stream(bad).schema(schema), :hash, on_invalid: ->(row) { invalid << row.record_number })
+
+          assert_equal [nil], invalid
+        end
+
+        it "counts the rows of a slice that holds no record numbers, as the lines of a file are counted" do
+          slice = IOStreams::Slice.new(["Jack,21", "Jill,abc"], header: %w[name age], format: :csv)
+
+          assert_equal [[{"name" => "Jack", "age" => "21"}, nil, 1], [{"name" => "Jill", "age" => "abc"}, nil, 2]],
+                       numbered(IOStreams.stream(slice), :hash)
+          error = assert_raises(IOStreams::Errors::InvalidValue) { numbered(IOStreams.stream(slice).schema(schema), :hash) }
+
+          assert_equal [nil, 2], [error.line_number, error.record_number]
+        end
+
+        it "yields the rows of a spreadsheet without line numbers, also when read as the text of its rows" do
+          Dir.mktmpdir do |dir|
+            path = IOStreams.path(dir, "people.xlsx")
+            path.writer(:array) do |io|
+              io << %w[name note]
+              io << %W[Jack two\nlines]
+              io << %w[Jill one]
+            end
+            text = IOStreams.path(dir, "people.xlsx").format(:text)
+            rows = []
+            text.each(:array) { |row| rows << row }
+
+            # On lines, Jill would be on line 4, after the two lines of Jack's note.
+            assert_equal(rows.zip([1, 2, 3]).map { |row, record_number| [row, nil, record_number] }, numbered(text, :array))
+            assert_equal [[{"name" => "Jill", "note" => "one"}, nil, 2]], numbered(path, :hash).drop(1)
+          end
+        end
+
         it "yields the records of a Parquet file without line numbers" do
           skip("Parquet is not supported on JRuby") if defined?(JRUBY_VERSION)
 

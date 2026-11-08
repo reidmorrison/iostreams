@@ -1193,6 +1193,14 @@ module IOStreams
       block.arity == 1
     end
 
+    # Returns [true|false] whether a row of the slice holds a record number, see #record_number_at, so that the readers of
+    # its rows give a row without one none, since counting them would give it the number of another row of the file,
+    # while they count the rows of a slice that holds none, such as one built of rows without numbers, see
+    # `IOStreams::Slice::Stream`, which calls it with `send`, so that it is not a method of the public interface.
+    def record_numbers?
+      !@record_number.nil? || @jumps&.any? { |jump| !jump[2].nil? } || false
+    end
+
     # Raises ArgumentError for numbers of the first row of a slice without rows, see #initialize.
     def check_numbers_of_rows
       return unless @rows.empty? && !(@line_number.nil? && @record_number.nil?)

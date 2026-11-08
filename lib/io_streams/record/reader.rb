@@ -135,6 +135,9 @@ module IOStreams
       def read_records(numbered)
         skip    = @skip
         records = 0
+        # Whether the source gives the record number of each row, such as a slice, see #records_numbered?, otherwise
+        # the records are counted.
+        source_numbers = records_numbered?
         # Whether the header row is read, or the file has none, after which every line is a record.
         started = false
         each_numbered do |line, line_number, record_number|
@@ -152,17 +155,19 @@ module IOStreams
             next
           end
 
+          number = source_numbers ? record_number : records
+
           # Rescued here, rather than in `IOStreams::Row::Locator.locate`, whose block would cost each record more.
           begin
             record = @tabular.record_parse(line)
           rescue IOStreams::Errors::InvalidValue => e
-            next invalid(e, line, line_number, record_number || records)
+            next invalid(e, line, line_number, number)
           rescue IOStreams::Errors::RowError => e
-            raise e.at(line_number: line_number, record_number: record_number || records)
+            raise e.at(line_number: line_number, record_number: number)
           end
           next if @skip_blanks && record.nil?
 
-          numbered ? yield(record, line_number, record_number || records) : yield(record)
+          numbered ? yield(record, line_number, number) : yield(record)
         end
       end
 
