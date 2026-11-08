@@ -1373,6 +1373,18 @@ class SliceTargetStreamTest < Minitest::Test
         assert_raises(ArgumentError) { stream.read }
         assert_raises(ArgumentError) { stream.reader(:slice, size: 1) { nil } }
       end
+
+      it "raises when copied from, also into a target with a schema or a contract" do
+        fields = {fields: [{name: "at", type: "time", timeZone: "America/New_York"}]}
+        [IOStreams.stream(StringIO.new).format(:csv), IOStreams.stream(StringIO.new).format(:csv).schema(fields),
+         IOStreams.stream(StringIO.new).format(:csv).as(fields)].each do |target|
+          %i[array hash].each do |mode|
+            error = assert_raises(ArgumentError) { target.copy_from(stream.format(:csv), mode: mode) }
+
+            assert_equal "A slice target is only written: read the slices from the store itself", error.message
+          end
+        end
+      end
     end
 
     it "shows the class of the store and the format, rather than every instance variable" do

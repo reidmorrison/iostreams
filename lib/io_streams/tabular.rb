@@ -68,8 +68,10 @@ module IOStreams
     # text that its streams decide, such as the CSV of a spreadsheet, see `IOStreams::Tabular::Settings#tabular`, and the
     # form in which its rows hold the values of a schema, such as the cells of a spreadsheet, see
     # `IOStreams::StreamFormat#rows_value_form`, and whether the text of its values is the text of the cells of a source
-    # whose cells hold typed values, such as a slice of a spreadsheet, see `IOStreams::Slice#cell_text?`.
-    SOURCE_OPTION_NAMES = %i[blank_rows headerless typed part_of_file text_format value_form cell_text].freeze
+    # whose cells hold typed values, such as a slice of a spreadsheet, see `IOStreams::Slice#cell_text?`, and what finds
+    # the schema that reads the times of day that its rows hold as clocks without a zone, that of the target of a copy,
+    # see `IOStreams::Stream#copy_clocks_schema`.
+    SOURCE_OPTION_NAMES = %i[blank_rows headerless typed part_of_file text_format value_form cell_text clocks_schema].freeze
 
     # Parse a delimited data source.
     #
@@ -167,11 +169,18 @@ module IOStreams
     #     reads or writes rows.
     #     Default: false
     #
+    #   clocks_schema: [Proc|nil]
+    #     Returns the schema whose `time` fields read the times of day that the rows hold as clocks without a zone, such as
+    #     those of a Parquet file, in place of the schema of this tabular, or nil, see #read_declared: that of the target
+    #     of a copy, see `IOStreams::Stream#copy_clocks_schema`, called only once the rows declare such clocks. Not an
+    #     option of a call that reads or writes rows.
+    #     Default: nil, the schema of this tabular reads them.
+    #
     # Raises ArgumentError for a `headerless` that is not true, false or nil, or a `typed`, `part_of_file` or
     # `cell_text` that is not true or false.
     def initialize(format: nil, file_name: nil, schema: nil, contract: nil, default_format: :csv, row_format_options: nil,
                    blank_rows: true, headerless: nil, typed: false, part_of_file: false, text_format: nil, value_form: nil,
-                   cell_text: false)
+                   cell_text: false, clocks_schema: nil)
       @format = file_name && format.nil? ? self.class.format_from_file_name(file_name) : format
       @format ||= default_format
       raise(Errors::UnknownFormat, "The format cannot be inferred from the file name: #{file_name}") unless @format
@@ -185,6 +194,7 @@ module IOStreams
       raise(ArgumentError, "cell_text must be true or false: #{cell_text.inspect}") unless [true, false].include?(cell_text)
 
       @cell_text          = cell_text
+      @clocks_schema      = clocks_schema
       @file_schema        = schema
       @contract           = contract
       @schema             = schema || contract
@@ -360,12 +370,11 @@ module IOStreams
     # every reader of rows and records, of a file or a slice, parses them, see
     # `IOStreams::Tabular::Parser::Base.clocks`. The block is called only for such a format, with a schema.
     #
-    # The clocks are read by the supplied schema instead, when there is one, such as the schema of the target that a copy
-    # writes the rows to, which the stream that reads them supplies when it has neither a schema nor a contract of its
-    # own, see `IOStreams::Stream#reading_clocks_by`, so that a copy writes the clock that reading by the target's
-    # fields reads, rather than take the clock in UTC for the time that it is.
-    def read_declared(clocks_schema = nil, &)
-      @clocks = parser.class.clocks(clocks_schema || schema, &)
+    # They are read by the schema that `clocks_schema:` returns instead, when it returns one, see #initialize, such as
+    # that of the target of a copy, so that a copy writes the clock that the file holds. The format asks which schema
+    # reads them only once the rows declare such clocks.
+    def read_declared(&)
+      @clocks = parser.class.clocks(-> { @clocks_schema&.call || schema }, &)
       nil
     end
 
@@ -591,6 +600,24 @@ module IOStreams
     # give a writer their columns, see #check_unnamed_rows.
     def unnamed_columns?
       @mapping.unnamed_columns?
+    end
+
+    # Returns [IOStreams::Schema|nil] the schema whose fields take the values that this tabular writes first, see
+    # .zoned_times_schema, when it has a `time` field with a `timeZone`, by which a copy to a writer that is already
+    # open reads the times of day that its source holds as clocks without a zone, see `IOStreams::Row::CopyTarget`.
+    def zoned_times_schema
+      self.class.zoned_times_schema(@contract, @schema)
+    end
+
+    # Returns [IOStreams::Schema|nil] the schema whose `time` fields with a `timeZone` read the times of day that the
+    # source of a copy holds as clocks without a zone, see `IOStreams::Stream#copy_clocks_schema`: the supplied
+    # contract, which casts each value before the supplied schema of the file renders it, otherwise the schema, so that
+    # a copy writes what reading the source through the contract of the target and then writing it writes, or nil when
+    # it has no `time` field with a `timeZone`, see `IOStreams::Schema#zoned_times?`. The one rule of both a tabular and
+    # the settings of a stream, see `IOStreams::Tabular::Settings#zoned_times_schema`.
+    def self.zoned_times_schema(contract, schema)
+      reading = contract || schema
+      reading if reading&.zoned_times?
     end
 
     # Raises ArgumentError when a writer of rows would take the columns of the rows from the first row written, writing

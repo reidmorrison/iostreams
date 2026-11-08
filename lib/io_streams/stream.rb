@@ -488,7 +488,7 @@ module IOStreams
         mode ||= copy_mode(stream, args)
         if mode
           options = copy_options(mode, args)
-          stream  = stream.reading_clocks_by(copy_clocks_schema) unless mode == :line || open_writer?(mode)
+          stream  = stream.reading_clocks_by(copy_clocks_schema(mode))
           stream.reader(mode) { |rows| copy_rows(stream, rows, mode, options) }
         else
           stream.reader do |src|
@@ -918,30 +918,41 @@ module IOStreams
       tabular_settings.contract
     end
 
-    # Returns [IOStreams::Schema|nil] the schema whose `time` fields write the values of the rows that a copy writes to
-    # this stream, see #copy_from: the schema that was set, otherwise the schema of the contract, see #as, or nil without
-    # either. A copy reads the times of day that the source holds as clocks without a zone, such as those of a Parquet
-    # file, by its fields, see #reading_clocks_by, so that 09:30 is written as 09:30 in the zone of its field, as reading
-    # the source with this contract and then writing it does. Protected, see #copy_schema.
-    def copy_clocks_schema
-      tabular_settings.file_schema || tabular_settings.contract&.schema
+    # Returns [Proc|nil] what a copy in the supplied mode gives its source, see #reading_clocks_by, to find the schema
+    # whose `time` fields with a `timeZone` take the values of the rows written to this stream first, see
+    # `IOStreams::Tabular::Settings#zoned_times_schema`: the schema of the contract, see #as, otherwise the schema that
+    # was set, or that of a writer of the mode that is already open, by the same rule, which writes with its own
+    # settings, see `IOStreams::Row::CopyTarget`, so that the source reads the times of day that it holds as clocks
+    # without a zone, such as those of a Parquet file, by those fields, and 09:30 is written as 09:30 in their zone. The
+    # schema is found only once the source is open and declares such clocks, see `IOStreams::Tabular#read_declared`, so
+    # that a schema read from a file is read as late as before.
+    #
+    # Returns nil for a copy of lines, which copies them as they are, and for a stream with neither a schema nor a
+    # contract, which takes the types of the source, see #with_copy_schema. Protected, see #copy_schema.
+    def copy_clocks_schema(mode)
+      return if mode == :line
+      return -> { io_stream.send(:clocks_schema) } unless copy_settings?(mode)
+      return unless tabular_settings.schema_or_contract?
+
+      -> { tabular_settings.zoned_times_schema }
     end
 
-    # Returns [IOStreams::Stream] this stream, or a copy of it that reads the times of day that its rows hold as clocks
-    # without a zone, such as those of a Parquet file, by the `time` fields of the supplied schema, see
-    # `IOStreams::Tabular#read_declared`: the schema of the target of a copy, see #copy_clocks_schema, so that the copy
-    # writes the clock that the file holds, rather than take the clock in UTC for the time that it is, while this stream
-    # still reads the values of its rows as it does without a schema. This stream itself, which reads them by its own
-    # fields, when it has a schema or a contract, or without a supplied schema. Protected, see #copy_schema.
-    def reading_clocks_by(schema)
-      return self if schema.nil? || tabular_settings.file_schema || tabular_settings.contract
+    # Returns [IOStreams::Stream] this source of a copy, or a copy of it that holds only the supplied Proc, which #tabular
+    # gives the tabular of each of its readers, see `IOStreams::Tabular.new(clocks_schema:)`, so that it reads the times
+    # of day that its rows hold as clocks without a zone, such as those of a Parquet file, by the schema that it
+    # returns, that of the target, see #copy_clocks_schema, while the copy still reads it through #reader, which checks
+    # the allowed paths of a path, see `IOStreams::Path#reader`. This stream itself without a Proc, or when it has a
+    # schema or a contract of its own, which reads them by its own fields, as reading it does. Protected, see
+    # #copy_schema.
+    def reading_clocks_by(clocks_schema)
+      return self if clocks_schema.nil? || tabular_settings.schema_or_contract?
 
       copy = dup
-      copy.clocks_schema = schema
+      copy.clocks_schema = clocks_schema
       copy
     end
 
-    # Sets the schema that reads the times of day that the rows hold as clocks without a zone, see #reading_clocks_by.
+    # Sets what finds the schema that reads the clocks of the rows of a source of a copy, see #reading_clocks_by.
     attr_writer :clocks_schema
 
     # Raises ArgumentError, before the target of a copy is opened, see #copy_target, when nothing names the columns of the
@@ -1088,7 +1099,7 @@ module IOStreams
     # layout too, see `IOStreams::Schema#for_copy`. A writer of the mode that is already open, which writes with its own
     # settings, see #open_writer?, and a copy of lines, which copies them as they are, keep this stream as it is.
     def with_copy_schema(source, rows, mode)
-      return self if mode == :line || open_writer?(mode)
+      return self unless copy_settings?(mode)
       return self unless schema.nil? && tabular_settings.contract.nil?
 
       contract = source.copy_contract
@@ -1098,6 +1109,13 @@ module IOStreams
       copy = dup
       contract ? copy.as(contract.schema.without_text) : copy.schema = copied
       copy
+    end
+
+    # Returns [true|false] whether the settings of this stream decide how a copy in the supplied mode writes the rows, see
+    # #with_copy_schema and #copy_clocks_schema: not for lines, which are copied as they are, nor for a writer of the mode
+    # that is already open, which writes with its own settings, see #open_writer?.
+    def copy_settings?(mode)
+      mode != :line && !open_writer?(mode)
     end
 
     # Returns [true|false] whether the IO of this stream is a writer of the supplied mode that is already open, such as
@@ -1415,7 +1433,7 @@ module IOStreams
         return stream_reader do |io|
           tabular.read_rows(io, every_column: every_column) do |rows|
             tabular.check_declared_types { rows.declared_schema }
-            tabular.read_declared(@clocks_schema) { rows.declared_schema }
+            tabular.read_declared { rows.declared_schema }
             yield rows
           end
         end
@@ -1682,12 +1700,14 @@ module IOStreams
 
     # Returns [IOStreams::Tabular] that reads or writes the rows of this stream as its tabular settings describe them, see
     # `IOStreams::Tabular::Settings#tabular`, with the options that the source of the rows supplies, such as
-    # `IOStreams::Query::Stream#tabular`.
-    def tabular(**)
-      return tabular_settings.tabular(file_name: file_name, text_format: text_format, **) unless stream_rows?
+    # `IOStreams::Query::Stream#tabular`, and, for the source of a copy, what finds the schema that reads the clocks of
+    # its rows, see #reading_clocks_by.
+    def tabular(**options)
+      options[:clocks_schema] = @clocks_schema if @clocks_schema
+      return tabular_settings.tabular(file_name: file_name, text_format: text_format, **options) unless stream_rows?
 
       tabular_settings.tabular(file_name: file_name, text_format: nil, rows_format: builder.rows_format,
-                               value_form: builder.rows_value_form, **)
+                               value_form: builder.rows_value_form, **options)
     end
 
     # Returns [Symbol|nil] the format of the rows, records and lines of this stream, see #format.

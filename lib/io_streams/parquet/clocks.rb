@@ -12,9 +12,16 @@ module IOStreams
     class Clocks
       # Returns [IOStreams::Parquet::Clocks|nil] the times of day of the columns that the supplied schema of the file
       # declares as `time`, such as the schema that a slice of its rows carries, see `IOStreams::Slice#schema`, read by
-      # the `time` fields of the supplied schema, or nil when no `time` field reads one of them.
-      def self.declared(declared, schema)
-        names  = declared.fields.filter_map { |field| field.name if field.type == "time" }
+      # the `time` fields of the schema that the supplied Proc returns, which the tabular chooses, see
+      # `IOStreams::Tabular#read_declared`, called only when the file declares such a column, or nil when it returns
+      # none, or no `time` field reads one of them.
+      def self.declared(declared, reading)
+        names = declared.fields.filter_map { |field| field.name if field.type == "time" }
+        return if names.empty?
+
+        schema = reading.call
+        return unless schema
+
         clocks = new(names, schema)
         clocks unless clocks.empty?
       end

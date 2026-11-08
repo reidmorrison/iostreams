@@ -60,6 +60,7 @@ module IOStreams
   end
 
   module Row
+    autoload :CopyTarget, "io_streams/row/copy_target"
     autoload :HeaderRow, "io_streams/row/header_row"
     autoload :Locator,   "io_streams/row/locator"
     autoload :Numbered,  "io_streams/row/numbered"

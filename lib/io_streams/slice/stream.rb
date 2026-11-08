@@ -115,7 +115,7 @@ module IOStreams
         tabular = super(default_schema: io_stream.schema, blank_rows: io_stream.blank_rows?, headerless: !io_stream.header?,
                         typed: io_stream.typed?, part_of_file: true, cell_text: cell_text?,
                         value_form: (:scalar if cell_text?), **)
-        tabular.read_declared(@clocks_schema) { io_stream.schema }
+        tabular.read_declared { io_stream.schema }
         tabular
       end
 
