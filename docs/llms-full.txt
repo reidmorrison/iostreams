@@ -2947,8 +2947,8 @@ Without a [schema](schemas), every value is read as text, and written as its tex
   rather than keep the value of only one of them. Writing rows to JSON, whose keys are the columns as they are, raises
   only for two columns of exactly the same name, such as `a` and `a`, and writes `First Name` and `first_name` as two
   keys. `each(:array)` still reads the rows, and a [schema](schemas) can name both, with two fields of the same name.
-  So `each(:slice)` does not check the keys of the header row, since its slices may be read as rows: a job that reads
-  a slice of such a file with `each(:hash)` raises instead, see
+  So `each(:slice)` does not check the keys of the header row, unless `validate: true` parses each row as a record,
+  since its slices may be read as rows: a job that reads a slice of such a file with `each(:hash)` raises instead, see
   [Check the file before handing it on](background_jobs#check-the-file-before-handing-it-on).
 * `each(:array)` yields the header row as it is, then each row of values. A JSON or Parquet file has no header row, so
   its first row is a header row of the keys of its first record, and each row after it the values of a record in
@@ -8079,10 +8079,12 @@ errors = IOStreams.path(url).as(PersonContract).contract_errors
 Without a contract or a schema, nothing says that the jobs will read records, so `each(:slice)`, and a copy into a
 store of slices, do not check that the columns of the header row are different keys, since the rows of a file whose
 header row repeats a key, such as `a` and `A`, which are both the key `a` once cleansed, are still read with
-`each(:array)`, see [Records and rows without a schema](formats#records-and-rows-without-a-schema). Each job that
-reads its slice with `each(:hash)` would then raise `IOStreams::Errors::InvalidHeader`. When the jobs read records,
-check the first slice before handing it on, with `#infer_schema`, which reads only its header row, and raises
-`IOStreams::Errors::InvalidHeader` for two columns of the same key:
+`each(:array)`, see [Records and rows without a schema](formats#records-and-rows-without-a-schema). A job that reads
+its slice with `each(:hash)`, without a contract or a schema, would then raise `IOStreams::Errors::InvalidHeader`.
+`validate: true`, see below, raises it before the first slice, since it parses each row as a record, but it parses
+every row, and a file without rows passes. When the jobs read records without a contract, check the first slice before
+handing it on, with `#infer_schema`, which reads only its header row, and raises `IOStreams::Errors::InvalidHeader` for
+two columns of the same key:
 
 ~~~ruby
 checked = false
@@ -8092,7 +8094,8 @@ IOStreams.path(url).each(:slice, size: 500) do |slice|
     checked = true
   end
 
-  ImportPeopleSliceJob.perform_later(slice.to_h)
+  # Reads each record of its slice with `IOStreams.stream(slice).each(:hash)`, without a contract or a schema.
+  ImportContactsSliceJob.perform_later(slice.to_h)
 end
 ~~~
 

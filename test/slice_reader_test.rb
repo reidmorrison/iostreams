@@ -204,6 +204,9 @@ class SliceReaderTest < Minitest::Test
         assert_match(/\AThe columns "a" and "A" are the same key, "a"/, error.message)
         assert_raises(IOStreams::Errors::InvalidHeader) { IOStreams.stream(repeated.first).each(:hash) { nil } }
 
+        assert_raises(IOStreams::Errors::InvalidHeader) { slices(stream("a,A\n1,2\n").format(:csv), size: 1, validate: true) }
+        assert_empty slices(stream("a,A\n").format(:csv), size: 1, validate: true)
+
         distinct = slices(stream("a,B\n1,2\n").format(:csv), size: 1).first
 
         assert_equal %w[a b], IOStreams.stream(distinct).infer_schema.fields.map(&:name)
