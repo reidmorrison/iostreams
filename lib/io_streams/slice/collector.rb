@@ -100,8 +100,8 @@ module IOStreams
       #     Default: nil, the schema of the tabular when its values are those of its fields, see
       #     `IOStreams::Tabular#typed?`, otherwise none, for rows of text.
       #
-      # Yields [IOStreams::Slice] each slice, once it holds `size` rows, and the last one when #finish is called, which
-      # is the only one without a size.
+      # Yields [IOStreams::Slice] each slice once it holds `size` rows, unless `size` is nil, and the rows left when
+      # #finish is called.
       #
       # The caller checks the options before anything is opened, see .check. `resume_at` is checked again, since #add
       # compares each record number with it.

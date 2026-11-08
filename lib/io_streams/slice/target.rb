@@ -38,8 +38,10 @@ module IOStreams
     module Target
       # Returns [Integer|nil] the number of rows of each slice that is written to the store, apart from the last, which
       # holds the rows that are left, or nil for one slice of every row of each write, however many there are, such as
-      # the results of one job, which the store keeps as one slice, so that writing them again replaces it. Override it
-      # for slices of another size.
+      # the results of one job, which the store can keep under the id of its input slice. A write without rows writes
+      # no slice, so a store that keeps the results of a job that runs again in place of its earlier ones removes them
+      # first. The slice holds every row of the write in memory until the write finishes, so nil is for writes of a
+      # bounded size, not for copying a file. Override it for slices of another size.
       # Default: 100
       def slice_size
         defined?(super) ? super : 100
