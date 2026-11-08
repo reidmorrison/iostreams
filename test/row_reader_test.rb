@@ -156,7 +156,7 @@ class RowReaderTest < Minitest::Test
         assert_equal "The keys of a record do not match the columns of the rows, which are the keys of the first record: the " \
                      'keys "age" and "zip" are not among them. Read the records with each(:hash), or copy them with mode: :hash, ' \
                      'or describe the columns with a schema whose fields are every key, with fieldsMatch "superset" when a ' \
-                     "record can leave out a key",
+                     "record can leave out a key, in record 2 on line 2",
                      error.message
       end
 

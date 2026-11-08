@@ -5,7 +5,71 @@ module IOStreams
     class Error < StandardError
     end
 
+    # Every error of a row of a file that a reader of rows or records raises includes RowError, so that it names the
+    # record that it is in, and the line that the record starts on when the source has lines, see #at, such as a value
+    # that is not valid (`InvalidValue`), a row whose values do not fit the columns (`InvalidHeader`), a fixed width line
+    # of another length (`InvalidLineLength`), or a line that is not a row of its format, such as CSV whose quoting is
+    # not valid. A header row names its line only, since it is not a record:
+    #
+    #   Illegal quoting, in record 3 on line 5
+    #
+    # A format tags the exception that the gem reading it raised for a row that it cannot read with RowError, rather
+    # than replacing it, see .tag, so that it can still be rescued by its own class, such as `CSV::MalformedCSVError` or
+    # `JSON::ParserError`, while code that rescues RowError works whichever format the file is in, or gem reads it.
+    #
+    # Raised outside the reading of a row, such as for the header row of a schema before the file is opened, it names
+    # neither, and its message is unchanged.
+    module RowError
+      # Tags the supplied exception, which the gem reading a format raised for a row that it cannot read, with RowError,
+      # so that the reader of the rows names its record and line, see #at, as for the errors that IOStreams raises. The
+      # reason is the message without the gem's own place within the text of the row, such as "Illegal quoting" for the
+      # csv gem's "Illegal quoting in line 1.", since the line that it names is that of the row, not of the file, which
+      # #to_s gives instead, or nil to keep the message.
+      #
+      # Returns [Exception] the exception. It is unchanged when it is frozen, or already a RowError.
+      def self.tag(exception, reason = nil)
+        return exception if exception.frozen? || exception.is_a?(RowError)
+
+        exception.instance_variable_set(:@iostreams_reason, reason)
+        exception.extend(self)
+      end
+
+      # Returns [Integer|nil] the line of the file that the record starts on, or for a header row, the line of the header
+      # row, or nil when its source has no lines, such as Parquet or a query, or it was not read.
+      def line_number
+        @iostreams_line_number
+      end
+
+      # Returns [Integer|nil] the number of the record, counting from 1 without the header row, blank rows included, or
+      # nil for a header row, or when it was not read.
+      def record_number
+        @iostreams_record_number
+      end
+
+      # Sets the record that the row is, and the line that it starts on, unless they are already set, so that an error
+      # keeps where it was first found.
+      #
+      # Returns [IOStreams::Errors::RowError] itself.
+      def at(line_number: nil, record_number: nil)
+        @iostreams_line_number   ||= line_number
+        @iostreams_record_number ||= record_number
+        self
+      end
+
+      # Returns [String] the message, followed by the record that the row is, and the line that it starts on, when they
+      # are known, see #at, after the reason that a gem's exception was tagged with, see .tag.
+      def to_s
+        location = []
+        location << "in record #{record_number}" if record_number
+        location << "on line #{line_number}" if line_number
+        return super if location.empty?
+
+        "#{@iostreams_reason || super}, #{location.join(' ')}"
+      end
+    end
+
     class InvalidHeader < Error
+      include RowError
     end
 
     class MissingHeader < Error
@@ -15,6 +79,7 @@ module IOStreams
     end
 
     class TypeMismatch < Error
+      include RowError
     end
 
     class CommunicationsFailure < Error
@@ -37,8 +102,9 @@ module IOStreams
     class DelimiterNotFound < Error
     end
 
-    # Fixed length line has the wrong length
+    # A fixed width line that does not have the length of its schema.
     class InvalidLineLength < Error
+      include RowError
     end
 
     class ValueTooLong < Error
@@ -47,23 +113,17 @@ module IOStreams
     # A value that is not one of the type of its field in the schema, such as `"abc"` for an integer, or no value for a
     # field that is required, see `IOStreams::Stream#schema`. A value read names the record that it is in, and the line
     # that the record starts on when the source has lines, so that the row can be found without the code that reads it
-    # adding them:
+    # adding them, see `IOStreams::Errors::RowError`:
     #
     #   Field "amount": "N/A" is not a valid number, in record 6 on line 7
     class InvalidValue < Error
+      include RowError
+
       # Returns [String|Symbol|nil] the name of the field of the value.
       attr_reader :field
 
       # Returns [Object] the value, as it was read or written.
       attr_reader :value
-
-      # Returns [Integer|nil] the line of the file that the record of the value starts on, or nil when its source has no
-      # lines, such as Parquet or a query, or it was not read.
-      attr_reader :line_number
-
-      # Returns [Integer|nil] the number of the record of the value, counting from 1 without the header row, blank rows
-      # included, or nil when it was not read.
-      attr_reader :record_number
 
       # Parameters:
       #   message: [String]
@@ -76,35 +136,14 @@ module IOStreams
       #     The value.
       def initialize(message = nil, field: nil, value: nil)
         super(message)
-        @reason        = message
-        @field         = field
-        @value         = value
-        @line_number   = nil
-        @record_number = nil
+        @reason = message
+        @field  = field
+        @value  = value
       end
 
       # Returns [String] why the value is not valid, without the record that it is in, see #to_s.
       def reason
         @reason || self.class.name
-      end
-
-      # Sets the record that the value is in, and the line that it starts on, unless they are already set, so that an
-      # error keeps where it was first found.
-      #
-      # Returns [IOStreams::Errors::InvalidValue] itself.
-      def at(line_number: nil, record_number: nil)
-        @line_number   ||= line_number
-        @record_number ||= record_number
-        self
-      end
-
-      # Returns [String] why the value is not valid, followed by the record that it is in, and the line that it starts on,
-      # when they are known, see #at.
-      def to_s
-        location = []
-        location << "in record #{record_number}" if record_number
-        location << "on line #{line_number}" if line_number
-        location.empty? ? super : "#{super}, #{location.join(' ')}"
       end
     end
 

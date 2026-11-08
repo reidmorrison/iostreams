@@ -17,6 +17,15 @@ module IOStreams
         # The characters that a value is quoted for when it is written.
         QUOTABLE      = /[\r\n,"]/
 
+        # Returns [CSV::MalformedCSVError] the supplied error of the csv gem, for a line whose quoting is not valid, tagged
+        # as an `IOStreams::Errors::RowError`, so that the reader of the rows names the record and line of the file that
+        # it is in, rather than the line within the text of the row that the gem names, since it reads one row at a
+        # time, such as "Illegal quoting, in record 3 on line 5" for the gem's "Illegal quoting in line 1.". Its class,
+        # and `#lineno`, the gem's line within the row, are kept.
+        def self.row_error(error)
+          IOStreams::Errors::RowError.tag(error, error.message.delete_suffix(" in line #{error.lineno}."))
+        end
+
         # CSV fields may contain embedded delimiters and newlines when wrapped in double quotes.
         def self.quote_character
           '"'
@@ -57,6 +66,9 @@ module IOStreams
         end
 
         # Returns [Array] the parsed CSV line
+        #
+        # Raises `CSV::MalformedCSVError` for a line whose quoting is not valid, tagged as an
+        # `IOStreams::Errors::RowError`, see .row_error.
         def parse(row)
           return row if row.is_a?(::Array)
 
@@ -90,11 +102,16 @@ module IOStreams
         # Returns [Array] the values of the line that `CSV.parse_line` reads, an empty value without quotes as empty text
         # with a schema, see #initialize, in the encoding of the line, as #split_line reads it, and a String of its own,
         # rather than the one `nil_value:` of the csv gem, which every empty value of every line would share.
+        #
+        # Raises `CSV::MalformedCSVError` for a line whose quoting is not valid, tagged as an
+        # `IOStreams::Errors::RowError`, see .row_error.
         def csv_parse_line(line)
           values = CSV.parse_line(line)
           return values unless @empty_text && values
 
           values.map! { |value| value.nil? ? line[0, 0] : value }
+        rescue CSV::MalformedCSVError => e
+          raise(self.class.row_error(e))
         end
 
         # Returns [Array] the values of a line without quotes, where an empty value is nil, or empty text with a schema,

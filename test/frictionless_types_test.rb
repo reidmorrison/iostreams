@@ -833,7 +833,7 @@ class FrictionlessTypesTest < Minitest::Test
 
         error = assert_raises(IOStreams::Errors::InvalidHeader) { read_rows(IOStreams.path(dir, "three.csv").schema(schema)) }
         assert_equal 'The columns have 3 columns named "a", while the schema has 2 fields of that name, each of which takes ' \
-                     "one column, in order", error.message
+                     "one column, in order, on line 1", error.message
       end
 
       it "raise ArgumentError for a contract read through the schema of the file, also in the :array mode" do

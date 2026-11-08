@@ -30,7 +30,8 @@ class ContractValidationTest < Minitest::Test
         error   = assert_raises(IOStreams::Errors::InvalidHeader) { upload("Amount,Notes\n12.5,x\n").validate_contract! }
         reading = assert_raises(IOStreams::Errors::InvalidHeader) { upload("Amount,Notes\n12.5,x\n").each(:hash) { nil } }
 
-        assert_equal reading.message, error.message
+        # Reading names the line of the header row, which a check before reading does not read as a line.
+        assert_equal "#{error.message}, on line 1", reading.message
         assert_includes error.message, 'missing the required field "id"'
       end
 
@@ -46,7 +47,8 @@ class ContractValidationTest < Minitest::Test
         schema = {fields: [{name: "id", type: "integer"}, {name: "amount", type: "number"}]}
         error   = assert_raises(IOStreams::Errors::InvalidHeader) { upload("Zip\n1\n").schema(schema).validate_contract! }
         reading = assert_raises(IOStreams::Errors::InvalidHeader) { upload("Zip\n1\n").schema(schema).each(:hash) { nil } }
-        assert_equal reading.message, error.message
+
+        assert_equal "#{error.message}, on line 1", reading.message
         assert_equal 2, upload("Zip\n1\n").schema(schema).contract_errors.size
         assert upload("ID,Amount\n1,2\n").schema(schema).validate_contract!
       end

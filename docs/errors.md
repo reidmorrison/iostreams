@@ -93,6 +93,48 @@ rescue IOStreams::Errors::MissingKey => e
 end
 ~~~
 
+## Rescue a row that cannot be read
+
+A row of a file that cannot be read raises an exception that includes `IOStreams::Errors::RowError`, which names the
+record that it is in, counting from 1 without the header row, and the line of the file that the record starts on,
+whichever format the file is in:
+
+~~~ruby
+begin
+  IOStreams.path(ENV.fetch("IMPORT_PATH")).each(:hash) do |record|
+    Order.import(record)
+  end
+rescue IOStreams::Errors::RowError => e
+  logger.error("Fix the file and send it again: #{e.message}")
+  # => Fix the file and send it again: Illegal quoting, in record 3 on line 5
+end
+~~~
+
+`#record_number` and `#line_number` hold them, also for the rows of a [slice](background_jobs), which keep those of their
+file, and for `validate: true`, which checks every row of a file before it is sliced. A header row names its line
+only, since it is not a record. The line is `nil` for a source without lines, such as a Parquet file or a query.
+
+It is raised for:
+
+* A value that is not valid for its field, `IOStreams::Errors::InvalidValue`, see
+  [Values that are not valid](streams#values-that-are-not-valid).
+* A row whose values do not fit the columns, `IOStreams::Errors::InvalidHeader`, such as a row with a value after
+  the last column, or a JSON record with a key that the schema does not have.
+* A fixed width line of another length, `IOStreams::Errors::InvalidLineLength`.
+* A JSON line that is not an object, `IOStreams::Errors::TypeMismatch`.
+* A line that is not a row of its format, such as CSV whose quoting is not valid, or JSON that is not valid, for which
+  the format raises the exception of the gem that reads it, `CSV::MalformedCSVError` or `JSON::ParserError`, tagged
+  with `IOStreams::Errors::RowError`.
+
+`on_invalid:` takes only the rows whose values are not valid, so the others still stop the read, since no value of a
+field explains them.
+
+The exception of a gem is kept, as for the failure of a stream, so that it can still be rescued by its class, and
+its message ends with the record and line of the file, rather than the line within the text of the row that the csv
+gem names, since it reads one row at a time: `Illegal quoting, in record 3 on line 5`, where the csv gem raised
+`Illegal quoting in line 1.`. Its `#lineno` is still the csv gem's. Rescue `IOStreams::Errors::RowError` rather than
+the exception of a gem, so that the code works whichever format the file is in.
+
 ## The exception tree
 
 The kinds of failure are modules that tag the exception that the storage, or the gem of a stream, raised:
@@ -118,6 +160,11 @@ The kinds of failure are modules that tag the exception that the storage, or the
 A failure of the storage is never a failure of a stream, so rescuing `NotFound` does not rescue a zip file without
 the file to read, which reading again will not fix.
 
+`IOStreams::Errors::RowError` is included by the exceptions of a row of a file that cannot be read, and tags the
+exception of the gem that reads a format for one, `CSV::MalformedCSVError` or `JSON::ParserError`, see
+[Rescue a row that cannot be read](#rescue-a-row-that-cannot-be-read). Its `#record_number` and `#line_number` name the
+row. A row that cannot be read is never a failure of a stream or of the storage.
+
 IOStreams raises these classes itself:
 
 * `IOStreams::Errors::Error`, a `StandardError`:
@@ -134,6 +181,7 @@ IOStreams raises these classes itself:
     [contract](contracts): when reading, a header row, or the keys of a JSON record, has columns that `fieldsMatch`
     does not allow, or is missing a required field, or a row has values after its last column that the schema does not
     skip, and when writing, the keys of a record, or the columns or values of a row, that the schema does not skip.
+    For a row that is read, it names the record and line, see [RowError](#rescue-a-row-that-cannot-be-read).
     `#contract_errors` lists the problems of the columns before any row is read, see
     [Checking a source](contracts#checking-a-source-before-the-work-starts). Without a schema, it is also raised for
     a header row of two columns that are the same key of a record, such as `a,a,b`, when its records are read, see
@@ -143,14 +191,16 @@ IOStreams raises these classes itself:
     number. It is raised when the stream opens, before the first row, and is not an `InvalidHeader`, so that code that
     rescues `InvalidHeader` for missing columns does not rescue it.
   * `IOStreams::Errors::TypeMismatch`: a row or record cannot be converted to the format, such as, with a schema, a
-    row written that is neither a Hash nor an Array, or a JSON line that is not an object.
+    row written that is neither a Hash nor an Array, or a JSON line that is not an object, which names its record and
+    line, see [RowError](#rescue-a-row-that-cannot-be-read).
   * `IOStreams::Errors::DelimiterNotFound`: no line delimiter was found within the maximum line length.
   * `IOStreams::Errors::InvalidValue`: a value is not of the type of its field in the schema or contract, or a field
     that is required has no value, see [Types](schemas#types), also for a record of a contract made with `Order.new`,
     or a time of day that a query reads is outside a day, or an interval that it reads is infinite, see
     [Times of day](queries#times-of-day), which name the column. A value that a reader of rows or records converts
     names the record that it is in and the line that the record starts on, such as `..., in record 6 on line 7`, which
-    its `#record_number` and `#line_number` hold, with its `#field`, `#value` and `#reason`, see
+    its `#record_number` and `#line_number` hold, as for every `IOStreams::Errors::RowError`, with its `#field`,
+    `#value` and `#reason`, see
     [Values that are not valid](streams#values-that-are-not-valid). `on_invalid:` hands each bad row to a handler
     instead, as an `IOStreams::InvalidRow`. A value that does not follow a [constraint](schemas#constraints) raises
     it too, and so does a value of a field or key that must be [unique](schemas#unique-values) that an earlier record
@@ -160,7 +210,8 @@ IOStreams raises these classes itself:
     so that it can no longer tell whether a value is a duplicate. It is not an `InvalidValue`, since the value may well
     be unique, so `on_invalid:` does not take it: raise `uniqueLimit`, or check the uniqueness elsewhere, such as with a
     unique index of a database.
-  * `IOStreams::Errors::InvalidLineLength`: a fixed width line does not have the length of its schema.
+  * `IOStreams::Errors::InvalidLineLength`: a fixed width line does not have the length of its schema, which names
+    its record and line, see [RowError](#rescue-a-row-that-cannot-be-read).
   * `IOStreams::Errors::ValueTooLong`: a value does not fit within its fixed width field.
   * `IOStreams::Errors::InvalidLayout`: nothing raises it since v3.0 removed the layout of a fixed width file, which a
     schema replaces, see [Upgrading](upgrading#format_options-is-replaced-by-schema). It is kept so that code that

@@ -166,8 +166,11 @@ end
   [Checking a source before the work starts](contracts#checking-a-source-before-the-work-starts) to list them first.
 * A row whose values do not fit the columns, rather than a value that is not valid, still raises where it is, such as
   a row with a value after the last column (`IOStreams::Errors::InvalidHeader`), a fixed width line of another length
-  (`IOStreams::Errors::InvalidLineLength`), or, with a schema, a JSON record without a key that the schema requires.
-* `each(:slice, validate: true)` raises the first `IOStreams::Errors::InvalidValue`, naming its record and line too.
+  (`IOStreams::Errors::InvalidLineLength`), or, with a schema, a JSON record without a key that the schema requires,
+  and so does a line that is not a row of its format, such as CSV whose quoting is not valid. Each of them names its
+  record and line too, see [Rescue a row that cannot be read](errors#rescue-a-row-that-cannot-be-read).
+* `each(:slice, validate: true)` raises the first `IOStreams::Errors::InvalidValue`, or other row that cannot be
+  read, naming its record and line too.
 * `on_invalid:` only applies when reading, so `#writer` and `#copy_from` raise `ArgumentError` for it, and so does a
   handler that cannot be called, before the file is opened.
 

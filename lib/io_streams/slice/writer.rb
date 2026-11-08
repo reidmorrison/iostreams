@@ -105,10 +105,11 @@ module IOStreams
       private
 
       # Parses the supplied line of a row, see `IOStreams::Tabular#validate_line`, raising an
-      # `IOStreams::Errors::InvalidValue` that names the record that it is in and the line that it starts on.
+      # `IOStreams::Errors::RowError`, such as an `IOStreams::Errors::InvalidValue`, that names the record that it is in
+      # and the line that it starts on.
       def validate(line, line_number, record_number)
         @reader.validate_line(line)
-      rescue IOStreams::Errors::InvalidValue => e
+      rescue IOStreams::Errors::RowError => e
         raise e.at(line_number: line_number, record_number: record_number)
       end
 
@@ -157,11 +158,24 @@ module IOStreams
       # Reads each row of the slice, after the header row of the first one, see #start_rows, and
       # `IOStreams::Tabular#read_row`, and writes it, see `IOStreams::Row::Writer`. The rows of a format of keyed
       # records, such as JSON without a schema, are read by the keys of the first record of the first slice, which
-      # raises `IOStreams::Errors::InvalidHeader` for a key that it lacked.
+      # raises `IOStreams::Errors::InvalidHeader` for a key that it lacked. An `IOStreams::Errors::RowError` of a row
+      # that cannot be read names the record that it is and the line that it starts on.
       def write_rows(slice)
-        slice.each do |row, _line_number, _record_number|
-          @reader.read_row(row) { |parsed| @rows << parsed unless parsed.nil? }
+        slice.each do |row, line_number, record_number|
+          read_rows(row, line_number, record_number).each { |parsed| @rows << parsed unless parsed.nil? }
         end
+      end
+
+      # Returns [Array] what the reader reads from the supplied row of a slice, see `IOStreams::Tabular#read_row`: its
+      # row, after the header row of the rows when it is the first record of a format of keyed records without a schema,
+      # raising an `IOStreams::Errors::RowError` that names its record and line, which writing it, see #write_rows, does
+      # not, since the row has been read.
+      def read_rows(row, line_number, record_number)
+        parsed = []
+        @reader.read_row(row) { |each_row| parsed << each_row }
+        parsed
+      rescue IOStreams::Errors::RowError => e
+        raise e.at(line_number: line_number, record_number: record_number)
       end
     end
   end
