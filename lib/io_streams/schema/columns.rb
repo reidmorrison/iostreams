@@ -104,6 +104,8 @@ module IOStreams
         # in the records read, see `IOStreams::Schema#key`, and the number of columns of the header row.
         @matched      = nil
         @width        = nil
+        # The field of each column read, by its position, see #column_fields.
+        @column_fields = nil
         # Whether the columns are the fields in order, for a file without a header row, see #match_fields.
         @fields_in_order = false
         # Each field, in order, with the position of its column in the header row written, or nil, see #match_written,
@@ -152,6 +154,7 @@ module IOStreams
         positions.each { |field, index| @labels[field] = labels[index] }
         @extra   = extra_columns(labels, positions, "column")
         @width   = labels.size
+        @column_fields = nil
         names
       end
 
@@ -228,7 +231,8 @@ module IOStreams
         @matched = @schema.fields.each_with_index.filter_map do |field, index|
           [field, index, @schema.key(field)] unless field.skip?
         end
-        @width = @schema.fields.size
+        @width         = @schema.fields.size
+        @column_fields = nil
       end
 
       # Returns [true|false] whether the columns of the file read are known, see #match.
@@ -442,6 +446,34 @@ module IOStreams
         out
       end
 
+      # Returns [Array|Hash] the values of a row of the file that is already parsed, rather than a line, such as an Array
+      # that a program holds in a slice of lines, see `IOStreams::Slice::Writer`, in the form that the format writes them,
+      # see `IOStreams::Schema::Field#render`, so that it is written as the lines read with it are, as they are: an Array
+      # in the columns of the header row read, see #match, or of a file without one, the fields in order, see
+      # #match_in_order, each value by the field that its column matched, and the value of a column that no field
+      # matched, or whose field is skipped, as it is, which the format writes as its text. A record of a format whose
+      # records supply their own keys, such as JSON, a Hash, is rendered by the fields, as #render renders it, while an
+      # Array of its values is rendered by position, as reading reads it, see #row, each field by its name, skipping a
+      # field that is skipped, whose value still holds its place.
+      #
+      # The values that must be unique are not checked, as they are not for the lines that are written as they are.
+      #
+      # Raises `IOStreams::Errors::InvalidHeader` when an Array has values after the last column, as reading it would,
+      # see #check_extra, and `IOStreams::Errors::InvalidValue` for a value that its field cannot hold.
+      def render_read(row, form, keyed)
+        return render_row(row, form, keyed) unless row.is_a?(::Array)
+
+        check_extra(row, @width, "column")
+        fields = column_fields
+        if keyed
+          record = {}
+          fields.each_with_index { |field, index| record[field.name] = field.render(row[index], form) if field }
+          return record
+        end
+
+        row.each_with_index.map { |value, index| (field = fields[index]) ? field.render(value, form) : value }
+      end
+
       # Remembers the values that must be unique of the last row or record read or written with `remember: false`, once
       # a contract has read or written it too, see `IOStreams::Schema::ContractColumns`, so that a row or record that
       # the contract rejects adds none of them, see `IOStreams::Schema::Uniqueness`.
@@ -576,6 +608,14 @@ module IOStreams
           next label unless utf8.valid_encoding?
 
           utf8
+        end
+      end
+
+      # Returns [Array<IOStreams::Schema::Field|nil>] the field of each column read, by its position, nil for a column
+      # that no field matched, or whose field is skipped, see #render_read, worked out once the columns are matched.
+      def column_fields
+        @column_fields ||= ::Array.new(@width).tap do |fields|
+          matched.each { |field, index, _key| fields[index] = field if index }
         end
       end
 

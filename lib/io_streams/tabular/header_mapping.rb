@@ -198,6 +198,28 @@ module IOStreams
         raise(named_error(e, values))
       end
 
+      # Returns [String|Array|Hash] the line that the parser renders for a row of the file that is already parsed, as it
+      # is, see `IOStreams::Tabular#render_read`: an Array of the values in the columns read, which the format writes as
+      # their text, or a record of a format of keyed records, such as JSON, a Hash, by its own keys, as a writer of
+      # records writes each record of JSON without a schema.
+      #
+      # Returns nil for a row without values, a blank line, as #render does.
+      #
+      # Raises ArgumentError for an Array of a format of keyed records, which has no keys, since no schema names its
+      # columns, and `IOStreams::Errors::InvalidValue` for a value that the format cannot write, naming its column, as
+      # #render does.
+      def render_read(row)
+        return if @blank_rows && IOStreams::Utils.blank?(row)
+        if @keyed && row.is_a?(::Array)
+          raise(ArgumentError, "A row of the #{@format.inspect} format that is already parsed, an Array of values, has " \
+                               "no keys, and no schema names its columns: set a schema, whose fields name them")
+        end
+
+        @parser.render(row)
+      rescue IOStreams::Errors::InvalidValue => e
+        raise(named_error(e, row))
+      end
+
       # Returns [String] the header row of the columns, once the columns supplied to it, if any, become the columns, such
       # as the first row written.
       # Returns nil when the format has no header row, once a format of keyed records takes the columns supplied, such as

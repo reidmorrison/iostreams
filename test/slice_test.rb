@@ -960,7 +960,7 @@ class SliceTest < Minitest::Test
         json:    [[%({"name":"Jack"}), {"name" => "Jack"}, ["Jack", 21], nil], [21, :jack]],
         parquet: [[{"name" => "Jack"}, ["Jack", 21], nil], [%({"name":"Jack"}), 21]],
         psv:     [["Jack|21", ["Jack", 21], nil], [{"name" => "Jack"}, 21]],
-        text:    [["Jack", ["Jack"], nil], [{"name" => "Jack"}, 21]]
+        text:    [["Jack", ["Jack"], [], nil], [{"name" => "Jack"}, %w[Jack 21], 21]]
       }.freeze
 
       it "covers every format" do

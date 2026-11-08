@@ -157,6 +157,13 @@ module IOStreams
         end
       end
 
+      # Returns [Array|Hash] a row of the file that is already parsed, rendered by the schema of the file in the columns
+      # read, see `IOStreams::Schema::Columns#render_read`, since it is a row of the file, as its lines are, rather than a
+      # record of the contract.
+      def render_read(row, form, keyed)
+        @source.render_read(row, form, keyed)
+      end
+
       # Raises for a blank row written when a field of the contract, or of the schema of the file, needs a value, see
       # `IOStreams::Schema::Columns#render_blank`.
       def render_blank

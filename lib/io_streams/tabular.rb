@@ -203,10 +203,14 @@ module IOStreams
     # `IOStreams::Slice#header?`, `IOStreams::Slice#blank_rows?`, `IOStreams::Slice#typed?` and
     # `IOStreams::Slice#cell_text?`, whatever the schema says of the file, see
     # `headerless:` of #initialize. Without a schema, nothing names the columns of rows that have no header row, see
-    # #unnamed_columns?, so the writer checks that this tabular can write them, see #check_unnamed_rows.
+    # #unnamed_columns?, so the writer checks that this tabular can write them, see #check_unnamed_rows. Rows of the
+    # format of this tabular are its text, so the new one has its format of text too, see `text_format:` of
+    # #initialize, such as the CSV of a spreadsheet for `:text`, so that a row already parsed that it renders, see
+    # #render_read, is written as this tabular writes a line of the same text, see #written_line.
     def for_format(format, headerless:, blank_rows: true, typed: false, cell_text: false)
       self.class.new(format: format, schema: @file_schema, contract: @contract, blank_rows: blank_rows,
-                     headerless: headerless, typed: typed, cell_text: cell_text)
+                     headerless: headerless, typed: typed, cell_text: cell_text,
+                     text_format: (@text_format if format == @format))
     end
 
     # Returns [IOStreams::Tabular::Header] the columns of the file: the header row read, or the keys of the first record,
@@ -689,6 +693,20 @@ module IOStreams
     # as in the CSV text of a row of a spreadsheet, does not add rows to a file of plain text.
     def written_line(line)
       parser.written_line(line)
+    end
+
+    # Returns [String] the line of a row of the file that is already parsed, rather than a line, as the format writes
+    # it, such as an Array that a program holds in a slice of lines, which a writer of slices writes with the lines of
+    # the slice, as they are, see `IOStreams::Slice::Writer`, once this tabular has read the header row of the slice:
+    # an Array in the columns read, each value by the field of a schema that its column matched, and a record of a
+    # format of keyed records, such as JSON, a Hash, as a writer of records writes it, see
+    # `IOStreams::Tabular::Mapping#render_read`.
+    #
+    # Raises `IOStreams::Errors::InvalidValue` for a value that its field cannot hold, `IOStreams::Errors::InvalidHeader`
+    # for values after the last column, and ArgumentError for an Array of a format of keyed records without a schema,
+    # which nothing names the keys of.
+    def render_read(row)
+      @mapping.render_read(row)
     end
 
     # Yields [String|nil] the line that a writer of rows writes for the row: the header line, when it is the header row,

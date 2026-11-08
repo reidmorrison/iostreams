@@ -224,6 +224,15 @@ class TextFormatTest < Minitest::Test
         end
       end
 
+      it "writes a row of a slice already parsed to a spreadsheet as its lines are, keeping a line break in a quoted value" do
+        Dir.mktmpdir do |dir|
+          target = shared(IOStreams.path(dir, "parsed.xlsx")).format(:text)
+          target.writer(:slice) { |io| io << IOStreams::Slice.new([%(a,"b\nc"), [%(a,"b\nc")]], format: :text) }
+
+          assert_equal [%W[a b\nc], %W[a b\nc]], read(IOStreams.path(dir, "parsed.xlsx"), :array)
+        end
+      end
+
       it "reads each row of the same text of a CSV file as its lines, since only a spreadsheet has no lines" do
         Dir.mktmpdir do |dir|
           path = IOStreams.path(dir, "people.csv")

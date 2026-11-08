@@ -22,9 +22,10 @@ module IOStreams
     #   is matched to the fields of the schema, which raises `IOStreams::Errors::InvalidHeader` when they do not match,
     #   unless its values are the cells of a source of typed values, such as the CSV text of a spreadsheet, see
     #   `IOStreams::Slice#cell_text?`, whose text the schema of the file may describe otherwise. A row of it that is
-    #   already parsed, an Array of its values, is written as the format writes a row, as `#writer(:array)` writes it,
-    #   in the columns of the header row of the slice, or without one in the order of the fields of the schema, and a
-    #   record of a slice of JSON, a Hash, as the format writes a record, see #parsed_lines.
+    #   already parsed, an Array of its values, is written as the format writes a row, in the columns of the header row
+    #   of the slice, or without one in the order of the fields of the schema, each value by the field that its column
+    #   matched, and a record of a slice of JSON, a Hash, as `#writer(:hash)` writes it, see
+    #   `IOStreams::Tabular#render_read`.
     #   `validate: true` also parses each row before it is written. The text of each row of a slice of `:text` is
     #   written as one row of the file, as `#writer(:array)` writes it, see `IOStreams::Tabular#written_line`.
     # - Any other slice, such as one of CSV written to JSON, of a file without a header row written to one with one, or
@@ -120,14 +121,13 @@ module IOStreams
       end
 
       # Matches the header row of the slice, when it carries one, to the fields of the schema, and writes it as it was
-      # read, without cleansing it, with a tabular of the format without a schema, which then writes each row of the
-      # slices that is already parsed in its columns, see #parsed_lines.
+      # read, without cleansing it, with a tabular of the format without a schema, so that the reader renders each row of
+      # the slices that is already parsed in its columns, see #write_as_is.
       def start_as_is(slice)
         return unless slice.header?
 
         @reader.read_line(slice.header) { nil }
-        @header_tabular = IOStreams::Tabular.new(format: @tabular.format)
-        @header_tabular.render_row(slice.header) { |line| @output << line }
+        IOStreams::Tabular.new(format: @tabular.format).render_row(slice.header) { |line| @output << line }
       end
 
       # Writes the header row of the rows read, see #write_rows, once it checks that the file can take their columns, see
@@ -143,8 +143,11 @@ module IOStreams
       # for it, see `IOStreams::Tabular#written_line`, so that the text of a row of `:text` that holds a line break, such
       # as the CSV text of a row of a spreadsheet, is one line of a file of plain text, as `#writer(:array)` writes it.
       #
-      # A row that is not a line, nor nil, a blank row, is already parsed, and is written as the format writes it, see
-      # #parsed_lines.
+      # A row that is not a line, nor nil, a blank row, is already parsed, such as an Array that a program held in a slice
+      # of CSV, which the reader, which read the header row of the slices, renders as the format writes it, in the
+      # columns read, each value by the field of the schema that its column matched, see
+      # `IOStreams::Tabular#render_read`, before it validates it, so that an Array of JSON without a schema raises
+      # ArgumentError, since nothing names its keys.
       #
       # An `IOStreams::Errors::RowError` of a row names the record that it is and the line that it starts on: one that
       # its keys, or `validate: true`, raise, and the `IOStreams::Errors::TypeMismatch` of a row of `:text` that is not
@@ -156,36 +159,20 @@ module IOStreams
           # row is a record, since the header row was read before the first, see #start_as_is, so the reader yields it.
           begin
             text = @reader.read_line(row) do |line|
-              @reader.validate_line(line) if @validate
-              line.nil? || line.is_a?(::String) ? @tabular.written_line(line) : parsed_lines(line)
+              if line.nil? || line.is_a?(::String)
+                @reader.validate_line(line) if @validate
+                @tabular.written_line(line)
+              else
+                parsed = @reader.render_read(line)
+                @reader.validate_line(line) if @validate
+                parsed
+              end
             end
           rescue IOStreams::Errors::RowError => e
             raise e.at(line_number: line_number, record_number: record_number)
           end
-          text.is_a?(::Array) ? text.each { |line| @output << line } : @output << text
+          @output << text
         end
-      end
-
-      # Returns [Array<String>] the lines of a row of a slice of lines that is already parsed, rather than a line, such as
-      # one that a program stored in a slice of CSV, as the format writes a row, see `IOStreams::Tabular#render_row`: an
-      # Array of its values in the columns of the header row of the slices, by the tabular that wrote it, see
-      # #start_as_is, or of a slice without one, in the order of the fields of the schema, and a Hash, a record of JSON,
-      # by its keys, see `IOStreams::Tabular#render_record`, so that #write_as_is writes them outside of its rescue.
-      #
-      # Raises ArgumentError for an Array without a header row, or a schema, that names its columns, such as a row of a
-      # slice of JSON written without a schema, rather than take it as the header row, see
-      # `IOStreams::Tabular#check_unnamed_rows`.
-      def parsed_lines(row)
-        lines = []
-        if row.is_a?(::Hash)
-          @tabular.render_record(row) { |line| lines << line }
-        elsif @header_tabular
-          @header_tabular.render_row(row) { |line| lines << line }
-        else
-          @tabular.check_unnamed_rows
-          @tabular.render_row(row) { |line| lines << line }
-        end
-        lines
       end
 
       # Reads each row of the slice, after the header row of the first one, see #start_rows, and

@@ -23,6 +23,27 @@ module IOStreams
           true
         end
 
+        # Returns [true|false] whether the row is a line of text, a String, a row already parsed of its one value, an
+        # Array of at most one value, which #render writes, or nil, a blank row, see
+        # `IOStreams::Tabular::Parser::Base.row?`.
+        def self.row?(row)
+          row.is_a?(::String) || (row.is_a?(::Array) && row.size <= 1) || row.nil?
+        end
+
+        # Returns [Integer|nil] the index of the first of the supplied rows that the format does not read, see .row?,
+        # which, unlike any other format, decides by the size of an Array too, so only rows that are all lines of text
+        # are read without checking each one, see `IOStreams::Tabular::Parser::Base.unread_row_index`.
+        def self.unread_row_index(rows)
+          return if rows.all?(::String)
+
+          rows.index { |row| !row?(row) }
+        end
+
+        # Returns [String] the rows that the `:text` format reads, see .row?.
+        def self.rows_read
+          "a line of text, or an Array of its one value"
+        end
+
         # Parameters
         #   schema: [IOStreams::Schema|nil]
         #     The schema of the rows, which names the value of each row with its one field.
