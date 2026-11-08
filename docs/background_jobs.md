@@ -143,9 +143,9 @@ slice.to_h
   types: a Time, a Date, a BigDecimal, an `ActiveSupport::Duration`, and an Integer too large for BSON, such as `2**70`,
   which neither JSON nor BSON holds as it is, as their text, with `"types"`, which says the type of each, so that
   `IOStreams.slice` turns them back into them, and the job gets the values that the program wrote. Any other value is
-  held as JSON holds it, such as a Symbol, and each key of a Hash, as its text. A value of a field of type `any`, such
-  as a computed column of a query, is held as JSON holds it, a time, a date or a BigDecimal as its text, which comes
-  back as text, and a Symbol, and each key of a Hash, as its text, also within a Hash or an Array. To replace the rows
+  held as JSON holds it, such as a Symbol, and each key of a Hash, as its text. So is a value of a field of type `any`,
+  such as a computed column of a query, whose type does not say what it holds, so that it keeps its type too, and a
+  Symbol, and each key of a Hash, is held as its text, also within a Hash or an Array. To replace the rows
   of a slice with others in the same form, `slice.with_rows(rows)` returns a new slice that keeps everything else that
   the slice says.
 * The slices of an Excel spreadsheet hold `"cell_text" => true`, those of its cells from `each(:slice)`, and those of

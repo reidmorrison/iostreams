@@ -385,12 +385,32 @@ class SliceTest < Minitest::Test
         assert_equal [nil, {"on" => "2026-01-02"}], slice.to_h["rows"]
       end
 
-      it "holds a time, a date or a BigDecimal of a field of type any as its text, which comes back as text" do
-        any   = {fields: [{name: "at"}, {name: "amount"}]}
-        slice = IOStreams::Slice.new([[Time.utc(2024, 1, 2, 3, 4, 5.123r), BigDecimal("12.5")]], header: %w[at amount],
-                                                                                                  format: :array, schema: any)
+      it "holds a time, a date or a BigDecimal of a field of type any as its text, whose type it keeps, as without a schema" do
+        any   = {fields: [{name: "at"}, {name: "amount", type: "any"}, {name: "on", type: "date"}]}
+        rows  = [[Time.utc(2024, 1, 2, 3, 4, 5.123r), BigDecimal("12.5"), Date.new(2024, 1, 2)], [nil, "n/a", nil]]
+        slice = IOStreams::Slice.new(rows, header: %w[at amount on], format: :array, schema: any)
+        hash  = slice.to_h
 
-        assert_equal [["2024-01-02T03:04:05.123Z", "12.5"]], slice.to_h["rows"]
+        assert_equal [["2024-01-02T03:04:05.123Z", "12.5", "2024-01-02"], [nil, "n/a", nil]], hash["rows"]
+        assert_equal [[0, "datetime"], [1, "number", [0]]], hash["types"]
+        [IOStreams.slice(hash), IOStreams.slice(JSON.parse(JSON.generate(hash)))].each do |copy|
+          assert_equal slice, copy
+          assert_equal [Time, BigDecimal, Date], copy.rows.first.map(&:class)
+        end
+      end
+
+      it "keeps the type of a value of a field of type any of a record, also by a Symbol key, and checks its constraints" do
+        any   = {keyType: "symbol", fields: [{name: "name", type: "string"}, {name: "due", constraints: {required: true}}]}
+        slice = IOStreams::Slice.new([{name: "Jack", due: Date.new(2026, 1, 2)}], format: :hash, schema: any)
+        hash  = slice.to_h
+
+        assert_equal [%w[due date]], hash["types"]
+        assert_equal slice, IOStreams.slice(hash)
+        assert_equal [{"name" => "Jack", "due" => Date.new(2026, 1, 2)}], IOStreams.slice(JSON.parse(JSON.generate(hash))).rows
+        records = []
+        IOStreams.stream(IOStreams.slice(JSON.parse(JSON.generate(hash)))).each(:hash) { |record| records << record }
+
+        assert_equal [{name: "Jack", due: Date.new(2026, 1, 2)}], records
       end
 
       it "holds a Symbol of a field of type any, and the keys and values within its Hash, as JSON holds them, as without a schema" do
@@ -496,7 +516,9 @@ class SliceTest < Minitest::Test
         error = assert_raises(ArgumentError) do
           IOStreams.slice(rows.merge("schema" => {"fields" => [{"name" => "on", "type" => "string"}]}, "types" => [[0, "date"]]))
         end
-        assert_match(/with a schema has no types/, error.message)
+        assert_match(/only the values of its fields of type "any", not 0, whose field is of type "string"/, error.message)
+        assert_equal Date.new(2026, 1, 2),
+                     IOStreams.slice(rows.merge("schema" => {"fields" => [{"name" => "on"}]}, "types" => [[0, "date"]])).rows.first.first
       end
 
       it "holds a date or a time whose year ISO 8601 does not write in 4 digits as its text, which comes back as text" do
