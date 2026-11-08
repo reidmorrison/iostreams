@@ -780,6 +780,13 @@ class SliceTargetStreamTest < Minitest::Test
         list
       end
 
+      # Returns [Array] the rows of the supplied slice, after its header row, as each(:array) reads them.
+      def read_rows(slice)
+        list = []
+        IOStreams.stream(slice).each(:array) { |row| list << row }
+        list
+      end
+
       it "are typed in a format whose rows hold the values themselves, and each one is a record" do
         stream.format(:hash).schema(typed_schema).writer(:hash) { |io| io << {"name" => "Jack", "on" => Date.new(2026, 1, 2)} }
         slice = store.slices.first
@@ -874,6 +881,34 @@ class SliceTargetStreamTest < Minitest::Test
 
           assert_equal [{"amount" => nil}, {"amount" => nil}, {"amount" => 1}], read(target.slices.first, amount), format
         end
+      end
+
+      it "keep a row without values written without a schema as a record of its columns, in a format of columns too" do
+        stored = {csv: ["Jack,21", ",", ","], psv: ["Jack|21", "|", "|"], array: [%w[Jack 21], [nil, nil], [nil, nil]]}
+        stored.each_pair do |format, rows|
+          target = Store.new
+          IOStreams.stream(target).format(format).writer(:array) do |io|
+            io << %w[name age] << %w[Jack 21] << [] << [nil, nil]
+          end
+          slice = target.slices.first
+          json  = StringIO.new
+          IOStreams.stream(json).format(:json).writer(:slice) { |io| io << slice }
+
+          assert_equal rows, slice.rows, format
+          assert_equal [{"name" => "Jack", "age" => "21"}, {"name" => nil, "age" => nil}, {"name" => nil, "age" => nil}],
+                       read(slice, nil), format
+          assert_equal [%w[Jack 21], [nil, nil], [nil, nil]], read_rows(slice).drop(1), format
+          assert_equal %({"name":"Jack","age":"21"}\n#{%({"name":null,"age":null}\n) * 2}), json.string, format
+        end
+      end
+
+      it "keep a record without values written to PSV without a schema as a record when written to JSON" do
+        stream.format(:psv).writer(:hash) { |io| io << {"name" => "Jack", "age" => 21} << {} }
+        json = StringIO.new
+        IOStreams.stream(json).format(:json).writer(:slice) { |io| io << store.slices.first }
+
+        assert_equal ["Jack|21", "|"], store.slices.first.rows
+        assert_equal %({"name":"Jack","age":"21"}\n{"name":null,"age":null}\n), json.string
       end
 
       it "keep an empty record as a record without a schema" do
