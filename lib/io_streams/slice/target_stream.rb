@@ -70,7 +70,7 @@ module IOStreams
       #           `IOStreams::Contract::RecordWriter`.
       #
       # Each slice holds the number of rows that the store says, see `IOStreams::Slice::Target#slice_size`, apart from
-      # the last, which holds the rows that are left.
+      # the last, which holds the rows that are left, or every row of the write in one slice when it says nil.
       #
       # Parameters
       #   validate: [true|false]
@@ -83,8 +83,9 @@ module IOStreams
       #
       # Returns the result of the block.
       #
-      # Raises ArgumentError for any other mode, or option, or a slice size of the store that is not a positive Integer,
-      # or in the `:array` or `:hash` mode once `replace:` or `cleaner:` is set, see #encoding, before the block is called.
+      # Raises ArgumentError for any other mode, or option, or a slice size of the store that is neither a positive
+      # Integer nor nil, or in the `:array` or `:hash` mode once `replace:` or `cleaner:` is set, see #encoding, before
+      # the block is called.
       def writer(mode = :stream, **args, &block)
         require_block!(:writer, block)
         return write_contract_records(slice_options(mode, args), &block) if mode == :record
@@ -532,16 +533,16 @@ module IOStreams
                              "in the :line mode, not to the #{mode.inspect} mode")
       end
 
-      # Returns [Integer] the number of rows of each slice, which the store decides, see
-      # `IOStreams::Slice::Target#slice_size`.
+      # Returns [Integer|nil] the number of rows of each slice, which the store decides, see
+      # `IOStreams::Slice::Target#slice_size`, or nil for one slice of every row of the write.
       #
-      # Raises ArgumentError when it is not a positive Integer.
+      # Raises ArgumentError when it is neither a positive Integer nor nil.
       def slice_size
         size = io_stream.slice_size
-        return size if size.is_a?(Integer) && size.positive?
+        return size if size.nil? || (size.is_a?(Integer) && size.positive?)
 
         raise(ArgumentError, "Invalid slice_size #{size.inspect} of #{io_stream.class.name}: return the number of rows " \
-                             "of each slice")
+                             "of each slice, or nil for one slice of every row of each write")
       end
 
       # Returns [IOStreams::Tabular] that reads the lines written into slices, see `IOStreams::Slice::Collector`, with
