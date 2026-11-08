@@ -114,41 +114,35 @@ module IOStreams
       # line.
       #
       # Returns an Enumerator of the rows without a block.
-      def each(&block)
+      def each(&)
         return enum_for(:each) unless block_given?
 
-        skip    = @skip
-        records = 0
-        # Whether the rows that the tabular yields have started, after the header row, once it is read, or the header
-        # row that the rows of a file without one start with, such as the keys of the first record of JSON without a
-        # schema, see `IOStreams::Tabular#rows_header?`, after which every line is one row.
-        started = false
-        each_numbered do |line, line_number, record_number|
-          if !started && @tabular.header?
-            read_header(line, line_number, &block)
-            next
-          end
+        read_rows(false, &)
+      end
 
-          records += 1
-          number = record_number || records
-          if skip.positive?
-            skip -= 1
-            skip_record(line, line_number, number, &block)
-          elsif started || !@tabular.rows_header?
-            started = true
-            # Rescued here, rather than in `IOStreams::Row::Locator.locate`, whose block would cost each row more.
-            begin
-              row = @tabular.row_parse(line)
-            rescue IOStreams::Errors::InvalidValue => e
-              next invalid(e, line, line_number, number)
-            rescue IOStreams::Errors::RowError => e
-              raise e.at(line_number: line_number, record_number: number)
-            end
-            yield(row) unless @skip_blanks && row.nil?
-          else
-            read_first(line, line_number, number, &block)
-          end
-        end
+      # Yields each row as #each does, with the line of the file that it starts on and its record number, so that a
+      # program can say where in the file a row is, such as for a row that it cannot process:
+      # - The line that the row starts on, counting from 1, the header row and blank lines included, as a text editor
+      #   numbers them, or nil for a row that is not a line of a file, such as a row of Parquet or of a query, see
+      #   `IOStreams::Slice#line_number_at`.
+      # - The record number of the row, counting from 1 without the header row, as the slices of the file and an
+      #   `IOStreams::Errors::RowError` number them, see `IOStreams::Slice#record_number_at`, or nil for the header row,
+      #   which is not a record.
+      # The rows of a slice have the numbers that the slice holds, see `IOStreams::Slice::Stream`, nil for a row that a
+      # slice of numbered rows holds without them, while the rows of a slice that holds no record numbers are counted, and
+      # its header row, whose line it does not hold, has no line number either. A blank line
+      # before the header row, which is yielded as nil, has its line, and no record number.
+      #
+      # The header row of the file has its line, while a header row that is not a line of its own has none, such as the
+      # keys of the first record of JSON without a schema, or the names of the fields of a file without a header row, see
+      # #header?. `skip_blanks`, `resume_at` and `on_invalid` apply as they do to #each, and every row keeps the numbers of
+      # its file.
+      #
+      # Returns an Enumerator of the rows and their numbers without a block.
+      def each_with_numbers(&)
+        return enum_for(:each_with_numbers) unless block_given?
+
+        read_rows(true, &)
       end
 
       # Writes each row to the writer, see `IOStreams::Row::Writer`, as a copy does, see `IOStreams::Stream#copy_from`,
@@ -187,8 +181,56 @@ module IOStreams
 
       private
 
-      # Yields the header row of the supplied line, see `IOStreams::Tabular#read_row`, unless it is blank and
-      # `skip_blanks` skips it, once it is read, outside the rescue that names the line of an
+      # Reads the rows for #each and #each_with_numbers, yielding each row alone, or with its line number and record
+      # number when `numbered` is true, so that both share one loop, which yields to the block of the caller without a
+      # block of its own for each row.
+      def read_rows(numbered, &)
+        skip    = @skip
+        records = 0
+        # Whether the source gives the record number of each row, such as a slice, see #records_numbered?, otherwise
+        # the records are counted.
+        source_numbers = records_numbered?
+        # Yields a header row, or the first row, that the methods of the reader read once for a file, see #read_header,
+        # #skip_record and #read_first, which yield each one with its numbers, as the caller asks. Each other row is
+        # yielded below, without a block of its own. A lambda, so that #each yields the row alone, which a Proc that
+        # yields its arguments would not, since it would hand the numbers on too.
+        once    = numbered ? ->(row, *numbers) { yield(row, *numbers) } : ->(row, *) { yield(row) }
+        # Whether the rows that the tabular yields have started, after the header row, once it is read, or the header
+        # row that the rows of a file without one start with, such as the keys of the first record of JSON without a
+        # schema, see `IOStreams::Tabular#rows_header?`, after which every line is one row.
+        started = false
+        each_numbered do |line, line_number, record_number|
+          if !started && @tabular.header?
+            read_header(line, line_number, &once)
+            next
+          end
+
+          records += 1
+          number = source_numbers ? record_number : records
+          if skip.positive?
+            skip -= 1
+            skip_record(line, line_number, number, &once)
+          elsif started || !@tabular.rows_header?
+            started = true
+            # Rescued here, rather than in `IOStreams::Row::Locator.locate`, whose block would cost each row more.
+            begin
+              row = @tabular.row_parse(line)
+            rescue IOStreams::Errors::InvalidValue => e
+              next invalid(e, line, line_number, number)
+            rescue IOStreams::Errors::RowError => e
+              raise e.at(line_number: line_number, record_number: number)
+            end
+            next if @skip_blanks && row.nil?
+
+            numbered ? yield(row, line_number, number) : yield(row)
+          else
+            read_first(line, line_number, number, &once)
+          end
+        end
+      end
+
+      # Yields the header row of the supplied line, see `IOStreams::Tabular#read_row`, with the line number and no record
+      # number, unless it is blank and `skip_blanks` skips it, once it is read, outside the rescue that names the line of an
       # `IOStreams::Errors::RowError` that reading it raises, since the header row is not a record.
       def read_header(line, line_number)
         yielded = false
@@ -199,26 +241,26 @@ module IOStreams
             header  = row
           end
         end
-        yield(header) if yielded && !(@skip_blanks && header.nil?)
+        yield(header, line_number, nil) if yielded && !(@skip_blanks && header.nil?)
       end
 
       # Yields the header row that the rows of a file start with when it is not a line of its own from the supplied
       # line of a record that `resume_at` skips, see `IOStreams::Tabular#skip_record`, such as the keys of the first
-      # record of JSON without a schema, once it is read, outside the rescue that names the record and line of an
-      # `IOStreams::Errors::RowError` that reading it raises.
+      # record of JSON without a schema, without numbers, since it is not a line of its own, once it is read, outside the
+      # rescue that names the record and line of an `IOStreams::Errors::RowError` that reading it raises.
       def skip_record(line, line_number, record_number)
         columns = nil
         IOStreams::Row::Locator.locate(line_number: line_number, record_number: record_number) do
           @tabular.skip_record(line) { |header| columns = header }
         end
-        yield(columns) if columns
+        yield(columns, nil, nil) if columns
       end
 
       # Yields the header row that the rows of a file start with when it is not a line of its own, such as the keys of
       # the first record of JSON without a schema, or the names of the fields of a file without a header row, from the
-      # supplied line of its first record, see `IOStreams::Tabular#read_row`, then the row of that record, unless it is
-      # blank and `skip_blanks` skips it, or its values are not all valid and `on_invalid:` takes it, see
-      # `IOStreams::Row::Numbered#invalid`.
+      # supplied line of its first record, see `IOStreams::Tabular#read_row`, without numbers, then the row of that
+      # record, with its line number and record number, unless it is blank and `skip_blanks` skips it, or its values are
+      # not all valid and `on_invalid:` takes it, see `IOStreams::Row::Numbered#invalid`.
       def read_first(line, line_number, record_number)
         header = nil
         row    = nil
@@ -227,11 +269,11 @@ module IOStreams
             @tabular.read_row(line) { |parsed| parsed.is_a?(HeaderRow) ? header = parsed : row = [parsed] }
           end
         rescue IOStreams::Errors::InvalidValue => e
-          yield(header) if header
+          yield(header, nil, nil) if header
           return invalid(e, line, line_number, record_number)
         end
-        yield(header) if header
-        yield(row.first) if row && !(@skip_blanks && row.first.nil?)
+        yield(header, nil, nil) if header
+        yield(row.first, line_number, record_number) if row && !(@skip_blanks && row.first.nil?)
       end
     end
   end

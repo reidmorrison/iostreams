@@ -1036,6 +1036,38 @@ end
 * `on_invalid:` only applies when reading, so `#writer` and `#copy_from` raise `ArgumentError` for it, and so does a
   handler that cannot be called, before the file is opened.
 
+### Row and record numbers
+
+`each_with_numbers` yields each row or record as `#each` does, in the `:array`, `:hash` or `:record` mode, with the
+line of the file that it starts on, and its record number, such as to say which row a program could not process:
+
+~~~ruby
+IOStreams.path("people.csv").each_with_numbers(:hash) do |person, line_number, record_number|
+  Person.create!(person)
+rescue ActiveRecord::RecordInvalid => e
+  puts "Record #{record_number}, on line #{line_number}: #{e.message}"
+end
+~~~
+
+* The line number counts from 1, the header row and blank lines included, as a text editor numbers them. A row whose
+  quoted value holds line breaks is on the line that it starts on. Rows that are not lines of a file have no line
+  number, `nil`, such as the rows of a Parquet file, a spreadsheet, also read as `:text`, or a query.
+* The record number counts from 1, without the header row, blank rows included, as the slices of the file and an
+  `IOStreams::Errors::InvalidValue` number them. The header row that `:array` yields first has none, `nil`, nor has a
+  blank line before it, which `:array` yields as `nil`. The header row has no line number either when it is not a line
+  of its own, such as the keys of the first record of JSON without a schema.
+* It takes the options of `#each` in that mode, such as `skip_blanks:`, `resume_at:` and `on_invalid:`, and every row
+  keeps the numbers of its file.
+* The rows of a slice, `IOStreams.stream(slice).each_with_numbers(:hash)`, have the numbers of their rows in the file
+  that the slice was read from, see [Find a row in the file](background_jobs#find-a-row-in-the-file), and none, `nil`,
+  for a row added without numbers to a slice of numbered rows, while the rows of a slice that holds no record numbers,
+  such as one built of rows without them, are counted from 1. A slice does not hold the line of its header row, so the
+  header row that `:array` yields first has no line number.
+* `slice.each` yields the rows of a slice as they are with their numbers, and the line reader of `reader(:line)`
+  yields each line with its number, `each_with_line_number`, so `each_with_numbers` raises `ArgumentError` for the
+  `:slice` and `:line` modes. It needs a mode, unlike `#each`, whose mode defaults to `:line`, and a block, as `#each`
+  does.
+
 ### Resuming at a record
 
 `resume_at:` starts reading at the record of the number supplied, so that a job that stopped part way through a file,
@@ -1067,9 +1099,9 @@ end
 * A query is read again from its start, so give the relation an order, such as `order(:id)`, so that its rows come back
   in the same order each time. Without one, a database may return them in another order, so that the rows skipped are
   not those that were processed. `in_batches` reads each batch in the order of its primary key.
-* `each(:hash)` yields one record, or `nil` for a blank one, for each record, unless `skip_blanks: true`, so counting
-  the records yielded from `resume_at` gives the number of each one. Each slice holds the line and record number of
-  each of its rows in the file, see [Find a row in the file](background_jobs#find-a-row-in-the-file).
+* `each_with_numbers` yields the record number of each record from `resume_at` on, see
+  [Row and record numbers](#row-and-record-numbers). Each slice holds the line and record number of each of its rows in
+  the file, see [Find a row in the file](background_jobs#find-a-row-in-the-file).
 * A slice resumes at a record number that it holds, as `slice.each` gives them, such as
   `IOStreams.stream(slice).each(:hash, resume_at: 502)` for a slice of records 501 to 600, or at the record after its
   last, which reads no rows. A record between its first and last that it no longer holds, such as one removed with
@@ -8145,30 +8177,26 @@ When a row fails, support staff need to find it in the file. A slice holds the n
 A value that is not valid raises `IOStreams::Errors::InvalidValue`, whose message names them already, such as
 `Field "born": "1990-02-30" is not a valid date, in record 2 on line 3`, and `on_invalid:` hands each bad row to a
 handler with its `#line_number` and `#record_number` instead, see
-[Values that are not valid](streams#values-that-are-not-valid). Name them in what the job reports for any other
+[Values that are not valid](streams#values-that-are-not-valid). `each_with_numbers` yields each record with them, see
+[Row and record numbers](streams#row-and-record-numbers), so that the job names them in what it reports for any other
 failure, such as of its own code:
 
 ~~~ruby
 def perform(rows)
   slice = IOStreams.slice(rows)
-  index = 0
-  IOStreams.stream(slice).as(PersonContract).each(:hash) do |person|
+  IOStreams.stream(slice).as(PersonContract).each_with_numbers(:hash) do |person, line_number, record_number|
     Person.upsert(person) if person
-    index += 1
+  rescue StandardError => e
+    # Rows that are not lines, such as of a Parquet file, a spreadsheet or a query, have no line number.
+    where = line_number ? "Record #{record_number}, on line #{line_number}" : "Record #{record_number}"
+    raise(e.exception("#{where} of the file: #{e.message}"))
   end
-rescue IOStreams::Errors::InvalidValue
-  raise
-rescue StandardError => e
-  raise unless slice && index < slice.size
-
-  record = slice.record_number_at(index)
-  line   = slice.line_number_at(index)
-  raise(e.exception("Record #{record}, on line #{line} of the file: #{e.message}"))
 end
 ~~~
 
-* A row that cannot be parsed raises before it is yielded, so `index` is the index of that row. A blank row is yielded
-  as `nil`, so it counts too, which is why this job does not skip blank rows with `skip_blanks: true`.
+* A row that cannot be parsed raises before it is yielded, outside the block, naming its record and line already, so
+  the block rescues only the failures of its own code. A blank row is yielded as `nil`, with its numbers, unless
+  `skip_blanks: true` skips it.
 * `slice.each { |row, line_number, record_number| }` yields each row as it is in the file, with its numbers, such as
   to list the rows of a slice that failed. `slice.line_number` and `slice.record_number` are those of its first row.
 * Rows that are not lines of a file have no line number, `nil`, only their record number: the rows of a Parquet file,
@@ -8592,7 +8620,8 @@ end
 `#record_number` and `#line_number` hold them, also for the rows of a [slice](background_jobs), which keep those of their
 file, and for `validate: true`, which checks every row of a file before it is sliced, and `#reason` the message
 without them, for code that compares the whole message. A header row names its line only, since it is not a record.
-The line is `nil` for a source without lines, such as a Parquet file or a query.
+The line is `nil` for a source without lines, such as a Parquet file or a query. To name them for a failure of your
+own code, read the rows with `each_with_numbers`, see [Row and record numbers](streams#row-and-record-numbers).
 
 It is raised for:
 
