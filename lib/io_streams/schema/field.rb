@@ -345,9 +345,12 @@ module IOStreams
       # The ISO 8601 text that #dump gives a date or datetime whose year is outside 0 to 9999, which ISO 8601 writes
       # with more than 4 digits or a minus sign, such as `10000-01-01` or `-0001-01-01T00:00:00Z`, which #load reads,
       # see #stored_year_value, while the text of a file is read by DATE and DATETIME, whose years have 4 digits. The
-      # year, month and day are captured, and the offset of a datetime, which #dump always writes.
-      STORED_DATE     = /\A(-\d{4,}|\d{5,})-(\d{2})-(\d{2})\z/
-      STORED_DATETIME = /\A(-\d{4,}|\d{5,})-(\d{2})-(\d{2})T(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d+)?(Z|[+-]\d{2}:[0-5]\d)\z/
+      # year, month and day are captured, and the offset of a datetime, which #dump always writes. Only the years that
+      # it writes are read: a year after 9999 without a leading zero, and one before 0 with a minus sign and at least 4
+      # digits, zero filled below 1000, as `-0001`, but never `-0000`, which is the year 0, `0000`.
+      STORED_YEAR     = "(-(?!0000-)(?:0\\d{3}|[1-9]\\d{3,})|[1-9]\\d{4,})"
+      STORED_DATE     = /\A#{STORED_YEAR}-(\d{2})-(\d{2})\z/
+      STORED_DATETIME = /\A#{STORED_YEAR}-(\d{2})-(\d{2})T(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d+)?(Z|[+-]\d{2}:[0-5]\d)\z/
 
       # The date of a time of day, on which IOStreams and Active Record hold it, see .time_of_day and #time_of_day_text.
       TIME_OF_DAY_DATE = "2000-01-01"
@@ -400,6 +403,8 @@ module IOStreams
 
         @type = (descriptor["type"] || "any").to_s
         check_type
+        # Asked of each value of a slice that is stored, see #any_type?.
+        @any_type = @type == "any"
         @skip = check_skip(descriptor)
         check_properties(descriptor)
         build_forms(descriptor)
@@ -576,9 +581,13 @@ module IOStreams
 
       # Returns the value of a field of type "any", or of a slice without a schema, as a store of slices holds it, see
       # #dump and `IOStreams::Slice#to_h`: as JSON holds it when its type is not known, see .any_json, with each key
-      # and value within a Hash or an Array as JSON holds it too, see .json_data, such as a Symbol as its text.
+      # and value within a Hash or an Array as JSON holds it too, see .json_data, such as a Symbol as its text. A Hash or
+      # an Array nested more than MAX_NESTING deep, such as one that holds itself, is returned as it is, so that a slice
+      # holds it rather than raise the json gem's exception, while `IOStreams::Slice#to_json` raises for it.
       def self.any_data(value)
         json_data(any_json(value))
+      rescue JSON::NestingError
+        value
       end
 
       # Returns the value as JSON holds it, so that an object or array field reads the same value from a format whose
@@ -589,13 +598,19 @@ module IOStreams
       # The values within a Hash or an Array are converted too, in a copy, and the value itself is returned when none of
       # them needs it.
       #
+      # Adds true to the supplied Array found, when one is supplied, once it finds an Integer within the value that BSON
+      # does not hold, see .stored_integer? and .structure_data.
+      #
       # Raises `JSON::NestingError`, which #cast_json rescues, for Hashes and Arrays nested more than MAX_NESTING deep,
       # such as one that holds itself.
-      def self.json_data(value, depth = 0)
+      def self.json_data(value, depth = 0, found = nil)
         case value
-        when ::Hash then data_hash(value, depth + 1)
-        when ::Array then data_array(value, depth + 1)
-        when String, Integer, Float, true, false, nil then value
+        when ::Hash then data_hash(value, depth + 1, found)
+        when ::Array then data_array(value, depth + 1, found)
+        when Integer
+          found << true if found&.empty? && !stored_integer?(value)
+          value
+        when String, Float, true, false, nil then value
         when Symbol then value.to_s
         else textual?(value) ? any_text(value) : value
         end
@@ -603,15 +618,15 @@ module IOStreams
 
       # Returns [Hash] a copy of the hash with String keys and each of its values converted, see .json_data, or the hash
       # itself when none of them needs it.
-      def self.data_hash(hash, depth)
+      def self.data_hash(hash, depth, found)
         nesting(depth)
-        return hash.to_h { |key, item| [key.to_s, json_data(item, depth)] } unless hash.each_key.all?(String)
+        return hash.to_h { |key, item| [key.to_s, json_data(item, depth, found)] } unless hash.each_key.all?(String)
 
         copy = nil
         hash.each_pair do |key, item|
           next if json_held?(item)
 
-          data = json_data(item, depth)
+          data = json_data(item, depth, found)
           (copy ||= hash.dup)[key] = data unless data.equal?(item)
         end
         copy || hash
@@ -619,22 +634,24 @@ module IOStreams
 
       # Returns [Array] a copy of the array with each of its values converted, see .json_data, or the array itself when
       # none of them needs it.
-      def self.data_array(array, depth)
+      def self.data_array(array, depth, found)
         nesting(depth)
         copy = nil
         array.each_with_index do |item, index|
           next if json_held?(item)
 
-          data = json_data(item, depth)
+          data = json_data(item, depth, found)
           (copy ||= array.dup)[index] = data unless data.equal?(item)
         end
         copy || array
       end
 
-      # Returns [true|false] whether JSON holds the value as it is, so that .json_data is not called for each one.
+      # Returns [true|false] whether JSON holds the value as it is, so that .json_data is not called for each one, apart
+      # from an Integer that BSON does not hold, which .json_data notes, see .structure_data.
       def self.json_held?(value)
         case value
-        when String, Integer, Float, true, false, nil then true
+        when String, Float, true, false, nil then true
+        when Integer then stored_integer?(value)
         else false
         end
       end
@@ -648,11 +665,11 @@ module IOStreams
       # neither JSON nor BSON holds as it is, once a slice that holds it without a field that says its type is stored,
       # see `IOStreams::Slice#to_h`: "datetime" for a Time, also an `ActiveSupport::TimeWithZone`, or a DateTime, which
       # comes back as a Time, "date" for a Date, "number" for a BigDecimal, "duration" for an `ActiveSupport::Duration`,
-      # "integer" for an Integer that BSON does not hold, see .stored_integer?, such as `2**70`, and "object" for a Hash,
-      # or "array" for an Array, that holds such an Integer, at any depth, see .unstored_integer_within?, which the field
-      # of its type holds as its JSON text, see #dump. Returns nil for any other value, which JSON holds as it is, such as
-      # a String, an Integer, a Float, true, false or nil, see .stored_as_is?, or as its text, such as a Symbol, or within
-      # it, such as any other Hash or Array, as an object or array field holds it, see .json_data. A Time, a DateTime or
+      # and "integer" for an Integer that BSON does not hold, see .stored_integer?, such as `2**70`. Returns nil for any
+      # other value, which JSON holds as it is, such as a String, an Integer, a Float, true, false or nil, see
+      # .stored_as_is?, or as its text, such as a Symbol, or within it, such as a Hash or an Array, as an object or array
+      # field holds it, see .json_data, apart from one that holds an Integer that BSON does not hold, which is kept as an
+      # "object" or "array", see .structure_data. A Time, a DateTime or
       # a Date of any year is kept, also one outside 0 to 9999, such as 10000 or -1, whose text, such as "10000-01-01",
       # #load reads too.
       def self.kept_type(value)
@@ -664,16 +681,30 @@ module IOStreams
         return stored_integer?(value) ? nil : "integer" if value.is_a?(Integer)
         return "datetime" if value.is_a?(Time) || value.is_a?(DateTime)
         return "date" if value.is_a?(Date)
-        return "number" if value.is_a?(::BigDecimal)
-        return "object" if value.is_a?(::Hash) && unstored_integer_within?(value)
 
-        "array" if value.is_a?(::Array) && unstored_integer_within?(value)
+        "number" if value.is_a?(::BigDecimal)
       end
 
-      # Returns [true|false] whether the supplied Hash or Array holds an Integer that BSON does not hold, see
-      # .stored_integer?, as a value, at any depth, such as `{"ids" => [2**70]}`, which .json_data holds as it is, so
-      # that an object or array field, and a slice that keeps the type of the value, hold it as its JSON text instead,
-      # see #dump and .kept_type. A duration, which answers `is_a?(Integer)`, is written as its text, see .any_json.
+      # Returns [Array(Hash|Array, String|nil)] the supplied Hash or Array as JSON holds it, see .json_data, and, when it
+      # holds an Integer that BSON does not hold, at any depth, see .stored_integer?, such as `{"ids" => [2**70]}`, its
+      # JSON text, which JSON and BSON both hold, and which JSON reads back with the Integer, in one walk of the value, so
+      # that an object or array field, see #structure_dump, and a slice that keeps the type of a value, see
+      # `IOStreams::Slice::KeptTypes#dump`, hold the text in place of it. The text is nil for any other Hash or Array,
+      # and for one that JSON cannot write, such as one that also holds NaN, or text that is not valid UTF-8, which is
+      # held as JSON holds it, as before, so that `IOStreams::Slice#to_h` holds it, while `IOStreams::Slice#to_json`
+      # raises for it, naming its record. A Hash or an Array nested more than MAX_NESTING deep, such as one that holds
+      # itself, is returned as it is, without text, rather than raise the json gem's exception.
+      def self.structure_data(value)
+        found = []
+        data  = json_data(value, 0, found)
+        [data, (structure_text(data) unless found.empty?)]
+      rescue JSON::NestingError
+        [value, nil]
+      end
+
+      # Returns [true|false] whether the supplied Hash or Array holds an Integer that BSON does not hold, at any depth,
+      # see .stored_integer?, stopping at the first, without copying the value, for a value that is already as JSON
+      # holds it, the Hash or Array of an object or array field, see #structure_dump, whose text .structure_text gives.
       #
       # Raises `JSON::NestingError` for Hashes and Arrays nested more than MAX_NESTING deep, as .json_data does.
       def self.unstored_integer_within?(value, depth = 0)
@@ -684,9 +715,26 @@ module IOStreams
         when ::Array
           nesting(depth + 1)
           value.any? { |item| unstored_integer_within?(item, depth + 1) }
-        when Integer then !stored_integer?(value) && !duration?(value)
+        # `case` asks `Integer.===`, which an `ActiveSupport::Duration` does not answer, unlike `is_a?(Integer)`.
+        when Integer then !stored_integer?(value)
         else false
         end
+      end
+
+      # Returns [String|nil] the JSON text of a Hash or an Array that holds an Integer that BSON does not hold, which JSON
+      # and BSON both hold in place of it, see .structure_data and #structure_dump, the one place that decides it, or nil
+      # when JSON cannot write it, such as a value that also holds NaN, or text that is not valid UTF-8.
+      def self.structure_text(data)
+        IOStreams::Tabular::Parser::Json.generate(data)
+      rescue IOStreams::Errors::InvalidValue, IOStreams::Errors::InvalidEncoding, JSON::NestingError
+        nil
+      end
+
+      # Returns [String] the supplied text of a value, such as its inspect, for the message of an error: as it is, or its
+      # first 60 characters followed by "..." when it is longer than 63, so that a message never holds a whole long
+      # value, see #invalid, `IOStreams::Schema::Constraints` and `IOStreams::Schema::Uniqueness`.
+      def self.message_text(text)
+        text.length > 63 ? "#{text[0, 60]}..." : text
       end
 
       # Returns [true|false] whether JSON and BSON both hold the value as it is, so that a slice holds it without
@@ -801,7 +849,7 @@ module IOStreams
       # type, so that its type does not say the type of its value, which a slice therefore keeps once stored, see
       # `IOStreams::Slice#to_h`.
       def any_type?
-        type == "any"
+        @any_type
       end
 
       # Returns [true|false] whether the values of this field are, or hold, text: a string field, and a list of strings,
@@ -1024,7 +1072,8 @@ module IOStreams
       #
       # Raises `IOStreams::Errors::InvalidValue` as #restore does.
       def load(value)
-        return restore(stored_items(value)) unless value.is_a?(String)
+        # Only a list has the field of its items.
+        return restore(@item ? stored_items(value) : value) unless value.is_a?(String)
 
         case type
         when "number" then cast_typed(NUMBER.match?(value) ? number(value) : special_number(value))
@@ -1039,13 +1088,17 @@ module IOStreams
       # item of a year outside 0 to 9999, whose text #cast does not read, comes back, or the value as it is for any other
       # field.
       #
-      # Raises `IOStreams::Errors::InvalidValue` for an item that its field does not load, naming the list, as #cast does.
+      # Raises `IOStreams::Errors::InvalidValue` for an item that its field does not load, naming the list, the item and
+      # why it is not valid.
       def stored_items(value)
-        return value unless type == "list" && value.is_a?(::Array) && STORED_YEAR_TYPES.include?(@item.type)
+        return value unless value.is_a?(::Array) && STORED_YEAR_TYPES.include?(@item.type)
 
-        value.map { |item| item.is_a?(String) ? @item.load(item) : item }
-      rescue IOStreams::Errors::InvalidValue
-        invalid(value, "list of #{@item.type} items")
+        value.map do |item|
+          item.is_a?(String) ? @item.load(item) : item
+        rescue IOStreams::Errors::InvalidValue
+          invalid(value, "list of #{@item.type} items, since its item #{self.class.message_text(item.inspect)} is not a " \
+                         "valid #{@item.type}")
+        end
       end
 
       # Returns [Numeric] the number, of the type of this field, see #cast, rounded to its decimals as its text is
@@ -2027,15 +2080,15 @@ module IOStreams
 
       # Returns [Hash|Array|String] the Hash or Array of an object or array field in a form that JSON and BSON keep
       # exactly, see #dump: as it is, or as its JSON text when it holds an Integer that BSON does not hold, at any depth,
-      # see .unstored_integer_within?, such as `{"id" => 2**70}`, which #load reads back as the field reads the JSON
-      # text of a file, with the Integer. One that also holds a value that JSON cannot hold, such as NaN, or text that is
-      # not valid UTF-8, is returned as it is, as any other Hash or Array is, so that `IOStreams::Slice#to_h` holds it,
-      # while `IOStreams::Slice#to_json` raises for it, naming its record.
+      # see .unstored_integer_within? and .structure_text, such as `{"id" => 2**70}`, which #load reads back as the field
+      # reads the JSON text of a file, with the Integer. Any other value is returned as it is, without copying it, also
+      # one that JSON cannot write, such as one that also holds NaN, or that is nested more than MAX_NESTING deep, as
+      # before.
       def structure_dump(value)
-        return value unless self.class.unstored_integer_within?(value)
+        return value unless (value.is_a?(::Hash) || value.is_a?(::Array)) && self.class.unstored_integer_within?(value)
 
-        IOStreams::Tabular::Parser::Json.generate(value)
-      rescue IOStreams::Errors::InvalidValue, IOStreams::Errors::InvalidEncoding
+        self.class.structure_text(value) || value
+      rescue JSON::NestingError
         value
       end
 
@@ -2328,7 +2381,7 @@ module IOStreams
       # inspect, unless the caller supplies the text that shows it, such as the clock of a Time that holds no zone, see
       # #time_of_clock.
       def invalid(value, what = type, text = value.inspect)
-        text = "#{text[0, 60]}..." if text.length > 63
+        text = self.class.message_text(text)
         raise(IOStreams::Errors::InvalidValue.new("Field #{name.inspect}: #{text} is not a valid #{what}", field: name,
                                                                                                            value: value))
       end

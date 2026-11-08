@@ -388,11 +388,41 @@ class SliceTest < Minitest::Test
       end
 
       it "holds a Hash that also holds a value that JSON cannot hold as it is, for #to_json to raise for, naming its record" do
-        slice = IOStreams::Slice.new([{"data" => {"id" => 2**70, "ratio" => Float::NAN}}], format: :hash, record_number: 5)
+        slice  = IOStreams::Slice.new([{"data" => {"id" => 2**70, "ratio" => Float::NAN}}], format: :hash, record_number: 5)
+        object = IOStreams::Slice.new([{"data" => {"id" => 2**70, "ratio" => Float::NAN}}], format: :hash,
+                                                                                            schema: {fields: [{name: "data", type: "object"}]})
 
         assert_same slice.rows.first["data"], slice.to_h["rows"].first["data"]
+        refute slice.to_h.key?("types")
+        assert_same object.rows.first["data"], object.to_h["rows"].first["data"]
         error = assert_raises(IOStreams::Errors::InvalidValue) { slice.to_json }
         assert_equal 5, error.record_number
+      end
+
+      it "holds a Hash nested deeper than JSON holds as it is, without a schema or of a field of type any, rather than raise" do
+        deep = {"id" => 2**70}
+        120.times { deep = {"a" => deep} }
+        itself = {"id" => 2**70}
+        itself["self"] = itself
+        [nil, {fields: [{name: "data"}]}].each do |schema|
+          slice = IOStreams::Slice.new([[deep], [itself]], header: %w[data], format: :array, schema: schema)
+          hash  = slice.to_h
+
+          assert_same deep, hash["rows"].first.first
+          assert_same itself, hash["rows"].last.first
+          refute hash.key?("types")
+        end
+      end
+
+      it "holds the Hash of an object field nested deeper than JSON holds as it is, rather than raise for it" do
+        deep = {"id" => 2**70}
+        120.times { deep = {"a" => deep} }
+        itself = {"id" => 2**70}
+        itself["self"] = itself
+        slice = IOStreams::Slice.new([[deep], [itself]], header: %w[data], format: :array,
+                                                         schema: {fields: [{name: "data", type: "object"}]})
+
+        assert_equal([[deep], [itself]].map { |row| row.map(&:object_id) }, slice.to_h["rows"].map { |row| row.map(&:object_id) })
       end
 
       it "holds an Integer of a number field that BSON cannot hold as its digits, such as a decimal(20,0) column of a query" do
@@ -457,6 +487,20 @@ class SliceTest < Minitest::Test
         assert_raises(IOStreams::Errors::InvalidValue) { IOStreams.slice(JSON.parse(JSON.generate(slice.to_h))) }
       end
 
+      it "holds the value of a column that the schema of a slice of cells does not list as a slice of cells does" do
+        row     = ["Jack", Time.utc(2026, 1, 2, 3, 4, 5), BigDecimal("1.5"), :admin, 7]
+        schema  = {fields: [{name: "name", type: "string"}], fieldsMatch: "subset"}
+        typed   = IOStreams::Slice.new([row], header: %w[name at amount role count], format: :array, cell_text: true,
+                                                schema: schema)
+        untyped = IOStreams::Slice.new([row], header: %w[name at amount role count], format: :array, cell_text: true)
+        hash    = typed.to_h
+
+        assert_equal [["Jack", "2026-01-02T03:04:05", "1.5", "admin", 7]], hash["rows"]
+        assert_equal untyped.to_h["rows"], hash["rows"]
+        refute hash.key?("types")
+        assert_equal [["Jack", "2026-01-02T03:04:05", "1.5", "admin", 7]], IOStreams.slice(JSON.parse(JSON.generate(hash))).rows
+      end
+
       it "holds no types of a slice of the cells of a spreadsheet with a schema, whose fields read the text of its cells" do
         slice = IOStreams::Slice.new([[Date.new(2026, 1, 2)]], header: %w[due], format: :array, cell_text: true,
                                                               schema: {fields: [{name: "due"}]})
@@ -473,6 +517,25 @@ class SliceTest < Minitest::Test
 
       describe "a value of a column that the schema does not list" do
         let(:kept) { {fields: [{name: "id", type: "integer"}], fieldsMatch: "subset", extraColumns: "keep"} }
+
+        it "holds the rows before the first such value as without one, and types it from its row on" do
+          rows  = [{"id" => 1}, {"id" => 2, "due" => nil}, {"id" => 3, "due" => Date.new(2026, 1, 2)}, {"id" => 4, "due" => "x"}]
+          slice = IOStreams::Slice.new(rows, format: :hash, schema: kept)
+          hash  = slice.to_h
+
+          assert_equal [{"id" => 1}, {"id" => 2, "due" => nil}, {"id" => 3, "due" => "2026-01-02"}, {"id" => 4, "due" => "x"}],
+                       hash["rows"]
+          assert_equal [["due", "date", [2]]], hash["types"]
+          assert_equal slice, IOStreams.slice(JSON.parse(JSON.generate(hash)))
+        end
+
+        it "holds a nil past the columns of a row as nil, without types" do
+          slice = IOStreams::Slice.new([[1, "a", nil, nil], [2, "b"]], header: %w[id name], format: :array,
+                                                                       schema: {fields: [{name: "id", type: "integer"}, {name: "name"}]})
+
+          assert_equal [[1, "a", nil, nil], [2, "b"]], slice.to_h["rows"]
+          refute slice.to_h.key?("types")
+        end
 
         it "is held and typed as a value of a field of type any, by its column of the header row" do
           rows  = [[1, Time.utc(2026, 1, 2, 3, 4, 5), BigDecimal("1.5"), :admin, {kind: :x}], [2, nil, "n/a", "y", [1]]]
@@ -676,6 +739,15 @@ class SliceTest < Minitest::Test
         assert_equal [Time.utc(-1, 12, 31, 23, 59, 30), Time.utc(10_000, 1, 1, 0, 0, 20), Time.utc(-1, 12, 31, 23, 59, 30),
                       Time.utc(1899, 12, 31, 18, 38, 50)],
                      IOStreams.slice(JSON.parse(JSON.generate(hash))).rows.first
+      end
+
+      it "holds each value of a column that a record holds twice in a form that BSON holds, noting the first" do
+        any   = {fields: [{name: "d"}, {name: "e"}]}
+        slice = IOStreams::Slice.new([{"d" => 2**70, d: 2**71, "e" => {"x" => 2**70}, e: [2**71]}], format: :hash, schema: any)
+        hash  = slice.to_h
+
+        assert_equal [{"d" => (2**70).to_s, d: (2**71).to_s, "e" => %({"x":#{2**70}}), e: "[#{2**71}]"}], hash["rows"]
+        assert_equal [%w[d integer], %w[e object]], hash["types"]
       end
 
       it "keeps the value of the last key of a record whose keys have the same text, and its type" do

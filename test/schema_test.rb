@@ -2256,11 +2256,13 @@ class SchemaTest < Minitest::Test
 
           assert_equal "-0001-01-01", date.dump(Date.new(-1, 1, 1))
           assert_equal "12345-06-07T08:09:10+05:30", datetime.dump(Time.new(12_345, 6, 7, 8, 9, 10, "+05:30"))
-          ["10000-02-30", "-0001-13-01", "+10000-01-01", "100000"].each do |text|
+          ["10000-02-30", "-0001-13-01", "+10000-01-01", "100000", "02026-01-01", "-0000-01-01", "-00001-01-01",
+           "010000-01-01", "-001-01-01"].each do |text|
             assert_raises(IOStreams::Errors::InvalidValue, text) { date.load(text) }
           end
           # -100 is a leap year of the Julian calendar, but not of the proleptic Gregorian calendar of Time.
-          ["-0100-02-29T00:00:00Z", "10000-01-01T24:00:00Z", "10000-01-01T00:00:00"].each do |text|
+          ["-0100-02-29T00:00:00Z", "10000-01-01T24:00:00Z", "10000-01-01T00:00:00", "02026-01-01T00:00:00Z",
+           "-0000-01-01T00:00:00Z"].each do |text|
             assert_raises(IOStreams::Errors::InvalidValue, text) { datetime.load(text) }
           end
           ["10000-01-01", "-0001-01-01"].each do |text|
@@ -2289,8 +2291,12 @@ class SchemaTest < Minitest::Test
           assert_equal [Date.new(10_000, 1, 1), nil, Date.new(2026, 1, 2)],
                        dates.load(dates.dump([Date.new(10_000, 1, 1), nil, Date.new(2026, 1, 2)]))
           assert_equal [Time.utc(-1, 1, 1)], times.load(times.dump([Time.utc(-1, 1, 1)]))
-          error = assert_raises(IOStreams::Errors::InvalidValue) { dates.load(["10000-02-30"]) }
+          error = assert_raises(IOStreams::Errors::InvalidValue) { dates.load(%w[2026-01-02 10000-02-30]) }
           assert_equal "value", error.field
+          assert_equal 'Field "value": ["2026-01-02", "10000-02-30"] is not a valid list of date items, since its item ' \
+                       '"10000-02-30" is not a valid date', error.message
+          long = assert_raises(IOStreams::Errors::InvalidValue) { dates.load(["#{'9' * 70}-13-01"]) }
+          assert_includes long.message, "since its item \"#{'9' * 59}... is not a valid date"
         end
 
         it "checks the constraints of a date, datetime or time, as for any other type" do

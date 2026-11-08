@@ -143,8 +143,11 @@ module IOStreams
 
       # Returns the supplied value of the column of the row of the supplied index, in a form that JSON and BSON hold:
       # the text that the field of its type writes for it, see `IOStreams::Schema::Field#dump`, for a value of a type
-      # that is kept, see `IOStreams::Schema::Field.kept_type`, which it notes, otherwise what the block returns for it,
-      # such as its text, as JSON holds it.
+      # that is kept, see `IOStreams::Schema::Field.kept_type`, which it notes, the JSON text of a Hash or an Array that
+      # holds an Integer that BSON does not hold, which it notes as an "object" or "array", see
+      # `IOStreams::Schema::Field.structure_data`, which decides it once, in the walk that gives any other Hash or
+      # Array as JSON holds it, and any other value as JSON holds it, as a field of type "any" holds it, see
+      # `IOStreams::Schema::Field.any_data`, such as a Symbol as its text.
       #
       # Parameters
       #   column: [Integer|String]
@@ -153,13 +156,15 @@ module IOStreams
       #
       # A row that holds a column twice, such as a record of a schema with both the key "due" and the key `:due`, which
       # JSON holds as one key, has the type of the first value that it notes, and its other values of the column are
-      # held as the block returns them, so that a row is never noted twice, which `.plan` raises for.
+      # held in the same form, but not noted, so that a row is never noted twice, which `.plan` raises for, and so that
+      # each of them is one that JSON and BSON hold, such as an Integer that BSON does not hold as its digits.
       def dump(value, column, index)
-        type = IOStreams::Schema::Field.kept_type(value)
-        return yield(value) if type.nil? || @last[column] == index
+        return structure(value, column, index) if value.is_a?(::Hash) || value.is_a?(::Array)
 
-        @last[column] = index
-        ((@columns[column] ||= {})[type] ||= []) << index
+        type = IOStreams::Schema::Field.kept_type(value)
+        return IOStreams::Schema::Field.any_data(value) if type.nil?
+
+        note(column, type, index)
         (@fields[type] ||= IOStreams::Schema::Field.new({"name" => type, "type" => type})).dump(value)
       end
 
@@ -183,6 +188,26 @@ module IOStreams
       end
 
       private
+
+      # Returns the supplied Hash or Array of the column of the row of the supplied index, see #dump: its JSON text,
+      # noted as an "object" or "array", when `IOStreams::Schema::Field.structure_data` gives one, otherwise as JSON
+      # holds it.
+      def structure(value, column, index)
+        data, text = IOStreams::Schema::Field.structure_data(value)
+        return data if text.nil?
+
+        note(column, value.is_a?(::Hash) ? "object" : "array", index)
+        text
+      end
+
+      # Notes that the value of the column of the row of the supplied index is of the supplied type, see #to_a, unless
+      # it already noted one of the column of that row, see #dump.
+      def note(column, type, index)
+        return if @last[column] == index
+
+        @last[column] = index
+        ((@columns[column] ||= {})[type] ||= []) << index
+      end
 
       # Returns [true|false] whether the supplied number of rows that hold a value of a type of the column is every row
       # that holds a value of it that is not nil, see #to_a, also by a Symbol key, as the record of a schema with
