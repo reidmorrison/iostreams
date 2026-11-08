@@ -83,9 +83,56 @@ module IOStreams
       # quoting is not valid, names them too, see `IOStreams::Errors::RowError`, and an error of the header row its line.
       #
       # Returns an Enumerator of the records without a block.
-      def each
+      def each(&)
         return enum_for(:each) unless block_given?
 
+        read_records(false, &)
+      end
+
+      # Yields each record as #each does, with the line of the file that it starts on and its record number, see
+      # `IOStreams::Row::Reader#each_with_numbers`: the line that the record starts on, counting from 1, the header row
+      # and blank lines included, or nil for a record that is not a line of a file, such as a record of Parquet or of a
+      # query, and its record number, counting from 1 without the header row, as the slices of the file and an
+      # `IOStreams::Errors::RowError` number them. The records of a slice have the numbers that the slice holds, see
+      # `IOStreams::Slice::Stream`. `skip_blanks`, `resume_at` and `on_invalid` apply as they do to #each, and every
+      # record keeps the numbers of its file.
+      #
+      # Returns an Enumerator of the records and their numbers without a block.
+      def each_with_numbers(&)
+        return enum_for(:each_with_numbers) unless block_given?
+
+        read_records(true, &)
+      end
+
+      # Writes each record to the writer, see `IOStreams::Record::Writer`, as a copy does, see
+      # `IOStreams::Stream#copy_from`. A blank line, or a JSON line of null, which #each yields as nil, is not a record,
+      # so it is not written.
+      #
+      # Returns the result of #each.
+      def copy_to(writer)
+        each { |record| writer << record unless record.nil? }
+      end
+
+      # Returns [IOStreams::Schema|nil] the schema that the source of the lines declares, such as that of a Parquet file,
+      # see `IOStreams::Parquet::Reader#declared_schema`, which a copy gives a typed target, see
+      # `IOStreams::Stream#rows_schema`, or nil for lines of text.
+      def declared_schema
+        @line_reader.declared_schema if @line_reader.respond_to?(:declared_schema)
+      end
+
+      # Returns [String] the class and the format of the records, see `IOStreams::Tabular#format`, rather than every
+      # instance variable, such as the tabular and the lines that it reads, so that irb, which displays what a reader
+      # block returns, shows what the documentation describes.
+      def inspect
+        "#<#{self.class.name} format=#{@tabular.format.inspect}>"
+      end
+
+      private
+
+      # Reads the records for #each and #each_with_numbers, yielding each record alone, or with its line number and
+      # record number when `numbered` is true, so that both share one loop, which yields to the block of the caller
+      # without a block of its own for each record.
+      def read_records(numbered)
         skip    = @skip
         records = 0
         # Whether the header row is read, or the file has none, after which every line is a record.
@@ -113,34 +160,11 @@ module IOStreams
           rescue IOStreams::Errors::RowError => e
             raise e.at(line_number: line_number, record_number: record_number || records)
           end
-          yield(record) unless @skip_blanks && record.nil?
+          next if @skip_blanks && record.nil?
+
+          numbered ? yield(record, line_number, record_number || records) : yield(record)
         end
       end
-
-      # Writes each record to the writer, see `IOStreams::Record::Writer`, as a copy does, see
-      # `IOStreams::Stream#copy_from`. A blank line, or a JSON line of null, which #each yields as nil, is not a record,
-      # so it is not written.
-      #
-      # Returns the result of #each.
-      def copy_to(writer)
-        each { |record| writer << record unless record.nil? }
-      end
-
-      # Returns [IOStreams::Schema|nil] the schema that the source of the lines declares, such as that of a Parquet file,
-      # see `IOStreams::Parquet::Reader#declared_schema`, which a copy gives a typed target, see
-      # `IOStreams::Stream#rows_schema`, or nil for lines of text.
-      def declared_schema
-        @line_reader.declared_schema if @line_reader.respond_to?(:declared_schema)
-      end
-
-      # Returns [String] the class and the format of the records, see `IOStreams::Tabular#format`, rather than every
-      # instance variable, such as the tabular and the lines that it reads, so that irb, which displays what a reader
-      # block returns, shows what the documentation describes.
-      def inspect
-        "#<#{self.class.name} format=#{@tabular.format.inspect}>"
-      end
-
-      private
 
       # Reads the header row of the supplied line, see `IOStreams::Tabular#read_record_line`, raising an
       # `IOStreams::Errors::RowError` that names the line, since the header row is not a record.

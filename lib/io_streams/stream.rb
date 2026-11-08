@@ -330,6 +330,8 @@ module IOStreams
     #   number of the invalid data, once the lines before it have been read. To read text in another encoding,
     #   set it with #encoding, for example `encoding("ISO-8859-1")`, or `encoding("BINARY")` to read binary lines.
     #   See also its `replace:` option.
+    # - To also know the line of the file that each row or record starts on, and its record number, such as to report a
+    #   row that cannot be processed, see #each_with_numbers.
     def each(mode = :line, **args, &block)
       raise(ArgumentError, "Invalid mode: #{mode.inspect}") if mode == :stream
 
@@ -342,6 +344,62 @@ module IOStreams
       require_block!(:each, block, "To collect every #{mode}, call it with a block that adds each one to an Array.")
 
       reader(mode, **args) { |stream| stream.each(&block) }
+    end
+
+    # Iterate over a file / stream, as #each does, also yielding the line of the file that each row or record starts on,
+    # and its record number, such as to report where a row is that a program cannot process.
+    #
+    # Example: Read each record with its numbers
+    #   IOStreams.path("people.csv").each_with_numbers(:hash) do |record, line_number, record_number|
+    #     puts "Record #{record_number}, on line #{line_number}, has no name" if record["name"].nil?
+    #   end
+    #
+    # Example: Read the records of a slice, with the numbers of their rows in the file that the slice was read from
+    #   IOStreams.stream(slice).each_with_numbers(:hash) do |record, line_number, record_number|
+    #     process(record)
+    #   rescue StandardError => e
+    #     failures << {record_number: record_number, line_number: line_number, message: e.message}
+    #   end
+    #
+    # Parameters
+    #   mode: [:array|:hash|:record]
+    #     Yields each row as an Array, each record as a Hash, or each record as a record of the contract set with #as,
+    #     as #each does in that mode, with the same options, such as `skip_blanks:`, `resume_at:` and `on_invalid:`.
+    #
+    # Yields
+    #   row: [Array|Hash|IOStreams::Contract|nil]
+    #     The row or record, as #each yields it in the mode, nil for a blank row, unless `skip_blanks: true` skips it.
+    #
+    #   line_number: [Integer|nil]
+    #     The line of the file that the row starts on, counting from 1, the header row and blank lines included, as a
+    #     text editor numbers them, or nil for a row that is not a line of a file, such as a row of Parquet or of a query.
+    #     A row whose quoted value holds line breaks starts on its first line.
+    #
+    #   record_number: [Integer|nil]
+    #     The number of the record, counting from 1 without the header row, blank rows included, as the slices of the
+    #     file number them, and as an `IOStreams::Errors::RowError` names a record, also with `resume_at:`. The header row
+    #     that the `:array` mode yields first is not a record, so its record number is nil, as is its line number when it
+    #     is not a line of its own, such as the keys of the first record of JSON without a schema.
+    #
+    # The rows of a slice, `IOStreams.stream(slice)`, have the numbers that the slice holds, see `IOStreams::Slice#each`,
+    # which are those of the file that it was read from.
+    #
+    # Raises ArgumentError for any other mode, before the file is opened: `slice.each` yields the rows of a slice with
+    # their numbers, and `reader(:line) { |lines| lines.each_with_line_number { |line, line_number| ... } }` the lines
+    # of a file with theirs.
+    def each_with_numbers(mode, **args, &block)
+      unless %i[array hash record].include?(mode)
+        raise(
+          ArgumentError,
+          "Invalid mode: #{mode.inspect}. #each_with_numbers reads the :array, :hash and :record modes; the rows of " \
+          "each slice of :slice carry their numbers, see IOStreams::Slice#each, and the line reader of :line yields " \
+          "each line with its number, see #reader."
+        )
+      end
+      require_block!(:each_with_numbers, block,
+                     "To collect every #{mode}, call it with a block that adds each one to an Array.")
+
+      reader(mode, **args) { |stream| stream.each_with_numbers(&block) }
     end
 
     # Returns a Reader for reading a file / stream
