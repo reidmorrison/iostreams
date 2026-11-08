@@ -20,10 +20,10 @@ module IOStreams
 
         # Returns [IOStreams::Parquet::Clocks|nil] the times of day of the columns that the schema of the file, which the
         # block returns, declares as `time`, which hold their clocks without a zone, read in the zone of the field of the
-        # supplied schema that reads each one, see `IOStreams::Parquet::Clocks`, or nil without a schema, which reads
-        # them in UTC, as the reader of the file returns them.
-        def self.clocks(schema)
-          IOStreams::Parquet::Clocks.declared(yield, schema) if schema
+        # schema that the supplied Proc returns that reads each one, see `IOStreams::Parquet::Clocks.declared`, or nil
+        # when it returns none, which reads them in UTC, as the reader of the file returns them.
+        def self.clocks(reading)
+          IOStreams::Parquet::Clocks.declared(yield, reading)
         end
 
         # Returns [false] a row of a Parquet file is a record, also when its every value is null, as a row of a database

@@ -862,6 +862,12 @@ module IOStreams
         @missing.include?(text)
       end
 
+      # Returns [true|false] whether this is a `time` field with a `timeZone`, which reads a time of day that holds a clock
+      # without a zone, such as one of a Parquet file, in its zone, see #time_of_clock.
+      def zoned_time?
+        type == "time" && !@zone.nil?
+      end
+
       # Returns [true|false] whether text other than empty text is a missing value of the field, such as "-99", which the
       # text of a value that is not text can be, such as a cell of a spreadsheet that holds the number -99.
       def missing_text?

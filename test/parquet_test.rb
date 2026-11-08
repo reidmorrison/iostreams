@@ -292,6 +292,161 @@ class ParquetTest < Minitest::Test
 
         assert_equal "id,at\n0,09:30:15.123456\n1,23:45:00\n2,09:30:00.250\n3,\n", csv.read
       end
+
+      describe "copied into a file whose time field has a timeZone" do
+        let :new_york do
+          {fields: [{name: "id", type: "integer"}, {name: "at", type: "time", timeZone: "America/New_York"}]}
+        end
+
+        # The clocks of the file, which a time field in New York writes as they are.
+        let :clocks_text do
+          "id,at\n0,09:30:15.123456\n1,23:45:00\n2,09:30:00.250\n3,\n"
+        end
+
+        # Returns [String] the text of a CSV file that the records of the source, read through the contract of the
+        # target, are written to through it, which a copy writes too.
+        def read_then_write(source, contract)
+          records = []
+          source.as(contract).each(:hash) { |record| records << record }
+          csv = path("read-then-written.csv").as(contract)
+          csv.writer(:hash) { |writer| records.each { |record| writer << record } }
+          csv.read
+        end
+
+        it "writes the clock that the file holds, as reading it through the contract of the target does, in every mode" do
+          [nil, :array, :hash].each do |mode|
+            csv = path("times-#{mode}.csv").as(new_york)
+            csv.copy_from(path, mode: mode)
+
+            assert_equal clocks_text, csv.read, mode.inspect
+          end
+          assert_equal clocks_text, read_then_write(path, new_york)
+        end
+
+        it "writes the clock with a schema of the file written" do
+          csv = path("times.csv").schema(new_york)
+          csv.copy_from(path)
+
+          assert_equal clocks_text, csv.read
+        end
+
+        it "writes the clock of a slice of the file, which holds it as the file does" do
+          slices = []
+          path.each(:slice, size: 10) { |slice| slices << slice }
+          csv = path("times.csv").as(new_york)
+          csv.copy_from(IOStreams.stream(slices.first))
+
+          assert_equal clocks_text, csv.read
+        end
+
+        it "writes a time of a source with a schema of its own as that schema reads it, a clock in UTC without a zone" do
+          csv = path("times.csv").as(new_york)
+          csv.copy_from(path.schema(times))
+
+          # 09:30 in UTC is 04:30 in New York on 2000-01-01, as reading the source through the contract reads it.
+          assert_equal "id,at\n0,04:30:15.123456\n1,18:45:00\n2,04:30:00.250\n3,\n", csv.read
+          assert_equal csv.read, read_then_write(path.schema(times), new_york)
+        end
+
+        it "leaves the source as it is" do
+          source = path
+          path("times.csv").as(new_york).copy_from(source)
+
+          assert_nil source.schema
+          assert_equal(clocks, read(source).map { |record| record["at"] })
+        end
+
+        it "writes the clock to a writer that is already open, by its own schema, in either mode" do
+          %i[array hash].each do |mode|
+            csv = path("times-#{mode}.csv").as(new_york)
+            csv.writer(mode) do |writer|
+              # Which schema it writes by is not part of the interface of the writer.
+              refute_respond_to writer, :clocks_schema
+              IOStreams.stream(writer).copy_from(path, mode: mode)
+            end
+
+            assert_equal clocks_text, csv.read, mode.inspect
+          end
+        end
+
+        it "finds the schema of the target only for rows that declare times of day" do
+          unused   = -> { flunk "The schema of the target was found for rows without times of day" }
+          declared = IOStreams::Schema.new(fields: [{name: "id", type: "integer"}])
+
+          csv = IOStreams::Tabular.new(format: :csv, clocks_schema: unused)
+          # A format of text declares no times of day, so neither the block nor the Proc is called.
+          csv.read_declared { flunk }
+
+          assert_nil IOStreams::Tabular::Parser::Parquet.clocks(unused) { declared }
+          assert_nil IOStreams::Tabular::Parser::Parquet.clocks(-> {}) { IOStreams::Schema.new(times) }
+          refute_nil IOStreams::Tabular::Parser::Parquet.clocks(-> { IOStreams::Schema.new(new_york) }) { IOStreams::Schema.new(times) }
+        end
+
+        describe "with both a schema and a contract" do
+          let :utc_times do
+            {fields: [{name: "id", type: "integer"}, {name: "at", type: "time"}]}
+          end
+
+          # Returns [String] what a target with the schema and the contract holds once a loop has written each record of
+          # the file, read through the contract, which casts each value before the schema renders it.
+          def loop_text(schema, contract)
+            records = []
+            path.as(contract).each(:hash) { |record| records << record }
+            csv = path("loop.csv").schema(schema).as(contract)
+            csv.writer(:hash) { |writer| records.each { |record| writer << record } }
+            csv.read
+          end
+
+          it "reads the clocks by the contract, which takes each value first, as reading through it does" do
+            [[utc_times, new_york], [new_york, utc_times]].each do |schema, contract|
+              expected = loop_text(schema, contract)
+              %i[array hash].each do |mode|
+                csv = path("times-#{mode}.csv").schema(schema).as(contract)
+                csv.copy_from(path, mode: mode)
+
+                assert_equal expected, csv.read, [schema, contract, mode].inspect
+              end
+              open = path("open.csv").schema(schema).as(contract)
+              open.writer(:hash) { |writer| IOStreams.stream(writer).copy_from(path, mode: :hash) }
+
+              assert_equal expected, open.read, [schema, contract].inspect
+            end
+            # The contract in New York reads the clocks of the file as they are.
+            assert_equal "id,at\n0,09:30:15.123456\n1,23:45:00\n2,09:30:00.250\n3,\n", loop_text(utc_times, new_york)
+          end
+        end
+
+        it "writes the clock from a loop that reads through the contract of the target, rather than as a time in UTC" do
+          loop_text = lambda do |source|
+            csv = path("times.csv").as(new_york)
+            csv.writer(:hash) { |writer| source.each(:hash) { |record| writer << record } }
+            csv.read
+          end
+
+          assert_equal clocks_text, loop_text.call(path.as(new_york))
+          # Without a schema, a time of day leaves IOStreams as a time on 2000-01-01 in UTC, which is 04:30 in New York.
+          assert_equal "id,at\n0,04:30:15.123456\n1,18:45:00\n2,04:30:00.250\n3,\n", loop_text.call(path)
+        end
+
+        it "reads the schema of the target from its file only once the source is open, as before" do
+          schema = ::File.join(dir, "broken.json")
+          ::File.write(schema, "{")
+          csv = path("times.csv").schema(schema)
+
+          # The source that cannot be read raises, rather than the schema that the copy has not needed yet.
+          assert_raises(IOStreams::Errors::NotFound) { csv.copy_from(path("missing.parquet")) }
+        end
+      end
+    end
+
+    it "copies a datetime into a file whose datetime field has a timeZone as the time that it is" do
+      write
+      fields   = [{name: "id", type: "integer"}, {name: "at", type: "datetime", timeZone: "America/New_York"}]
+      contract = {fields: fields, fieldsMatch: "subset"}
+      csv = path("at.csv").as(contract)
+      csv.copy_from(path, mode: :hash)
+
+      assert_equal "id,at\n1,2026-10-13T00:30:00Z\n2,\n", csv.read
     end
 
     it "writes a duration as its ISO 8601 text, which a schema with the field reads back as a Duration" do
