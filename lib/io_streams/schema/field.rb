@@ -312,6 +312,10 @@ module IOStreams
       # Array literal does.
       NUMERIC_TYPES = %w[integer number].freeze
 
+      # The types that .kept_type returns, whose fields keep the type of a value that no field describes, once a slice is
+      # stored, see `IOStreams::Slice#to_h`.
+      KEPT_TYPES = %w[datetime date number duration integer].freeze
+
       INTEGER  = /\A[+-]?\d+\z/
       # A whole number with a decimal point, such as "12.0", since a spreadsheet stores every number as a double, and the
       # layout of a fixed width file, before v3.0 replaced it with a schema, read the column with `to_i`.
@@ -629,6 +633,26 @@ module IOStreams
       # Raises `JSON::NestingError` when a Hash or an Array is nested deeper than MAX_NESTING.
       def self.nesting(depth)
         raise(JSON::NestingError, "nesting of #{depth} is too deep") if depth > MAX_NESTING
+      end
+
+      # Returns [String|nil] the type of the field whose #dump and #load keep the type of the supplied value, which
+      # neither JSON nor BSON holds as it is, once a slice that holds it without a field that says its type is stored,
+      # see `IOStreams::Slice#to_h`: "datetime" for a Time, also an `ActiveSupport::TimeWithZone`, or a DateTime, which
+      # comes back as a Time, "date" for a Date, "number" for a BigDecimal, "duration" for an `ActiveSupport::Duration`,
+      # and "integer" for an Integer that BSON does not hold, see .stored_integer?, such as `2**70`. Returns nil for any
+      # other value, which JSON holds as it is, such as a String, an Integer, a Float, true, false or nil, or as its
+      # text, such as a Symbol, or within it, such as a Hash or an Array, as an object or array field holds it, see
+      # .json_data.
+      def self.kept_type(value)
+        # The most common values first, so that they skip the checks below.
+        return if value.nil? || value.is_a?(String)
+        # Before the numbers, since a duration answers `is_a?(Integer)`.
+        return "duration" if duration?(value)
+        return stored_integer?(value) ? nil : "integer" if value.is_a?(Integer)
+        return "datetime" if value.is_a?(Time) || value.is_a?(DateTime)
+        return "date" if value.is_a?(Date)
+
+        "number" if value.is_a?(::BigDecimal)
       end
 
       # Returns [true|false] whether JSON holds the value as its text, see .any_json.
