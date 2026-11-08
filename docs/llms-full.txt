@@ -7698,7 +7698,8 @@ slice.to_h
   and hands the job each value in the type of its field, also when a store of the slice itself, rather than of its
   `#to_h`, changed its form: a duration that BSON keeps as its seconds is a duration again, and a Date that BSON returns
   as a Time is a Date. A value of a field of type `any`, such as a computed column of a query, is held as JSON holds it,
-  a time, a date or a BigDecimal as its text, which comes back as text. To replace the rows of a slice with others in
+  a time, a date or a BigDecimal as its text, which comes back as text, and a Symbol, and each key of a Hash, as its
+  text, also within a Hash or an Array. To replace the rows of a slice with others in
   the same form, `slice.with_rows(rows)` returns a new slice that keeps everything else that the slice says.
 * The slices of an Excel spreadsheet hold `"cell_text" => true`, those of its cells from `each(:slice)`, and those of
   its CSV text from `copy_from(path, mode: :line)`, since they hold each number, date and boolean cell as its default

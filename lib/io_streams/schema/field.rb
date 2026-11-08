@@ -561,6 +561,13 @@ module IOStreams
         value
       end
 
+      # Returns the value of a field of type "any", or of a slice without a schema, as a store of slices holds it, see
+      # #dump and `IOStreams::Slice#to_h`: as JSON holds it when its type is not known, see .any_json, with each key
+      # and value within a Hash or an Array as JSON holds it too, see .json_data, such as a Symbol as its text.
+      def self.any_data(value)
+        json_data(any_json(value))
+      end
+
       # Returns the value as JSON holds it, so that an object or array field reads the same value from a format whose
       # rows are Ruby objects, such as `:hash`, a Parquet file or a query, as from JSON, or the text of JSON: a Hash with
       # String keys, such as "a" for the key `:a`, a Symbol as its text, a BigDecimal, Date, Time or DateTime as the text
@@ -893,7 +900,7 @@ module IOStreams
       # Float, which JSON keeps, apart from NaN and the infinities, which are text, a date, a datetime and a duration in
       # ISO 8601, a datetime with as many digits of its fraction of a second as it needs and its offset, a time of day as
       # its clock with its offset, such as "09:30:00.250-04:00", and any other value as it is, apart from the value of a
-      # field of type "any", which is held as JSON holds it, see .json_data, as a slice without a schema holds each of
+      # field of type "any", which is held as JSON holds it, see .any_data, as a slice without a schema holds each of
       # its values: a time, a date or a BigDecimal as its text, see .any_text, which therefore comes back as that text,
       # since the field does not say what type it is, and a Symbol, and each key of a Hash, as its text, also within a
       # Hash or an Array, as JSON holds them.
@@ -906,7 +913,7 @@ module IOStreams
         when "datetime" then value.is_a?(Time) || value.is_a?(DateTime) ? self.class.any_text(value) : value
         when "time" then value.is_a?(Time) ? clock_dump(value) : value
         when "duration" then value.respond_to?(:iso8601) ? value.iso8601 : value
-        when "any" then self.class.json_data(self.class.any_json(value))
+        when "any" then self.class.any_data(value)
         when "string", "list", "yearmonth", "geopoint" then other_dump(value)
         else value
         end

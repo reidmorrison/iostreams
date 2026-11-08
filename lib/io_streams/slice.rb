@@ -736,17 +736,16 @@ module IOStreams
       end
     end
 
-    # Returns the value of a row of a slice without a schema in a form that JSON keeps, as a field of type "any" writes
-    # it, see `IOStreams::Schema::Field.any_json`, such as a BigDecimal, Date or Time as its text, with each key and
-    # value within a Hash or an Array, and a Symbol, as JSON holds it too, see `IOStreams::Schema::Field.json_data`,
-    # apart from a time of a slice of the cells of a source of typed values, such as a spreadsheet, see #cell_text?,
-    # which holds a clock without a zone, as the text of its clock without an offset, see
+    # Returns the value of a row of a slice without a schema in a form that JSON keeps, as a field of type "any" holds
+    # it, see `IOStreams::Schema::Field.any_data`, such as a BigDecimal, Date, Time or Symbol as its text, also within a
+    # Hash or an Array, apart from a time of a slice of the cells of a source of typed values, such as a spreadsheet,
+    # see #cell_text?, which holds a clock without a zone, as the text of its clock without an offset, see
     # `IOStreams::Schema::Field.clock_text`, so that a field reads it in its `timeZone` once the slice is stored, as it
     # reads the cell.
     def stored_value(value)
       return IOStreams::Schema::Field.clock_text(value) if cell_text? && value.is_a?(Time)
 
-      IOStreams::Schema::Field.json_data(IOStreams::Schema::Field.any_json(value))
+      IOStreams::Schema::Field.any_data(value)
     end
 
     # Returns [Array] the rows of a slice with a schema, each value in a form that JSON keeps, see
