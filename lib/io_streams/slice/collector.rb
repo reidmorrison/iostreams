@@ -121,6 +121,8 @@ module IOStreams
         @on_header = on_header if tabular.requires_header?
         @slice     = nil
         @count     = 0
+        # Whether a record has been read, after which the tabular no longer expects the header row, see #add.
+        @started   = false
         # The record number of the last row added, see #add.
         @record_number = 0
       end
@@ -154,15 +156,19 @@ module IOStreams
         return skip if record_number.equal?(NEXT_RECORD) && @record_number + 1 < @resume_at && !@tabular.header?
 
         number = record_number.equal?(NEXT_RECORD) ? @record_number + 1 : record_number
-        text   = read_line(line, line_number, number)
+        # The header row is not a record, so an error that reading it raises names its line only. The tabular is asked
+        # whether it expects the header row only until the first record, after which every line is a record.
+        header_row = !@started && @tabular.header?
+        begin
+          # The line as the tabular hands it on, or nil for the header row, which it reads instead. A line is never nil.
+          text = @tabular.read_line(line) { |row_text| row_text }
+        rescue IOStreams::Errors::RowError => e
+          # Rescued here, rather than in `IOStreams::Row::Locator.locate`, whose block would cost each row more.
+          raise e.at(line_number: line_number, record_number: (number unless header_row))
+        end
         unless text.nil?
-          @record_number = number if number
-          @count        += 1
-          validate(text, line_number, number) if @validate
-          @slice ||= Slice.new(header: header, format: @tabular.format, blank_rows: @tabular.blank_rows?,
-                               cell_text: @tabular.cell_text?, schema: @schema)
-          @slice.add(text, line_number: line_number, record_number: number)
-          flush if @size && @slice.size >= @size
+          @started = true
+          collect(text, line_number, number)
         end
         header_read if @on_header
         self
@@ -191,24 +197,25 @@ module IOStreams
 
       private
 
-      # Returns [String|Object] the supplied line of a row, as the tabular hands it on, see
-      # `IOStreams::Tabular#read_line`, or nil for the header row, which it reads instead, raising an
-      # `IOStreams::Errors::RowError` that names the line, and for a row, such as the first record of a format of keyed
-      # records whose keys the schema does not have, the record too. A line is never nil, see #add.
-      def read_line(line, line_number, record_number)
-        header = @tabular.header?
-        @tabular.read_line(line) { |text| text }
-      rescue IOStreams::Errors::RowError => e
-        raise e.at(line_number: line_number, record_number: (record_number unless header))
+      # Adds the supplied line of a record, see #add, to the slice, which it hands on once it holds `size` rows, when it
+      # has a size.
+      def collect(text, line_number, number)
+        @record_number = number if number
+        @count        += 1
+        validate(text, line_number, number) if @validate
+        @slice ||= Slice.new(header: header, format: @tabular.format, blank_rows: @tabular.blank_rows?,
+                             cell_text: @tabular.cell_text?, schema: @schema)
+        @slice.add(text, line_number: line_number, record_number: number)
+        flush if @size && @slice.size >= @size
       end
 
       # Parses the supplied line of a row, see `IOStreams::Tabular#validate_line`, raising an
       # `IOStreams::Errors::RowError`, such as an `IOStreams::Errors::InvalidValue`, that names the record that it is in
       # and the line that it starts on.
       def validate(line, line_number, record_number)
-        @tabular.validate_line(line)
-      rescue IOStreams::Errors::RowError => e
-        raise e.at(line_number: line_number, record_number: record_number)
+        IOStreams::Row::Locator.locate(line_number: line_number, record_number: record_number) do
+          @tabular.validate_line(line)
+        end
       end
 
       # Counts a record before `resume_at`, see #initialize, which it skips without parsing it, nor checking its keys: a

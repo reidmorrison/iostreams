@@ -111,8 +111,9 @@ end
 ~~~
 
 `#record_number` and `#line_number` hold them, also for the rows of a [slice](background_jobs), which keep those of their
-file, and for `validate: true`, which checks every row of a file before it is sliced. A header row names its line
-only, since it is not a record. The line is `nil` for a source without lines, such as a Parquet file or a query.
+file, and for `validate: true`, which checks every row of a file before it is sliced, and `#reason` the message
+without them, for code that compares the whole message. A header row names its line only, since it is not a record.
+The line is `nil` for a source without lines, such as a Parquet file or a query.
 
 It is raised for:
 
@@ -129,11 +130,13 @@ It is raised for:
 `on_invalid:` takes only the rows whose values are not valid, so the others still stop the read, since no value of a
 field explains them.
 
-The exception of a gem is kept, as for the failure of a stream, so that it can still be rescued by its class, and
-its message ends with the record and line of the file, rather than the line within the text of the row that the csv
-gem names, since it reads one row at a time: `Illegal quoting, in record 3 on line 5`, where the csv gem raised
-`Illegal quoting in line 1.`. Its `#lineno` is still the csv gem's. Rescue `IOStreams::Errors::RowError` rather than
-the exception of a gem, so that the code works whichever format the file is in.
+The exception of a gem is kept, as for the failure of a stream, so that it can still be rescued by its class, and its
+message ends with the record and line of the file, rather than the line within the text of the row that the gem names,
+since each row is read on its own: `Illegal quoting, in record 3 on line 5`, where the csv gem raised `Illegal quoting
+in line 1.`, and `unexpected end of input at column 9, in record 3 on line 5`, where the json gem raised `unexpected end
+of input at line 1 column 9`, keeping the column within the line. `#line_number` is the line of the file; `#lineno`
+keeps the csv gem's line within the row. Rescue `IOStreams::Errors::RowError` rather than the exception of a gem, so
+that the code works whichever format the file is in.
 
 ## The exception tree
 

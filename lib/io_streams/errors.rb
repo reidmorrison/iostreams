@@ -14,26 +14,14 @@ module IOStreams
     #   Illegal quoting, in record 3 on line 5
     #
     # A format tags the exception that the gem reading it raised for a row that it cannot read with RowError, rather
-    # than replacing it, see .tag, so that it can still be rescued by its own class, such as `CSV::MalformedCSVError` or
-    # `JSON::ParserError`, while code that rescues RowError works whichever format the file is in, or gem reads it.
+    # than replacing it, so that it can still be rescued by its own class, such as `CSV::MalformedCSVError` or
+    # `JSON::ParserError`, while code that rescues RowError works whichever format the file is in, or gem reads it. Its
+    # #line_number is then the line of the file, while the csv gem's `#lineno` keeps the line within the text of the
+    # row.
     #
     # Raised outside the reading of a row, such as for the header row of a schema before the file is opened, it names
     # neither, and its message is unchanged.
     module RowError
-      # Tags the supplied exception, which the gem reading a format raised for a row that it cannot read, with RowError,
-      # so that the reader of the rows names its record and line, see #at, as for the errors that IOStreams raises. The
-      # reason is the message without the gem's own place within the text of the row, such as "Illegal quoting" for the
-      # csv gem's "Illegal quoting in line 1.", since the line that it names is that of the row, not of the file, which
-      # #to_s gives instead, or nil to keep the message.
-      #
-      # Returns [Exception] the exception. It is unchanged when it is frozen, or already a RowError.
-      def self.tag(exception, reason = nil)
-        return exception if exception.frozen? || exception.is_a?(RowError)
-
-        exception.instance_variable_set(:@iostreams_reason, reason)
-        exception.extend(self)
-      end
-
       # Returns [Integer|nil] the line of the file that the record starts on, or for a header row, the line of the header
       # row, or nil when its source has no lines, such as Parquet or a query, or it was not read.
       def line_number
@@ -56,15 +44,39 @@ module IOStreams
         self
       end
 
-      # Returns [String] the message, followed by the record that the row is, and the line that it starts on, when they
-      # are known, see #at, after the reason that a gem's exception was tagged with, see .tag.
+      # Returns [String] why the row cannot be read, the message without the record and line, see #to_s, for code that
+      # compares the whole message: the message that it was raised with, or for the exception of a gem, its message
+      # without the gem's own place within the text of the row, such as "Illegal quoting" for the csv gem's
+      # "Illegal quoting in line 1.".
+      def reason
+        Exception.instance_method(:to_s).bind_call(self)
+      end
+
+      # Returns [String] the message, followed by the record that the row is, and the line that it starts on, once they
+      # are known, see #at, after its reason, see #reason, such as "Illegal quoting, in record 3 on line 5".
       def to_s
+        with_row_location(super)
+      end
+
+      # Returns [String] the message, see #to_s, also for an exception whose class answers its own message, rather than
+      # its #to_s.
+      def message
+        with_row_location(super)
+      end
+
+      private
+
+      # Returns [String] the reason followed by the location of the row, see #to_s, or the supplied text as it is, until
+      # the row is located, or when the text already ends with its location, such as the message of an exception whose
+      # #message calls #to_s.
+      def with_row_location(text)
         location = []
         location << "in record #{record_number}" if record_number
         location << "on line #{line_number}" if line_number
-        return super if location.empty?
+        return text if location.empty?
 
-        "#{@iostreams_reason || super}, #{location.join(' ')}"
+        location = ", #{location.join(' ')}"
+        text.is_a?(String) && text.end_with?(location) ? text : "#{reason}#{location}"
       end
     end
 
@@ -127,7 +139,7 @@ module IOStreams
 
       # Parameters:
       #   message: [String]
-      #     Why the value is not valid, see #reason.
+      #     Why the value is not valid, see `IOStreams::Errors::RowError#reason`.
       #
       #   field: [String|Symbol]
       #     The name of the field of the value.
@@ -136,14 +148,8 @@ module IOStreams
       #     The value.
       def initialize(message = nil, field: nil, value: nil)
         super(message)
-        @reason = message
-        @field  = field
-        @value  = value
-      end
-
-      # Returns [String] why the value is not valid, without the record that it is in, see #to_s.
-      def reason
-        @reason || self.class.name
+        @field = field
+        @value = value
       end
     end
 

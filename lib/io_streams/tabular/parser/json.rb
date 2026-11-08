@@ -15,6 +15,20 @@ module IOStreams
           :json
         end
 
+        # The place within the text that the json gem names at the end of its message, "at line 1 column 9", whose line
+        # is always the first, since each row is one line of JSON, and not the text of the row that the message quotes
+        # before it, which can hold the same words.
+        GEM_PLACE = / at line 1 column (\d+)\z/
+
+        # Returns [JSON::ParserError] the supplied error of the json gem, for a line that is not valid JSON, tagged as an
+        # `IOStreams::Errors::RowError`, so that the reader of the rows names the record and line of the file that it is
+        # in, rather than the line within the text of the row, such as "unexpected end of input at column 9, in record
+        # 2 on line 4" for the gem's "unexpected end of input at line 1 column 9", whose column stays, and its message as
+        # it is when it names no line and column, as the json gem on JRuby does for some errors. Its class is kept.
+        def self.row_error(error)
+          IOStreams::Row::Locator.tag(error, error.message.sub(GEM_PLACE, ' at column \\1'))
+        end
+
         # Returns [true] each line is a JSON object, whose keys name its values.
         def self.keyed?
           true
@@ -322,12 +336,11 @@ module IOStreams
         # Returns the value of the line, see #parse.
         #
         # Raises `JSON::ParserError` for a line that is not valid JSON, tagged as an `IOStreams::Errors::RowError`, so
-        # that the reader of the rows names the record and line of the file that it is in, while its message keeps the
-        # place within the line that the json gem names.
+        # that the reader of the rows names the record and line of the file that it is in, see .row_error.
         def parse_json(line)
           @decimal_keys ? parse_decimals(line) : JSON.parse(line)
         rescue JSON::ParserError => e
-          raise(IOStreams::Errors::RowError.tag(e))
+          raise(self.class.row_error(e))
         end
 
         # Returns the value of the line, with the numbers of each key that is the column of a number field that keeps

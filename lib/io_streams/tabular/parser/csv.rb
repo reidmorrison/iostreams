@@ -23,7 +23,7 @@ module IOStreams
         # time, such as "Illegal quoting, in record 3 on line 5" for the gem's "Illegal quoting in line 1.". Its class,
         # and `#lineno`, the gem's line within the row, are kept.
         def self.row_error(error)
-          IOStreams::Errors::RowError.tag(error, error.message.delete_suffix(" in line #{error.lineno}."))
+          IOStreams::Row::Locator.tag(error, error.message.delete_suffix(" in line #{error.lineno}."))
         end
 
         # CSV fields may contain embedded delimiters and newlines when wrapped in double quotes.

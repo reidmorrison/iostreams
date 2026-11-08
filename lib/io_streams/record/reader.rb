@@ -105,6 +105,7 @@ module IOStreams
             next
           end
 
+          # Rescued here, rather than in `IOStreams::Row::Locator.locate`, whose block would cost each record more.
           begin
             record = @tabular.record_parse(line)
           rescue IOStreams::Errors::InvalidValue => e
@@ -144,9 +145,7 @@ module IOStreams
       # Reads the header row of the supplied line, see `IOStreams::Tabular#read_record_line`, raising an
       # `IOStreams::Errors::RowError` that names the line, since the header row is not a record.
       def read_header(line, line_number)
-        @tabular.read_record_line(line) { nil }
-      rescue IOStreams::Errors::RowError => e
-        raise e.at(line_number: line_number)
+        IOStreams::Row::Locator.locate(line_number: line_number) { @tabular.read_record_line(line) { nil } }
       end
     end
   end

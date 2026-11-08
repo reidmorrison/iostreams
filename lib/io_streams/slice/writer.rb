@@ -104,15 +104,6 @@ module IOStreams
 
       private
 
-      # Parses the supplied line of a row, see `IOStreams::Tabular#validate_line`, raising an
-      # `IOStreams::Errors::RowError`, such as an `IOStreams::Errors::InvalidValue`, that names the record that it is in
-      # and the line that it starts on.
-      def validate(line, line_number, record_number)
-        @reader.validate_line(line)
-      rescue IOStreams::Errors::RowError => e
-        raise e.at(line_number: line_number, record_number: record_number)
-      end
-
       # Decides how the slices are written, by the first one, see the class, and reads its header row, which is written
       # once, before its rows.
       def start(slice)
@@ -146,12 +137,24 @@ module IOStreams
       # record of a format of keyed records, such as JSON, to the fields of the schema, as the line that the file writes
       # for it, see `IOStreams::Tabular#written_line`, so that the text of a row of `:text` that holds a line break, such
       # as the CSV text of a row of a spreadsheet, is one line of a file of plain text, as `#writer(:array)` writes it.
+      #
+      # An `IOStreams::Errors::RowError` of a row names the record that it is and the line that it starts on: one that
+      # its keys, or `validate: true`, raise, and the `IOStreams::Errors::TypeMismatch` of a row of `:text` that is not
+      # one row of the format of the file, such as CSV whose quote is not closed, since it is the row that cannot be
+      # written. A failure of the output that the line is written to is not a row's.
       def write_as_is(slice)
         slice.each do |row, line_number, record_number|
-          @reader.read_line(row) do |line|
-            validate(line, line_number, record_number) if @validate
-            @output << @tabular.written_line(line)
+          # Rescued here, rather than in `IOStreams::Row::Locator.locate`, whose block would cost each row more. Every
+          # row is a record, since the header row was read before the first, see #start_as_is, so the reader yields it.
+          begin
+            text = @reader.read_line(row) do |line|
+              @reader.validate_line(line) if @validate
+              @tabular.written_line(line)
+            end
+          rescue IOStreams::Errors::RowError => e
+            raise e.at(line_number: line_number, record_number: record_number)
           end
+          @output << text
         end
       end
 
@@ -159,23 +162,28 @@ module IOStreams
       # `IOStreams::Tabular#read_row`, and writes it, see `IOStreams::Row::Writer`. The rows of a format of keyed
       # records, such as JSON without a schema, are read by the keys of the first record of the first slice, which
       # raises `IOStreams::Errors::InvalidHeader` for a key that it lacked. An `IOStreams::Errors::RowError` of a row
-      # that cannot be read names the record that it is and the line that it starts on.
+      # that cannot be read names the record that it is and the line that it starts on, while the writer writes it
+      # outside, so that an error that writing it raises is not taken for one of reading it.
       def write_rows(slice)
         slice.each do |row, line_number, record_number|
-          read_rows(row, line_number, record_number).each { |parsed| @rows << parsed unless parsed.nil? }
+          header = nil
+          parsed = nil
+          # Rescued here, rather than in `IOStreams::Row::Locator.locate`, whose block would cost each row more.
+          begin
+            # The header row of the rows, the keys of the first record of a format of keyed records without a schema.
+            @reader.read_row(row) do |each_row|
+              if each_row.is_a?(IOStreams::Row::HeaderRow)
+                header = each_row
+              else
+                parsed = each_row
+              end
+            end
+          rescue IOStreams::Errors::RowError => e
+            raise e.at(line_number: line_number, record_number: record_number)
+          end
+          @rows << header if header
+          @rows << parsed unless parsed.nil?
         end
-      end
-
-      # Returns [Array] what the reader reads from the supplied row of a slice, see `IOStreams::Tabular#read_row`: its
-      # row, after the header row of the rows when it is the first record of a format of keyed records without a schema,
-      # raising an `IOStreams::Errors::RowError` that names its record and line, which writing it, see #write_rows, does
-      # not, since the row has been read.
-      def read_rows(row, line_number, record_number)
-        parsed = []
-        @reader.read_row(row) { |each_row| parsed << each_row }
-        parsed
-      rescue IOStreams::Errors::RowError => e
-        raise e.at(line_number: line_number, record_number: record_number)
       end
     end
   end

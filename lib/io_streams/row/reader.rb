@@ -136,6 +136,7 @@ module IOStreams
             skip_record(line, line_number, number, &block)
           elsif started || !@tabular.rows_header?
             started = true
+            # Rescued here, rather than in `IOStreams::Row::Locator.locate`, whose block would cost each row more.
             begin
               row = @tabular.row_parse(line)
             rescue IOStreams::Errors::InvalidValue => e
@@ -192,13 +193,11 @@ module IOStreams
       def read_header(line, line_number)
         yielded = false
         header  = nil
-        begin
+        IOStreams::Row::Locator.locate(line_number: line_number) do
           @tabular.read_row(line) do |row|
             yielded = true
             header  = row
           end
-        rescue IOStreams::Errors::RowError => e
-          raise e.at(line_number: line_number)
         end
         yield(header) if yielded && !(@skip_blanks && header.nil?)
       end
@@ -209,10 +208,8 @@ module IOStreams
       # `IOStreams::Errors::RowError` that reading it raises.
       def skip_record(line, line_number, record_number)
         columns = nil
-        begin
+        IOStreams::Row::Locator.locate(line_number: line_number, record_number: record_number) do
           @tabular.skip_record(line) { |header| columns = header }
-        rescue IOStreams::Errors::RowError => e
-          raise e.at(line_number: line_number, record_number: record_number)
         end
         yield(columns) if columns
       end
@@ -226,12 +223,12 @@ module IOStreams
         header = nil
         row    = nil
         begin
-          @tabular.read_row(line) { |parsed| parsed.is_a?(HeaderRow) ? header = parsed : row = [parsed] }
+          IOStreams::Row::Locator.locate(line_number: line_number, record_number: record_number) do
+            @tabular.read_row(line) { |parsed| parsed.is_a?(HeaderRow) ? header = parsed : row = [parsed] }
+          end
         rescue IOStreams::Errors::InvalidValue => e
           yield(header) if header
           return invalid(e, line, line_number, record_number)
-        rescue IOStreams::Errors::RowError => e
-          raise e.at(line_number: line_number, record_number: record_number)
         end
         yield(header) if header
         yield(row.first) if row && !(@skip_blanks && row.first.nil?)

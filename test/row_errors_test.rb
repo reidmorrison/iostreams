@@ -3,6 +3,7 @@
 require_relative "test_helper"
 require "csv"
 require "json"
+require "tmpdir"
 
 # Every error of a row that a reader of rows or records raises names the record that it is in, and the line that the
 # record starts on, see `IOStreams::Errors::RowError`, as `IOStreams::Errors::InvalidValue` does, whether the file is
@@ -161,10 +162,54 @@ class RowErrorsTest < Minitest::Test
       assert_equal 1, error.lineno
     end
 
-    it "keeps the place within the line that the json gem names" do
+    it "names the record and line of the file of JSON, rather than the line within the row that the json gem names" do
       error = assert_raises(JSON::ParserError) { stream(:json, nil, %({"a":1}\n{"a":\n)).each(:hash) { nil } }
 
-      assert_match(/\A.+ at line 1 column \d+, in record 2 on line 2\z/, error.message)
+      # The json gem's text differs by version and platform, so only what IOStreams adds is compared.
+      assert_equal "#{error.reason}, in record 2 on line 2", error.message
+      refute_match(/line 1/, error.message)
+    end
+
+    it "keeps the column within the line that the json gem names, without its line" do
+      error = IOStreams::Tabular::Parser::Json.row_error(JSON::ParserError.new("unexpected end of input at line 1 column 9"))
+
+      assert_equal "unexpected end of input at column 9, on line 4", error.at(line_number: 4).message
+
+      error = IOStreams::Tabular::Parser::Json.row_error(JSON::ParserError.new("unexpected end of input"))
+
+      assert_equal "unexpected end of input, on line 4", error.at(line_number: 4).message
+    end
+
+    it "keeps the text of the row that the json gem quotes, rather than take it for the place within the line" do
+      error = JSON::ParserError.new("unexpected token at 'x at line 1 column 3}' at line 1 column 7")
+      IOStreams::Tabular::Parser::Json.row_error(error)
+
+      assert_equal "unexpected token at 'x at line 1 column 3}' at column 7, on line 2", error.at(line_number: 2).message
+
+      error = IOStreams::Tabular::Parser::Json.row_error(JSON::ParserError.new("unexpected token at 'x at line 1 column 3}'"))
+
+      assert_equal "unexpected token at 'x at line 1 column 3}', on line 2", error.at(line_number: 2).message
+    end
+
+    it "names them for the rows of slices that writer(:slice) writes as they are" do
+      slice = IOStreams.slice({"rows" => [%({"a":1,"b":2})], "header" => nil, "format" => "json", "line_number" => 7,
+                               "record_number" => 5})
+      target = IOStreams.stream(StringIO.new).format(:json).schema({"fields" => [{"name" => "a"}, {"name" => "c"}]})
+      error  = assert_raises(IOStreams::Errors::InvalidHeader) { target.writer(:slice) { |io| io << slice } }
+
+      assert_equal [5, 7], [error.record_number, error.line_number]
+    end
+
+    it "names them for a row of :text that writer(:slice) cannot write as one row of the file" do
+      slice = IOStreams.slice({"rows" => ["ok", %(a,"b)], "header" => nil, "format" => "text", "line_number" => 4,
+                               "record_number" => 3})
+      error = Dir.mktmpdir do |dir|
+        assert_raises(IOStreams::Errors::TypeMismatch) do
+          IOStreams.path(dir, "emails.xlsx").format(:text).writer(:slice) { |io| io << slice }
+        end
+      end
+
+      assert_equal [4, 5], [error.record_number, error.line_number]
     end
 
     it "does not locate an error that the block raises" do
@@ -191,31 +236,73 @@ class RowErrorsTest < Minitest::Test
       assert_equal "Too short, in record 3 on line 4", error.message
     end
 
-    describe ".tag" do
+    it "gives the message without the record and line as its reason" do
+      [IOStreams::Errors::InvalidValue, IOStreams::Errors::InvalidHeader, IOStreams::Errors::InvalidLineLength,
+       IOStreams::Errors::TypeMismatch].each do |error_class|
+        error = error_class.new("Not valid").at(line_number: 4, record_number: 3)
+
+        assert_equal "Not valid", error.reason, error_class
+        assert_equal "Not valid, in record 3 on line 4", error.message, error_class
+      end
+
+      assert_equal "IOStreams::Errors::InvalidValue", IOStreams::Errors::InvalidValue.new.reason
+    end
+
+    describe "IOStreams::Row::Locator.locate" do
+      it "returns the result of the block" do
+        assert_equal 5, IOStreams::Row::Locator.locate(line_number: 2, record_number: 1) { 5 }
+      end
+
+      it "names the record and line of a RowError that the block raises, but not of another error" do
+        error = assert_raises(IOStreams::Errors::TypeMismatch) do
+          IOStreams::Row::Locator.locate(line_number: 2, record_number: 1) { raise(IOStreams::Errors::TypeMismatch, "x") }
+        end
+        assert_equal "x, in record 1 on line 2", error.message
+
+        error = assert_raises(ArgumentError) do
+          IOStreams::Row::Locator.locate(line_number: 2, record_number: 1) { raise(ArgumentError, "x") }
+        end
+        assert_equal "x", error.message
+      end
+    end
+
+    describe "IOStreams::Row::Locator.tag" do
       it "tags the exception of a gem, keeping its class and message until it is located" do
         error = JSON::ParserError.new("unexpected token")
 
-        assert_same error, IOStreams::Errors::RowError.tag(error)
+        assert_same error, IOStreams::Row::Locator.tag(error)
         assert_kind_of IOStreams::Errors::RowError, error
         assert_equal "unexpected token", error.message
         assert_equal "unexpected token, in record 2 on line 3", error.at(line_number: 3, record_number: 2).message
       end
 
       it "gives the message the reason that it was tagged with, once it is located" do
-        error = IOStreams::Errors::RowError.tag(RuntimeError.new("Bad quote in line 1."), "Bad quote")
+        error = IOStreams::Row::Locator.tag(RuntimeError.new("Bad quote in line 1."), "Bad quote")
 
         assert_equal "Bad quote in line 1.", error.message
         assert_equal "Bad quote, on line 7", error.at(line_number: 7).message
       end
 
+      it "names the record and line in the message of an exception whose class answers its own message" do
+        error_class = Class.new(StandardError) do
+          def message
+            "Its own message"
+          end
+        end
+        error = IOStreams::Row::Locator.tag(error_class.new).at(line_number: 2)
+
+        assert_equal "Its own message, on line 2", error.message
+        assert_equal "Its own message", error.reason
+      end
+
       it "leaves a frozen exception, or one already tagged, as it is" do
         frozen = RuntimeError.new("frozen").freeze
 
-        assert_same frozen, IOStreams::Errors::RowError.tag(frozen)
+        assert_same frozen, IOStreams::Row::Locator.tag(frozen)
         refute_kind_of IOStreams::Errors::RowError, frozen
 
-        error = IOStreams::Errors::RowError.tag(RuntimeError.new("first"), "first reason")
-        IOStreams::Errors::RowError.tag(error, "second reason")
+        error = IOStreams::Row::Locator.tag(RuntimeError.new("first"), "first reason")
+        IOStreams::Row::Locator.tag(error, "second reason")
 
         assert_equal "first reason, on line 1", error.at(line_number: 1).message
       end
