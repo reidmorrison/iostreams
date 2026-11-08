@@ -81,6 +81,42 @@ class BlankRowsTest < Minitest::Test
         assert_equal [jack, jill], read(target, :hash, skip_blanks: true)
       end
 
+      it "written to a spreadsheet without values, as [] or {}, are a row without cells, read as a blank row" do
+        rows = path("rows.xlsx")
+        rows.writer(:array) do |writer|
+          writer << %w[name age]
+          writer << %w[Jack 21]
+          writer << []
+          writer << %w[Jill 22]
+        end
+        records = path("records.xlsx")
+        records.writer(:hash) do |writer|
+          writer << jack
+          writer << {}
+          writer << jill
+        end
+
+        assert_equal [jack, nil, jill], read(rows, :hash)
+        assert_equal [jack, nil, jill], read(records, :hash)
+        assert_equal "name,age\nJack,21\n\nJill,22\n", rows.read
+      end
+
+      it "written to a spreadsheet without values by a schema or a contract are a row without cells too" do
+        schema   = {fields: [{name: "name", type: "string"}, {name: "age", type: "integer"}]}
+        contract = Class.new(IOStreams::Contract) do
+          field :name, :string
+          field :age, :integer
+        end
+        people = {"name" => "Jack", "age" => 21}
+
+        path("schema.xlsx").schema(schema).writer(:array) { |writer| writer << [] << ["Jack", 21] }
+        path("contract.xlsx").as(contract).writer(:hash) { |writer| writer << {} << people }
+
+        assert_equal [nil, people], read(path("schema.xlsx").schema(schema), :hash)
+        assert_equal [nil, people], read(path("contract.xlsx").schema(schema), :hash)
+        assert_equal "name,age\n\nJack,21\n", path("contract.xlsx").read
+      end
+
       it "of a Parquet file are none, since a record whose every value is null is a record, as a row of a query is" do
         skip "The parquet gem is a Rust extension, which JRuby cannot load" if defined?(JRuby)
 
