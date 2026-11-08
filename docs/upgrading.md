@@ -1868,6 +1868,15 @@ for each one.
 - The message of an `IOStreams::Errors::InvalidValue` that a reader of rows or records raises ends with the record and
   the line, such as `..., in record 6 on line 7`. `#reason` returns the message without them, for code that compares
   the whole message.
+- The message of every other error of a row that a reader of rows or records raises ends with the record and the line
+  too, see [Rescue a row that cannot be read](errors#rescue-a-row-that-cannot-be-read): `IOStreams::Errors::InvalidHeader`
+  for a row or JSON record, `IOStreams::Errors::InvalidLineLength`, `IOStreams::Errors::TypeMismatch` and
+  `JSON::ParserError`, whose `at line 1 column 9` becomes `at column 9`, while `CSV::MalformedCSVError` drops the line
+  within the row that the csv gem names, so that `Illegal quoting in line 1.` reads
+  `Illegal quoting, in record 3 on line 5`. Its `#line_number` is the line of the file, where it was the csv gem's;
+  `#lineno` keeps the csv gem's line within the row. An `IOStreams::Errors::InvalidHeader` of the header row read from
+  a file ends with its line, such as `..., on line 1`. `#reason` returns the message without them, for code that
+  compares the whole message, of each of them, as `IOStreams::Errors::RowError` includes it.
 - Without a schema, a `Float` or `BigDecimal` that is not finite is written to CSV, and the other formats of text, as
   `INF` or `-INF`, as Frictionless spells them, where v2.1 wrote `Infinity` or `-Infinity`.
 - Without a schema, a `Float` that is not finite written to JSON, such as `{"rate" => Float::NAN}`, or within a

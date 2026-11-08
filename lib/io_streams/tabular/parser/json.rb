@@ -15,6 +15,20 @@ module IOStreams
           :json
         end
 
+        # The place within the text that the json gem names at the end of its message, "at line 1 column 9", whose line
+        # is always the first, since each row is one line of JSON, and not the text of the row that the message quotes
+        # before it, which can hold the same words.
+        GEM_PLACE = / at line 1 column (\d+)\z/
+
+        # Returns [JSON::ParserError] the supplied error of the json gem, for a line that is not valid JSON, tagged as an
+        # `IOStreams::Errors::RowError`, so that the reader of the rows names the record and line of the file that it is
+        # in, rather than the line within the text of the row, such as "unexpected end of input at column 9, in record
+        # 2 on line 4" for the gem's "unexpected end of input at line 1 column 9", whose column stays, and its message as
+        # it is when it names no line and column, as the json gem on JRuby does for some errors. Its class is kept.
+        def self.row_error(error)
+          IOStreams::Row::Locator.tag(error, error.message.sub(GEM_PLACE, ' at column \\1'))
+        end
+
         # Returns [true] each line is a JSON object, whose keys name its values.
         def self.keyed?
           true
@@ -279,7 +293,8 @@ module IOStreams
         # about 16. Every other number is still a Float, the same as without a schema.
         #
         # Raises `IOStreams::Errors::TypeMismatch` for a line that is not an object, such as `[1,2]` or `5`, since only an
-        # object has the keys that name its values.
+        # object has the keys that name its values, and `JSON::ParserError` for a line that is not JSON, tagged as an
+        # `IOStreams::Errors::RowError`, see #parse_json.
         def parse(row)
           # Each line read is a String, so that is checked first.
           unless row.is_a?(String)
@@ -288,7 +303,7 @@ module IOStreams
             raise(IOStreams::Errors::TypeMismatch, "Format is :json. Invalid input: #{row.class.name}")
           end
 
-          values = @decimal_keys ? parse_decimals(row) : JSON.parse(row)
+          values = parse_json(row)
           return values if values.is_a?(::Hash) || values.nil?
 
           raise(IOStreams::Errors::TypeMismatch, "Each line of the :json format must be an object, whose keys name its " \
@@ -317,6 +332,16 @@ module IOStreams
         end
 
         private
+
+        # Returns the value of the line, see #parse.
+        #
+        # Raises `JSON::ParserError` for a line that is not valid JSON, tagged as an `IOStreams::Errors::RowError`, so
+        # that the reader of the rows names the record and line of the file that it is in, see .row_error.
+        def parse_json(line)
+          @decimal_keys ? parse_decimals(line) : JSON.parse(line)
+        rescue JSON::ParserError => e
+          raise(self.class.row_error(e))
+        end
 
         # Returns the value of the line, with the numbers of each key that is the column of a number field that keeps
         # every digit as BigDecimals, and every other number as a Float, see #parse.

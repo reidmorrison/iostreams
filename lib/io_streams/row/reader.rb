@@ -109,7 +109,9 @@ module IOStreams
       # rows of a file start with when it is not a line of its own from the first record skipped, see
       # `IOStreams::Tabular#skip_record`, such as the keys of the first record of JSON without a schema. A value that is
       # not valid raises `IOStreams::Errors::InvalidValue`, naming its record and line, unless `on_invalid:` takes the
-      # row, see `IOStreams::Row::Numbered#invalid`.
+      # row, see `IOStreams::Row::Numbered#invalid`. Any other error of a row that cannot be read, such as a line of CSV
+      # whose quoting is not valid, names them too, see `IOStreams::Errors::RowError`, and an error of the header row its
+      # line.
       #
       # Returns an Enumerator of the rows without a block.
       def each(&block)
@@ -123,7 +125,7 @@ module IOStreams
         started = false
         each_numbered do |line, line_number, record_number|
           if !started && @tabular.header?
-            @tabular.read_row(line) { |row| yield(row) unless @skip_blanks && row.nil? }
+            read_header(line, line_number, &block)
             next
           end
 
@@ -131,13 +133,16 @@ module IOStreams
           number = record_number || records
           if skip.positive?
             skip -= 1
-            @tabular.skip_record(line, &block)
+            skip_record(line, line_number, number, &block)
           elsif started || !@tabular.rows_header?
             started = true
+            # Rescued here, rather than in `IOStreams::Row::Locator.locate`, whose block would cost each row more.
             begin
               row = @tabular.row_parse(line)
             rescue IOStreams::Errors::InvalidValue => e
               next invalid(e, line, line_number, number)
+            rescue IOStreams::Errors::RowError => e
+              raise e.at(line_number: line_number, record_number: number)
             end
             yield(row) unless @skip_blanks && row.nil?
           else
@@ -182,6 +187,33 @@ module IOStreams
 
       private
 
+      # Yields the header row of the supplied line, see `IOStreams::Tabular#read_row`, unless it is blank and
+      # `skip_blanks` skips it, once it is read, outside the rescue that names the line of an
+      # `IOStreams::Errors::RowError` that reading it raises, since the header row is not a record.
+      def read_header(line, line_number)
+        yielded = false
+        header  = nil
+        IOStreams::Row::Locator.locate(line_number: line_number) do
+          @tabular.read_row(line) do |row|
+            yielded = true
+            header  = row
+          end
+        end
+        yield(header) if yielded && !(@skip_blanks && header.nil?)
+      end
+
+      # Yields the header row that the rows of a file start with when it is not a line of its own from the supplied
+      # line of a record that `resume_at` skips, see `IOStreams::Tabular#skip_record`, such as the keys of the first
+      # record of JSON without a schema, once it is read, outside the rescue that names the record and line of an
+      # `IOStreams::Errors::RowError` that reading it raises.
+      def skip_record(line, line_number, record_number)
+        columns = nil
+        IOStreams::Row::Locator.locate(line_number: line_number, record_number: record_number) do
+          @tabular.skip_record(line) { |header| columns = header }
+        end
+        yield(columns) if columns
+      end
+
       # Yields the header row that the rows of a file start with when it is not a line of its own, such as the keys of
       # the first record of JSON without a schema, or the names of the fields of a file without a header row, from the
       # supplied line of its first record, see `IOStreams::Tabular#read_row`, then the row of that record, unless it is
@@ -191,7 +223,9 @@ module IOStreams
         header = nil
         row    = nil
         begin
-          @tabular.read_row(line) { |parsed| parsed.is_a?(HeaderRow) ? header = parsed : row = [parsed] }
+          IOStreams::Row::Locator.locate(line_number: line_number, record_number: record_number) do
+            @tabular.read_row(line) { |parsed| parsed.is_a?(HeaderRow) ? header = parsed : row = [parsed] }
+          end
         rescue IOStreams::Errors::InvalidValue => e
           yield(header) if header
           return invalid(e, line, line_number, record_number)

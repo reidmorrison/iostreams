@@ -61,6 +61,7 @@ module IOStreams
 
   module Row
     autoload :HeaderRow, "io_streams/row/header_row"
+    autoload :Locator,   "io_streams/row/locator"
     autoload :Numbered,  "io_streams/row/numbered"
     autoload :Reader, "io_streams/row/reader"
     autoload :Stream, "io_streams/row/stream"

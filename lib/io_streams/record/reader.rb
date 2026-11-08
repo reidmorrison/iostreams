@@ -79,7 +79,8 @@ module IOStreams
       # the records start with that one, without parsing the records before it: a line is a record once the tabular no
       # longer expects the header row, see `IOStreams::Tabular#header?`. A value that is not valid raises
       # `IOStreams::Errors::InvalidValue`, naming its record and line, unless `on_invalid:` takes the record, see
-      # `IOStreams::Row::Numbered#invalid`.
+      # `IOStreams::Row::Numbered#invalid`. Any other error of a row that cannot be read, such as a line of CSV whose
+      # quoting is not valid, names them too, see `IOStreams::Errors::RowError`, and an error of the header row its line.
       #
       # Returns an Enumerator of the records without a block.
       def each
@@ -92,7 +93,7 @@ module IOStreams
         each_numbered do |line, line_number, record_number|
           unless started
             if @tabular.header?
-              @tabular.read_record_line(line) { nil }
+              read_header(line, line_number)
               next
             end
             started = true
@@ -104,10 +105,13 @@ module IOStreams
             next
           end
 
+          # Rescued here, rather than in `IOStreams::Row::Locator.locate`, whose block would cost each record more.
           begin
             record = @tabular.record_parse(line)
           rescue IOStreams::Errors::InvalidValue => e
             next invalid(e, line, line_number, record_number || records)
+          rescue IOStreams::Errors::RowError => e
+            raise e.at(line_number: line_number, record_number: record_number || records)
           end
           yield(record) unless @skip_blanks && record.nil?
         end
@@ -134,6 +138,14 @@ module IOStreams
       # block returns, shows what the documentation describes.
       def inspect
         "#<#{self.class.name} format=#{@tabular.format.inspect}>"
+      end
+
+      private
+
+      # Reads the header row of the supplied line, see `IOStreams::Tabular#read_record_line`, raising an
+      # `IOStreams::Errors::RowError` that names the line, since the header row is not a record.
+      def read_header(line, line_number)
+        IOStreams::Row::Locator.locate(line_number: line_number) { @tabular.read_record_line(line) { nil } }
       end
     end
   end

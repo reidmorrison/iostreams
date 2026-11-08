@@ -3,9 +3,10 @@
 module IOStreams
   module Row
     # Numbers the rows that a reader of rows or records reads, see `IOStreams::Row::Reader` and
-    # `IOStreams::Record::Reader`, so that a value that is not valid for its field names the record that it is in, and
-    # the line that the record starts on, see `IOStreams::Errors::InvalidValue#at`, and so that `on_invalid:` hands the
-    # whole of a bad row to its handler, see `IOStreams::InvalidRow`, rather than raise.
+    # `IOStreams::Record::Reader`, so that an error of a row, such as a value that is not valid for its field, names the
+    # record that it is in, and the line that the record starts on, see `IOStreams::Errors::RowError#at`, and so that
+    # `on_invalid:` hands the whole of a row whose values are not valid to its handler, see `IOStreams::InvalidRow`,
+    # rather than raise.
     #
     # The lines that it reads say where each one starts when they can: a line reader, see
     # `IOStreams::Line::Reader#each_with_line_number`, or the rows of a slice, which also give their record numbers,
@@ -39,10 +40,11 @@ module IOStreams
       # Returns [nil] once the supplied error, of a value of the supplied line, is handed to the handler of
       # `on_invalid:` as its row, see `IOStreams::InvalidRow`, which holds an error for each of its fields whose value is
       # not valid, so that the reader carries on with the next row. Without a handler, raises the error, which names the
-      # record and line, see `IOStreams::Errors::InvalidValue#at`.
+      # record and line, see `IOStreams::Errors::RowError#at`. Any other error of the row, such as a line whose quoting is
+      # not valid, which no value of a field explains, is raised, naming them, by the reader itself, also with a handler.
       #
       # The reader parses the line within its own rescue, never calling the block of its caller there, so that an
-      # `InvalidValue` that the block raises is not taken for one of the row.
+      # `InvalidValue` or other `RowError` that the block raises is not taken for one of the row.
       def invalid(error, line, line_number, record_number)
         error.at(line_number: line_number, record_number: record_number)
         raise error unless @on_invalid

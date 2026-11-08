@@ -2093,7 +2093,7 @@ class StreamTest < Minitest::Test
 
         it "raises for two columns that are the same field, rather than lose one of them" do
           error = assert_raises(IOStreams::Errors::InvalidHeader) { read("first_name,email,DOB,Email\nJack,a,2001-02-03,b\n", schema: contacts) }
-          assert_equal 'The columns "email" and "Email" are both the field "email", so either could be meant', error.message
+          assert_equal 'The columns "email" and "Email" are both the field "email", so either could be meant, on line 1', error.message
         end
 
         it "returns the names of the fields as they are given, as the keys of the records" do
@@ -2279,7 +2279,8 @@ class StreamTest < Minitest::Test
           schema = {fieldsMatch: "subset", extraColumns: "keep", keyType: "cleansed", fields: []}
 
           error = assert_raises(IOStreams::Errors::InvalidHeader) { read("Notes,notes\na,b\n", schema: schema) }
-          assert_equal 'The columns "Notes" and "notes" are both the key "notes" of the records read, so either could be meant', error.message
+          assert_equal 'The columns "Notes" and "notes" are both the key "notes" of the records read, so either could be meant, ' \
+                       "on line 1", error.message
         end
 
         it "does not keep a column without a name" do
@@ -2536,7 +2537,8 @@ class StreamTest < Minitest::Test
 
         it "raises when the header row does not have the field, whatever fieldsMatch is" do
           error = assert_raises(IOStreams::Errors::InvalidHeader) { read("id,name\n1,Jack\n", schema: schema) }
-          assert_equal 'The header row does not match the schema: missing the required field "email"', error.message
+          assert_equal 'The header row does not match the schema: missing the required field "email", on line 1',
+                       error.message
         end
 
         it "raises for a value that is empty" do
@@ -2583,7 +2585,8 @@ class StreamTest < Minitest::Test
           it "reads a blank value, but still raises when the header row does not have the field" do
             assert_equal [{"id" => 1, "email" => nil}], read("id,email\n1,\n", schema: schema)
             error = assert_raises(IOStreams::Errors::InvalidHeader) { read("id,name\n1,Jack\n", schema: schema) }
-            assert_equal 'The header row does not match the schema: missing the required field "email"', error.message
+            assert_equal 'The header row does not match the schema: missing the required field "email", on line 1',
+                         error.message
           end
 
           it "reads a JSON record with null, but raises for one without the key" do
