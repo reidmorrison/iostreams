@@ -184,7 +184,7 @@ module IOStreams
         # Returns [String] the rows that this format reads, see .row?, as a slice that is given another says them, see
         # `IOStreams::Slice#add`.
         def self.rows_read
-          "a line of text"
+          "a line of text, or an Array of its values"
         end
 
         # Returns [true|false] whether a header row is required for this format.

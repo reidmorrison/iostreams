@@ -61,6 +61,54 @@ class SliceWriterTest < Minitest::Test
 
         assert_equal json, write(slices(json, format: :json), format: :json)
       end
+
+      describe "that holds rows already parsed" do
+        let(:mixed) do
+          IOStreams::Slice.new([["Jill", 22], "Jack,21", ["Bob, Jr.", nil], nil, %W[Joe line\nbreak]],
+                               header: %w[Name AGE].freeze, format: :csv)
+        end
+
+        it "writes an Array as the format writes a row, in the columns of the header row, and a line as it is" do
+          written = write([mixed])
+
+          assert_equal %(Name,AGE\nJill,22\nJack,21\n"Bob, Jr.",\n\nJoe,"line\nbreak"\n), written
+          rows = []
+          IOStreams.stream(StringIO.new(written)).format(:csv).each(:array) { |row| rows << row }
+
+          assert_equal [%w[Name AGE], %w[Jill 22], %w[Jack 21], ["Bob, Jr.", nil], nil, %W[Joe line\nbreak]], rows
+        end
+
+        it "writes them in the columns of the header row, matched to the schema, also with validate: true" do
+          ordered = IOStreams::Slice.new([%w[21 Jack], "22,Jill"], header: %w[AGE Name].freeze, format: :csv)
+          equal   = schema.merge("fieldsMatch" => "equal", "fields" => [{"name" => "name"}, {"name" => "age"}])
+
+          assert_equal "AGE,Name\n21,Jack\n22,Jill\n", write([ordered], schema: equal, validate: true)
+        end
+
+        it "writes an Array of a slice of :text as its one value" do
+          text = IOStreams::Slice.new([["a@example.com"], "b@example.com", nil], format: :text)
+
+          assert_equal "a@example.com\nb@example.com\n\n", write([text], format: :text)
+        end
+
+        it "writes an Array of a slice without a header row in the order of the fields of the schema" do
+          fixed = {"fields" => [{"name" => "name", "width" => 5}, {"name" => "age", "width" => 3}]}
+          rows  = IOStreams::Slice.new([%w[Jill 22], "Jack 21 "], format: :fixed)
+
+          assert_equal "Jill 22 \nJack 21 \n", write([rows], format: :fixed, schema: fixed)
+        end
+
+        it "writes a Hash of a slice of JSON as a record, and an Array by the fields of the schema" do
+          records = IOStreams::Slice.new([%({"name":"Jack"}), {"name" => "Jill"}], format: :json)
+
+          assert_equal %({"name":"Jack"}\n{"name":"Jill"}\n), write([records], format: :json)
+
+          values = IOStreams::Slice.new([["Jill", 22]], format: :json)
+          error  = assert_raises(ArgumentError) { write([values], format: :json) }
+          assert_match(/\AThe rows written have no header row, and no schema names their columns/, error.message)
+          assert_equal %({"first_name":"Jill","age":22}\n), write([values], format: :json, schema: schema)
+        end
+      end
     end
 
     describe "a slice in another format" do
