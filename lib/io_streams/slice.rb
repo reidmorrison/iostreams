@@ -37,6 +37,7 @@ module IOStreams
   # turns back into a slice.
   class Slice
     autoload :Collector, "io_streams/slice/collector"
+    autoload :KeptTypes, "io_streams/slice/kept_types"
     autoload :LineRows, "io_streams/slice/line_rows"
     autoload :Reader, "io_streams/slice/reader"
     autoload :Rows, "io_streams/slice/rows"
@@ -59,8 +60,12 @@ module IOStreams
     # not an Array, its header row is not an Array of Strings, or is blank, see #header?, its format is not a tabular
     # format, see `IOStreams.tabular_formats`, its `blank_rows` or `cell_text` is not true or false, its `schema` is not a
     # valid schema, see `IOStreams::Schema`, its `line_number` or `record_number` is not a positive Integer, or is
-    # supplied without rows, or its `jumps` are not those of its rows, see #to_h. The values of the rows of a slice with a
-    # schema are turned back into the types of their fields, see `IOStreams::Schema::Field#load`.
+    # supplied without rows, or its `jumps` or `types` are not those of its rows, see #to_h. The values of the rows of a
+    # slice with a schema are turned back into the types of their fields, see `IOStreams::Schema::Field#load`, and those
+    # that its `types` name into their types, see `IOStreams::Slice::KeptTypes`.
+    #
+    # Raises `IOStreams::Errors::InvalidValue` for a value that its field or its type cannot hold, naming the record
+    # that it is in, and the line that the record starts on.
     def self.from_h(hash)
       raise(ArgumentError, "A slice must be the Hash that #to_h returns, not #{hash.class.name}") unless hash.is_a?(::Hash)
 
@@ -73,6 +78,7 @@ module IOStreams
                   line_number:   value_of(hash, "line_number"),
                   record_number: value_of(hash, "record_number"))
       slice.send(:jumps=, value_of(hash, "jumps"))
+      slice.send(:restore_types, value_of(hash, "types"))
       slice.send(:load_rows)
       slice
     end
@@ -544,11 +550,23 @@ module IOStreams
     # out. A slice whose values are the cells of a source of typed values, such as the rows of a spreadsheet, see
     # #cell_text?, holds `"cell_text" => true`, which is otherwise left out, and each number, date and time of a cell as
     # its default text, such as `"2026-07-01"`, see `IOStreams::Schema::Field.any_json`, apart from a Float, which JSON
-    # holds as its number, such as `1234.5`. Any other slice of values without a schema, such as the records written in
-    # the `:hash` format to a store of slices, holds each key as its text and each value as JSON holds it, such as a
-    # BigDecimal, Date, Time or Symbol as its text, also within a Hash or an Array, which comes back as that text, for a
-    # schema or contract to read. A slice whose rows hold the values of the fields of a schema, see #schema,
-    # holds `"schema"`, the Frictionless
+    # holds as its number, such as `1234.5`.
+    #
+    # Any other slice of values without a schema, such as the rows or records that a program writes in the `:array` or
+    # `:hash` format to a store of slices, holds each key as its text, and each value in a form that JSON and BSON hold,
+    # and keeps its type: a Time, a Date, a BigDecimal, an `ActiveSupport::Duration` and an Integer outside of a signed
+    # 64 bit integer, such as `2**70`, which neither of them holds as it is, as their text, see
+    # `IOStreams::Schema::Field.kept_type`, which `"types"` says the type of, so that `IOStreams.slice` turns each one
+    # back into it, a DateTime into a Time, apart from a date or time whose year is outside 0 to 9999, such as 10000,
+    # which stays its text, and any other value as JSON holds it, such as a Symbol as its text, and each
+    # key and value within a Hash or an Array, which an object or array field reads as JSON holds it, so that an Integer
+    # within one that BSON does not hold, such as `2**70`, is held as it is, which only JSON can store:
+    # - `"types"`, only when it holds such a value: `[column, type]` for each column whose every value that is not nil
+    #   is of the type, otherwise `[column, type, indexes]`, the index of each row, counting from 0, whose value of the
+    #   column is of the type, the column being the position of the value within a row that is an Array, or its key
+    #   within a Hash, see `IOStreams::Slice::KeptTypes`. A column of one type costs a few bytes for the whole slice.
+    #
+    # A slice whose rows hold the values of the fields of a schema, see #schema, holds `"schema"`, the Frictionless
     # Table Schema, by String keys, about one row's worth of bytes, and each value of its rows in a form that JSON keeps
     # exactly, see `IOStreams::Schema::Field#dump`, such as a number as its digits, `"12.50"`, and a time in ISO 8601, so
     # that every job queue and store keeps them, and `IOStreams.slice` turns them back into their types.
@@ -557,11 +575,22 @@ module IOStreams
     #   slice.to_h
     #   # => {"rows" => ["Jack,21", "Jill,\"line one\nline two\"", "Joe,23"], "header" => ["Name", "NOTE"],
     #   #     "format" => "csv", "line_number" => 2, "record_number" => 1, "jumps" => [[2, 5, 3]]}
+    #
+    # Example, of rows written without a schema to a store of slices in the `:array` format, whose last column holds a
+    # BigDecimal in its first row and text in its second:
+    #   slice.to_h
+    #   # => {"rows" => [["Jack", "2026-01-02T03:04:05Z", "12.5"], ["Jill", nil, "n/a"]],
+    #   #     "header" => ["name", "updated_at", "amount"], "format" => "array", "blank_rows" => false,
+    #   #     "types" => [[1, "datetime"], [2, "number", [0]]], "record_number" => 1}
     def to_h
-      hash = {"rows" => stored_rows, "header" => header, "format" => format&.to_s}
+      kept = KeptTypes.new
+      rows = stored_rows(kept)
+      hash = {"rows" => rows, "header" => header, "format" => format&.to_s}
       hash["blank_rows"]    = false unless blank_rows?
       hash["cell_text"]     = true if cell_text?
       hash["schema"]        = Utils.string_keys(schema.to_h) if schema
+      types                 = kept.to_a(rows)
+      hash["types"]         = types if types
       hash["line_number"]   = line_number if line_number
       hash["record_number"] = record_number if record_number
       hash["jumps"]         = @jumps.map(&:dup) if @jumps
@@ -720,32 +749,81 @@ module IOStreams
     end
 
     # Returns [Array] the rows as #to_h holds them: of a slice with a schema, each value in a form that JSON keeps, see
-    # #dumped_rows, of a slice of values without one, such as the cells of a spreadsheet, or the records written in the
-    # `:hash` format, each key of a record as its text and each value as JSON holds it, see #stored_value, which a
-    # contract reads back, and of a slice of lines, as they are.
-    def stored_rows
+    # #dumped_rows, of a slice of values without one, such as the records written in the `:hash` format, or the cells
+    # of a spreadsheet, each key of a record as its text and each value in a form that JSON and BSON hold, see
+    # #stored_value, noting in the supplied types the type of each value that they do not hold as it is, see
+    # `IOStreams::Slice::KeptTypes`, and of a slice of lines, as they are.
+    def stored_rows(kept)
       return dumped_rows if schema
       return @rows.dup unless IOStreams::Tabular.renders_values?(format)
 
+      index = -1
       @rows.map do |row|
+        index += 1
         case row
-        when ::Array then row.map { |value| stored_value(value) }
-        when ::Hash then row.to_h { |key, value| [key.to_s, stored_value(value)] }
+        when ::Array
+          Array.new(row.size) { |position| stored_value(row[position], kept, position, index) }
+        when ::Hash
+          if row.all? { |key, _value| key.is_a?(::String) }
+            next row.to_h { |key, value| [key, stored_value(value, kept, key, index)] }
+          end
+
+          # The keys as their text first, so that the value of a key whose text another key also has is the one held, in
+          # the copy that #transform_keys returns.
+          row = row.transform_keys(&:to_s)
+          row.each_pair { |key, value| row[key] = stored_value(value, kept, key, index) }
         else row
         end
       end
     end
 
-    # Returns the value of a row of a slice without a schema in a form that JSON keeps, as a field of type "any" holds
-    # it, see `IOStreams::Schema::Field.any_data`, such as a BigDecimal, Date, Time or Symbol as its text, also within a
-    # Hash or an Array, apart from a time of a slice of the cells of a source of typed values, such as a spreadsheet,
-    # see #cell_text?, which holds a clock without a zone, as the text of its clock without an offset, see
+    # Returns the supplied value of the supplied column of the row of the supplied index of a slice without a schema in
+    # a form that JSON and BSON hold:
+    # - A Time, a Date, a BigDecimal, a duration or an Integer that BSON cannot hold, see
+    #   `IOStreams::Schema::Field.kept_type`, as the text that the field of its type writes for it, whose type the
+    #   supplied types note, see `IOStreams::Slice::KeptTypes#dump`, so that `IOStreams.slice` turns it back into it.
+    # - Any other value as JSON holds it, as a field of type "any" holds it, see `IOStreams::Schema::Field.any_data`,
+    #   such as a Symbol as its text, and each key and value within a Hash or an Array, which an object or array field
+    #   reads as JSON holds it.
+    #
+    # The values of a slice of the cells of a source of typed values, such as a spreadsheet, see #cell_text?, are the
+    # cells that a field reads, so each one is held as JSON holds it, see `IOStreams::Schema::Field.any_data`, such as a
+    # number, a date or a time as its text, a time as the text of its clock without an offset, see
     # `IOStreams::Schema::Field.clock_text`, so that a field reads it in its `timeZone` once the slice is stored, as it
     # reads the cell.
-    def stored_value(value)
-      return IOStreams::Schema::Field.clock_text(value) if cell_text? && value.is_a?(Time)
+    def stored_value(value, kept, column, index)
+      # The most common values first, which JSON and BSON hold as they are, so that they skip the checks below.
+      return value if IOStreams::Schema::Field.stored_as_is?(value)
+      return kept.dump(value, column, index) { |other| IOStreams::Schema::Field.any_data(other) } unless cell_text?
+      return IOStreams::Schema::Field.clock_text(value) if value.is_a?(Time)
 
       IOStreams::Schema::Field.any_data(value)
+    end
+
+    # Turns each value that the supplied types of a stored slice, see #to_h, say is of a type that JSON and BSON do not
+    # hold as it is back into that type, see `IOStreams::Slice::KeptTypes.plan`, for .from_h, in a copy of its row.
+    #
+    # Raises ArgumentError for types that are not those of the rows, or of a slice whose values are not held without a
+    # schema, such as a slice of lines of CSV, or of the cells of a spreadsheet, or of a slice with a schema, whose
+    # fields say the type of each value, whose #to_h holds no types.
+    # Raises `IOStreams::Errors::InvalidValue` for a value that its type cannot hold, naming its column, the record that
+    # it is in, and the line that the record starts on.
+    def restore_types(types)
+      return if types.nil?
+      unless IOStreams::Tabular.renders_values?(format) && !cell_text? && schema.nil?
+        raise(ArgumentError, "A slice of the #{format.inspect} format#{' of cells' if cell_text?}" \
+                             "#{' with a schema' if schema} has no types, since its values are held as they are, or as " \
+                             "its fields say: only a slice of the values of a format that holds them itself, such as " \
+                             ":hash or :array, without a schema, has them")
+      end
+
+      KeptTypes.plan(types, @rows, header).each do |index, keys|
+        row = @rows[index].dup
+        keys.each { |key, field| row[key] = field.load(row[key]) }
+        @rows[index] = row
+      rescue IOStreams::Errors::InvalidValue => e
+        raise e.at(line_number: line_number_at(index), record_number: record_number_at(index))
+      end
     end
 
     # Returns [Array] the rows of a slice with a schema, each value in a form that JSON keeps, see

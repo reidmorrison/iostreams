@@ -139,10 +139,15 @@ slice.to_h
   of a query or a Parquet file. `IOStreams.stream(slice)` then reads them by that schema, without the job knowing it,
   and hands the job each value in the type of its field, also when a store of the slice itself, rather than of its
   `#to_h`, changed its form: a duration that BSON keeps as its seconds is a duration again, and a Date that BSON returns
-  as a Time is a Date. A value of a field of type `any`, such as a computed column of a query, is held as JSON holds it,
-  a time, a date or a BigDecimal as its text, which comes back as text, and a Symbol, and each key of a Hash, as its
-  text, also within a Hash or an Array. To replace the rows of a slice with others in
-  the same form, `slice.with_rows(rows)` returns a new slice that keeps everything else that the slice says.
+  as a Time is a Date. Without a contract or schema, the slice holds the values as they were written, and keeps their
+  types: a Time, a Date, a BigDecimal, an `ActiveSupport::Duration`, and an Integer too large for BSON, such as `2**70`,
+  which neither JSON nor BSON holds as it is, as their text, with `"types"`, which says the type of each, so that
+  `IOStreams.slice` turns them back into them, and the job gets the values that the program wrote. Any other value is
+  held as JSON holds it, such as a Symbol, and each key of a Hash, as its text. A value of a field of type `any`, such
+  as a computed column of a query, is held as JSON holds it, a time, a date or a BigDecimal as its text, which comes
+  back as text, and a Symbol, and each key of a Hash, as its text, also within a Hash or an Array. To replace the rows
+  of a slice with others in the same form, `slice.with_rows(rows)` returns a new slice that keeps everything else that
+  the slice says.
 * The slices of an Excel spreadsheet hold `"cell_text" => true`, those of its cells from `each(:slice)`, and those of
   its CSV text from `copy_from(path, mode: :line)`, since they hold each number, date and boolean cell as its default
   text, such as `1234.5`, rather than the text of a file that a schema describes, such as `1.234,5`.

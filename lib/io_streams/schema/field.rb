@@ -312,6 +312,10 @@ module IOStreams
       # Array literal does.
       NUMERIC_TYPES = %w[integer number].freeze
 
+      # The types that .kept_type returns, whose fields keep the type of a value that no field describes, once a slice is
+      # stored, see `IOStreams::Slice#to_h`.
+      KEPT_TYPES = %w[datetime date number duration integer].freeze
+
       INTEGER  = /\A[+-]?\d+\z/
       # A whole number with a decimal point, such as "12.0", since a spreadsheet stores every number as a double, and the
       # layout of a fixed width file, before v3.0 replaced it with a schema, read the column with `to_i`.
@@ -631,6 +635,48 @@ module IOStreams
         raise(JSON::NestingError, "nesting of #{depth} is too deep") if depth > MAX_NESTING
       end
 
+      # Returns [String|nil] the type of the field whose #dump and #load keep the type of the supplied value, which
+      # neither JSON nor BSON holds as it is, once a slice that holds it without a field that says its type is stored,
+      # see `IOStreams::Slice#to_h`: "datetime" for a Time, also an `ActiveSupport::TimeWithZone`, or a DateTime, which
+      # comes back as a Time, "date" for a Date, "number" for a BigDecimal, "duration" for an `ActiveSupport::Duration`,
+      # and "integer" for an Integer that BSON does not hold, see .stored_integer?, such as `2**70`. Returns nil for any
+      # other value, which JSON holds as it is, such as a String, an Integer, a Float, true, false or nil, see
+      # .stored_as_is?, or as its text, such as a Symbol, or within it, such as a Hash or an Array, as an object or array
+      # field holds it, see .json_data, and for a Time, a DateTime or a Date whose year, as its text writes it, see
+      # .written_time, is outside 0 to 9999, such as 10000 or -1, whose text, such as "10000-01-01", #load does not read,
+      # so that it comes back as its text rather than raise.
+      def self.kept_type(value)
+        # A String first, the most common value of a field of type "any", whose values reach this method without
+        # .stored_as_is?, see `IOStreams::Slice#dumped_rows`, so that it skips the checks below.
+        return if value.nil? || value.is_a?(String)
+        # Before the numbers, since a duration answers `is_a?(Integer)`.
+        return "duration" if duration?(value)
+        return stored_integer?(value) ? nil : "integer" if value.is_a?(Integer)
+        return iso_year?(written_time(value)) ? "datetime" : nil if value.is_a?(Time)
+        return iso_year?(written_time(time_of(value))) ? "datetime" : nil if value.is_a?(DateTime)
+        return iso_year?(value) ? "date" : nil if value.is_a?(Date)
+
+        "number" if value.is_a?(::BigDecimal)
+      end
+
+      # Returns [true|false] whether JSON and BSON both hold the value as it is, so that a slice holds it without
+      # converting it, see `IOStreams::Slice#to_h`: a String, a Float, true, false, nil, and an Integer that BSON holds,
+      # see .stored_integer?, which .any_data and .kept_type leave as they are. The classes are those of .json_held?, but
+      # tested once, on the path of every value of a slice.
+      def self.stored_as_is?(value)
+        case value
+        when String, Float, true, false, nil then true
+        when Integer then stored_integer?(value)
+        else false
+        end
+      end
+
+      # Returns [true|false] whether ISO 8601 writes the year of the supplied Date or Time, as its text writes it, see
+      # .written_time, in the 4 digits that #load reads, from 0 to 9999, see .kept_type.
+      def self.iso_year?(value)
+        value.year.between?(0, 9999)
+      end
+
       # Returns [true|false] whether JSON holds the value as its text, see .any_json.
       def self.textual?(value)
         value.is_a?(Time) || value.is_a?(Date) || value.is_a?(::BigDecimal) || duration?(value)
@@ -662,8 +708,15 @@ module IOStreams
       # from UTC, or in UTC, `Z`, when its offset has seconds, such as the local mean time `+05:21:10` that a time zone
       # had in 1900, which ISO 8601 cannot write, so that the text is the same time.
       def self.time_text(value)
-        value = value.getutc unless (value.utc_offset % 60).zero?
+        value = written_time(value)
         value.iso8601(fraction_digits(value))
+      end
+
+      # Returns [Time] the supplied time as .time_text writes it: at its offset from UTC, or in UTC when its offset has
+      # seconds, which ISO 8601 cannot write, so that its date may be another, such as `-0001-12-31T23:59:30Z` for
+      # 0000-01-01 at an offset of 30 seconds.
+      def self.written_time(value)
+        (value.utc_offset % 60).zero? ? value : value.getutc
       end
 
       # Returns [String] the clock of the time in ISO 8601, without its offset from UTC, such as "2026-07-01T09:30:00",
