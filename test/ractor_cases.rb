@@ -86,7 +86,19 @@ module RactorCases
   # The cases that the main Ractor runs, after CASES, whose files they read: it reads a file into slices, which a worker
   # parses in a Ractor of its own, see .work, one case for each kind of slice: text rows, the cells of a spreadsheet, and
   # rows of typed values with the schema of their file. Only the main Ractor can read a spreadsheet or a Parquet file.
-  WORKER_CASES = %i[work_on_slices work_on_spreadsheet_slices work_on_parquet_slices].freeze
+  # Then a worker parses the slices by a Schema that the main Ractor built once and made shareable, rather than by a
+  # contract, also from a record within a slice, and raises for a value that is not valid, which reaches the main Ractor
+  # with the numbers of its record and line.
+  WORKER_CASES = %i[
+    work_on_slices work_on_spreadsheet_slices work_on_parquet_slices work_by_schema worker_invalid_value
+  ].freeze
+
+  # A third person, after those of ROWS, and the text of a file of the three, see .work_by_schema.
+  JOE          = Ractor.make_shareable(
+    {"name" => "Joe", "age" => 23, "joined" => Date.new(2022, 5, 6), "score" => BigDecimal("3.75"), "active" => true}
+  )
+  THREE_PEOPLE = "name,age,joined,score,active\nJack,21,2020-01-02,1.5,true\nJill,22,2021-03-04,2.25,false\n" \
+                 "Joe,23,2022-05-06,3.75,true\n"
 
   # The records of each person a year older, which the workers write.
   OLDER = Ractor.make_shareable(ROWS.map { |row| row.merge("age" => row["age"] + 1) })
@@ -186,6 +198,49 @@ module RactorCases
   def self.work_on_spreadsheet_slices = expect(OLDER, work_on(write_people("people.xlsx")))
   def self.work_on_parquet_slices = expect(OLDER, work_on(write_people("people.parquet")))
 
+  # A worker parses each slice of the file by a Schema that the main Ractor built once and made shareable, see .work_by,
+  # and resumes each slice at the record of its own number that the slice holds, rather than after as many rows: past
+  # the first slice, which then has no records left, and within a slice that starts at the second record of three.
+  def self.work_by_schema
+    schema = Ractor.make_shareable(IOStreams::Schema.new(SCHEMA))
+    hashes = slices(IOStreams.path(DIR, "people.csv"))
+    expect(ROWS.map { |row| [row] }, work_by(schema, hashes))
+    expect([[], [ROWS.last]], work_by(schema, hashes, resume_at: 2))
+
+    later = slices(IOStreams.stream(StringIO.new(THREE_PEOPLE)), size: 2, resume_at: 2)
+    expect([[ROWS.last, JOE]], work_by(schema, later, resume_at: 2))
+    expect([[JOE]], work_by(schema, later, resume_at: 3))
+  end
+
+  # A worker raises for the age of the third record, on the fourth line after a blank line, the first record of the
+  # second slice, so that its numbers are those that the slice holds, which reach the main Ractor as the cause of the
+  # Ractor::RemoteError that `Ractor#value` raises.
+  def self.worker_invalid_value
+    text   = "name,age,joined,score,active\nJack,21,2020-01-02,1.5,true\n\nJill,x,2021-03-04,2.25,false\n"
+    hashes = slices(IOStreams.stream(StringIO.new(text)), size: 2)
+    work_by(Ractor.make_shareable(IOStreams::Schema.new(SCHEMA)), hashes)
+    raise("Parsed a value that is not valid")
+  rescue Ractor::RemoteError => e
+    error = e.cause
+    # Any other failure, such as a Ractor::IsolationError, is reported as it is.
+    raise(error, cause: nil) unless error.is_a?(IOStreams::Errors::InvalidValue)
+
+    expect([3, 4, "age"], [error.record_number, error.line_number, error.field])
+  end
+
+  # Returns [Array<Array<Hash>>] the records of each of the slices, which a worker, in a Ractor of its own, parses by the
+  # shareable schema, each slice from the record of the supplied number on, see `resume_at:` of `IOStreams::Stream#each`,
+  # which must be one that the slice holds, or the one after its last.
+  def self.work_by(schema, slices, resume_at: nil)
+    Ractor.new(schema, Ractor.make_shareable(slices), resume_at) do |shared, hashes, record_number|
+      hashes.map do |hash|
+        records = []
+        IOStreams.stream(IOStreams.slice(hash)).schema(shared).each(:hash, resume_at: record_number) { |record| records << record }
+        records
+      end
+    end.value
+  end
+
   # Writes the people of ROWS to the file of the supplied name, by SCHEMA, and returns [String] its name.
   def self.write_people(name)
     IOStreams.path(DIR, name).schema(SCHEMA).writer(:hash) { |writer| ROWS.each { |row| writer << row } }
@@ -217,10 +272,11 @@ module RactorCases
     end.value
   end
 
-  # Returns [Array<Hash>] the slices of the path, one row each, as the Hashes that IOStreams.slice reads.
-  def self.slices(path)
+  # Returns [Array<Hash>] the slices of the path, of the supplied number of rows each, from the record of the supplied
+  # number on, as the Hashes that IOStreams.slice reads.
+  def self.slices(path, size: 1, resume_at: nil)
     slices = []
-    path.each(:slice, size: 1) { |slice| slices << slice.to_h }
+    path.each(:slice, size: size, resume_at: resume_at) { |slice| slices << slice.to_h }
     slices
   end
 
