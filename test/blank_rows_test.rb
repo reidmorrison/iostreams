@@ -81,6 +81,26 @@ class BlankRowsTest < Minitest::Test
         assert_equal [jack, jill], read(target, :hash, skip_blanks: true)
       end
 
+      it "written to a spreadsheet without values, as [] or {}, are a row without cells, read as a blank row" do
+        rows = path("rows.xlsx")
+        rows.writer(:array) do |writer|
+          writer << %w[name age]
+          writer << %w[Jack 21]
+          writer << []
+          writer << %w[Jill 22]
+        end
+        records = path("records.xlsx")
+        records.writer(:hash) do |writer|
+          writer << jack
+          writer << {}
+          writer << jill
+        end
+
+        assert_equal [jack, nil, jill], read(rows, :hash)
+        assert_equal [jack, nil, jill], read(records, :hash)
+        assert_equal "name,age\nJack,21\n\nJill,22\n", rows.read
+      end
+
       it "of a Parquet file are none, since a record whose every value is null is a record, as a row of a query is" do
         skip "The parquet gem is a Rust extension, which JRuby cannot load" if defined?(JRuby)
 

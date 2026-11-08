@@ -50,9 +50,10 @@ module IOStreams
         @time_columns = (time_columns || []).to_h { |index| [index, true] }
       end
 
-      # Writes the row, an Array of the values of its cells, see the class.
+      # Writes the row, an Array of the values of its cells, see the class, or a row without cells for nil, a blank row,
+      # which the tabular renders for a row or record without values, as a format of lines writes a blank line.
       def <<(row)
-        @worksheet << row.each_with_index.map { |value, index| cell(value, index) }
+        @worksheet << (row.nil? ? [] : row.each_with_index.map { |value, index| cell(value, index) })
         self
       end
 

@@ -247,6 +247,7 @@ These bug fixes change behavior that existing code may depend on:
 
 ### Fixed
 
+- **Writing a row or record without values to a spreadsheet, such as `[]` with `writer(:array)` or `{}` with `writer(:hash)`, no longer raises `NoMethodError`.** It is written as a row without cells, which is read back as a blank row, as a format of lines writes a blank line for it.
 - An `IOStreams::Schema` holds copies of the Hashes, Arrays and Strings of the descriptor that it is given, so that changing them afterwards, such as the `type` of a field of a Hash read from JSON, no longer changes the schema, which is frozen.
 - The readers that `#reader` yields return an Enumerator from `#each` without a block, as an `Enumerable` does, such as `reader(:array) { |io| io.each.with_index { |row, index| ... } }`, and so does `each_with_line_number` of the reader of lines. Previously the readers of lines, rows and records raised `LocalJumpError`, and the reader of slices raised `NoMethodError`.
 - A row, record or slice writer that is already open, such as the one that `writer(:hash)` yields, handed to `IOStreams.stream`, raises `ArgumentError` when it is written, or copied into, in another mode, such as `IOStreams.stream(writer).writer(:array)`, before the block is called or the source of a copy is opened, rather than `NoMethodError` from within the block, or for a slice writer, an `ArgumentError` about writing a String. A line writer is still written in any mode.
