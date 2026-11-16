@@ -2194,7 +2194,8 @@ module IOStreams
       # `Time.iso8601`, once its date is checked in the calendar of `Time`, which moves a day that does not exist into
       # the next month.
       #
-      # Raises `Date::Error`, an ArgumentError, for a date that does not exist, which #load rescues.
+      # Raises `Date::Error`, an ArgumentError, for a date that does not exist, which #load rescues, and for a year that
+      # `Date` and `Time` cannot hold, which on JRuby is one beyond a Java long, for which they raise RangeError.
       def stored_year_value(text)
         if type == "date"
           match = STORED_DATE.match(text)
@@ -2203,6 +2204,8 @@ module IOStreams
           match = STORED_DATETIME.match(text)
           stored_time(text, match) if match
         end
+      rescue RangeError
+        raise(Date::Error, "invalid date")
       end
 
       # Returns [Time] the time of the text that STORED_DATETIME matched, see #stored_year_value, at its offset, or in
