@@ -388,6 +388,12 @@ These bug fixes change behavior that existing code may depend on:
 - Writing CSV text to a spreadsheet, such as with `writer(:line)` or a copy of a CSV file, raises the csv gem's `CSV::MalformedCSVError` for a record whose quoting is not valid tagged with `IOStreams::Errors::RowError`, as reading the CSV does, naming the line of the text that the record starts on, such as `Illegal quoting, on line 2`, so that it is rescued as `IOStreams::Errors::RowError`. Previously it raised the csv gem's error alone, which named the line within the record, `Illegal quoting in line 1.`.
 - On JRuby, a deprecation warning names the line of an application that JRuby loads from a jar, such as one packaged with Warbler, whose files it names `uri:classloader:/`, such as `uri:classloader:/app/models/user.rb:4: warning: IOStreams: ...`. Previously it skipped every line of a file in a jar, as it skips those of the standard library of JRuby, which JRuby loads from its own jar under `uri:classloader:/META-INF/jruby.home/`, so it named a line further out in the call stack, such as one of a gem that called the application, or no line at all when the rest of the call stack was in the jar too.
 
+## [2.2.1] - Unreleased
+
+### Fixed
+
+- **On JRuby, a deprecation warning names the line of an application that JRuby loads from a jar**, such as one packaged with Warbler, whose files JRuby names `uri:classloader:/`, such as `uri:classloader:/app/models/user.rb:4: warning: IOStreams: ...`. Previously every file in a jar was taken for one of the standard library of JRuby, which JRuby loads from its own jar under `uri:classloader:/META-INF/jruby.home/lib/ruby/stdlib/`, so the warning for a deprecated method or option named a line further out in the call stack, such as one of a gem that called the application, or no line at all when the rest of the call stack was in the jar too, and a call that the application made there to a method of the stream that a reader block receives that v2.2 deprecates, such as `#rewind` of a `.gz` stream read in the `:stream` mode, reported nothing, as for a call that the standard library makes. A file in a jar named `delegate.rb` or `forwardable.rb`, of the application, or of a gem, such as one installed into the home of JRuby in a jruby-complete jar, was also taken for a delegator of Ruby, whose line the warning skipped.
+
 ## [2.2.0] - 2026-11-07
 
 v2.2 prepares applications for v3.0: it adds the methods that replace those that v3.0 deprecates or removes, so that
