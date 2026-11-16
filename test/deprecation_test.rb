@@ -63,6 +63,10 @@ class DeprecationTest < Minitest::Test
   # The name of a file of a gem.
   GEM_FILE = File.join(Gem.path.first, "gems", "deprecation_test-1.0.0", "lib", "deprecation_test.rb")
 
+  # The name of a file of an application that JRuby loads from a jar, such as one packaged with Warbler, which JRuby
+  # names `uri:classloader:`, as it names the standard library in its own jar.
+  JAR_APP_FILE = "uri:classloader:/app/models/user.rb"
+
   # The names of the files of the delegators of Ruby, in its standard library, and in the jar of JRuby.
   DELEGATOR_FILES = [
     File.join(RbConfig::CONFIG["rubylibdir"], "delegate.rb"),
@@ -176,6 +180,13 @@ class DeprecationTest < Minitest::Test
         end
       end
 
+      it "names the line of an application that JRuby loads from a jar" do
+        code = DeprecationTest.code_in(JAR_APP_FILE, "def self.call(message) = DeprecationTest::LIBRARY_CALLER.call(message)")
+        assert_deprecated(/\A#{Regexp.escape(JAR_APP_FILE)}:1: warning: IOStreams: old is deprecated\n\z/) do
+          code.call("old is deprecated")
+        end
+      end
+
       it "names the line of a gem that called IOStreams through Ruby itself" do
         ruby = DeprecationTest.code_in(RUBY_FILES["the standard library"], <<~RUBY)
           def self.call(message) = DeprecationTest::LIBRARY_CALLER.call(message)
@@ -281,6 +292,13 @@ class DeprecationTest < Minitest::Test
         end
       end
 
+      it "names the line of an application that JRuby loads from a jar that loaded IOStreams" do
+        code = DeprecationTest.code_in(JAR_APP_FILE, "def self.require(message) = DeprecationTest::LIBRARY_CALLER.call_on_load(message)")
+        assert_deprecated(/\A#{Regexp.escape(JAR_APP_FILE)}:1: warning: IOStreams: old is deprecated\n\z/) do
+          code.require("old is deprecated")
+        end
+      end
+
       it "names the line of a gem that loaded IOStreams when the call stack has no line of the application" do
         code = DeprecationTest.code_in(GEM_FILE, <<~RUBY)
           def self.require_in_thread(message)
@@ -383,6 +401,15 @@ class DeprecationTest < Minitest::Test
         end
       end
 
+      it "reports a deprecation warning at the line of an application that JRuby loads from a jar that called the method" do
+        code   = DeprecationTest.code_in(JAR_APP_FILE, "def self.call(object) = object.old")
+        result = assert_deprecated(/\A#{Regexp.escape(JAR_APP_FILE)}:1: warning: IOStreams: #old is deprecated\n\z/) do
+          code.call(object)
+        end
+
+        assert_equal :old, result
+      end
+
       # A core method calls the method for its caller. Ruby names the line that called a core method written in C in its
       # place, and CRuby 4.0 does the same for one written in Ruby, so the call is reported at that line on each version.
       RUBY_FILES.slice("a core method of CRuby written in Ruby", "a core method of JRuby").each_pair do |name, file|
@@ -434,11 +461,15 @@ class DeprecationTest < Minitest::Test
         end
       end
 
-      it "reports a deprecation warning at the line of a file of the application named as a delegator of Ruby" do
-        file = File.join(Dir.pwd, "app", "delegate.rb")
-        code = DeprecationTest.code_in(file, "def self.call(object) = object.old")
+      {
+        "the application"                            => File.join(Dir.pwd, "app", "delegate.rb"),
+        "an application that JRuby loads from a jar" => "uri:classloader:/app/delegate.rb"
+      }.each_pair do |name, file|
+        it "reports a deprecation warning at the line of a file of #{name} named as a delegator of Ruby" do
+          code = DeprecationTest.code_in(file, "def self.call(object) = object.old")
 
-        assert_deprecated(/\A#{Regexp.escape(file)}:1: warning: IOStreams: #old is deprecated\n\z/) { code.call(object) }
+          assert_deprecated(/\A#{Regexp.escape(file)}:1: warning: IOStreams: #old is deprecated\n\z/) { code.call(object) }
+        end
       end
 
       it "reports none when a gem in a directory that Bundler adds to the installed gems called the method" do

@@ -4,6 +4,12 @@ All notable changes to this project are documented here.
 
 This project adheres to [Semantic Versioning](https://semver.org/).
 
+## [2.2.1] - Unreleased
+
+### Fixed
+
+- **On JRuby, a deprecation warning names the line of an application that JRuby loads from a jar**, such as one packaged with Warbler, whose files JRuby names `uri:classloader:/`, such as `uri:classloader:/app/models/user.rb:4: warning: IOStreams: ...`. Previously every file in a jar was taken for one of the standard library of JRuby, which JRuby loads from its own jar under `uri:classloader:/META-INF/jruby.home/`, so the warning for a deprecated method or option named a line further out in the call stack, such as one of a gem that called the application, or no line at all when the rest of the call stack was in the jar too, and a call that the application made there to a method of the stream that a reader block receives that v2.2 deprecates, such as `#rewind` of a `.gz` stream read in the `:stream` mode, reported nothing, as for a call that the standard library makes. A file of the application in a jar named `delegate.rb` or `forwardable.rb` was also taken for a delegator of Ruby, whose line the warning skipped.
+
 ## [2.2.0] - 2026-11-07
 
 v2.2 prepares applications for v3.0: it adds the methods that replace those that v3.0 deprecates or removes, so that

@@ -40,8 +40,10 @@ module IOStreams
     CORE_PATH = "<internal:"
     private_constant :CORE_PATH
 
-    # The start of the paths of the standard library of JRuby, when it is loaded from its jar.
-    JAR_PATH = "uri:classloader:"
+    # The start of the paths of the standard library of JRuby, when it is loaded from its jar. Only those of JRuby's own
+    # home in the jar, since JRuby names every file that it loads from a jar `uri:classloader:`, including those of an
+    # application packaged in a jar, such as with Warbler.
+    JAR_PATH = "uri:classloader:/META-INF/jruby.home/"
     private_constant :JAR_PATH
 
     # The files of this module, whose methods find the line that called a deprecated method, see .calling_location.
