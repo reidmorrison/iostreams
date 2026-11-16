@@ -5,7 +5,8 @@ module IOStreams
     # The rows that a slice reader reads, see `IOStreams::Slice::Reader`, when they are not lines of a file, see
     # `IOStreams::Slice::LineRows`, so that they start on no line: the records of a format such as Parquet, the rows of
     # an Active Record query, or the lines of text that a stream turns the data of a file into, such as the CSV text of a
-    # spreadsheet, see `IOStreams::Builder#lines_of_file?`.
+    # spreadsheet, see `IOStreams::Builder#lines_of_file?`, which the readers of rows and records read as these rows too,
+    # so that they number none of them by a line, see `IOStreams::Stream#open_rows_lines`.
     class Rows
       # Parameters
       #   rows: [#each]

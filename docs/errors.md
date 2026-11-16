@@ -113,7 +113,8 @@ end
 `#record_number` and `#line_number` hold them, also for the rows of a [slice](background_jobs), which keep those of their
 file, and for `validate: true`, which checks every row of a file before it is sliced, and `#reason` the message
 without them, for code that compares the whole message. A header row names its line only, since it is not a record.
-The line is `nil` for a source without lines, such as a Parquet file or a query.
+The line is `nil` for a source without lines, such as a Parquet file or a query. To name them for a failure of your
+own code, read the rows with `each_with_numbers`, see [Row and record numbers](streams#row-and-record-numbers).
 
 It is raised for:
 

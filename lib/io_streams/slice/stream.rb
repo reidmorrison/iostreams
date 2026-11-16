@@ -177,12 +177,19 @@ module IOStreams
           @slice.each(&)
         end
 
-        # Yields each row as #each does, for a reader of rows or records, see `IOStreams::Row::Numbered#each_numbered`.
+        # Yields each row as #each does, for a reader of rows or records, see `IOStreams::Row::Numbered#each_numbered`,
+        # named for the rows of a slice, so that nothing else, such as a reader of rows, is taken for them.
         #
         # Returns [Integer] the number of rows yielded, the header row included, as the lines of a file count them.
-        def each_with_numbers(&)
+        def each_row_with_numbers(&)
           each(&)
           @slice.size + (@slice.header? ? 1 : 0)
+        end
+
+        # Returns [true|false] whether a row of the slice holds a record number, see `IOStreams::Slice#record_numbers?`,
+        # so that a reader of its rows gives a row without one none, while it counts the rows of a slice that holds none.
+        def record_numbers?
+          @slice.send(:record_numbers?)
         end
       end
       private_constant :NumberedRows

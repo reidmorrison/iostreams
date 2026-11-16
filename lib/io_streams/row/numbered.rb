@@ -22,19 +22,30 @@ module IOStreams
       private
 
       # Yields each line or row that the reader reads, with the line of the file that it starts on, or nil, and the
-      # record number that its source gives, or nil, so that the reader counts them. A line reader yields each line, a
-      # String, with its line number, to the block as it is. The rows of any other source are yielded one at a time, so
-      # that a row that is an Array, such as of a query, is not spread over the arguments of the block.
+      # record number that its source gives, or nil: the rows of a slice, see `IOStreams::Slice::Stream`, give their
+      # numbers, and the reader counts the records unless the slice holds record numbers, see #records_numbered?. A line
+      # reader yields each line, a String, with its line number, to the block as it is. The rows of any other source are
+      # yielded one at a time, so that a row that is an Array, such as of a query, is not spread over the arguments of the
+      # block.
       #
       # Returns the result of the `#each` of the lines.
       def each_numbered(&)
-        if @line_reader.respond_to?(:each_with_numbers)
-          @line_reader.each_with_numbers(&)
+        if @line_reader.respond_to?(:each_row_with_numbers)
+          @line_reader.each_row_with_numbers(&)
         elsif @line_reader.respond_to?(:each_with_line_number)
           @line_reader.each_with_line_number(&)
         else
           @line_reader.each { |row| yield(row, nil, nil) }
         end
+      end
+
+      # Returns [true|false] whether the source of the lines gives the record number of its rows: the rows of a slice that
+      # holds record numbers, see `IOStreams::Slice::Stream`, so that a row that it holds without one, such as one added
+      # with `slice << row`, has none, nil, rather than a count of the reader's own, which would be the number of another
+      # row of the file. The reader counts the records of any other source, such as the lines of a file, the rows of
+      # Parquet or of a query, and of a slice that holds no record numbers, such as one built of rows without them.
+      def records_numbered?
+        @line_reader.respond_to?(:each_row_with_numbers) && @line_reader.record_numbers?
       end
 
       # Returns [nil] once the supplied error, of a value of the supplied line, is handed to the handler of

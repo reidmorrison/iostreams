@@ -83,38 +83,25 @@ module IOStreams
       # quoting is not valid, names them too, see `IOStreams::Errors::RowError`, and an error of the header row its line.
       #
       # Returns an Enumerator of the records without a block.
-      def each
+      def each(&)
         return enum_for(:each) unless block_given?
 
-        skip    = @skip
-        records = 0
-        # Whether the header row is read, or the file has none, after which every line is a record.
-        started = false
-        each_numbered do |line, line_number, record_number|
-          unless started
-            if @tabular.header?
-              read_header(line, line_number)
-              next
-            end
-            started = true
-          end
+        read_records(false, &)
+      end
 
-          records += 1
-          if skip.positive?
-            skip -= 1
-            next
-          end
+      # Yields each record as #each does, with the line of the file that it starts on and its record number, see
+      # `IOStreams::Row::Reader#each_with_numbers`: the line that the record starts on, counting from 1, the header row
+      # and blank lines included, or nil for a record that is not a line of a file, such as a record of Parquet or of a
+      # query, and its record number, counting from 1 without the header row, as the slices of the file and an
+      # `IOStreams::Errors::RowError` number them. The records of a slice have the numbers that the slice holds, see
+      # `IOStreams::Slice::Stream`. `skip_blanks`, `resume_at` and `on_invalid` apply as they do to #each, and every
+      # record keeps the numbers of its file.
+      #
+      # Returns an Enumerator of the records and their numbers without a block.
+      def each_with_numbers(&)
+        return enum_for(:each_with_numbers) unless block_given?
 
-          # Rescued here, rather than in `IOStreams::Row::Locator.locate`, whose block would cost each record more.
-          begin
-            record = @tabular.record_parse(line)
-          rescue IOStreams::Errors::InvalidValue => e
-            next invalid(e, line, line_number, record_number || records)
-          rescue IOStreams::Errors::RowError => e
-            raise e.at(line_number: line_number, record_number: record_number || records)
-          end
-          yield(record) unless @skip_blanks && record.nil?
-        end
+        read_records(true, &)
       end
 
       # Writes each record to the writer, see `IOStreams::Record::Writer`, as a copy does, see
@@ -141,6 +128,48 @@ module IOStreams
       end
 
       private
+
+      # Reads the records for #each and #each_with_numbers, yielding each record alone, or with its line number and
+      # record number when `numbered` is true, so that both share one loop, which yields to the block of the caller
+      # without a block of its own for each record.
+      def read_records(numbered)
+        skip    = @skip
+        records = 0
+        # Whether the source gives the record number of each row, such as a slice, see #records_numbered?, otherwise
+        # the records are counted.
+        source_numbers = records_numbered?
+        # Whether the header row is read, or the file has none, after which every line is a record.
+        started = false
+        each_numbered do |line, line_number, record_number|
+          unless started
+            if @tabular.header?
+              read_header(line, line_number)
+              next
+            end
+            started = true
+          end
+
+          records += 1
+          if skip.positive?
+            skip -= 1
+            next
+          end
+
+          number = source_numbers ? record_number : records
+
+          # Rescued here, rather than in `IOStreams::Row::Locator.locate`, whose block would cost each record more.
+          begin
+            record = @tabular.record_parse(line)
+          rescue IOStreams::Errors::InvalidValue => e
+            next invalid(e, line, line_number, number)
+          rescue IOStreams::Errors::RowError => e
+            raise e.at(line_number: line_number, record_number: number)
+          end
+          next if @skip_blanks && record.nil?
+
+          numbered ? yield(record, line_number, number) : yield(record)
+        end
+      end
 
       # Reads the header row of the supplied line, see `IOStreams::Tabular#read_record_line`, raising an
       # `IOStreams::Errors::RowError` that names the line, since the header row is not a record.

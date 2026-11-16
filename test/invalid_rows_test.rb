@@ -65,6 +65,15 @@ class InvalidRowsTest < Minitest::Test
         assert_equal 'Field "amount": "x" is not a valid number, in record 1', error.message
       end
 
+      it "names no record for a row that a slice of numbered rows holds without numbers, rather than a count of its rows" do
+        slice = IOStreams::Slice.new([[1, "2.5"]], header: %w[id amount], format: :array, record_number: 7)
+        slice << [2, "x"]
+
+        error = assert_raises(IOStreams::Errors::InvalidValue) { IOStreams.stream(slice).as(Order).each(:hash) { nil } }
+        assert_equal 'Field "amount": "x" is not a valid number', error.message
+        assert_nil error.record_number
+      end
+
       it "keeps counting the records after resume_at" do
         error = assert_raises(IOStreams::Errors::InvalidValue) { orders.each(:hash, resume_at: 3) { nil } }
 
