@@ -254,8 +254,7 @@ module IOStreams
       end
 
       def violated(value, problem)
-        text = value.inspect
-        text = "#{text[0, 60]}..." if text.length > 63
+        text = Field.message_text(value.inspect)
         raise(IOStreams::Errors::InvalidValue.new("Field #{@name.inspect}: #{text} #{problem}", field: @name, value: value))
       end
 

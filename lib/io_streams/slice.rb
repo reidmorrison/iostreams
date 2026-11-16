@@ -46,6 +46,10 @@ module IOStreams
     autoload :TargetStream, "io_streams/slice/target_stream"
     autoload :Writer, "io_streams/slice/writer"
 
+    # The fields of the positions past the columns of a row, of a slice of cells, which has none, see #row_fields.
+    NO_FIELDS = {}.freeze
+    private_constant :NO_FIELDS
+
     # Returns [IOStreams::Slice] the slice that the supplied Hash describes, which #to_h returned, see `IOStreams.slice`.
     # Its keys can be Strings or Symbols, the String being read when it holds both, and its format a String or a Symbol,
     # as storing it may have changed them. The header row is a frozen copy, since every slice of a file shares it.
@@ -78,8 +82,10 @@ module IOStreams
                   line_number:   value_of(hash, "line_number"),
                   record_number: value_of(hash, "record_number"))
       slice.send(:jumps=, value_of(hash, "jumps"))
-      slice.send(:restore_types, value_of(hash, "types"))
-      slice.send(:load_rows)
+      # The fields of the columns, found once for both, see #row_fields, as #to_h held their values.
+      fields = slice.send(:row_fields, any: !slice.cell_text?) if slice.schema
+      slice.send(:restore_types, value_of(hash, "types"), fields)
+      slice.send(:load_rows, fields)
       slice
     end
 
@@ -598,10 +604,9 @@ module IOStreams
     # and keeps its type: a Time, a Date, a BigDecimal, an `ActiveSupport::Duration` and an Integer outside of a signed
     # 64 bit integer, such as `2**70`, which neither of them holds as it is, as their text, see
     # `IOStreams::Schema::Field.kept_type`, which `"types"` says the type of, so that `IOStreams.slice` turns each one
-    # back into it, a DateTime into a Time, apart from a date or time whose year is outside 0 to 9999, such as 10000,
-    # which stays its text, and any other value as JSON holds it, such as a Symbol as its text, and each
-    # key and value within a Hash or an Array, which an object or array field reads as JSON holds it, so that an Integer
-    # within one that BSON does not hold, such as `2**70`, is held as it is, which only JSON can store:
+    # back into it, a DateTime into a Time, also of a year outside 0 to 9999, such as 10000, a Hash or an Array that
+    # holds such an Integer, at any depth, as its JSON text, and any other value as JSON holds it, such as a Symbol as
+    # its text, and each key and value within a Hash or an Array, which an object or array field reads as JSON holds it:
     # - `"types"`, only when it holds such a value: `[column, type]` for each column whose every value that is not nil
     #   is of the type, otherwise `[column, type, indexes]`, the index of each row, counting from 0, whose value of the
     #   column is of the type, the column being the position of the value within a row that is an Array, or its key
@@ -612,7 +617,7 @@ module IOStreams
     # exactly, see `IOStreams::Schema::Field#dump`, such as a number as its digits, `"12.50"`, and a time in ISO 8601, so
     # that every job queue and store keeps them, and `IOStreams.slice` turns them back into their types. A value of a
     # field of type "any", whose type does not say what it holds, is held as a value without a schema is, see above, so
-    # `"types"` keeps its type too.
+    # `"types"` keeps its type too, and so is a value of a column that the schema does not list, see #row_fields.
     #
     # Example, of a slice whose second row holds a quoted value on lines 3 and 4, so that the third row starts on line 5:
     #   slice.to_h
@@ -852,21 +857,33 @@ module IOStreams
     def stored_value(value, kept, column, index)
       # The most common values first, which JSON and BSON hold as they are, so that they skip the checks below.
       return value if IOStreams::Schema::Field.stored_as_is?(value)
-      return kept.dump(value, column, index) { |other| IOStreams::Schema::Field.any_data(other) } unless cell_text?
+      return kept.dump(value, column, index) unless cell_text?
+
+      cell_data(value)
+    end
+
+    # Returns the supplied value of a cell of a slice of cells, see #cell_text?, which no field of a schema describes,
+    # in a form that JSON and BSON hold, as a field reads the cell, see #stored_value: a Time as the text of its clock,
+    # without an offset, see `IOStreams::Schema::Field.clock_text`, so that a field reads it in its `timeZone`, and any
+    # other value as JSON holds it, see `IOStreams::Schema::Field.any_data`, such as a number or a date as its text, so
+    # that a slice of cells with a schema and one without hold such a value alike.
+    def cell_data(value)
+      return value if IOStreams::Schema::Field.stored_as_is?(value)
       return IOStreams::Schema::Field.clock_text(value) if value.is_a?(Time)
 
       IOStreams::Schema::Field.any_data(value)
     end
 
     # Turns each value that the supplied types of a stored slice, see #to_h, say is of a type that JSON and BSON do not
-    # hold as it is back into that type, see `IOStreams::Slice::KeptTypes.plan`, for .from_h, in a copy of its row.
+    # hold as it is back into that type, see `IOStreams::Slice::KeptTypes.plan`, for .from_h, in a copy of its row,
+    # checking the supplied fields of the columns of a slice with a schema, see #row_fields, or nil without one.
     #
     # Raises ArgumentError for types that are not those of the rows, or of a slice whose values are held as they are,
     # such as a slice of lines of CSV, or of the cells of a spreadsheet, whose #to_h holds no types, or of a column of a
     # slice with a schema whose field is not of type "any", which says the type of its values itself, see #dumped_rows.
     # Raises `IOStreams::Errors::InvalidValue` for a value that its type cannot hold, naming its column, the record that
     # it is in, and the line that the record starts on.
-    def restore_types(types)
+    def restore_types(types, fields)
       return if types.nil?
       unless IOStreams::Tabular.renders_values?(format) && !cell_text?
         raise(ArgumentError, "A slice of the #{format.inspect} format#{' of cells' if cell_text?} has no types, since its " \
@@ -874,7 +891,6 @@ module IOStreams
                              "itself, such as :hash or :array, has them")
       end
 
-      fields = row_fields if schema
       KeptTypes.plan(types, @rows, header).each do |index, keys|
         row = @rows[index].dup
         keys.each do |key, field|
@@ -887,45 +903,74 @@ module IOStreams
       end
     end
 
-    # Raises ArgumentError when the field of the schema of the column of the supplied key of the row, see #row_fields,
-    # is not of type "any", whose values #to_h notes the types of, see #dumped_rows, since any other field says the type
-    # of its values itself, or there is none.
+    # Raises ArgumentError when the field of the column of the supplied key of the row, see #row_fields, is not of type
+    # "any", whose values #to_h notes the types of, see #dumped_rows, since any other field says the type of its values
+    # itself. A column that the schema does not list holds values of any type, see #row_fields.
     def check_any_type(fields, row, key)
-      positions, keys = fields
-      field           = row.is_a?(::Array) ? positions[key] : keys[key]
-      return if field&.any_type?
+      positions, keys, past = fields
+      field = row.is_a?(::Array) ? positions[key] || past[key] : keys[key]
+      return if field.any_type?
 
-      whose = field ? "field is of type #{field.type.inspect}" : "column has no field"
       raise(ArgumentError, "The types of a slice with a schema name only the values of its fields of type \"any\", " \
-                           "not #{key.inspect}, whose #{whose}")
+                           "and of the columns that it does not list, not #{key.inspect}, whose field is of type " \
+                           "#{field.type.inspect}")
     end
 
     # Returns [Array] the rows of a slice with a schema, each value in a form that JSON keeps, see
     # `IOStreams::Schema::Field#dump`, for #to_h, noting in the supplied types the type of each value of a field of type
-    # "any" that neither JSON nor BSON holds as it is, as for a slice without a schema, see #stored_value, apart from a
-    # slice of the cells of a spreadsheet, see #cell_text?, whose fields read the text of its cells.
+    # "any", or of a column that the schema does not list, see #row_fields, that neither JSON nor BSON holds as it is,
+    # as for a slice without a schema, see #stored_value, apart from a slice of the cells of a spreadsheet, see
+    # #cell_text?, whose fields read the text of its cells.
     def dumped_rows(kept)
-      fields = row_fields
-      # Most schemas, such as those of a query or a Parquet file, have no field of type "any", so their values skip the
-      # checks of #dumped_value.
-      return @rows.map { |row| map_values(row, fields) { |field, value| field.dump(value) } } unless keeps_any_types?
+      fields = row_fields(any: !cell_text?)
+      return cell_rows(fields) if cell_text?
 
-      index = -1
-      @rows.map do |row|
+      positions, _keys, _past, found = fields
+      # Most columns, such as those of a query or a Parquet file, have a field of a type other than "any", so the values
+      # of the rows skip the checks of #kept_rows until a row holds a value of a column whose field is of type "any",
+      # which #row_fields notes as it finds its field: a key of a record, or a column that the schema does not list.
+      return kept_rows(kept, fields, 0) if positions.any? { |field| field&.any_type? }
+
+      rows  = Array.new(@rows.size)
+      index = 0
+      while index < rows.size
+        rows[index] = map_values(@rows[index], fields) { |field, value| field.dump(value) }
+        # The row that held such a value, and those after it, are dumped again by #kept_rows.
+        return rows.first(index).concat(kept_rows(kept, fields, index)) unless found.empty?
+
         index += 1
-        map_values(row, fields) do |field, value, column|
-          # A field of type "any" is asked once, and its value noted in the types, see `IOStreams::Slice::KeptTypes#dump`.
-          next field.dump(value) unless field.any_type? && (column = kept_column(row, column))
+      end
+      rows
+    end
 
-          kept.dump(value, column, index) { |other| field.dump(other) }
+    # Returns [Array] the rows of a slice of cells with a schema, see #dumped_rows, each value of a field as it dumps it,
+    # and of a column that the schema does not list as a slice of cells without one holds it, see #cell_data, by the
+    # supplied fields, see #row_fields, without types, since its fields read the text of its cells.
+    def cell_rows(fields)
+      positions, keys = fields
+      @rows.map do |row|
+        case row
+        when ::Array
+          row.each_with_index.map { |value, index| (field = positions[index]) ? field.dump(value) : cell_data(value) }
+        when ::Hash
+          row.to_h { |key, value| [key, (field = keys[key]) ? field.dump(value) : cell_data(value)] }
+        else row
         end
       end
     end
 
-    # Returns [true|false] whether #to_h notes the types of the values of a field of the schema, see #dumped_rows: one of
-    # type "any" of a slice whose values are not the cells of a spreadsheet, see #cell_text?, which its fields read.
-    def keeps_any_types?
-      !cell_text? && schema.fields.any?(&:any_type?)
+    # Returns [Array] the rows of a slice with a schema from the supplied index on, as #dumped_rows does, noting in the
+    # supplied types the type of each value of a field of type "any" by the supplied fields, see #row_fields.
+    def kept_rows(kept, fields, from)
+      (from...@rows.size).map do |index|
+        row = @rows[index]
+        map_values(row, fields) do |field, value, column|
+          # A field of type "any" is asked once, and its value noted in the types, see `IOStreams::Slice::KeptTypes#dump`.
+          next field.dump(value) unless field.any_type? && (column = kept_column(row, column))
+
+          kept.dump(value, column, index)
+        end
+      end
     end
 
     # Returns [Integer|String] the column of a value of the supplied row whose type the types of the slice can note, see
@@ -971,14 +1016,14 @@ module IOStreams
     end
 
     # Turns the values of the rows of a slice with a schema back into the types of their fields, see
-    # `IOStreams::Schema::Field#load`, from the forms that #to_h holds them in, see .from_h.
+    # `IOStreams::Schema::Field#load`, from the forms that #to_h holds them in, see .from_h, by the supplied fields of
+    # their columns, see #row_fields.
     #
     # Raises `IOStreams::Errors::InvalidValue` for a value that its field cannot hold, naming the record that it is in,
     # and the line that the record starts on.
-    def load_rows
+    def load_rows(fields)
       return unless schema
 
-      fields = row_fields
       @rows.each_index do |index|
         @rows[index] = map_values(@rows[index], fields) { |field, value| field.load(value) }
       rescue IOStreams::Errors::InvalidValue => e
@@ -986,29 +1031,56 @@ module IOStreams
       end
     end
 
-    # Returns [Array|Hash] the values of the row, the value of each column whose field the fields name changed by the
-    # block, which it yields with the value and its column, the others as they are, by the position of each value of an
-    # Array, or the key of each value of a Hash, see #row_fields.
+    # Returns [Array|Hash] the values of the row, the value of each column that is not nil and has a field, see
+    # #row_fields, changed by the block, which it yields with the field, the value and its column, the others as they
+    # are, by the position of each value of an Array, or the key of each value of a Hash.
     def map_values(row, fields)
-      positions, keys = fields
+      positions, keys, past = fields
       case row
       when ::Array
         row.each_with_index.map do |value, index|
-          (field = positions[index]) && !value.nil? ? yield(field, value, index) : value
+          value.nil? || !(field = positions[index] || past[index]) ? value : yield(field, value, index)
         end
       when ::Hash
-        row.to_h { |key, value| [key, (field = keys[key]) && !value.nil? ? yield(field, value, key) : value] }
+        row.to_h { |key, value| [key, value.nil? || !(field = keys[key]) ? value : yield(field, value, key)] }
       else row
       end
     end
 
-    # Returns [Array(Array, Hash)] the field of each column of the rows, by position, of the columns of the header row,
-    # or for rows without one, every field of the schema in order, which their values are in, a field that only holds
-    # the place of a column, `skip: true`, being nil; and by key, for a row that is a Hash, see #map_values.
-    def row_fields
-      keys      = Hash.new { |known, key| known[key] = field_of(key) }
+    # Returns [Array(Array, Hash, Hash, Array)] the field of each column of the rows, see #map_values: by position, of the
+    # columns of the header row, or for rows without one, of every field of the schema in order, which their values are
+    # in, nil for a column without one, whose field the Hash after the keys gives, and by key, for a row that is a Hash,
+    # with an Array that holds true once a field of type "any" is found for a key or such a position, see #dumped_rows.
+    # A column that the schema does not list, such as one kept with `extraColumns: "keep"`, a value of an Array past its
+    # columns, or the place of a field with `skip: true` of rows without a header row, has a field of type "any", whose
+    # values may be of any type, see #any_field, so that #to_h holds and types them as it does the values of a field of
+    # type "any", and `IOStreams.slice` turns them back, rather than hold them as they are, unless `any` is false, when
+    # it has none, for the values of a slice of cells, see #dumped_rows. Such a field is built only once a value that is
+    # not nil is found in such a column, once for each call, which costs far less than #to_h.
+    def row_fields(any: true)
       positions = header? ? header.map { |label| field_of(label) } : schema.fields.map { |field| field unless field.skip? }
-      [positions, keys]
+      return [positions, Hash.new { |known, key| known[key] = field_of(key) }, NO_FIELDS] unless any
+
+      # Whether a field of type "any" was found for a key or a position without one, see #dumped_rows.
+      found = []
+      keys  = Hash.new { |known, key| known[key] = any_found(field_of(key) || any_field(key), found) }
+      past  = Hash.new { |known, index| known[index] = any_found(any_field(position_label(index)), found) }
+      [positions, keys, past, found]
+    end
+
+    # Returns [IOStreams::Schema::Field] the supplied field, adding true to the supplied Array found when it is of type
+    # "any", see #row_fields.
+    def any_found(field, found)
+      found << true if field.any_type? && found.empty?
+      field
+    end
+
+    # Returns [String|Integer] the label of the column of the supplied position, by which #any_field names its field:
+    # its label in the header row, or the name of the field of the schema in its place, such as one with `skip: true`,
+    # or its position.
+    def position_label(index)
+      label = header? ? header[index] : schema.fields[index]&.name
+      label.nil? ? index : label
     end
 
     # Returns [IOStreams::Schema::Field|nil] the field of the schema of the column or key, or nil when it has none.
@@ -1016,6 +1088,13 @@ module IOStreams
       schema.field_for(label)
     rescue IOStreams::Errors::InvalidHeader
       nil
+    end
+
+    # Returns [IOStreams::Schema::Field] a field of type "any" of a column that the schema does not list, see
+    # #row_fields, named by its label or key, or by its position, so that an `IOStreams::Errors::InvalidValue` names it.
+    def any_field(label)
+      name = label.is_a?(::String) || label.is_a?(::Symbol) ? label : label.to_s
+      IOStreams::Schema::Field.new({"name" => name, "type" => "any"})
     end
 
     # Returns [true|false] whether a row whose every value is blank is a blank row, see #blank_rows?: as supplied, or for

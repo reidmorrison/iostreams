@@ -126,6 +126,10 @@ It is raised for:
 * A line that is not a row of its format, such as CSV whose quoting is not valid, or JSON that is not valid, for which
   the format raises the exception of the gem that reads it, `CSV::MalformedCSVError` or `JSON::ParserError`, tagged
   with `IOStreams::Errors::RowError`.
+* CSV text written to a spreadsheet, such as with `writer(:line)` or a copy of a CSV file, whose quoting is not
+  valid, as the csv gem's `CSV::MalformedCSVError` tagged with `IOStreams::Errors::RowError`, naming the line of the
+  text that the record starts on, such as `Illegal quoting, on line 2`, since only the code that writes the text knows
+  whether it starts with a header row.
 
 `on_invalid:` takes only the rows whose values are not valid, so the others still stop the read, since no value of a
 field explains them.

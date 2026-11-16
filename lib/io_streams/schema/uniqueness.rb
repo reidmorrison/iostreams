@@ -92,8 +92,7 @@ module IOStreams
         def text(value)
           values = @single ? [value] : value
           texts  = @fields.zip(values).map { |field, item| field.text_of(item).inspect }
-          text   = texts.join(", ")
-          text.length > 63 ? "#{text[0, 60]}..." : text
+          Field.message_text(texts.join(", "))
         end
 
         # Returns [String|Symbol|Array] the name of the field, or the names of the fields of a key of several, for

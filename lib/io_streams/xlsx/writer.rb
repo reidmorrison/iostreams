@@ -100,7 +100,9 @@ module IOStreams
       #     Default: none
       #
       # The stream supplied to the block responds to the methods of an IO that write, see `IOStreams::Writable`, and
-      # expects CSV text in UTF-8. Each CSV record is parsed into a row, so a quoted value can contain a newline.
+      # expects CSV text in UTF-8. Each CSV record is parsed into a row, so a quoted value can contain a newline. A record
+      # whose quoting is not valid raises the csv gem's `CSV::MalformedCSVError`, tagged as an
+      # `IOStreams::Errors::RowError` that names the line of the CSV text that the record starts on, see #add_row.
       #
       # A workbook is written even when nothing is, with an empty worksheet.
       #
@@ -139,10 +141,15 @@ module IOStreams
         @buffer  = String.new(encoding: Encoding::BINARY)
         @scanned = 0
         @quotes  = 0
+        # The line of the CSV text that the next record starts on, and the line breaks within the quoted values of the
+        # record being read, so that a record that cannot be parsed names its line, see #add_row.
+        @line_number = 1
+        @breaks      = 0
       end
 
       # Writes the last record, when it does not end with a line break.
-      # Raises [CSV::MalformedCSVError] when it ends within a quoted value.
+      # Raises [CSV::MalformedCSVError] tagged as an `IOStreams::Errors::RowError` when it ends within a quoted value,
+      # see #add_row.
       def finish
         unless @buffer.empty?
           # A carriage return that ends the data, outside a quoted value, which an even number of quotes leaves closed,
@@ -174,6 +181,7 @@ module IOStreams
           @scanned = line_break
           # A line break within a quoted value, which an odd number of quotes so far leaves open, does not end the record.
           if @quotes.odd?
+            @breaks  += 1 unless crlf_end?(line_break)
             @scanned += 1
             next
           end
@@ -198,8 +206,27 @@ module IOStreams
 
       # Writes the row of the CSV record, without its line break, so that a line break within a quoted value is read
       # as part of the value, whichever line ending the record has.
+      #
+      # Raises [CSV::MalformedCSVError] for a record whose quoting is not valid, tagged as an
+      # `IOStreams::Errors::RowError` as the CSV parser tags it, see `IOStreams::Tabular::Parser::Csv.row_error`, at the
+      # line of the CSV text that the record starts on, such as "Illegal quoting, on line 2", so that a caller rescues
+      # the error of IOStreams rather than that of the gem. The CSV text has no record numbers, since only the writer of
+      # the text knows whether it starts with a header row.
       def add_row(record)
-        output_stream << (CSV.parse_line(record.force_encoding(Encoding::UTF_8)) || [])
+        begin
+          row = CSV.parse_line(record.force_encoding(Encoding::UTF_8))
+        rescue CSV::MalformedCSVError => e
+          raise IOStreams::Tabular::Parser::Csv.row_error(e).at(line_number: @line_number)
+        end
+        output_stream << (row || [])
+        @line_number += 1 + @breaks
+        @breaks       = 0
+      end
+
+      # Returns [true|false] whether the line break at the supplied index of the buffer is the newline of a "\r\n",
+      # whose carriage return was counted as the line break, see #write_data.
+      def crlf_end?(index)
+        index.positive? && @buffer.getbyte(index) == NEWLINE && @buffer.getbyte(index - 1) == CARRIAGE_RETURN
       end
     end
   end

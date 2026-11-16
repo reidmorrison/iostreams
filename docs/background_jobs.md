@@ -141,11 +141,13 @@ slice.to_h
   `#to_h`, changed its form: a duration that BSON keeps as its seconds is a duration again, and a Date that BSON returns
   as a Time is a Date. Without a contract or schema, the slice holds the values as they were written, and keeps their
   types: a Time, a Date, a BigDecimal, an `ActiveSupport::Duration`, and an Integer too large for BSON, such as `2**70`,
-  which neither JSON nor BSON holds as it is, as their text, with `"types"`, which says the type of each, so that
-  `IOStreams.slice` turns them back into them, and the job gets the values that the program wrote. Any other value is
+  which neither JSON nor BSON holds as it is, as their text, and a Hash or an Array that holds such an Integer as its
+  JSON text, with `"types"`, which says the type of each, so that `IOStreams.slice` turns them back into them, and the
+  job gets the values that the program wrote. Any other value is
   held as JSON holds it, such as a Symbol, and each key of a Hash, as its text. A value of a field of type `any`, such
   as a computed column of a query, whose type does not say what it holds, keeps its type the same way, with `"types"`,
-  while a Symbol, and each key of a Hash, also within a Hash or an Array, is held as its text. To replace the rows of a
+  while a Symbol, and each key of a Hash, also within a Hash or an Array, is held as its text, and so does a value of
+  a column that the schema does not list, such as one kept with `extraColumns: "keep"`. To replace the rows of a
   slice with others in the same form, `slice.with_rows(rows)` returns a new slice that keeps everything else that the
   slice says.
 * The slices of an Excel spreadsheet hold `"cell_text" => true`, those of its cells from `each(:slice)`, and those of

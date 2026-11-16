@@ -144,8 +144,32 @@ class XlsxWriterTest < Minitest::Test
         assert_includes worksheet_xml(data), "<sheetData></sheetData>"
       end
 
-      it "raises when the data ends within a quoted value" do
-        assert_raises(CSV::MalformedCSVError) { write { |io| io.write("a,\"b\n") } }
+      it "raises when the data ends within a quoted value, as the csv gem's error tagged with the line that it starts on" do
+        error = assert_raises(IOStreams::Errors::RowError) { write { |io| io.write("x,y\na,\"b\n") } }
+
+        assert_kind_of CSV::MalformedCSVError, error
+        assert_equal "Unclosed quoted field, on line 2", error.message
+        assert_equal 2, error.line_number
+        assert_nil error.record_number
+      end
+
+      it "raises for a record whose quoting is not valid, as the csv gem's error tagged with the line that it starts on" do
+        error = assert_raises(IOStreams::Errors::RowError) { write { |io| io.write("a,b\nx\"y,z\nc,d\n") } }
+
+        assert_kind_of CSV::MalformedCSVError, error
+        assert_equal "Illegal quoting, on line 2", error.message
+        assert_equal "Illegal quoting", error.reason
+        assert_equal 2, error.line_number
+      end
+
+      it "counts the line breaks within the quoted values of the records before one whose quoting is not valid" do
+        csv = "a,\"one\ntwo\"\r\nb,\"three\r\nfour\rfive\"\r\n\"c\"d,e\r\n"
+        [[csv], csv.chars].each do |writes|
+          error = assert_raises(IOStreams::Errors::RowError) { write { |io| writes.each { |text| io.write(text) } } }
+
+          assert_equal 6, error.line_number, writes.size
+          assert_equal "Any value after quoted field isn't allowed, on line 6", error.message
+        end
       end
 
       it "writes every value as text by default" do
@@ -291,6 +315,29 @@ class XlsxWriterTest < Minitest::Test
         IOStreams.path(file_name).each(:array) { |row| rows << row }
 
         assert_equal [%w[a b], %w[c d], %w[e f]], rows
+      end
+
+      it "raises for a line whose quoting is not valid, as the csv gem's error tagged with its line" do
+        error = assert_raises(IOStreams::Errors::RowError) do
+          IOStreams.path(file_name).writer(:line) do |io|
+            io << "a,b"
+            io << "c,d"
+            io << %(e"f,g)
+          end
+        end
+
+        assert_kind_of CSV::MalformedCSVError, error
+        assert_equal "Illegal quoting, on line 3", error.message
+      end
+
+      it "raises for a line of a CSV file copied whose quoting is not valid, as the csv gem's error tagged with its line" do
+        source = IOStreams.path(dir, "source.csv")
+        source.write(%(a,b\n"c"d,e\n))
+
+        error = assert_raises(IOStreams::Errors::RowError) { IOStreams.path(file_name).copy_from(source) }
+
+        assert_kind_of CSV::MalformedCSVError, error
+        assert_equal 2, error.line_number
       end
 
       it "raises for a delimiter of the rows written, which are cells rather than lines" do
