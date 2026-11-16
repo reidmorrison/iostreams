@@ -137,6 +137,14 @@ class DeprecationTest < Minitest::Test
         end
       end
 
+      it "names the line of an application that JRuby loads from a jar" do
+        file = "uri:classloader:/app/models/user.rb"
+        code = DeprecationTest.code_in(file, "def self.call(message) = DeprecationTest::LIBRARY_CALLER.call(message)")
+        assert_deprecated(/\A#{Regexp.escape(file)}:1: warning: IOStreams: old is deprecated\n\z/) do
+          code.call("old is deprecated")
+        end
+      end
+
       it "names the line of a gem that called IOStreams through Ruby itself" do
         ruby = DeprecationTest.code_in(RUBY_FILES["the standard library"], <<~RUBY)
           def self.call(message) = DeprecationTest::LIBRARY_CALLER.call(message)
