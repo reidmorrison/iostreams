@@ -135,6 +135,15 @@ module IOStreams
         !(@format.nil? && @schema.nil? && @contract.nil?)
       end
 
+      # Returns [IOStreams::Schema|nil] the schema whose `time` fields with a `timeZone` read the times of day that the
+      # source of a copy to the stream holds as clocks without a zone, see `IOStreams::Tabular.zoned_times_schema`: that of
+      # the contract, otherwise the schema that was set, or nil. Reads the schema from its file or url, when it is set as
+      # one, see #file_schema, so the copy asks only once its source is open, see
+      # `IOStreams::Stream#copy_clocks_schema`.
+      def zoned_times_schema
+        IOStreams::Tabular.zoned_times_schema(@contract&.schema, (file_schema unless @contract))
+      end
+
       # Returns [true|false] whether a schema or a contract is set, which the rows are read by, rather than the schema
       # that a source of typed rows declares, see `IOStreams::Query::Stream#tabular`.
       def schema_or_contract?

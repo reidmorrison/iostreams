@@ -452,11 +452,16 @@ describes itself, such as a CSV file with a header row, JSON, a spreadsheet or P
 [Apache Parquet](https://parquet.apache.org/) files hold the type of each column, so their records are read with typed
 values, such as an `Integer`, `BigDecimal`, `Date` or `Time`, even without a schema, apart from the columns that
 [Limitations](#parquet-limitations) names. A column of times of day holds a clock without a zone, which is read as a
-`Time` on 2000-01-01, in UTC, as a `time` field reads it, or in the `timeZone` of the `time` field that reads it, and
-empty text, or empty binary data, as `nil`, a missing value, as a field reads it, see
-[Types](schemas#types). A `.parquet` file name selects the format, and it can also be compressed or encrypted, such as
-`data.parquet.pgp`. Install the [parquet](https://github.com/njaremko/parquet-ruby) gem, which is not available on
-JRuby.
+`Time` on 2000-01-01, in UTC, as a `time` field reads it, or in the `timeZone` of the `time` field that reads it. A copy
+of a file read without a schema or contract, or of its slices, into a path, a stream or a writer that is already open
+whose `time` field has a `timeZone`, writes each time of day as the clock that the file holds, such as `09:30:00`, as
+reading the file through the contract of the target does, while a file read with a schema of its own is read by its
+fields. Otherwise a time of day leaves IOStreams as a `Time` on 2000-01-01 in UTC, which such a field writes as that
+time, `04:30:00` in New York for `09:30`, so a loop that writes each record that it reads to the field reads through its
+contract, as a copy does, such as `parquet.as(contract).each(:hash)`. It reads empty text, or empty binary data, as
+`nil`, a missing value, as a field reads it, see [Types](schemas#types). A `.parquet` file name selects the format, and
+it can also be compressed or encrypted, such as `data.parquet.pgp`. Install the
+[parquet](https://github.com/njaremko/parquet-ruby) gem, which is not available on JRuby.
 
 ~~~ruby
 IOStreams.path("s3://bucket/people.parquet").each(:hash) do |record|

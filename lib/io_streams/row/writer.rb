@@ -28,6 +28,8 @@ module IOStreams
     #
     # `IOStreams::Stream#writer(:array)` creates it with the tabular of the stream.
     class Writer
+      include CopyTarget
+
       # Returns [Array<Symbol>] the options of each call that writes rows, see `IOStreams::Stream#writer`, which raises
       # for any other: those of the lines that it writes, see `IOStreams::Line::Writer.option_names`. The tabular that
       # renders them takes the settings of the path instead, such as its schema.
@@ -100,6 +102,11 @@ module IOStreams
       def inspect
         "#<#{self.class.name} format=#{@tabular.format.inspect}>"
       end
+
+      private
+
+      # Returns [IOStreams::Tabular] the tabular that renders the rows or records, see `IOStreams::Row::CopyTarget`.
+      attr_reader :tabular
     end
   end
 end

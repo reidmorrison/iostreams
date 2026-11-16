@@ -263,6 +263,7 @@ module IOStreams
       @decimals     = @fields.any?(&:decimal?)
       @strings      = @fields.any?(&:string?)
       @missing_text = @fields.any?(&:missing_text?)
+      @zoned_times  = @fields.any?(&:zoned_time?)
       @properties   = properties_of(descriptor)
       @hash         = [self.class, @properties, @fields].hash
       freeze
@@ -318,6 +319,13 @@ module IOStreams
     # see `IOStreams::Tabular#missing_positions`.
     def missing_text?
       @missing_text
+    end
+
+    # Returns [true|false] whether a field is a `time` with a `timeZone`, see `IOStreams::Schema::Field#zoned_time?`, so
+    # that a copy reads the times of day that its source holds as clocks without a zone by this schema, see
+    # `IOStreams::Stream#copy_clocks_schema`, and does nothing for a schema without one.
+    def zoned_times?
+      @zoned_times
     end
 
     # Returns [true|false] whether the file has a header row, see `header` above.

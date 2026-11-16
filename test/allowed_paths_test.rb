@@ -289,6 +289,16 @@ class AllowedPathsTest < Minitest::Test
         assert_denied { IOStreams.path(allowed, "copy.txt").copy_from(outside_file, convert: false) }
       end
 
+      it "denies copying the rows of a file from outside the allowed paths into a target with a schema or a contract" do
+        File.write(File.join(outside, "secret.csv"), "at\n09:30:00\n")
+        fields = {fields: [{name: "at", type: "time", timeZone: "America/New_York"}]}
+        %i[array hash].each do |mode|
+          assert_denied { IOStreams.path(allowed, "copy.csv").schema(fields).copy_from(File.join(outside, "secret.csv"), mode: mode) }
+          assert_denied { IOStreams.path(allowed, "copy.csv").as(fields).copy_from(File.join(outside, "secret.csv"), mode: mode) }
+        end
+        refute_path_exists File.join(allowed, "copy.csv")
+      end
+
       it "denies copying to outside the allowed paths" do
         assert_denied { IOStreams.path(allowed_file).copy_to(File.join(outside, "copy.txt")) }
         refute_path_exists File.join(outside, "copy.txt")
