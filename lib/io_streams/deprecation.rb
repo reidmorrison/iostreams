@@ -40,10 +40,13 @@ module IOStreams
     CORE_PATH = "<internal:"
     private_constant :CORE_PATH
 
-    # The start of the paths of the standard library of JRuby, when it is loaded from its jar. Only those of JRuby's own
-    # home in the jar, since JRuby names every file that it loads from a jar `uri:classloader:`, including those of an
-    # application packaged in a jar, such as with Warbler.
-    JAR_PATH = "uri:classloader:/META-INF/jruby.home/"
+    # The start of the paths of the standard library of JRuby, when it is loaded from its jar, such as jruby-complete:
+    # the directory of the standard library in the home of JRuby in the jar, its `rubylibdir`. Not every file of the
+    # jar, since JRuby names every file that it loads from a jar `uri:classloader:`, including those of an application
+    # packaged in a jar, such as with Warbler, nor every file of its home, which also holds the gems installed into it,
+    # in a directory of `Gem.path`. It is needed as well as RUBY_LIB_DIRS, since a `jruby.home` of
+    # `uri:classloader:META-INF/jruby.home`, without a slash, gives a `rubylibdir` that the call stack does not use.
+    JAR_PATH = "uri:classloader:/META-INF/jruby.home/lib/ruby/stdlib/"
     private_constant :JAR_PATH
 
     # The files of this module, whose methods find the line that called a deprecated method, see .calling_location.
@@ -212,7 +215,7 @@ module IOStreams
     private_class_method :core?
 
     # Returns [true|false] whether the line of the call stack is in a file of the standard library of Ruby, see
-    # RUBY_LIB_DIRS, or of that of JRuby, when it is loaded from its jar.
+    # RUBY_LIB_DIRS, or of that of JRuby, when it is loaded from its jar, see JAR_PATH.
     def self.standard_library?(location)
       location.path.start_with?(JAR_PATH) || in_dirs?(location, RUBY_LIB_DIRS)
     end

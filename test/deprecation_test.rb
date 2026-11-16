@@ -63,9 +63,14 @@ class DeprecationTest < Minitest::Test
   # The name of a file of a gem.
   GEM_FILE = File.join(Gem.path.first, "gems", "deprecation_test-1.0.0", "lib", "deprecation_test.rb")
 
-  # The name of a file of an application that JRuby loads from a jar, such as one packaged with Warbler, which JRuby
-  # names `uri:classloader:`, as it names the standard library in its own jar.
-  JAR_APP_FILE = "uri:classloader:/app/models/user.rb"
+  # The directory of an application that JRuby loads from a jar, such as one packaged with Warbler, whose files JRuby
+  # names `uri:classloader:`, as it names the standard library in its own jar, and the name of one of its files.
+  JAR_APP_DIR  = "uri:classloader:/app"
+  JAR_APP_FILE = "#{JAR_APP_DIR}/models/user.rb".freeze
+
+  # The directory of the gems installed into the home of JRuby in its jar, such as jruby-complete, which `Gem.path`
+  # holds when JRuby runs from that jar, next to the directory of its standard library.
+  JAR_GEMS_DIR = "uri:classloader:/META-INF/jruby.home/lib/ruby/gems/shared"
 
   # The names of the files of the delegators of Ruby, in its standard library, and in the jar of JRuby.
   DELEGATOR_FILES = [
@@ -463,12 +468,20 @@ class DeprecationTest < Minitest::Test
 
       {
         "the application"                            => File.join(Dir.pwd, "app", "delegate.rb"),
-        "an application that JRuby loads from a jar" => "uri:classloader:/app/delegate.rb"
+        "an application that JRuby loads from a jar" => "#{JAR_APP_DIR}/delegate.rb"
       }.each_pair do |name, file|
         it "reports a deprecation warning at the line of a file of #{name} named as a delegator of Ruby" do
           code = DeprecationTest.code_in(file, "def self.call(object) = object.old")
 
           assert_deprecated(/\A#{Regexp.escape(file)}:1: warning: IOStreams: #old is deprecated\n\z/) { code.call(object) }
+        end
+      end
+
+      it "reports none when a gem installed in the home of JRuby in its jar called the method from a file named as a delegator of Ruby" do
+        code = DeprecationTest.code_in("#{JAR_GEMS_DIR}/gems/wrapper-1.0.0/lib/delegate.rb", "def self.call(object) = object.old")
+
+        Gem.stub(:path, [*Gem.path, JAR_GEMS_DIR]) do
+          assert_equal(:old, refute_deprecated { code.call(object) })
         end
       end
 
