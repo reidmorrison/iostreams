@@ -43,7 +43,8 @@ class DeprecationTest < Minitest::Test
     "a core method of CRuby written in Ruby"   => "<internal:deprecation_test>",
     "a core method of JRuby"                   => "org/jruby/DeprecationTest.java",
     "the standard library"                     => File.join(RbConfig::CONFIG["rubylibdir"], "deprecation_test.rb"),
-    "the standard library in the jar of JRuby" => "uri:classloader:/META-INF/jruby.home/lib/ruby/stdlib/deprecation_test.rb"
+    "the standard library in the jar of JRuby" => "uri:classloader:/META-INF/jruby.home/lib/ruby/stdlib/deprecation_test.rb",
+    "the Ruby code of JRuby in its jar"        => "uri:classloader:/jruby/java/core_ext/object.rb"
   }.freeze
 
   # The name of a file of a gem.
