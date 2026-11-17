@@ -94,6 +94,44 @@ class ZipWriterTest < Minitest::Test
         end
       end
 
+      it "is UTF-8 for a name in another encoding" do
+        {
+          "café.csv.zip"                                     => "café.csv",
+          "caf\xE9.csv.zip".dup.force_encoding("ISO-8859-1") => "café.csv",
+          "café.csv.zip".b                                   => "café.csv",
+          "a.csv.zip".dup.force_encoding("US-ASCII")         => "a.csv"
+        }.each_pair do |file_name, entry_file_name|
+          name = IOStreams::Zip::Writer.file_name_options(file_name)[:entry_file_name]
+
+          assert_equal entry_file_name, name, file_name.inspect
+          assert_equal Encoding::UTF_8, name.encoding, file_name.inspect
+        end
+      end
+
+      it "replaces each byte that is not valid in the encoding of the name" do
+        ["caf\xE9.csv.zip", "caf\xE9.csv.zip".b, "reports/caf\xE9.csv.zip.pgp"].each do |file_name|
+          name = IOStreams::Zip::Writer.file_name_options(file_name)[:entry_file_name]
+
+          assert_equal "caf\u{FFFD}.csv", name, file_name.inspect
+          assert_equal Encoding::UTF_8, name.encoding, file_name.inspect
+        end
+        assert_empty IOStreams::Zip::Writer.file_name_options("caf\xE9.csv")
+      end
+
+      it "writes the entry of a file name that is not valid UTF-8" do
+        output = StringIO.new("".b)
+        IOStreams.stream(output).file_name("caf\xE9.csv.zip").write("a,b\n")
+
+        assert_equal ["caf\u{FFFD}.csv".b], entry_names(output.string).map(&:b)
+      end
+
+      it "writes the entry of a file name in Latin-1 as UTF-8" do
+        output = StringIO.new("".b)
+        IOStreams.stream(output).file_name("caf\xE9.csv.zip".dup.force_encoding("ISO-8859-1")).write("a,b\n")
+
+        assert_equal ["café.csv".b], entry_names(output.string).map(&:b)
+      end
+
       # CRuby 3.2 and later memoize a Regexp, so that this only fails on JRuby, whose Regexps do not, when the name is
       # found by a Regexp that backtracks over each `.zip`, such as /\A(.+)\.zip(?:\.[^.]+)*\z/i.
       it "takes linear time for a long name of many zip extensions" do

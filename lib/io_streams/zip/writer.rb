@@ -21,6 +21,10 @@ module IOStreams
       # Returns [Hash] the options with the entry name within the zip defaulted to the name of the file
       # being written, without its directory or `.zip` extension, unless an entry name was supplied.
       # For example `"example.csv"` for `"reports/example.csv.zip.pgp"`.
+      #
+      # The entry is named in UTF-8, as a zip file names its entries, see .utf8_name: a file name in another
+      # encoding is converted, and each byte of one that is not valid in its encoding, such as `caf\xE9.csv.zip`
+      # labeled as UTF-8, is replaced with U+FFFD, rather than writing bytes that a zip file says are UTF-8 and are not.
       def self.file_name_options(file_name, **options)
         return options if options[:entry_file_name]
 
@@ -34,15 +38,31 @@ module IOStreams
       #
       # Looks at each part of the name once, so that a long name does not take quadratic time, as a Regexp that
       # backtracks over each `.zip` in the name does where Ruby does not memoize it, such as on JRuby.
+      #
+      # A name that is not valid in its encoding is split by its bytes, see `Utils.matchable`.
       def self.entry_name(name)
-        parts = name.split(".", -1)
+        parts = Utils.matchable(name).split(".", -1)
         index = parts.rindex { |part| part.empty? || part.casecmp?("zip") }
         return unless index&.positive? && !parts[index].empty?
 
         entry_name = parts[0...index].join(".")
-        entry_name unless entry_name.empty?
+        return if entry_name.empty?
+
+        entry_name.force_encoding(name.encoding)
+        utf8_name(entry_name) || entry_name.b.force_encoding(Encoding::UTF_8).scrub
       end
       private_class_method :entry_name
+
+      # Returns [String] the supplied name in UTF-8, in which a zip file names its entries, since `zip_kit` writes the
+      # bytes of a name as UTF-8, or nil when it is not valid in its encoding, or holds a character that UTF-8 does not.
+      # A binary name is read as the bytes of UTF-8.
+      def self.utf8_name(name)
+        text = name.encoding == Encoding::BINARY ? name.dup.force_encoding(Encoding::UTF_8) : name
+        text.encode(Encoding::UTF_8) if text.valid_encoding?
+      rescue EncodingError
+        nil
+      end
+      private_class_method :utf8_name
 
       # Write a single file in Zip format to the supplied output stream
       #
