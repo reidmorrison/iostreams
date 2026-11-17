@@ -200,6 +200,37 @@ class ZipWriterTest < Minitest::Test
         end
       end
 
+      it "raises for an entry name whose bytes are not a character of its encoding" do
+        name  = "a".dup.force_encoding("UTF-16")
+        error = assert_raises(ArgumentError) { IOStreams::Zip::Writer.check(entry_file_name: name) }
+
+        assert_equal "Invalid entry_file_name #{name.inspect}: it is not valid UTF-16, and a zip file names the file " \
+                     "within it in UTF-8", error.message
+      end
+
+      it "raises for an entry name that holds a character that UTF-8 does not have" do
+        name  = "x\xA2.csv".dup.force_encoding("ISO-8859-6")
+        error = assert_raises(ArgumentError) { IOStreams::Zip::Writer.check(entry_file_name: name) }
+
+        assert_equal "Invalid entry_file_name #{name.inspect}: it holds a character that UTF-8 does not have, and a zip " \
+                     "file names the file within it in UTF-8", error.message
+      end
+
+      it "raises for an entry name in an encoding that Ruby cannot convert to UTF-8" do
+        name  = "ab\xE9.csv".dup.force_encoding("UTF-7")
+        error = assert_raises(ArgumentError) { IOStreams::Zip::Writer.check(entry_file_name: name) }
+
+        assert_equal "Invalid entry_file_name #{name.inspect}: Ruby cannot convert UTF-7 to UTF-8, and a zip file " \
+                     "names the file within it in UTF-8", error.message
+      end
+
+      it "raises from .stream for a binary entry name that is not valid UTF-8" do
+        error = assert_raises(ArgumentError) do
+          IOStreams::Zip::Writer.stream(StringIO.new("".b), entry_file_name: "caf\xE9.csv".b) { |io| io.write("x") }
+        end
+        assert_match "it is not valid UTF-8", error.message
+      end
+
       it "keeps an existing local file for an entry name that is not valid in its encoding" do
         file_name = File.join(dir, "example.csv.zip")
         File.write(file_name, "precious")
