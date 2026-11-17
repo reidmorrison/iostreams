@@ -74,6 +74,33 @@ class ZipWriterTest < Minitest::Test
         assert_empty IOStreams::Zip::Writer.file_name_options("example.csv")
         assert_equal({entry_file_name: "a.csv"}, IOStreams::Zip::Writer.file_name_options("b.csv.zip", entry_file_name: "a.csv"))
       end
+
+      it "is the name before the last zip extension that only extensions follow" do
+        {
+          "a.zip.zip"     => "a.zip",
+          "a.zip.csv.zip" => "a.zip.csv",
+          "a.zip..pgp"    => nil,
+          "a.zip.pgp."    => nil,
+          ".zip"          => nil,
+          ".zip.pgp"      => nil,
+          "..zip"         => ".",
+          "a.zipx"        => nil,
+          "zip"           => nil,
+          "a\nb.csv.zip"  => "a\nb.csv"
+        }.each_pair do |file_name, entry_file_name|
+          expected = entry_file_name ? {entry_file_name: entry_file_name} : {}
+
+          assert_equal expected, IOStreams::Zip::Writer.file_name_options(file_name), file_name.inspect
+        end
+      end
+
+      it "takes linear time for a long name of many zip extensions" do
+        file_name = "a.zip.#{'-.zip.' * 100_000}"
+        started   = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+
+        assert_empty IOStreams::Zip::Writer.file_name_options(file_name)
+        assert_operator Process.clock_gettime(Process::CLOCK_MONOTONIC) - started, :<, 5
+      end
     end
 
     describe ".check" do
