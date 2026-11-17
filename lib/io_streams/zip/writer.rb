@@ -23,8 +23,8 @@ module IOStreams
       # For example `"example.csv"` for `"reports/example.csv.zip.pgp"`.
       #
       # The entry is named in UTF-8, as a zip file names its entries, see .utf8_name: a file name in another
-      # encoding is converted, and each byte of one that is not valid in its encoding, such as `caf\xE9.csv.zip`
-      # labeled as UTF-8, is replaced with U+FFFD, rather than writing bytes that a zip file says are UTF-8 and are not.
+      # encoding is converted, and the bytes of one that are not valid in its encoding, such as `caf\xE9.csv.zip`
+      # labeled as UTF-8, are replaced with U+FFFD, rather than writing bytes that a zip file says are UTF-8 and are not.
       def self.file_name_options(file_name, **options)
         return options if options[:entry_file_name]
 
@@ -49,18 +49,21 @@ module IOStreams
         return if entry_name.empty?
 
         entry_name.force_encoding(name.encoding)
-        utf8_name(entry_name) || entry_name.b.force_encoding(Encoding::UTF_8).scrub
+        utf8_name(entry_name)
       end
       private_class_method :entry_name
 
-      # Returns [String] the supplied name in UTF-8, in which a zip file names its entries, since `zip_kit` writes the
-      # bytes of a name as UTF-8, or nil when it is not valid in its encoding, or holds a character that UTF-8 does not.
-      # A binary name is read as the bytes of UTF-8.
+      # Returns [String] the supplied name in UTF-8, the encoding that a zip file names its entries in, since `zip_kit`
+      # writes the bytes of a name as UTF-8. U+FFFD replaces each sequence of bytes that is not valid in its encoding,
+      # and each character that UTF-8 does not have, so that only those are lost. A binary name is read as UTF-8.
+      # A name in an encoding that Ruby cannot convert to UTF-8, such as Windows-1258, keeps its ASCII
+      # characters, and U+FFFD replaces each of its other bytes.
       def self.utf8_name(name)
-        text = name.encoding == Encoding::BINARY ? name.dup.force_encoding(Encoding::UTF_8) : name
-        text.encode(Encoding::UTF_8) if text.valid_encoding?
-      rescue EncodingError
-        nil
+        return name.b.force_encoding(Encoding::UTF_8).scrub if [Encoding::UTF_8, Encoding::BINARY].include?(name.encoding)
+
+        name.encode(Encoding::UTF_8, invalid: :replace, undef: :replace)
+      rescue Encoding::ConverterNotFoundError
+        name.b.gsub(/[^\x00-\x7F]/n, "\u{FFFD}".b).force_encoding(Encoding::UTF_8)
       end
       private_class_method :utf8_name
 
