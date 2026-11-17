@@ -111,6 +111,36 @@ class ZipReaderTest < Minitest::Test
           assert_equal "a,b\n", IOStreams.path(zip_file_name).option(:zip, entry_file_name: "café.csv".b).read
         end
 
+        it "reads a file named by bytes that are not UTF-8, as another program wrote it, by those bytes" do
+          skip "java.util.zip reads the names of files as UTF-8" if defined?(JRuby)
+
+          ::Zip::OutputStream.open(zip_file_name) do |zip|
+            zip.put_next_entry("caf\xE9.csv".b)
+            zip.write("a,b\n")
+          end
+
+          assert_equal "a,b\n", IOStreams.path(zip_file_name).option(:zip, entry_file_name: "caf\xE9.csv".b).read
+        end
+
+        it "reads a file by its name in an encoding that is not ASCII-compatible" do
+          IOStreams.path(zip_file_name).option(:zip, entry_file_name: "data.csv").write("a,b\n")
+
+          assert_equal "a,b\n", IOStreams.path(zip_file_name).option(:zip, entry_file_name: "data.csv".encode("UTF-16LE")).read
+        end
+
+        it "reads a file by a Symbol, by its name" do
+          IOStreams.path(zip_file_name).option(:zip, entry_file_name: "café.csv").write("a,b\n")
+
+          assert_equal "a,b\n", IOStreams.path(zip_file_name).option(:zip, entry_file_name: :"café.csv").read
+          IOStreams.path(zip_file_name).option(:zip, entry_file_name: "data.csv").write("c,d\n")
+
+          assert_equal "c,d\n", IOStreams.path(zip_file_name).option(:zip, entry_file_name: :"data.csv").read
+          error = assert_raises(IOStreams::Errors::StreamFailure) do
+            IOStreams.path(zip_file_name).option(:zip, entry_file_name: :missing).read
+          end
+          assert_kind_of IOStreams::Errors::MissingEntry, error
+        end
+
         it "raises for a name that the zip file does not hold" do
           IOStreams.path(zip_file_name).option(:zip, entry_file_name: "café.csv").write("a,b\n")
 
