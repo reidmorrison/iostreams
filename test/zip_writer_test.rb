@@ -94,6 +94,8 @@ class ZipWriterTest < Minitest::Test
         end
       end
 
+      # CRuby 3.2 and later memoize a Regexp, so that this only fails on JRuby, whose Regexps do not, when the name is
+      # found by a Regexp that backtracks over each `.zip`, such as /\A(.+)\.zip(?:\.[^.]+)*\z/i.
       it "takes linear time for a long name of many zip extensions" do
         file_name = "a.zip.#{'-.zip.' * 100_000}"
         started   = Process.clock_gettime(Process::CLOCK_MONOTONIC)

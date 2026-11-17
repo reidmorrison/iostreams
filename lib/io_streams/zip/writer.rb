@@ -36,9 +36,8 @@ module IOStreams
       # backtracks over each `.zip` in the name does where Ruby does not memoize it, such as on JRuby.
       def self.entry_name(name)
         parts = name.split(".", -1)
-        index = parts.size - 1
-        index -= 1 while index.positive? && !parts[index].empty? && !parts[index].casecmp?("zip")
-        return unless index.positive? && parts[index].casecmp?("zip")
+        index = parts.rindex { |part| part.empty? || part.casecmp?("zip") }
+        return unless index&.positive? && !parts[index].empty?
 
         entry_name = parts[0...index].join(".")
         entry_name unless entry_name.empty?
