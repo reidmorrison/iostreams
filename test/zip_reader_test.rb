@@ -84,6 +84,43 @@ class ZipReaderTest < Minitest::Test
         assert_equal contents_test_json, result
       end
 
+      describe "by a name that is not ASCII" do
+        let :dir do
+          Dir.mktmpdir("iostreams")
+        end
+
+        let :zip_file_name do
+          File.join(dir, "names.zip")
+        end
+
+        after do
+          FileUtils.rm_rf(dir)
+        end
+
+        it "reads the file that was written by the same name" do
+          IOStreams.path(zip_file_name).option(:zip, entry_file_name: "café.csv").write("a,b\n")
+
+          assert_equal "a,b\n", IOStreams.path(zip_file_name).option(:zip, entry_file_name: "café.csv").read
+        end
+
+        it "reads the file by its name in another encoding" do
+          IOStreams.path(zip_file_name).option(:zip, entry_file_name: "café.csv").write("a,b\n")
+          latin1 = "café.csv".encode("ISO-8859-1")
+
+          assert_equal "a,b\n", IOStreams.path(zip_file_name).option(:zip, entry_file_name: latin1).read
+          assert_equal "a,b\n", IOStreams.path(zip_file_name).option(:zip, entry_file_name: "café.csv".b).read
+        end
+
+        it "raises for a name that the zip file does not hold" do
+          IOStreams.path(zip_file_name).option(:zip, entry_file_name: "café.csv").write("a,b\n")
+
+          error = assert_raises(IOStreams::Errors::StreamFailure) do
+            IOStreams.path(zip_file_name).option(:zip, entry_file_name: "cafe.csv").read
+          end
+          assert_kind_of IOStreams::Errors::MissingEntry, error
+        end
+      end
+
       describe "a zip file that cannot be read" do
         let :dir do
           Dir.mktmpdir("iostreams")

@@ -121,7 +121,7 @@ module IOStreams
           entries = false
           while (entry = zin.get_next_entry)
             entries = true
-            return entry if !entry.directory? && (entry_file_name.nil? || entry.name == entry_file_name)
+            return entry if !entry.directory? && (entry_file_name.nil? || Zip.entry_named?(entry.name, entry_file_name))
           end
           raise(failure(Errors::Corrupt, "The file #{name} is not a zip file", name)) unless entries || empty_zip?(file_name)
 
@@ -190,11 +190,17 @@ module IOStreams
         end
 
         # Returns [Zip::Entry] the entry of the file to read, skipping any folders, or nil when there is none.
+        #
+        # rubyzip holds the name of each file as its bytes, so a name that is not ASCII, which is UTF-8, does not find
+        # it with `Zip::File#find_entry`, and is compared with each name by its bytes instead, see
+        # `IOStreams::Zip.entry_named?`.
         def self.find_entry(zip_file, entry_file_name)
           return zip_file.find(&:file?) if entry_file_name.nil?
 
           entry = zip_file.find_entry(entry_file_name)
-          entry if entry&.file?
+          return entry if entry&.file?
+
+          zip_file.find { |zip_entry| zip_entry.file? && Zip.entry_named?(zip_entry.name, entry_file_name) }
         end
 
         # Reads a file within a zip file from rubyzip a block at a time, like an IO, see `IOStreams::BlockReader`.
