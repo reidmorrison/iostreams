@@ -7,15 +7,23 @@ module IOStreams
         %i[entry_file_name]
       end
 
-      # Raises ArgumentError for an entry name that is not a String with a name, and LoadError when the `zip_kit` gem
-      # is not installed, so that they raise before a path opens its output, which would replace an existing file, see
+      # Raises ArgumentError for an entry name that is not a String with a name, or that cannot be written in UTF-8,
+      # which a zip file names its entries in, see .valid_utf8_name, and LoadError when the `zip_kit` gem is not installed, so
+      # that they raise before a path opens its output, which would replace an existing file, see
       # `IOStreams::StreamFormat#check_stream`.
       def self.check(entry_file_name: nil)
         Utils.load_soft_dependency("zip_kit", "Zip") unless defined?(ZipKit::Streamer)
-        return if entry_file_name.nil? || (entry_file_name.is_a?(String) && !entry_file_name.empty?)
+        return if entry_file_name.nil?
 
-        raise(ArgumentError, "Invalid entry_file_name #{entry_file_name.inspect}: supply the name of the file within the " \
-                             "zip file")
+        unless entry_file_name.is_a?(String) && !entry_file_name.empty?
+          raise(ArgumentError, "Invalid entry_file_name #{entry_file_name.inspect}: supply the name of the file within " \
+                               "the zip file")
+        end
+        return if valid_utf8_name(entry_file_name)
+
+        encoding = entry_file_name.encoding == Encoding::BINARY ? Encoding::UTF_8 : entry_file_name.encoding
+        raise(ArgumentError, "Invalid entry_file_name #{entry_file_name.inspect}: it is not valid #{encoding}, and a " \
+                             "zip file names the file within it in UTF-8")
       end
 
       # Returns [Hash] the options with the entry name within the zip defaulted to the name of the file
@@ -67,6 +75,16 @@ module IOStreams
       end
       private_class_method :utf8_name
 
+      # Returns [String] the supplied name in UTF-8, or nil when it is not valid in its encoding, or holds a character
+      # that UTF-8 does not. A binary name is read as UTF-8.
+      def self.valid_utf8_name(name)
+        text = name.encoding == Encoding::BINARY ? name.dup.force_encoding(Encoding::UTF_8) : name
+        text.encode(Encoding::UTF_8) if text.valid_encoding?
+      rescue EncodingError
+        nil
+      end
+      private_class_method :valid_utf8_name
+
       # Write a single file in Zip format to the supplied output stream
       #
       # Parameters
@@ -74,7 +92,8 @@ module IOStreams
       #     Output stream to write to
       #
       #   entry_file_name: [String]
-      #     Name of the file entry within the Zip file.
+      #     Name of the file entry within the Zip file, which is written in UTF-8, converted from the encoding of the
+      #     name. A binary name is read as UTF-8.
       #     Default: The file name without the `.zip` extension, otherwise "file"
       #
       # The stream supplied to the block responds to the methods of an IO that write, see `IOStreams::Writable`.
@@ -96,7 +115,7 @@ module IOStreams
         check(entry_file_name: entry_file_name)
 
         zip = ZipKit::Streamer.new(output_stream)
-        io  = zip.write_deflated_file(entry_file_name || "file")
+        io  = zip.write_deflated_file(entry_file_name ? valid_utf8_name(entry_file_name) : "file")
         # ZipKit's block forms end the file, and the zip file, after their block without an `ensure`, so that leaving
         # the block early would leave the zip file without its central directory.
         finish = lambda do

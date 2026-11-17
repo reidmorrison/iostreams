@@ -192,6 +192,29 @@ class ZipWriterTest < Minitest::Test
         end
       end
 
+      it "raises for an entry name that is not valid in its encoding" do
+        {"caf\xE9.csv" => "UTF-8", "caf\xE9.csv".b => "UTF-8", "caf\x81.csv".dup.force_encoding("Shift_JIS") => "Shift_JIS"}.each_pair do |name, encoding|
+          error = assert_raises(ArgumentError) { IOStreams::Zip::Writer.check(entry_file_name: name) }
+          assert_equal "Invalid entry_file_name #{name.inspect}: it is not valid #{encoding}, and a zip file names the " \
+                       "file within it in UTF-8", error.message
+        end
+      end
+
+      it "keeps an existing local file for an entry name that is not valid in its encoding" do
+        file_name = File.join(dir, "example.csv.zip")
+        File.write(file_name, "precious")
+
+        assert_raises(ArgumentError) { IOStreams.path(file_name).option(:zip, entry_file_name: "caf\xE9.csv").write(decompressed) }
+        assert_equal "precious", File.read(file_name)
+      end
+
+      it "writes an entry name in another encoding in UTF-8" do
+        output = StringIO.new("".b)
+        IOStreams.stream(output).stream(:zip, entry_file_name: "caf\xE9.csv".dup.force_encoding("ISO-8859-1")).write("a,b\n")
+
+        assert_equal ["café.csv".b], entry_names(output.string).map(&:b)
+      end
+
       it "raises from .stream too" do
         assert_raises(ArgumentError) { IOStreams::Zip::Writer.stream(StringIO.new("".b), entry_file_name: "") { |io| io.write(decompressed) } }
       end

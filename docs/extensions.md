@@ -186,7 +186,7 @@ it `file`.
 
 | Option | When | Default | Description |
 |--------|------|---------|-------------|
-| `entry_file_name` | Both | Reading: the first file. Writing: the name of the path without `.zip`, or `file` | The name of the file within the zip file, including its folders, such as `data/offices.csv`. |
+| `entry_file_name` | Both | Reading: the first file. Writing: the name of the path without `.zip`, or `file` | The name of the file within the zip file, including its folders, such as `data/offices.csv`. Written in UTF-8, so a name in another encoding is converted, and a name that is not valid in its encoding raises `ArgumentError`. |
 
 ~~~ruby
 IOStreams.path("export.zip").option(:zip, entry_file_name: "people.csv").writer(:hash) do |io|
