@@ -51,6 +51,34 @@ module IOStreams
     KEY_PROPERTIES = %i[primaryKey uniqueKeys].freeze
     private_constant :DSL_PROPERTIES, :ACCESSOR, :KEY_PROPERTIES
 
+    # Decides what a contract is for every method of IOStreams that takes one, such as `IOStreams::Stream#as` and
+    # `IOStreams::Schema#contract_errors`, apart from the class methods of a contract, which every contract inherits,
+    # so that it takes no name from the class methods that a program declares on its own contract.
+    module Coercion
+      # Returns [Class] the contract that the supplied value is: a contract class itself, or a contract that it builds
+      # from a Hash or an `IOStreams::Schema`, see `IOStreams::Contract.new`.
+      #
+      # Raises ArgumentError for anything else, such as a record of a contract, or for a Hash or a schema that is not a
+      # valid contract, such as one that lays out a file.
+      def self.call(contract)
+        case contract
+        when ::Hash, IOStreams::Schema
+          Contract.new(contract)
+        when Class
+          unless contract < Contract
+            raise(ArgumentError, "A contract must be a subclass of IOStreams::Contract, a Hash or an IOStreams::Schema: " \
+                                 "#{contract.inspect}")
+          end
+
+          contract.schema
+          contract
+        else
+          raise(ArgumentError, "A contract must be a subclass of IOStreams::Contract, a Hash or an IOStreams::Schema, " \
+                               "rather than #{contract.class.name}: #{contract.inspect}")
+        end
+      end
+    end
+
     class << self
       # Returns [Class] a new contract whose fields are the supplied Frictionless Table Schema, as `Struct.new` returns a
       # new class, when called on `IOStreams::Contract` itself, see `IOStreams::Schema` for its properties. A block is

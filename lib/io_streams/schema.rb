@@ -101,8 +101,9 @@ module IOStreams
   #
   # A schema is an object, which `IOStreams::Stream#infer_schema` returns, and `IOStreams::Stream#schema` takes, as
   # well as a Hash or the path of a JSON file. Its public methods are .new, .read, #fields, #fields_match, #to_h,
-  # #==, and those of its fields, see `IOStreams::Schema::Field`, so that a program reads a schema without knowing the
-  # keys of its Hash or their defaults:
+  # #==, #contract_errors, #contract_valid?, #validate_contract!, and those of its fields, see
+  # `IOStreams::Schema::Field`, so that a program reads a schema without knowing the keys of its Hash or their
+  # defaults, and checks it against a contract without a file:
   #
   #   schema = IOStreams.path("orders.parquet").infer_schema
   #   schema.fields_match                   # => "exact"
@@ -157,6 +158,8 @@ module IOStreams
     FIELDS_MATCH      = %w[exact equal subset superset partial].freeze
     SKIPS_UNKNOWN     = %w[subset partial].freeze
     NEEDS_EVERY_FIELD = %w[exact equal subset].freeze
+    # How each problem of a schema of a file that a contract meets without a file starts, see #file_schema_problems.
+    FILE_SCHEMA_SUBJECT = "The schema of the file does not meet the contract:"
 
     # The values of `extraColumns`, see above.
     EXTRA_COLUMNS = %w[skip keep].freeze
@@ -512,6 +515,111 @@ module IOStreams
       end
     end
 
+    # Returns [Array<IOStreams::Errors::Error>] each way that a file that this schema reads can fail to meet the supplied
+    # contract, without a file, such as when the configuration that holds the schema is saved, long before a file
+    # arrives, or an empty Array when every file that it reads meets it, as far as its columns and their types go:
+    # - An `IOStreams::Errors::InvalidHeader` for each problem of its fields as the contract meets them, see
+    #   `IOStreams::Stream#as`: a field that the contract needs, which it does not have, or does not require, so that a
+    #   file can lack it, and a field that is not one of the contract, which the `fieldsMatch` of the contract does not
+    #   accept.
+    # - An `IOStreams::Errors::IncompatibleType` for each field whose type can never be that of its field in the
+    #   contract, such as a boolean for a number.
+    #
+    # It is strict: a file can lack a field that this schema does not require, unless its `fieldsMatch` is "exact",
+    # "equal" or "subset", or it describes a file without a header row, `header: false`, which always has every field.
+    # It does not take the `width` of a field for a fixed width file, since the same schema can read a file with a
+    # header row, such as CSV. So a field that the contract requires must be required here too, with
+    # `constraints: {required: true}`, or its `fieldsMatch` must need every field. It checks the columns as a file with a
+    # header row has them, whatever the format, though a key that a JSON record leaves out is a missing value, which
+    # reading checks, as it checks every value.
+    #
+    # Parameters:
+    #   contract: [Class|Hash|IOStreams::Schema]
+    #     A contract, see `IOStreams::Contract`, or the Hash or schema of one, as `IOStreams::Stream#as` takes it.
+    #
+    # Raises ArgumentError for anything else, such as a record of a contract, or for a Hash or a schema that is not a
+    # valid contract.
+    #
+    # Example:
+    #   schema = IOStreams::Schema.read("config/schemas/orders.json")
+    #   schema.contract_errors(Order).map(&:message)
+    #   # => ["The schema of the file does not meet the contract: it has no field for the required field \"id\" of the
+    #   #     contract"]
+    def contract_errors(contract)
+      IOStreams::Contract::Coercion.call(contract).schema.file_schema_errors(self)
+    end
+
+    # Returns [true|false] whether every file that this schema reads meets the supplied contract, see #contract_errors.
+    def contract_valid?(contract)
+      contract_errors(contract).empty?
+    end
+
+    # Returns [true] when every file that this schema reads meets the supplied contract, see #contract_errors.
+    #
+    # Raises the first kind of the errors of #contract_errors, one `IOStreams::Errors::InvalidHeader` that names each
+    # problem of the fields when there are any, otherwise an `IOStreams::Errors::IncompatibleType` that names each field whose
+    # type can never be that of its field.
+    def validate_contract!(contract)
+      errors = contract_errors(contract)
+      return true if errors.empty?
+
+      kind     = errors.first.class
+      messages = errors.select { |error| error.instance_of?(kind) }.map(&:message)
+      return raise(kind, messages.join("; ")) unless kind == IOStreams::Errors::InvalidHeader
+
+      problems = messages.map { |message| message.delete_prefix("#{FILE_SCHEMA_SUBJECT} ") }
+      raise(kind, "#{FILE_SCHEMA_SUBJECT} #{problems.join('; ')}")
+    end
+
+    # Returns [Array<String|Symbol>] the keys of the fields of this schema, as the schema of a file, that a contract meets,
+    # see `IOStreams::Schema::ContractColumns`, without those that only hold the place of a column, see
+    # `IOStreams::Schema::Field#skip?`. With `every_file`, only those that every file that it reads has, see
+    # #contract_errors.
+    def contract_keys(every_file: false)
+      every = !every_file || every_field? || !header?
+      fields.filter_map { |field| key(field) if !field.skip? && (every || field.required?) }
+    end
+
+    # Returns [Array<IOStreams::Errors::Error>] each way that a file that the supplied schema of a file reads can fail to
+    # meet this schema, of a contract, see #contract_errors.
+    def file_schema_errors(source)
+      columns(every_field: true).file_schema_errors(source.contract_keys, source.contract_keys(every_file: true),
+                                                    keeps_extra: source.keep_extra?) + type_errors(source)
+    end
+
+    # Returns [Array<IOStreams::Errors::InvalidHeader>] each problem of the fields of a schema of a file as this schema,
+    # of a contract, meets them, see #file_schema_errors and #contract_errors.
+    #
+    # Parameters:
+    #   found: [Array<IOStreams::Schema::Field>]
+    #     The fields of this schema that are fields of the schema of the file, in its order.
+    #
+    #   unknown: [Array<String|Symbol>]
+    #     The keys of the fields of the schema of the file that are not fields of this schema.
+    #
+    #   optional: [Array<Array(IOStreams::Schema::Field, String|Symbol)>]
+    #     Each field of `found` that a file can lack, since the schema of the file does not require it, with its key in
+    #     that schema.
+    #
+    #   keeps_extra: [true|false]
+    #     Whether the schema of the file keeps the columns that a file has besides its fields, see `extraColumns`, which
+    #     the contract then meets too.
+    def file_schema_problems(found, unknown, optional, keeps_extra: false)
+      lacking  = every_field? ? optional : optional.select { |field, _key| field.required? }
+      problems = [
+        unknown_fields_problem(unknown),
+        extra_columns_problem(keeps_extra),
+        absent_fields_problem(found),
+        lacking_fields_problem(lacking),
+        partial_problem(found, optional, lacking)
+      ].compact
+      if fields_match == "exact" && problems.empty? && found != fields
+        problems << "its fields are not in the order of the fields of the contract, #{names_of(fields)}, which " \
+                    "fieldsMatch \"exact\" requires; \"equal\" accepts any order"
+      end
+      problems.map { |problem| IOStreams::Errors::InvalidHeader.new("#{FILE_SCHEMA_SUBJECT} #{problem}") }
+    end
+
     # Raises `IOStreams::Errors::InvalidHeader` when a record or row that is written has columns, keys or values that
     # are not fields, unless `fieldsMatch` skips them. A file that is written always has every field, so this is the
     # only part of `fieldsMatch` that applies to writing. Reading also applies it to the values of a row after its
@@ -696,6 +804,69 @@ module IOStreams
     # Returns [true|false] whether every field must be one of the columns.
     def every_field?
       NEEDS_EVERY_FIELD.include?(fields_match)
+    end
+
+    # Returns [String|nil] why the supplied keys of the fields of a schema of a file are a problem, since they are not
+    # fields of this contract, unless its `fieldsMatch` skips them, see #file_schema_problems.
+    def unknown_fields_problem(unknown)
+      return if unknown.empty? || skip_unknown?
+
+      "its #{plural('field', unknown)} #{sentence(unknown.map { |key| key.to_s.inspect })} " \
+        "#{unknown.size == 1 ? 'is not a field' : 'are not fields'} of the contract, whose fieldsMatch " \
+        "#{fields_match.inspect} does not accept #{unknown.size == 1 ? 'it' : 'them'}; \"subset\" and \"partial\" skip them"
+    end
+
+    # Returns [String|nil] why a schema of a file that keeps the columns that a file has besides its fields is a problem,
+    # since the contract then meets them, unless its `fieldsMatch` skips them, see #file_schema_problems.
+    def extra_columns_problem(keeps_extra)
+      return if !keeps_extra || skip_unknown?
+
+      "it keeps the columns of a file that are not its fields, with extraColumns \"keep\", which the contract, whose " \
+        "fieldsMatch is #{fields_match.inspect}, does not accept; \"subset\" and \"partial\" skip them"
+    end
+
+    # Returns [String|nil] the fields of this contract that it needs, which the schema of a file does not have, see
+    # #file_schema_problems.
+    def absent_fields_problem(found)
+      absent = missing_fields(found)
+      absent = absent.select(&:required?) unless every_field?
+      return if absent.empty?
+
+      "it has no field for the #{needed(absent)} #{names_of(absent)} of the contract#{needs_every}"
+    end
+
+    # Returns [String|nil] the fields of a schema of a file that a file can lack, which this contract needs, see
+    # #file_schema_problems.
+    def lacking_fields_problem(lacking)
+      return if lacking.empty?
+
+      keys = lacking.map { |_field, key| key }
+      "a file can lack its #{plural('field', keys)} #{sentence(keys.map { |key| key.to_s.inspect })}, " \
+        "#{keys.size == 1 ? 'which is' : 'which are'} not required, for the #{needed(lacking)} " \
+        "#{names_of(lacking.map(&:first))} of the contract#{needs_every}: add constraints: {required: true} " \
+        "to #{keys.size == 1 ? 'it' : 'them'}, or make its fieldsMatch \"exact\", \"equal\" or \"subset\""
+    end
+
+    # Returns [String|nil] why a file of a schema can have none of the fields of this contract, whose `fieldsMatch`
+    # "partial" needs at least one, unless a lacking field already says so, see #file_schema_problems.
+    def partial_problem(found, optional, lacking)
+      return unless fields_match == "partial"
+      return "none of its fields is a field of the contract, whose fieldsMatch \"partial\" needs at least one" if found.empty?
+      return unless found.size == optional.size && lacking.empty?
+
+      "a file can lack each of its fields that is a field of the contract, whose fieldsMatch \"partial\" needs at " \
+        "least one: add constraints: {required: true} to one of them"
+    end
+
+    # Returns [String] how the fields of this contract that a schema of a file lacks are named: "required field" unless
+    # the contract needs every field, see #needs_every.
+    def needed(fields)
+      "#{'required ' unless every_field?}#{plural('field', fields)}"
+    end
+
+    # Returns [String] why the contract needs every field, when it does, see #file_schema_problems.
+    def needs_every
+      every_field? ? ", whose fieldsMatch #{fields_match.inspect} needs every field" : ""
     end
 
     def subject(noun)
