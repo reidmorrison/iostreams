@@ -540,10 +540,11 @@ module IOStreams
     #   slice.with_rows(slice.rows.reject { |row| row.nil? })
     #
     # The rows have no numbers, unless they are supplied, as for `IOStreams::Slice.new`: the line and record number of
-    # the first row, each row after it numbered as the next, such as for rows that replace those of records 501 to 600,
-    # so that they can be found and resumed at by their record numbers, see #from_record.
+    # the first row, each row after it numbered as the next line and the next record, so that they can be found and
+    # resumed at by their numbers, see #from_record. Only rows that follow one another are numbered so: to correct the
+    # rows of a slice and keep the numbers of each, such as once a row was removed, replace them with #[]=.
     #
-    #   slice.with_rows(corrected, record_number: slice.record_number)
+    #   slice.with_rows(rows, line_number: 502, record_number: 501)
     #
     # Raises ArgumentError when the rows are not an Array, for a row that the format does not read, see #add, and for a
     # line number or record number that is not a positive Integer, nor nil, or for one without rows.

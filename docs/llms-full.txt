@@ -7781,8 +7781,9 @@ slice.to_h
   while a Symbol, and each key of a Hash, also within a Hash or an Array, is held as its text, and so does a value of
   a column that the schema does not list, such as one kept with `extraColumns: "keep"`. To replace the rows of a
   slice with others in the same form, `slice.with_rows(rows)` returns a new slice that keeps everything else that the
-  slice says, and `slice.with_rows(rows, record_number: slice.record_number)` numbers them from the first record of
-  the slice, so that a job can resume at them by record number.
+  slice says, and `slice.with_rows(rows, line_number: 502, record_number: 501)` numbers them from those of the first
+  row, each row after it as the next line and record, so that a job can resume at them by record number. To correct
+  rows and keep the numbers of each, such as once a row was removed, replace them one by one with `slice[index] = row`.
 * The slices of an Excel spreadsheet hold `"cell_text" => true`, those of its cells from `each(:slice)`, and those of
   its CSV text from `copy_from(path, mode: :line)`, since they hold each number, date and boolean cell as its default
   text, such as `1234.5`, rather than the text of a file that a schema describes, such as `1.234,5`.

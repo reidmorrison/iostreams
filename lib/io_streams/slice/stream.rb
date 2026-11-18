@@ -39,11 +39,11 @@ module IOStreams
       end
 
       # Yields the reader of the supplied mode, see `IOStreams::Row::Stream#reader`. `resume_at:` in the `:array`, `:hash`,
-      # `:record` and `:slice` modes is a record number that the slice holds, see `IOStreams::Slice#record_number_at`, such as
-      # the one that a job saw when it stopped, rather than a count of the rows of the slice, so the rows are read from
-      # that record on, see `IOStreams::Slice#from_record`, and the slices read from them keep their numbers.
-      #
-      # A record that the slice does not hold resumes at the first row after it, so one before its first row reads every
+      # `:record` and `:slice` modes is a record number of the file, as the slice numbers its rows, see
+      # `IOStreams::Slice#record_number_at`, such as the one that a job saw when it stopped, rather than a count of the
+      # rows of the slice, so the rows are read from the first at or after that record on, see
+      # `IOStreams::Slice#from_record`, and the slices read from them keep their numbers. A record that the slice does not
+      # hold, such as one removed from it, resumes at the first row after it, so one before its first row reads every
       # row, and one after its last reads none.
       #
       # Raises ArgumentError for a `resume_at` that is neither nil nor a positive Integer, and for a slice with a row
