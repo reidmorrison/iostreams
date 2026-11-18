@@ -3828,7 +3828,7 @@ one file:
 * A field that the contract requires, or every field of a contract whose `fieldsMatch` is `"exact"`, `"equal"` or
   `"subset"`, must be in every file. So it is a problem when the schema does not require that field, since its
   `fieldsMatch` of `"superset"` or `"partial"` lets a file lack it: add `"constraints": {"required": true}` to the
-  field. A file without a header row, such as a fixed width file or one with `"header": false`, always has every field.
+  field. A file of a schema with `"header": false` always has every field.
 * A field of the schema that is not one of the contract is a problem, unless the contract's `fieldsMatch` skips it,
   as is a schema with `"extraColumns": "keep"`, which hands the contract columns that are not its fields.
 * A field whose type never fits its field of the contract, as the table below shows, is an `IOStreams::Errors::IncompatibleType`.

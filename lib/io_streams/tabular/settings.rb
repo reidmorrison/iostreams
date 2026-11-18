@@ -111,7 +111,7 @@ module IOStreams
       # Raises ArgumentError for anything else, such as a record of a contract, or for a Hash or a schema that is not a
       # valid contract, such as one that lays out a file.
       def contract=(contract)
-        @contract = contract.nil? ? nil : IOStreams::Contract.coerce(contract)
+        @contract = contract.nil? ? nil : IOStreams::Contract::Coercion.call(contract)
       end
 
       # Returns [true|false] whether a format, a schema or a contract is set, which describe the rows of the file, unlike

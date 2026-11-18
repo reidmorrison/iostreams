@@ -526,8 +526,9 @@ module IOStreams
     #   contract, such as a boolean for a number.
     #
     # It is strict: a file can lack a field that this schema does not require, unless its `fieldsMatch` is "exact",
-    # "equal" or "subset", or it describes a file without a header row, such as one with `header: false`, or a fixed
-    # width file, which always has every field. So a field that the contract requires must be required here too, with
+    # "equal" or "subset", or it describes a file without a header row, `header: false`, which always has every field.
+    # It does not take the `width` of a field for a fixed width file, since the same schema can read a file with a
+    # header row, such as CSV. So a field that the contract requires must be required here too, with
     # `constraints: {required: true}`, or its `fieldsMatch` must need every field. It checks the columns as a file with a
     # header row has them, whatever the format, though a key that a JSON record leaves out is a missing value, which
     # reading checks, as it checks every value.
@@ -545,7 +546,7 @@ module IOStreams
     #   # => ["The schema of the file does not meet the contract: it has no field for the required field \"id\" of the
     #   #     contract"]
     def contract_errors(contract)
-      IOStreams::Contract.coerce(contract).schema.file_schema_errors(self)
+      IOStreams::Contract::Coercion.call(contract).schema.file_schema_errors(self)
     end
 
     # Returns [true|false] whether every file that this schema reads meets the supplied contract, see #contract_errors.
@@ -555,15 +556,19 @@ module IOStreams
 
     # Returns [true] when every file that this schema reads meets the supplied contract, see #contract_errors.
     #
-    # Raises the first of the errors of #contract_errors, an `IOStreams::Errors::InvalidHeader` that names each problem
-    # of the fields when there are any, otherwise an `IOStreams::Errors::IncompatibleType` that names each field whose
+    # Raises the first kind of the errors of #contract_errors, one `IOStreams::Errors::InvalidHeader` that names each
+    # problem of the fields when there are any, otherwise an `IOStreams::Errors::IncompatibleType` that names each field whose
     # type can never be that of its field.
     def validate_contract!(contract)
       errors = contract_errors(contract)
       return true if errors.empty?
 
-      kind = errors.first.class
-      raise(kind, errors.select { |error| error.instance_of?(kind) }.map(&:message).join("; "))
+      kind     = errors.first.class
+      messages = errors.select { |error| error.instance_of?(kind) }.map(&:message)
+      return raise(kind, messages.join("; ")) unless kind == IOStreams::Errors::InvalidHeader
+
+      problems = messages.map { |message| message.delete_prefix("#{FILE_SCHEMA_SUBJECT} ") }
+      raise(kind, "#{FILE_SCHEMA_SUBJECT} #{problems.join('; ')}")
     end
 
     # Returns [Array<String|Symbol>] the keys of the fields of this schema, as the schema of a file, that a contract meets,
@@ -571,7 +576,7 @@ module IOStreams
     # `IOStreams::Schema::Field#skip?`. With `every_file`, only those that every file that it reads has, see
     # #contract_errors.
     def contract_keys(every_file: false)
-      every = !every_file || every_field? || !header? || fields.any?(&:width)
+      every = !every_file || every_field? || !header?
       fields.filter_map { |field| key(field) if !field.skip? && (every || field.required?) }
     end
 

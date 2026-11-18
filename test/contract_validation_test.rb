@@ -273,7 +273,15 @@ class ContractValidationTest < Minitest::Test
 
       it "takes every field of a file without a header row, which always has every field" do
         assert_empty problems({header: false, fieldsMatch: "exact", fields: [{name: "id"}, {name: "ordered_at"}]}, Strict)
-        assert_empty problems({fieldsMatch: "partial", fields: [{name: "id", width: 5}, {name: "ordered_at", width: 20}]}, Strict)
+      end
+
+      it "does not take the widths of fields for a fixed width file, since the schema can read a file with a header row" do
+        schema  = {fieldsMatch: "superset", fields: [{name: "id", width: 5}, {name: "ordered_at", width: 20}]}
+        reading = IOStreams.stream(StringIO.new("id\n1\n")).file_name("orders.csv").schema(schema).as(Strict)
+
+        refute_empty reading.contract_errors
+        assert_equal 1, problems(schema, Strict).size
+        assert_empty problems(schema.merge(fieldsMatch: "exact"), Strict)
       end
 
       it "leaves out a field that only holds the place of a column" do
@@ -380,6 +388,11 @@ class ContractValidationTest < Minitest::Test
         error  = assert_raises(IOStreams::Errors::InvalidHeader) { schema.validate_contract!(Strict) }
 
         assert_includes error.message, 'its field "notes" is not a field of the contract'
+        error = assert_raises(IOStreams::Errors::InvalidHeader) do
+          IOStreams::Schema.new(fields: [{name: "ordered_at"}, {name: "notes"}]).validate_contract!(Strict)
+        end
+        assert_equal 1, error.message.scan("The schema of the file does not meet the contract:").size
+        assert_includes error.message, '; it has no field for the field "id"'
         error = assert_raises(IOStreams::Errors::IncompatibleType) do
           IOStreams::Schema.new(fields: [{name: "id", type: "boolean"}]).validate_contract!(Order)
         end
