@@ -1233,6 +1233,50 @@ class StreamTest < Minitest::Test
       end
     end
 
+    describe "#lines_of_text?" do
+      it "is true for each format whose rows are lines of text" do
+        %i[csv psv json fixed text].each do |format|
+          assert_predicate IOStreams.path("data").format(format), :lines_of_text?, format.inspect
+        end
+      end
+
+      it "is false for each format whose rows are values" do
+        %i[hash array parquet].each do |format|
+          refute_predicate IOStreams.path("data").format(format), :lines_of_text?, format.inspect
+        end
+      end
+
+      it "is true without a format, since the rows are then CSV" do
+        assert_nil stream.format
+        assert_predicate stream, :lines_of_text?
+      end
+
+      it "takes the format from the file name" do
+        assert_predicate IOStreams.path("people.json.gz"), :lines_of_text?
+        refute_predicate IOStreams.path("people.parquet"), :lines_of_text?
+      end
+
+      it "is true for a spreadsheet, whose lines are CSV text, also read as :text" do
+        path = IOStreams.path(File.join(__dir__, "files", "spreadsheet.xlsx"))
+
+        assert_predicate path, :lines_of_text?
+        assert_predicate path.dup.format(:text), :lines_of_text?
+      end
+
+      it "raises for a format that is not that of the text of a spreadsheet, as reading its rows would" do
+        path = IOStreams.path(File.join(__dir__, "files", "spreadsheet.xlsx")).format(:json)
+
+        assert_raises(ArgumentError) { path.lines_of_text? }
+      end
+
+      it "answers for a store of slices, which writes lines or values as its format says" do
+        store = Class.new { include IOStreams::Slice::Target }.new
+
+        assert_predicate IOStreams.stream(store).format(:csv), :lines_of_text?
+        refute_predicate IOStreams.stream(store).format(:hash), :lines_of_text?
+      end
+    end
+
     describe "fixed width columns" do
       let(:schema) { {fields: [{name: "name", type: "string", width: 6}, {name: "city", type: "string", width: 7}]} }
 

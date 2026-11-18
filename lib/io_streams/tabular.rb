@@ -919,9 +919,9 @@ module IOStreams
 
     # Returns [true|false] whether each row of the registered format is a line of text, see .lines?, rather than a Ruby
     # object that holds its values, such as the rows of `:array` and `:hash`, see
-    # `IOStreams::Tabular::Parser::Base.value_form`.
+    # `IOStreams::Tabular::Parser::Base.value_form`. They are when the format is nil, whose rows are CSV, see #initialize.
     def self.lines_of_text?(format)
-      lines?(format) && parser_class(format).value_form != :typed
+      format.nil? || (lines?(format) && parser_class(format).value_form != :typed)
     end
 
     # Returns [Module|nil] the format whose reader and writer read and write the rows of the registered format of the
