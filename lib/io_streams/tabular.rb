@@ -571,6 +571,18 @@ module IOStreams
       parser.class.keyed?
     end
 
+    # Checks, once the header row has been read, see #read_line, that the records of the rows could be keyed by its
+    # columns, for a reader of slices, which hands on the rows without parsing them, so that a file that its slices
+    # could not be read from as records fails when it is read into slices, rather than in each job that reads a slice.
+    # Does nothing with a schema, whose fields name the keys, or for a file without a header row, see
+    # `IOStreams::Tabular::Mapping#check_header_keys`.
+    #
+    # Raises `IOStreams::Errors::InvalidHeader` for two columns that are the same key once cleansed, such as `a` and `A`,
+    # naming both, as they were read.
+    def check_header_keys
+      @mapping.check_header_keys
+    end
+
     # Returns [IOStreams::Schema] the schema that the file declares by the supplied first row that its rows start with,
     # see `IOStreams::Stream#infer_schema`: the header row as read, or the keys of the first record of a format of keyed
     # records, such as JSON, see #read_row, or nil for a file without rows, which declares no fields. With a schema, that

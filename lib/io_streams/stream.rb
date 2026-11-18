@@ -317,8 +317,9 @@ module IOStreams
     #   `IOStreams::Row::Reader.option_names`, `IOStreams::Record::Reader.option_names` and
     #   `IOStreams::Slice::Reader.option_names`.
     # - The `:slice` mode reads the header row, matched to the fields of the schema, which raises
-    #   `IOStreams::Errors::InvalidHeader` before the first slice is yielded when they do not match, and each slice
-    #   carries it, and the format of its rows, so that the rows of the slice can be parsed on their own, elsewhere.
+    #   `IOStreams::Errors::InvalidHeader` before the first slice is yielded when they do not match, or without a schema
+    #   when two of its columns are the same key once cleansed, such as `a` and `A`, and each slice carries it, and the
+    #   format of its rows, so that the rows of the slice can be parsed on their own, elsewhere.
     #   With `validate: true` each row is also parsed before its slice is yielded, and raises when its values are not
     #   valid, after the slices before it, while each slice still holds the rows as they are.
     # - The `:array`, `:hash`, `:record` and `:slice` modes resume at the record of the number supplied with

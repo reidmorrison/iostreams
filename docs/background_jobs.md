@@ -505,30 +505,26 @@ errors = IOStreams.path(url).as(PersonContract).contract_errors
 # => [] when the columns meet the contract, otherwise an IOStreams::Errors::InvalidHeader for each problem
 ~~~
 
-Without a contract or a schema, nothing says that the jobs will read records, so `each(:slice)`, and a copy into a
-store of slices, do not check that the columns of the header row are different keys, since the rows of a file whose
-header row repeats a key, such as `a` and `A`, which are both the key `a` once cleansed, are still read with
-`each(:array)`, see [Records and rows without a schema](formats#records-and-rows-without-a-schema). A job that reads
-its slice with `each(:hash)`, without a contract or a schema, would then raise `IOStreams::Errors::InvalidHeader`.
-`validate: true`, see below, raises it before the first slice, since it parses each row as a record, but it parses
-every row, and a file without rows passes. When the jobs read records without a contract, check the first slice before
-handing it on, with `#infer_schema`, which reads only its header row, and raises `IOStreams::Errors::InvalidHeader` for
-two columns of the same key:
+Without a contract or a schema, the jobs read the records of each slice by the columns of its header row, cleansed,
+see [Records and rows without a schema](formats#records-and-rows-without-a-schema). So `each(:slice)`, and a copy into
+a store of slices, raise `IOStreams::Errors::InvalidHeader` as soon as they read a header row with two columns of the
+same key, such as `a` and `A`, which are both the key `a` once cleansed, before the first slice is handed on, rather
+than in each job that reads a slice:
 
 ~~~ruby
-checked = false
-IOStreams.path(url).each(:slice, size: 500) do |slice|
-  unless checked
-    IOStreams.stream(slice).infer_schema
-    checked = true
+begin
+  IOStreams.path(url).each(:slice, size: 500) do |slice|
+    # Reads each record of its slice with `IOStreams.stream(slice).each(:hash)`, without a contract or a schema.
+    ImportContactsSliceJob.perform_later(slice.to_h)
   end
-
-  # Reads each record of its slice with `IOStreams.stream(slice).each(:hash)`, without a contract or a schema.
-  ImportContactsSliceJob.perform_later(slice.to_h)
+rescue IOStreams::Errors::InvalidHeader => e
+  # e.message: The columns "a" and "A" are the same key, "a", which a record without a schema cannot hold twice: ...
+  logger.error("#{url} was not imported: #{e.message}")
 end
 ~~~
 
-A store of slices can check the first slice the same way in its `#write_slice(slice)`, before it stores it.
+A file whose jobs read its rows as arrays, by position, can still repeat a column, once a [schema](schemas) names each
+one: it can have two fields of the same name.
 
 A value that is not valid, such as `abc` in an integer field, is normally found by the job that parses its row, after
 the slices before it have been handed on. The job can hand each such row to a handler, and carry on with the rest,

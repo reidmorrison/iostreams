@@ -191,25 +191,56 @@ class SliceReaderTest < Minitest::Test
         assert_raises(IOStreams::Errors::InvalidHeader) { slices(stream("age\n21\n").schema(required), size: 2) }
       end
 
-      it "may repeat a key without a schema, since the slices may be read as rows, which #infer_schema of a slice checks" do
-        repeated = slices(stream("a,A\n1,2\n3,4\n").format(:csv), size: 1)
+      it "raises InvalidHeader for two columns that are the same key once cleansed, naming both, before the first slice" do
+        error = assert_raises(IOStreams::Errors::InvalidHeader) do
+          stream("Amount ($),Amount (€)\n1,2\n").format(:csv).each(:slice, size: 1) { |_slice| flunk("yielded") }
+        end
 
-        assert_equal 2, repeated.size
+        assert_equal 'The columns "Amount ($)" and "Amount (€)" are the same key, "amount_", which a record without a ' \
+                     "schema cannot hold twice: rename one of them, or set a schema whose fields name each one, which " \
+                     "can be two fields of the same name for a format whose columns are in order, such as CSV, read as " \
+                     "rows, on line 1", error.message
+        assert_equal 1, error.line_number
+        assert_nil error.record_number
+      end
 
-        rows = []
-        IOStreams.stream(repeated.first).each(:array) { |row| rows << row }
+      it "raises InvalidHeader for a repeated key as the header row is read, whatever the rows" do
+        [{}, {resume_at: 2}, {validate: true}].each do |options|
+          error = assert_raises(IOStreams::Errors::InvalidHeader) { slices(stream("a,A\n1,2\n3,4\n").format(:csv), size: 1, **options) }
 
-        assert_equal [%w[a A], %w[1 2]], rows
-        error = assert_raises(IOStreams::Errors::InvalidHeader) { IOStreams.stream(repeated.first).infer_schema }
-        assert_match(/\AThe columns "a" and "A" are the same key, "a"/, error.message)
-        assert_raises(IOStreams::Errors::InvalidHeader) { IOStreams.stream(repeated.first).each(:hash) { nil } }
+          assert_match(/\AThe columns "a" and "A" are the same key, "a"/, error.message)
+          assert_equal 1, error.line_number
+          assert_nil error.record_number
+        end
+        error = assert_raises(IOStreams::Errors::InvalidHeader) { slices(stream("\na,A\n").format(:csv), size: 1) }
 
-        assert_raises(IOStreams::Errors::InvalidHeader) { slices(stream("a,A\n1,2\n").format(:csv), size: 1, validate: true) }
-        assert_empty slices(stream("a,A\n").format(:csv), size: 1, validate: true)
+        assert_equal 2, error.line_number
+      end
 
-        distinct = slices(stream("a,B\n1,2\n").format(:csv), size: 1).first
+      it "checks the keys as the header row is read, and not for any row after it" do
+        tabular = IOStreams::Tabular.new(format: :csv)
+        checks  = 0
+        tabular.define_singleton_method(:check_header_keys) do
+          checks += 1
+          super()
+        end
+        rows = [["a,B", 1], ["1,2", 2], ["3,4", 3], ["5,6", 4]]
 
-        assert_equal %w[a b], IOStreams.stream(distinct).infer_schema.fields.map(&:name)
+        assert_equal(3, IOStreams::Slice::Reader.new(rows, tabular: tabular, size: 1).each { |_slice| nil })
+        assert_equal 1, checks
+      end
+
+      it "reads a repeated key with a schema, which can name both columns, as rows" do
+        repeated = stream("a,A\n1,2\n").format(:csv).schema("fields" => [{"name" => "a"}, {"name" => "a"}])
+        list     = slices(repeated, size: 1)
+
+        assert_equal([[%w[a A], %w[1,2]]], list.map { |slice| [slice.header, slice.rows] })
+      end
+
+      it "does not check the keys of a format whose keys are not cleansed, such as JSON" do
+        list = slices(stream(%({"a":1,"A":2}\n)).format(:json), size: 1)
+
+        assert_equal [[%({"a":1,"A":2})]], list.map(&:rows)
       end
 
       it "is held by the reader once it is read, also when the file has no rows" do
