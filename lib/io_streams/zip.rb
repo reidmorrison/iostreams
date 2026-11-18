@@ -62,16 +62,51 @@ module IOStreams
     end
     private_class_method :convert_entry_name
 
-    # Returns [Proc] that answers whether the name of a file that a zip file holds, as the library that reads it gives
-    # it, in any encoding, is the supplied name of the file to read, by its bytes or those of the name in UTF-8, see
-    # .utf8_entry_name, so that a name that is not ASCII finds the file whether the library gives its name as UTF-8 or
-    # as its bytes, as rubyzip does, and a name in another encoding finds it too. A name that is not a String, such as
-    # a Symbol, is read by its `to_s`, as rubyzip reads it. The bytes are found once, for each file that it is asked
-    # about.
-    def self.entry_name_matcher(name)
-      text  = name.to_s
-      names = [text.b, utf8_entry_name(text)&.b].compact.uniq
-      ->(held_name) { names.include?(held_name.b) }
+    # Returns [Array] the entry of the file within a zip file of the supplied name, its index, and whether it has the
+    # name exactly, from the supplied entries of its files, an Enumerable of each entry with the bytes of its name, as
+    # the zip file holds them, or nil when none has the name. Without a name, it is the first file.
+    #
+    # The file whose name is the name in UTF-8, see .utf8_entry_name, is read, the name that IOStreams writes, so that
+    # a name that is not ASCII finds the file whether the library that reads it gives its name as UTF-8 or as its bytes,
+    # as rubyzip does, and a name in another encoding finds it too. When no file has it, the first file that has the
+    # name by the bytes that it was given is read, such as a name in Windows-1252, then the first file that has its
+    # bytes in ISO-8859-1, see .latin1_bytes, as some other programs write the name, so that a file that another program
+    # named so is never read in place of the file of the name. It stops at the file of the name, so that a reader that
+    # streams the files does not read past it, while it reads every file before it gives one that it found by other
+    # bytes, which the reader no longer holds. A name that is not a String, such as a Symbol, is read by its `to_s`, as
+    # rubyzip reads it.
+    def self.choose_entry(name, entries)
+      exact, *others = name.nil? ? [nil] : entry_name_bytes(name)
+      found          = []
+      entries.each_with_index do |(entry, held_name), index|
+        bytes = held_name.b
+        return [entry, index, true] if exact.nil? || bytes == exact
+
+        rank = others.index(bytes)
+        found[rank] ||= [entry, index, false] if rank
+      end
+      found.compact.first
     end
+
+    # Returns [Array<String>] the bytes of the supplied name of a file within a zip file, see .choose_entry: first the
+    # name in UTF-8, then those of other names that it may have been written as, in order: its own bytes, and its bytes
+    # in ISO-8859-1, each only when it differs from those before it. A name that UTF-8 cannot hold has only its own bytes.
+    def self.entry_name_bytes(name)
+      text = name.to_s
+      utf8 = utf8_entry_name(text)
+      return [text.b] unless utf8
+
+      [utf8.b, text.b, latin1_bytes(utf8)].compact.uniq
+    end
+    private_class_method :entry_name_bytes
+
+    # Returns [String|nil] the bytes of the supplied name in ISO-8859-1, or nil when ISO-8859-1 does not hold a
+    # character of it.
+    def self.latin1_bytes(name)
+      name.encode(Encoding::ISO_8859_1).b
+    rescue EncodingError
+      nil
+    end
+    private_class_method :latin1_bytes
   end
 end

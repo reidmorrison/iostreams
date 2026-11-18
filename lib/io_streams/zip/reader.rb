@@ -100,35 +100,134 @@ module IOStreams
       #   end
       if defined?(JRuby)
         # Java has built-in support for Zip files, which checks the size and CRC32 of each file.
+        #
+        # When the zip file only has the name by other bytes, see `IOStreams::Zip.choose_entry`, which reads through every
+        # file to rule out the file of the name, the zip file is read again up to the file found, since `java.util.zip`
+        # cannot go back to it, so that a zip file that another program wrote may be read about twice.
         def self.file(file_name, entry_file_name: nil, display_name: nil)
-          name  = display_name || file_name
-          fin   = Java::JavaIo::FileInputStream.new(file_name)
-          zin   = Java::JavaUtilZip::ZipInputStream.new(fin)
-          entry = find_entry(zin, entry_file_name, file_name, name)
-          yield Entry.new(zin, entry.name, name)
+          name         = display_name || file_name
+          zin          = open_stream(file_name)
+          entry, index = find_entry(zin, entry_file_name, file_name, name)
+          unless entry
+            zin.close
+            zin   = open_stream(file_name)
+            entry = entry_at(zin, index, entry_file_name, name)
+          end
+          yield Entry.new(zin, Names.bytes(entry.name), name)
         ensure
           zin&.close
-          fin&.close
         end
 
-        # Returns the entry of the file to read, skipping any folders. Raises when the zip file does not contain it, or
-        # when a file before it is corrupt, which `java.util.zip` finds as it reads past it.
+        # Returns [Java::JavaUtilZip::ZipInputStream] that reads the zip file of the supplied name, decoding a name that
+        # it does not flag as UTF-8 by `Names`, so that its bytes are known. Closing it closes the file.
+        def self.open_stream(file_name)
+          Java::JavaUtilZip::ZipInputStream.new(Java::JavaIo::FileInputStream.new(file_name), Names.charset)
+        end
+
+        # Returns [Array] the entry of the file to read, skipping any folders, and nil, or, when the zip file only has
+        # the name by other bytes, nil and the index of the file found among the files. Raises when the zip file does
+        # not contain it, or when a file before it is corrupt, which `java.util.zip` finds as it reads past it.
         #
         # `java.util.zip` finds no entries in a file that is not a zip file, rather than raising, so it is told apart
         # from a zip file without any entries by how it starts, see .empty_zip?. The local file is read by its
         # `file_name`, and named by its display `name`.
         def self.find_entry(zin, entry_file_name, file_name, name)
           entries = false
-          named   = Zip.entry_name_matcher(entry_file_name) unless entry_file_name.nil?
-          while (entry = zin.get_next_entry)
-            entries = true
-            return entry if !entry.directory? && (named.nil? || named.call(entry.name))
+          files   = Enumerator.new do |yielder|
+            while (entry = zin.get_next_entry)
+              entries = true
+              next if entry.directory?
+
+              yielder << [entry, Names.bytes(entry.name)]
+            end
           end
+          # The stream is at the file of the name, while it is past a file found by other bytes, see .file.
+          entry, index, exact = Zip.choose_entry(entry_file_name, files)
+          return exact ? [entry, nil] : [nil, index] if entry
+
           raise(failure(Errors::Corrupt, "The file #{name} is not a zip file", name)) unless entries || empty_zip?(file_name)
 
           raise(failure(Errors::MissingEntry, missing_message(entry_file_name, name), name))
         rescue Java::JavaUtilZip::ZipException, Java::JavaIo::EOFException => e
           raise(failure(Errors::Corrupt, "The zip file #{name} is corrupt: #{e.message}", name))
+        end
+
+        # Returns the entry of the file at the supplied index among the files of the zip file, skipping any folders,
+        # which .find_entry found. Raises when the zip file no longer has it, such as when it changed since.
+        def self.entry_at(zin, index, entry_file_name, name)
+          while (entry = zin.get_next_entry)
+            next if entry.directory?
+            return entry if index.zero?
+
+            index -= 1
+          end
+          raise(failure(Errors::MissingEntry, missing_message(entry_file_name, name), name))
+        rescue Java::JavaUtilZip::ZipException, Java::JavaIo::EOFException => e
+          raise(failure(Errors::Corrupt, "The zip file #{name} is corrupt: #{e.message}", name))
+        end
+
+        # The charset by which `java.util.zip` decodes the name of a file that the zip file does not flag as UTF-8, and
+        # the bytes of each name that it decodes.
+        #
+        # `java.util.zip` decodes a name that the zip file flags as UTF-8 as UTF-8, and any other name by the charset
+        # that the reader opens the zip file with, UTF-8 by default, so that a name that another program wrote by bytes
+        # that are not valid UTF-8, such as in CP437 or Windows-1252, is rejected as an "invalid LOC header (bad entry
+        # name)", and no file of the zip file can be read. This charset decodes each ASCII byte as its character, and
+        # each other byte as a character of Unicode's Private Use Area, U+F780 to U+F7FF, that no other name holds, so
+        # that .bytes returns the bytes of every name, as rubyzip holds them on MRI, which the names of the files to
+        # read are matched by. A name flagged as UTF-8 made only of ASCII and those characters would be read as their
+        # bytes, which no program that names files would write.
+        class Names < Java::JavaNioCharset::Charset
+          # The first of the characters that the bytes 0x80 to 0xFF are decoded as.
+          OFFSET = 0xF700
+
+          # Returns [Names] the charset.
+          def self.charset
+            new("X-IOStreams-Zip-Names", nil)
+          end
+
+          # Returns [String] the bytes that the zip file holds for the supplied name of a file, as `java.util.zip`
+          # decodes it by the charset: UTF-8 when they are valid UTF-8, otherwise binary.
+          def self.bytes(name)
+            bytes =
+              if name.match?(/[^\x00-\x7F\u{F780}-\u{F7FF}]/)
+                name.b
+              else
+                name.unpack("U*").map { |code| code < 0x80 ? code : code - OFFSET }.pack("C*")
+              end
+            text = bytes.dup.force_encoding(Encoding::UTF_8)
+            text.valid_encoding? ? text : bytes
+          end
+
+          # Decodes each byte as one character, see `Names`.
+          class Decoder < Java::JavaNioCharset::CharsetDecoder
+            def decodeLoop(input, output) # rubocop:disable Naming/MethodName
+              while input.has_remaining
+                return Java::JavaNioCharset::CoderResult::OVERFLOW unless output.has_remaining
+
+                byte = input.get & 0xFF
+                output.put(byte < 0x80 ? byte : OFFSET + byte)
+              end
+              Java::JavaNioCharset::CoderResult::UNDERFLOW
+            end
+          end
+
+          def contains(charset)
+            charset.name == name
+          end
+
+          def newDecoder # rubocop:disable Naming/MethodName
+            Decoder.new(self, 1.0, 1.0)
+          end
+
+          # `java.util.zip` never encodes a name that it reads.
+          def newEncoder # rubocop:disable Naming/MethodName
+            raise(Java::JavaLang::UnsupportedOperationException, "#{name} only decodes the names of a zip file")
+          end
+
+          def canEncode # rubocop:disable Naming/MethodName
+            false
+          end
         end
 
         # Returns [true|false] whether the file is a zip file without any entries, which holds only the end of its
@@ -192,24 +291,39 @@ module IOStreams
 
         # Returns [Zip::Entry] the entry of the file to read, skipping any folders, or nil when there is none.
         #
-        # rubyzip holds the name of each file as its bytes, unless the application sets
-        # `Zip.force_entry_names_encoding`, so a name that is not ASCII, which is UTF-8, does not find it with
-        # `Zip::File#find_entry`, and is compared with each name by its bytes instead, see
-        # `IOStreams::Zip.entry_name_matcher`, as is a name that `#find_entry` cannot look up, in an encoding that is not
-        # ASCII-compatible, such as UTF-16LE. `#find_entry` already looked up an ASCII name.
+        # `Zip::File#find_entry` looks up an ASCII name, which has the same bytes in every encoding that it can be in,
+        # and, when the application sets `Zip.force_entry_names_encoding`, so that rubyzip holds the names as text in
+        # that encoding, the name in that encoding, so that `Zip.case_insensitive_match` applies to them, as it does to
+        # ASCII names. Otherwise
+        # `IOStreams::Zip.choose_entry` chooses the file by the bytes of each name, which rubyzip holds as they are, also
+        # for a name that `#find_entry` cannot look up, in an encoding that is not ASCII-compatible, such as UTF-16LE,
+        # which it raises `Encoding::CompatibilityError` for.
         def self.find_entry(zip_file, entry_file_name)
           return zip_file.find(&:file?) if entry_file_name.nil?
 
-          # rubyzip raises Encoding::CompatibilityError for a name in an encoding that is not ASCII-compatible.
           name = entry_file_name.to_s
-          if name.encoding.ascii_compatible?
-            entry = zip_file.find_entry(entry_file_name)
-            return entry if entry&.file?
-            return if name.ascii_only?
+          if name.ascii_only? && name.encoding.ascii_compatible?
+            entry = zip_file.find_entry(name)
+            return entry&.file? ? entry : nil
           end
 
-          named = Zip.entry_name_matcher(entry_file_name)
-          zip_file.find { |zip_entry| zip_entry.file? && named.call(zip_entry.name) }
+          if (encoding = ::Zip.force_entry_names_encoding)
+            entry = forced_entry(zip_file, name, encoding)
+            return entry if entry
+          end
+
+          files = zip_file.lazy.select(&:file?).map { |entry| [entry, entry.name] }
+          Zip.choose_entry(entry_file_name, files)&.first
+        end
+
+        # Returns [Zip::Entry] the entry of the file that rubyzip finds by the supplied name in the encoding that the
+        # application forces the names to, see .find_entry, or nil when it finds none, or the encoding does not hold the
+        # name.
+        def self.forced_entry(zip_file, name, encoding)
+          entry = zip_file.find_entry(name.encode(encoding))
+          entry if entry&.file?
+        rescue EncodingError
+          nil
         end
 
         # Reads a file within a zip file from rubyzip a block at a time, like an IO, see `IOStreams::BlockReader`.
