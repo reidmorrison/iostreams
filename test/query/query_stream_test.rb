@@ -376,41 +376,70 @@ class QueryStreamTest < Minitest::Test
           assert_equal "#{db.order.name} query: no connection free", error.message
         end
 
-        # Yields a model of the orders table on a pool of one connection of its own, which it disconnects afterwards.
-        def single_connection_orders
+        # Yields a model of the orders table on a pool of the supplied size of its own, which it disconnects afterwards.
+        def pooled_orders(size = 1)
           record = Class.new(ActiveRecord::Base) { self.abstract_class = true }
-          db.namespace.send(:remove_const, :SingleRecord) if db.namespace.const_defined?(:SingleRecord, false)
-          db.namespace.const_set(:SingleRecord, record)
-          record.establish_connection(db.record.connection_db_config.configuration_hash.merge(pool: 1, checkout_timeout: 5))
-          yield Class.new(record) { self.table_name = "orders" }
+          db.namespace.send(:remove_const, :PooledRecord) if db.namespace.const_defined?(:PooledRecord, false)
+          db.namespace.const_set(:PooledRecord, record)
+          record.establish_connection(db.record.connection_db_config.configuration_hash.merge(pool: size, checkout_timeout: 5))
+          model = Class.new(record) { self.table_name = "orders" }
+          db.namespace.send(:remove_const, :PooledOrder) if db.namespace.const_defined?(:PooledOrder, false)
+          db.namespace.const_set(:PooledOrder, model)
+          yield model
         ensure
           record&.connection_pool&.disconnect!
         end
 
-        it "raises ArgumentError at once, untagged, when the pool's one connection is held by the caller" do
-          single_connection_orders do |single|
-            single.with_connection do
-              started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
-              error   = assert_raises(ArgumentError) { each(IOStreams.stream(single.order(:id))) }
+        # Returns [ArgumentError] what reading the orders raises, which it asserts is raised at once, untagged, for the
+        # caller holding every connection of the pool of the supplied size.
+        def assert_pool_held(model, size)
+          started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+          error   = assert_raises(ArgumentError) { each(IOStreams.stream(model.order(:id))) }
 
-              assert_operator Process.clock_gettime(Process::CLOCK_MONOTONIC) - started, :<, 2
-              refute_kind_of IOStreams::Errors::Unavailable, error
-              assert_kind_of ActiveRecord::ConnectionTimeoutError, error.cause
-              assert_match(/\A.* query needs a connection of its own, but the pool has only one, which the caller holds: /,
-                           error.message)
-              assert_equal 1, single.connection_pool.stat[:busy]
+          assert_operator Process.clock_gettime(Process::CLOCK_MONOTONIC) - started, :<, 2
+          refute_kind_of IOStreams::Errors::Unavailable, error
+          assert_kind_of ActiveRecord::ConnectionTimeoutError, error.cause
+          assert_equal "#{model.name} query needs a connection of its own, but the caller holds every connection of its " \
+                       "pool of #{size}: give the database a pool of more connections, such as `max_connections: " \
+                       "#{size + 1}` (`pool:` before Active Record 8.1) in config/database.yml", error.message
+          error
+        end
+
+        it "raises ArgumentError at once, untagged, when the pool's one connection is held by the caller" do
+          pooled_orders do |model|
+            model.with_connection do
+              assert_pool_held(model, 1)
+
+              assert_equal 1, model.connection_pool.stat[:busy]
             end
           end
         end
 
+        it "raises ArgumentError at once when the caller holds every connection of a larger pool, such as within a read" do
+          pooled_orders(2) do |model|
+            model.with_connection do
+              errors = []
+              IOStreams.stream(model.order(:id)).each(:hash) { |_order| errors << assert_pool_held(model, 2) }
+
+              assert_equal 3, errors.size
+            end
+          end
+        end
+
+        it "reads while the caller holds a connection of a pool with another free" do
+          pooled_orders(2) do |model|
+            model.with_connection { assert_equal 3, each(IOStreams.stream(model.order(:id))).size }
+          end
+        end
+
         it "keeps the target of a copy when the pool's one connection is held by the caller" do
-          single_connection_orders do |single|
+          pooled_orders do |model|
             Dir.mktmpdir do |dir|
               path = IOStreams.path(dir, "orders.csv")
               path.write("existing\n")
 
-              single.with_connection do
-                assert_raises(ArgumentError) { path.copy_from(single.order(:id), mode: :hash) }
+              model.with_connection do
+                assert_raises(ArgumentError) { path.copy_from(model.order(:id), mode: :hash) }
               end
 
               assert_equal "existing\n", path.read
@@ -419,20 +448,20 @@ class QueryStreamTest < Minitest::Test
         end
 
         it "reads with a pool of one connection that is pinned, as the transactional tests of Rails pin it" do
-          single_connection_orders do |single|
-            single.connection_pool.pin_connection!(false)
+          pooled_orders do |model|
+            model.connection_pool.pin_connection!(false)
             begin
-              single.with_connection { assert_equal 3, each(IOStreams.stream(single.order(:id))).size }
+              model.with_connection { assert_equal 3, each(IOStreams.stream(model.order(:id))).size }
             ensure
-              single.connection_pool.unpin_connection!
+              model.connection_pool.unpin_connection!
             end
           end
         end
 
         it "reads with a pool of one connection, which the read checks out, while the block runs no queries of its own" do
-          single_connection_orders do |single|
-            assert_equal 3, each(IOStreams.stream(single.order(:id))).size
-            assert_equal 0, single.connection_pool.stat[:busy]
+          pooled_orders do |model|
+            assert_equal 3, each(IOStreams.stream(model.order(:id))).size
+            assert_equal 0, model.connection_pool.stat[:busy]
           end
         end
       end

@@ -212,11 +212,13 @@ module IOStreams
       if @model.with_connection(prevent_permanent_checkout: true, &:supports_concurrent_connections?)
         pool       = @model.connection_pool
         connection = checkout(pool)
-        begin
-          found = source(connection)
-          return yield(found, connection) if found.own_connection?(connection)
-        ensure
-          pool.checkin(connection)
+        if connection
+          begin
+            found = source(connection)
+            return yield(found, connection) if found.own_connection?(connection)
+          ensure
+            pool.checkin(connection)
+          end
         end
       end
 
@@ -227,20 +229,41 @@ module IOStreams
     # which waits for one to be free, and raises `ActiveRecord::ConnectionTimeoutError` when none is in time, which is
     # tagged `IOStreams::Errors::Unavailable`, since another thread can check one in, so that a retry can succeed.
     #
-    # Raises ArgumentError instead, without waiting, when no connection can ever be free for the read: when the pool has
-    # one connection, which the caller holds, so that a caller that retries what is unavailable does not retry forever.
-    # The pool is still asked for one, since in the transactional tests of Rails it returns the connection that the
-    # tests share.
+    # When no connection can ever be free for the read, since the caller holds every connection of the pool, such as
+    # the only one, or the one that it leased and the one that another read of its own checked out, the pool is asked
+    # for one without waiting, since in the transactional tests of Rails it returns the connection that the tests
+    # share. Otherwise returns nil when the source reads the query on the connection of the caller anyway, such as a
+    # SQLite database that is not in WAL mode, and raises ArgumentError when it would read it on one of its own, or
+    # the ArgumentError of #source when no source reads the database, rather than wait for a timeout that a caller
+    # that retries what is unavailable would retry forever.
     def checkout(pool)
-      return pool.checkout unless pool.size == 1 && pool.active_connection?
+      return pool.checkout unless held_by_caller?(pool)
 
       begin
         pool.checkout(0)
       rescue ::ActiveRecord::ConnectionTimeoutError
-        raise(ArgumentError, "#{@model.name} query needs a connection of its own, but the pool has only one, which " \
-                             "the caller holds: give the database a pool of two or more connections, such as " \
-                             "`max_connections: 2` (`pool: 2` before Active Record 8.1) in config/database.yml")
+        own = @model.with_connection(prevent_permanent_checkout: true) { |caller| source(caller).own_connection?(caller) }
+        return unless own
+
+        raise(ArgumentError, "#{display_name} needs a connection of its own, but the caller holds every connection of " \
+                             "its pool of #{pool.size}: give the database a pool of more connections, such as " \
+                             "`max_connections: #{pool.size + 1}` (`pool:` before Active Record 8.1) in " \
+                             "config/database.yml")
       end
+    end
+
+    # Returns [true|false] whether the caller holds every connection that the pool can hold: the connection that it
+    # leased, which `ActiveRecord::ConnectionAdapters::ConnectionPool#active_connection?` returns, and every other
+    # connection of the pool that the owner of that one owns, such as one that another read checked out while it
+    # yields its rows. A pool without a limit, whose size is nil, always has one more.
+    def held_by_caller?(pool)
+      leased = pool.active_connection?
+      return false unless leased && pool.size
+
+      owner = leased.owner
+      return false unless owner
+
+      pool.connections.count { |connection| connection.owner.equal?(owner) } >= pool.size
     end
 
     # Returns [Class] the source that reads a query as one query on the database of the connection, see SOURCES.
