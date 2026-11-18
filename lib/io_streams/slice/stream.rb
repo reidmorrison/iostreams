@@ -15,7 +15,8 @@ module IOStreams
     # are not checked, since a slice is only a part of one, see #tabular.
     #
     # The record numbers of the rows are those that the slice holds, see `IOStreams::Slice#record_number_at`: `resume_at:`
-    # names one of them, see #reader, and the slices read from it keep them, as they keep the line of each row.
+    # starts at the first of them at or after it, see #reader, and the slices read from it keep them, as they keep the
+    # line of each row.
     #
     # A slice holds rows, already split and decoded, rather than bytes, and is only read, see `IOStreams::Row::Stream`.
     class Stream < IOStreams::Row::Stream
@@ -42,8 +43,11 @@ module IOStreams
       # the one that a job saw when it stopped, rather than a count of the rows of the slice, so the rows are read from
       # that record on, see `IOStreams::Slice#from_record`, and the slices read from them keep their numbers.
       #
-      # Raises ArgumentError for a `resume_at` that is neither nil nor a positive Integer, and for one that the slice
-      # does not hold, other than the record after its last, which reads no rows, before any row is read.
+      # A record that the slice does not hold resumes at the first row after it, so one before its first row reads every
+      # row, and one after its last reads none.
+      #
+      # Raises ArgumentError for a `resume_at` that is neither nil nor a positive Integer, and for a slice with a row
+      # without a record number, before any row is read.
       def reader(mode = :stream, **args, &)
         resume_at = args[:resume_at]
         return super if resume_at.nil? || !RESUMABLE_MODES.include?(mode)
