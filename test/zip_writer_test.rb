@@ -17,6 +17,15 @@ class ZipWriterTest < Minitest::Test
       FileUtils.rm_rf(dir)
     end
 
+    # Returns [true|false] whether Ruby converts the encoding of the supplied text to UTF-8, which it does not for some,
+    # such as Windows-1258, until a release adds a converter.
+    def ruby_converts?(text)
+      Encoding::Converter.search_convpath(text.encoding, Encoding::UTF_8)
+      true
+    rescue Encoding::ConverterNotFoundError
+      false
+    end
+
     # Returns [Array<String>] the names of the entries within the zip file in the supplied data.
     def entry_names(data)
       names = []
@@ -92,6 +101,70 @@ class ZipWriterTest < Minitest::Test
 
           assert_equal expected, IOStreams::Zip::Writer.file_name_options(file_name), file_name.inspect
         end
+      end
+
+      it "is UTF-8 for a name in another encoding" do
+        {
+          "café.csv.zip"                                     => "café.csv",
+          "caf\xE9.csv.zip".dup.force_encoding("ISO-8859-1") => "café.csv",
+          "café.csv.zip".b                                   => "café.csv",
+          "a.csv.zip".dup.force_encoding("US-ASCII")         => "a.csv"
+        }.each_pair do |file_name, entry_file_name|
+          name = IOStreams::Zip::Writer.file_name_options(file_name)[:entry_file_name]
+
+          assert_equal entry_file_name, name, file_name.inspect
+          assert_equal Encoding::UTF_8, name.encoding, file_name.inspect
+        end
+      end
+
+      it "replaces each byte that is not valid in the encoding of the name" do
+        ["caf\xE9.csv.zip", "caf\xE9.csv.zip".b, "reports/caf\xE9.csv.zip.pgp"].each do |file_name|
+          name = IOStreams::Zip::Writer.file_name_options(file_name)[:entry_file_name]
+
+          assert_equal "caf\u{FFFD}.csv", name, file_name.inspect
+          assert_equal Encoding::UTF_8, name.encoding, file_name.inspect
+        end
+        assert_empty IOStreams::Zip::Writer.file_name_options("caf\xE9.csv")
+      end
+
+      it "keeps the ASCII characters of a name in an encoding that Ruby does not convert to UTF-8" do
+        file_name = "caf\xE9.csv.zip".dup.force_encoding("Windows-1258")
+        skip "Ruby converts Windows-1258 to UTF-8" if ruby_converts?(file_name)
+
+        name = IOStreams::Zip::Writer.file_name_options(file_name)[:entry_file_name]
+
+        assert_equal "caf\u{FFFD}.csv", name
+        assert_equal Encoding::UTF_8, name.encoding
+      end
+
+      it "replaces a sequence of bytes that is not valid with one U+FFFD" do
+        assert_equal({entry_file_name: "a\u{FFFD}.csv"}, IOStreams::Zip::Writer.file_name_options("a\xE2\x82.csv.zip"))
+      end
+
+      it "keeps the characters of a name in another encoding that UTF-8 has" do
+        {
+          "caf\xE9\x81.csv.zip".dup.force_encoding("Windows-1252")       => "café\u{FFFD}.csv",
+          "\x93\xFA\x96\x7B\xFF.csv.zip".dup.force_encoding("Shift_JIS") => "日本\u{FFFD}.csv"
+        }.each_pair do |file_name, entry_file_name|
+          name = IOStreams::Zip::Writer.file_name_options(file_name)[:entry_file_name]
+
+          assert_equal entry_file_name, name, file_name.inspect
+          assert_equal Encoding::UTF_8, name.encoding, file_name.inspect
+        end
+      end
+
+      it "writes the entry of a file name that is not valid UTF-8" do
+        output = StringIO.new("".b)
+        IOStreams.stream(output).file_name("caf\xE9.csv.zip").write("a,b\n")
+
+        assert_equal ["caf\u{FFFD}.csv".b], entry_names(output.string).map(&:b)
+      end
+
+      it "writes the entry of a file name in Latin-1 as UTF-8" do
+        output = StringIO.new("".b)
+        IOStreams.stream(output).file_name("caf\xE9.csv.zip".dup.force_encoding("ISO-8859-1")).write("a,b\n")
+
+        assert_equal ["café.csv".b], entry_names(output.string).map(&:b)
       end
 
       # CRuby 3.2 and later memoize a Regexp, so that this only fails on JRuby, whose Regexps do not, when the name is

@@ -21,6 +21,10 @@ module IOStreams
       # Returns [Hash] the options with the entry name within the zip defaulted to the name of the file
       # being written, without its directory or `.zip` extension, unless an entry name was supplied.
       # For example `"example.csv"` for `"reports/example.csv.zip.pgp"`.
+      #
+      # The entry is named in UTF-8, as a zip file names its entries, see .utf8_name: a file name in another
+      # encoding is converted, and the bytes of one that are not valid in its encoding, such as `caf\xE9.csv.zip`
+      # labeled as UTF-8, are replaced with U+FFFD, rather than writing bytes that a zip file says are UTF-8 and are not.
       def self.file_name_options(file_name, **options)
         return options if options[:entry_file_name]
 
@@ -34,15 +38,34 @@ module IOStreams
       #
       # Looks at each part of the name once, so that a long name does not take quadratic time, as a Regexp that
       # backtracks over each `.zip` in the name does where Ruby does not memoize it, such as on JRuby.
+      #
+      # A name that is not valid in its encoding is split by its bytes, see `Utils.matchable`.
       def self.entry_name(name)
-        parts = name.split(".", -1)
+        parts = Utils.matchable(name).split(".", -1)
         index = parts.rindex { |part| part.empty? || part.casecmp?("zip") }
         return unless index&.positive? && !parts[index].empty?
 
         entry_name = parts[0...index].join(".")
-        entry_name unless entry_name.empty?
+        return if entry_name.empty?
+
+        entry_name.force_encoding(name.encoding)
+        utf8_name(entry_name)
       end
       private_class_method :entry_name
+
+      # Returns [String] the supplied name in UTF-8, the encoding that a zip file names its entries in, since `zip_kit`
+      # writes the bytes of a name as UTF-8. U+FFFD replaces each sequence of bytes that is not valid in its encoding,
+      # and each character that UTF-8 does not have, so that only those are lost. A binary name is read as UTF-8.
+      # A name in an encoding that Ruby cannot convert to UTF-8, such as Windows-1258, keeps its ASCII
+      # characters, and U+FFFD replaces each of its other bytes.
+      def self.utf8_name(name)
+        return name.b.force_encoding(Encoding::UTF_8).scrub if [Encoding::UTF_8, Encoding::BINARY].include?(name.encoding)
+
+        name.encode(Encoding::UTF_8, invalid: :replace, undef: :replace)
+      rescue Encoding::ConverterNotFoundError
+        name.b.gsub(/[^\x00-\x7F]/n, "\u{FFFD}".b).force_encoding(Encoding::UTF_8)
+      end
+      private_class_method :utf8_name
 
       # Write a single file in Zip format to the supplied output stream
       #
