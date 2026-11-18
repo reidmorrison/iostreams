@@ -63,6 +63,29 @@ class SqliteStatementTest < Minitest::Test
         end
       end
 
+      it "reads a database that is not in WAL mode on the connection of the caller, also when it holds the only one" do
+        Dir.mktmpdir do |dir|
+          record = Class.new(ActiveRecord::Base) { self.abstract_class = true }
+          db.namespace.send(:remove_const, :JournalRecord) if db.namespace.const_defined?(:JournalRecord, false)
+          db.namespace.const_set(:JournalRecord, record)
+          record.establish_connection(adapter: "sqlite3", database: File.join(dir, "journal.sqlite3"), pool: 1,
+                                      checkout_timeout: 5, pragmas: {journal_mode: "delete"})
+          model = Class.new(record) { self.table_name = "items" }
+          names = []
+          started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+          model.with_connection do |connection|
+            connection.execute("CREATE TABLE items (id INTEGER PRIMARY KEY, name TEXT)")
+            connection.execute("INSERT INTO items (name) VALUES ('a'), ('b')")
+            IOStreams.stream(model.order(:id)).each(:hash) { |item| names << item["name"] }
+          end
+
+          assert_equal %w[a b], names
+          assert_operator Process.clock_gettime(Process::CLOCK_MONOTONIC) - started, :<, 2
+        ensure
+          record&.connection_pool&.disconnect!
+        end
+      end
+
       it "reads an in-memory database on the connection of the caller, without another, which would be a database of its own" do
         memory = QueryDatabase.memory
         memory.load

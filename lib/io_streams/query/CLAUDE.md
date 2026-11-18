@@ -25,9 +25,15 @@ and run `bundle exec rake llms_full`, when what a query does changes, and docs/e
   and a query that fails keeps an existing target. A relation is read on a connection of its own (`pool.checkout`), so
   the caller's block runs its own queries independently of the read, which reads what was committed rather than the
   caller's transaction. In Rails' transactional tests `checkout` returns the pinned connection, so the read sees the
-  fixtures. It reads on the caller's connection instead when Active Record cannot use another (an in-memory SQLite
-  database is a database of its own on each connection) or the source says it cannot (`.own_connection?`). A database
-  that no source in `SOURCES` reads raises, suggesting `in_batches`.
+  fixtures. When the caller holds every connection of the pool (`Query#held_by_caller?`: the leased connection's owner
+  owns `pool.size` of `pool.connections`, such as a lease plus an outer read's checkout), `Query#checkout` asks the pool
+  without waiting, which still returns a pinned connection, then finds the source on the caller's connection: it reads
+  there when `.own_connection?` says so (SQLite not in WAL), otherwise raises `ArgumentError`, since a timeout there is
+  tagged `Unavailable` and a retry would never end. This depends on the pool at run time, not the relation, so it is
+  raised at open, unlike the ArgumentErrors raised when the stream is created. A thread that took the only connection
+  with `pool.checkout` and no lease is not detected: Active Record's own `with_connection` waits there first. It reads on the caller's connection instead when Active Record cannot use another (an
+  in-memory SQLite database is a database of its own on each connection) or the source says it cannot
+  (`.own_connection?`). A database that no source in `SOURCES` reads raises, suggesting `in_batches`.
 - Rows are cast by position, so the names (or, on AR-JDBC, the number) of the result's columns are checked against
   the description before the reader is yielded. Batches are read on the caller's connection, each loaded whole.
 - The rows tag the failures of the database but never those of the block, and a second traversal continues where the

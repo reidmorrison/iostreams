@@ -200,8 +200,9 @@ module IOStreams
     # ends, so that the block that the rows are yielded to runs its own queries on the connection of the caller,
     # independently of the read, such as to update the rows that it reads, and the read sees what was committed, rather
     # than a transaction of the caller. So the pool needs a connection free besides that of the caller, otherwise it
-    # waits for one, and raises `ActiveRecord::ConnectionTimeoutError`, as Active Record does. In the transactional
-    # tests of Rails, the pool checks out the connection that the tests share, so the query reads their fixtures.
+    # waits for one, and raises `ActiveRecord::ConnectionTimeoutError`, as Active Record does, see #checkout. In the
+    # transactional tests of Rails, the pool checks out the connection that the tests share, so the query reads their
+    # fixtures.
     #
     # A database that cannot be read on a connection of its own is read on the connection of the caller instead, which
     # it borrows, see `with_connection`: one that Active Record cannot use on more than one connection at a time, such
@@ -210,16 +211,59 @@ module IOStreams
     def with_source
       if @model.with_connection(prevent_permanent_checkout: true, &:supports_concurrent_connections?)
         pool       = @model.connection_pool
-        connection = pool.checkout
-        begin
-          found = source(connection)
-          return yield(found, connection) if found.own_connection?(connection)
-        ensure
-          pool.checkin(connection)
+        connection = checkout(pool)
+        if connection
+          begin
+            found = source(connection)
+            return yield(found, connection) if found.own_connection?(connection)
+          ensure
+            pool.checkin(connection)
+          end
         end
       end
 
       @model.with_connection(prevent_permanent_checkout: true) { |connection| yield(source(connection), connection) }
+    end
+
+    # Returns [ActiveRecord::ConnectionAdapters::AbstractAdapter] a connection of the pool for the read, see #with_source,
+    # which waits for one to be free, and raises `ActiveRecord::ConnectionTimeoutError` when none is in time, which is
+    # tagged `IOStreams::Errors::Unavailable`, since another thread can check one in, so that a retry can succeed.
+    #
+    # When no connection can ever be free for the read, since the caller holds every connection of the pool, such as
+    # the only one, or the one that it leased and the one that another read of its own checked out, the pool is asked
+    # for one without waiting, since in the transactional tests of Rails it returns the connection that the tests
+    # share. Otherwise returns nil when the source reads the query on the connection of the caller anyway, such as a
+    # SQLite database that is not in WAL mode, and raises ArgumentError when it would read it on one of its own, or
+    # the ArgumentError of #source when no source reads the database, rather than wait for a timeout that a caller
+    # that retries what is unavailable would retry forever.
+    def checkout(pool)
+      return pool.checkout unless held_by_caller?(pool)
+
+      begin
+        pool.checkout(0)
+      rescue ::ActiveRecord::ConnectionTimeoutError
+        own = @model.with_connection(prevent_permanent_checkout: true) { |caller| source(caller).own_connection?(caller) }
+        return unless own
+
+        raise(ArgumentError, "#{display_name} needs a connection of its own, but the caller holds every connection of " \
+                             "its pool of #{pool.size}: give the database a pool of more connections, such as " \
+                             "`max_connections: #{pool.size + 1}` (`pool:` before Active Record 8.1) in " \
+                             "config/database.yml")
+      end
+    end
+
+    # Returns [true|false] whether the caller holds every connection that the pool can hold: the connection that it
+    # leased, which `ActiveRecord::ConnectionAdapters::ConnectionPool#active_connection?` returns, and every other
+    # connection of the pool that the owner of that one owns, such as one that another read checked out while it
+    # yields its rows. A pool without a limit, whose size is nil, always has one more.
+    def held_by_caller?(pool)
+      leased = pool.active_connection?
+      return false unless leased && pool.size
+
+      owner = leased.owner
+      return false unless owner
+
+      pool.connections.count { |connection| connection.owner.equal?(owner) } >= pool.size
     end
 
     # Returns [Class] the source that reads a query as one query on the database of the connection, see SOURCES.
