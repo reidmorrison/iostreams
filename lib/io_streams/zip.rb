@@ -61,5 +61,17 @@ module IOStreams
       text.encode(Encoding::UTF_8)
     end
     private_class_method :convert_entry_name
+
+    # Returns [Proc] that answers whether the name of a file that a zip file holds, as the library that reads it gives
+    # it, in any encoding, is the supplied name of the file to read, by its bytes or those of the name in UTF-8, see
+    # .utf8_entry_name, so that a name that is not ASCII finds the file whether the library gives its name as UTF-8 or
+    # as its bytes, as rubyzip does, and a name in another encoding finds it too. A name that is not a String, such as
+    # a Symbol, is read by its `to_s`, as rubyzip reads it. The bytes are found once, for each file that it is asked
+    # about.
+    def self.entry_name_matcher(name)
+      text  = name.to_s
+      names = [text.b, utf8_entry_name(text)&.b].compact.uniq
+      ->(held_name) { names.include?(held_name.b) }
+    end
   end
 end

@@ -119,9 +119,10 @@ module IOStreams
         # `file_name`, and named by its display `name`.
         def self.find_entry(zin, entry_file_name, file_name, name)
           entries = false
+          named   = Zip.entry_name_matcher(entry_file_name) unless entry_file_name.nil?
           while (entry = zin.get_next_entry)
             entries = true
-            return entry if !entry.directory? && (entry_file_name.nil? || entry.name == entry_file_name)
+            return entry if !entry.directory? && (named.nil? || named.call(entry.name))
           end
           raise(failure(Errors::Corrupt, "The file #{name} is not a zip file", name)) unless entries || empty_zip?(file_name)
 
@@ -190,11 +191,25 @@ module IOStreams
         end
 
         # Returns [Zip::Entry] the entry of the file to read, skipping any folders, or nil when there is none.
+        #
+        # rubyzip holds the name of each file as its bytes, unless the application sets
+        # `Zip.force_entry_names_encoding`, so a name that is not ASCII, which is UTF-8, does not find it with
+        # `Zip::File#find_entry`, and is compared with each name by its bytes instead, see
+        # `IOStreams::Zip.entry_name_matcher`, as is a name that `#find_entry` cannot look up, in an encoding that is not
+        # ASCII-compatible, such as UTF-16LE. `#find_entry` already looked up an ASCII name.
         def self.find_entry(zip_file, entry_file_name)
           return zip_file.find(&:file?) if entry_file_name.nil?
 
-          entry = zip_file.find_entry(entry_file_name)
-          entry if entry&.file?
+          # rubyzip raises Encoding::CompatibilityError for a name in an encoding that is not ASCII-compatible.
+          name = entry_file_name.to_s
+          if name.encoding.ascii_compatible?
+            entry = zip_file.find_entry(entry_file_name)
+            return entry if entry&.file?
+            return if name.ascii_only?
+          end
+
+          named = Zip.entry_name_matcher(entry_file_name)
+          zip_file.find { |zip_entry| zip_entry.file? && named.call(zip_entry.name) }
         end
 
         # Reads a file within a zip file from rubyzip a block at a time, like an IO, see `IOStreams::BlockReader`.
