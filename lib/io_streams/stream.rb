@@ -608,6 +608,27 @@ module IOStreams
       end
     end
 
+    # Returns [true|false] whether each row of this stream's format, see #format, is a line of text, which `each(:line)`
+    # reads and `writer(:line)` writes as it is, such as CSV, PSV, JSON, fixed width and `:text`, also over the CSV text
+    # of a spreadsheet: true without a format, since CSV is then read and written. False for a format whose rows are
+    # values, which are read and written with the `:hash` or `:array` mode, such as the Hashes of `:hash`, the Arrays of
+    # `:array`, and the rows of Parquet, which are not lines, and for a source of rows that are already split, such as
+    # a slice or a query, see `IOStreams.stream`, whose rows are read only as values.
+    #
+    # So that code that takes its format from configuration, or from the file name, can tell whether to hand the
+    # stream lines or values, without knowing the formats.
+    #
+    # Raises ArgumentError when the format that was set is not the format of the text of the stream closest to the
+    # application, such as `:json` for a spreadsheet, as reading or writing its rows would, see #format.
+    #
+    # Example:
+    #   IOStreams.path("people.csv").lines_of_text?                 # => true
+    #   IOStreams.path("people.parquet").lines_of_text?             # => false
+    #   IOStreams.path("people.csv").format(:hash).lines_of_text?   # => false
+    def lines_of_text?
+      IOStreams::Tabular.lines_of_text?(rows_format)
+    end
+
     # Set the tabular format, such as `:json`, or the name of one, such as "json", for a format held in configuration.
     #
     # Raises ArgumentError for a format that is not registered, see `IOStreams::Tabular.registered_formats`.

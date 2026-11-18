@@ -36,6 +36,12 @@ module IOStreams
         super
       end
 
+      # Returns [false] since the rows are already split, so they are read as values, in the `:array`, `:hash`, `:record`
+      # or `:slice` mode, never as lines, whatever their format, see #reader and `IOStreams::Stream#lines_of_text?`.
+      def lines_of_text?
+        false
+      end
+
       # Raises ArgumentError, since the rows are only read.
       def writer(*, **)
         raise(ArgumentError, read_only)
