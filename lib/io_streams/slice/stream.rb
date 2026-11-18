@@ -52,15 +52,6 @@ module IOStreams
         from_record(resume_at).reader(mode, **args.except(:resume_at), &)
       end
 
-      # Raises ArgumentError, rather than ignore a file name, whose format and streams, such as `.json` or `.gz`, have no
-      # effect on a slice, whose rows are already split and decoded in the format that it carries: set the format with
-      # #format instead. A slice has no file name, so `#file_name` without an argument returns nil, see
-      # `IOStreams::Stream#file_name`.
-      def file_name=(_file_name)
-        raise(ArgumentError, "A slice has no file name, since its rows are already split and decoded in the format " \
-                             "that it carries: set the format of its rows with #format instead, such as `format(:csv)`")
-      end
-
       protected
 
       # Holds the supplied slice as the rows that this stream reads, see #from_record.
@@ -80,6 +71,14 @@ module IOStreams
 
       def source_name
         "slice"
+      end
+
+      # Returns [String] why a slice has no file name, see `IOStreams::Row::WithoutBytes#file_name=`: its rows are
+      # already split and decoded, in the format that it carries, see #format, which can be set only for a slice that
+      # carries none.
+      def file_name_reason
+        "since its rows are already split and decoded, in the format that it carries: set the format with #format " \
+          "only for a slice that carries none, such as `format(:csv)`"
       end
 
       def rows_hint

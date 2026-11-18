@@ -3,9 +3,9 @@
 module IOStreams
   module Row
     # What a stream of rows, rather than of the bytes of a file, does with what only applies to bytes: the streams and
-    # options of #stream and #option, an encoding, and #raw, which raise ArgumentError, naming what the stream holds, see
-    # #source_name. Included by the stream of rows that were already read, see `IOStreams::Row::Stream`, and the stream
-    # of a target of slices, see `IOStreams::Slice::TargetStream`.
+    # options of #stream and #option, an encoding, #raw, and a file name, which raise ArgumentError, naming what the
+    # stream holds, see #source_name. Included by the stream of rows that were already read, see
+    # `IOStreams::Row::Stream`, and the stream of a target of slices, see `IOStreams::Slice::TargetStream`.
     module WithoutBytes
       # Returns [nil] without arguments, since no encoding is set, see `IOStreams::Stream#encoding`.
       #
@@ -27,11 +27,24 @@ module IOStreams
         reject_bytes!("#remove_from_pipeline")
       end
 
+      # Raises ArgumentError, rather than ignore a file name, whose format and streams, such as `.json` or `.gz`, have no
+      # effect on rows, saying why and what to do instead, see #file_name_reason, or FrozenError for a frozen stream. The
+      # stream has no file name, so `#file_name` without an argument returns nil, see `IOStreams::Stream#file_name`.
+      def file_name=(_file_name)
+        raise_if_frozen!
+        raise(ArgumentError, "A #{source_name} has no file name, #{file_name_reason}")
+      end
+
       private
 
       # Returns [String] what the stream holds, such as "slice", which the messages of the exceptions name.
       def source_name
         raise(NotImplementedError, "#{self.class.name} must implement #source_name")
+      end
+
+      # Returns [String] why the stream has no file name, and what to do instead, which the message of #file_name= gives.
+      def file_name_reason
+        raise(NotImplementedError, "#{self.class.name} must implement #file_name_reason")
       end
 
       # Raises ArgumentError for the streams and options of #stream, #option and #option_or_stream, including the

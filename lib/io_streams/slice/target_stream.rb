@@ -155,15 +155,6 @@ module IOStreams
         self
       end
 
-      # Raises ArgumentError, rather than ignore a file name, whose streams, such as `.gz` or `.pgp`, a store of slices
-      # does not apply, since it holds rows rather than bytes: set the format of the rows with #format instead, and
-      # compress or encrypt the slices where they are stored. A store has no file name, so `#file_name` without an
-      # argument returns nil, see `IOStreams::Stream#file_name`.
-      def file_name=(_file_name)
-        raise(ArgumentError, "A #{source_name} has no file name, since it holds slices of rows rather than bytes: set " \
-                             "the format of the rows with #format instead, such as `format(:csv)`")
-      end
-
       # Raises ArgumentError, since the store is only written.
       def reader(*, **)
         raise(ArgumentError, "A #{source_name} is only written: read the slices from the store itself")
@@ -487,6 +478,14 @@ module IOStreams
 
       def source_name
         "slice target"
+      end
+
+      # Returns [String] why a store of slices has no file name, see `IOStreams::Row::WithoutBytes#file_name=`: it holds
+      # rows rather than bytes, so it applies no streams, such as `.gz` or `.pgp`: set the format of the rows with #format
+      # instead, and compress or encrypt the slices where they are stored.
+      def file_name_reason
+        "since it holds slices of rows rather than bytes: set the format of the rows with #format instead, such as " \
+          "`format(:csv)`"
       end
 
       # Returns [String] the supplied modes, such as ":line, :array or :hash".
