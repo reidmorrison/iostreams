@@ -9,6 +9,13 @@ gem "minitest", "~> 6.0"
 gem "minitest-mock" # Extracted from minitest itself in v6.0.
 gem "rake"
 
+# Gems that the tests require themselves, rather than only through the gems that depend on them, such as
+# Active Support, so that the tests do not depend on what those gems happen to depend on.
+gem "base64" # Also required by symmetric-encryption, which does not list it.
+gem "logger"
+gem "prism" # To find the methods that set the state of a class, see test/class_state_writers.rb.
+gem "tzinfo" # Loaded by IOStreams::Schema::TimeZone for a named zone.
+
 # Gems used by the library.
 # These are not required for all features, so they are not listed in the gemspec dependencies.
 # Instead, they are soft dependencies that are only loaded when needed.
