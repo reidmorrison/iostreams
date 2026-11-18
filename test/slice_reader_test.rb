@@ -204,13 +204,17 @@ class SliceReaderTest < Minitest::Test
         assert_nil error.record_number
       end
 
-      it "raises InvalidHeader for a repeated key once, as the header row is read, whatever the rows" do
+      it "raises InvalidHeader for a repeated key as the header row is read, whatever the rows" do
         [{}, {resume_at: 2}, {validate: true}].each do |options|
           error = assert_raises(IOStreams::Errors::InvalidHeader) { slices(stream("a,A\n1,2\n3,4\n").format(:csv), size: 1, **options) }
 
           assert_match(/\AThe columns "a" and "A" are the same key, "a"/, error.message)
+          assert_equal 1, error.line_number
+          assert_nil error.record_number
         end
-        assert_raises(IOStreams::Errors::InvalidHeader) { slices(stream("\na,A\n").format(:csv), size: 1) }
+        error = assert_raises(IOStreams::Errors::InvalidHeader) { slices(stream("\na,A\n").format(:csv), size: 1) }
+
+        assert_equal 2, error.line_number
       end
 
       it "checks the keys as the header row is read, and not for any row after it" do
