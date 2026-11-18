@@ -114,7 +114,6 @@ class ZipReaderTest < Minitest::Test
         describe "of a zip file that another program named its files in" do
           # Writes a zip file that names its files by the supplied names, without flagging them as UTF-8.
           def write_unflagged(*names)
-            require "zip"
             ::Zip::OutputStream.open(zip_file_name) do |zip|
               names.each do |name|
                 zip.put_next_entry(name.b)
@@ -141,6 +140,66 @@ class ZipReaderTest < Minitest::Test
             write_unflagged("日本.csv")
 
             assert_equal "e697a5e69cac2e637376\n", IOStreams.path(zip_file_name).option(:zip, entry_file_name: "日本.csv").read
+          end
+
+          it "reads the file of the name, rather than one that has it by its bytes in ISO-8859-1" do
+            write_unflagged("caf\xE9.csv".b, "café.csv")
+
+            assert_equal "636166c3a92e637376\n", IOStreams.path(zip_file_name).option(:zip, entry_file_name: "café.csv").read
+            assert_equal "636166e92e637376\n", IOStreams.path(zip_file_name).option(:zip, entry_file_name: "caf\xE9.csv".b).read
+            assert_equal "636166c3a92e637376\n", IOStreams.path(zip_file_name).option(:zip, entry_file_name: "café.csv".encode("ISO-8859-1")).read
+            assert_equal "636166c3a92e637376\n", IOStreams.path(zip_file_name).option(:zip, entry_file_name: "café.csv".encode("Windows-1252")).read
+          end
+
+          it "reads a file named by the bytes of a name in another encoding than ISO-8859-1, by that name" do
+            write_unflagged("\x80.csv".b)
+
+            assert_equal "802e637376\n", IOStreams.path(zip_file_name).option(:zip, entry_file_name: "€.csv".encode("Windows-1252")).read
+          end
+
+          it "reads a file that has the name by the bytes that it was given, rather than by its bytes in ISO-8859-1" do
+            write_unflagged("caf\xE9.csv".b, "caf\x82.csv".b)
+
+            assert_equal "636166822e637376\n", IOStreams.path(zip_file_name).option(:zip, entry_file_name: "café.csv".encode("IBM437")).read
+          end
+
+          it "reads the first file that has the name by its bytes in ISO-8859-1, after the others and any folders" do
+            write_unflagged("dir/", "data.csv", "sub/", "caf\xE9.csv".b, "b\xE9.csv".b, "last.csv")
+
+            assert_equal "636166e92e637376\n", IOStreams.path(zip_file_name).option(:zip, entry_file_name: "café.csv").read
+            assert_equal "62e92e637376\n", IOStreams.path(zip_file_name).option(:zip, entry_file_name: "bé.csv").read
+          end
+
+          it "reads a file by a name that differs only in case, when rubyzip holds the names as text and ignores case" do
+            skip "JRuby reads zip files with java.util.zip" if defined?(JRuby)
+
+            write_unflagged("café.csv")
+            encoding = ::Zip.force_entry_names_encoding
+            case_insensitive = ::Zip.case_insensitive_match
+            begin
+              ::Zip.force_entry_names_encoding = "UTF-8"
+              ::Zip.case_insensitive_match = true
+
+              assert_equal "636166c3a92e637376\n", IOStreams.path(zip_file_name).option(:zip, entry_file_name: "CAFÉ.csv").read
+
+              write_unflagged("caf\xC9.csv".b)
+              ::Zip.force_entry_names_encoding = "Windows-1252"
+
+              assert_equal "636166c92e637376\n", IOStreams.path(zip_file_name).option(:zip, entry_file_name: "café.csv").read
+              assert_equal "636166c92e637376\n", IOStreams.path(zip_file_name).option(:zip, entry_file_name: "café.csv".encode("Windows-1252")).read
+            ensure
+              ::Zip.force_entry_names_encoding = encoding
+              ::Zip.case_insensitive_match = case_insensitive
+            end
+          end
+
+          it "does not read a file that is named in UTF-8 by the bytes of its name in ISO-8859-1" do
+            IOStreams.path(zip_file_name).option(:zip, entry_file_name: "café.csv").write("a,b\n")
+
+            error = assert_raises(IOStreams::Errors::StreamFailure) do
+              IOStreams.path(zip_file_name).option(:zip, entry_file_name: "caf\xE9.csv".b).read
+            end
+            assert_kind_of IOStreams::Errors::MissingEntry, error
           end
 
           it "does not read a file named in another encoding by a name that ISO-8859-1 does not hold" do
