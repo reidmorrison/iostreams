@@ -9735,6 +9735,15 @@ To keep code independent of where its files are stored:
   exception that one storage raises, such as `Errno::ENOENT`, see [Errors](errors).
 * Keep credentials in configuration too, for example the AWS environment variables or credential files for S3, the
   HMAC key of a root for Google Cloud Storage, see [Credentials](path#gcs-credentials), and the ssh config for SFTP.
+* Log or display a path with `#display_name`, which leaves out a user name, password or query that a url can hold.
+  For a pattern held in configuration, such as the files that `IOStreams.each_child` lists, use
+  `IOStreams.display_name`, which splits it as `IOStreams.each_child` does, since a url cannot hold some pattern
+  characters, such as braces:
+
+~~~ruby
+IOStreams.display_name("sftp://jack:secret@example.org/in/*.{csv,txt}")
+# => "sftp://example.org/in/*.{csv,txt}"
+~~~
 
 When an application uses several locations, [roots](#add_root) give them names, and each root can be set from
 configuration:

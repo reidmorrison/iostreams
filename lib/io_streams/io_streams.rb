@@ -271,16 +271,49 @@ module IOStreams
   # Raises ArgumentError for a pattern that is not a String, such as a Pathname, as `#each_child` of every path does,
   # see `IOStreams::Paths::Matcher.check_pattern`.
   def self.each_child(pattern, case_sensitive: false, directories: false, hidden: false, &)
-    # The directory before the first element with pattern characters is the path, such as `s3://bucket/data`
-    # for `s3://bucket/data/*.csv`, which lists the pattern within it. Only the path of a url holds the pattern, so that
-    # the `[` and `]` of an IPv6 host, a password or a query is not part of it, and the pattern is decoded like the rest
-    # of the path, see `IOStreams::Utils::URI.split`, once the matcher checks that the pattern is text, as every path does.
-    authority, name, query = Utils::URI.split(Paths::Matcher.check_pattern(pattern))
-    matcher   = Paths::Matcher.new(name, case_sensitive: case_sensitive, hidden: hidden)
-    directory = path("#{authority}#{matcher.directory}#{query}")
-    pattern   = authority.empty? ? matcher.pattern : Utils::URI.decode_path(matcher.pattern)
+    directory, pattern = split_pattern(pattern)
     directory.each_child(pattern, case_sensitive: case_sensitive, directories: directories, hidden: hidden, &)
   end
+
+  # Returns [String] the supplied path or pattern, such as one that `.each_child` lists, without any credentials, so
+  # that it can be logged or displayed, see `IOStreams::Path#display_name`: a user name, password or query in an SFTP
+  # or HTTP url is removed, and each byte that is not valid UTF-8 is shown as `\xHH`.
+  #
+  # A pattern is split as `.each_child` splits it, into the directory that is listed and the pattern matched within it,
+  # since a url cannot hold some pattern characters, such as the braces of `*.{csv,txt}`. Its directory is shown
+  # without credentials, followed by the pattern within it as the url writes it, still percent-encoded like the rest of
+  # the url, so that an encoded `?`, `#` or `/` in it does not read as a query, a fragment or another directory.
+  #
+  # Raises ArgumentError for a path or pattern that cannot be parsed or split, as `.each_child` raises for it, such as
+  # one that is not a String, or a url that is not valid, rather than display a name that could hold credentials. It
+  # does not check that the pattern can be listed, so it shows a pattern of a store that cannot list its files, such as
+  # HTTP.
+  #
+  # Example:
+  #   IOStreams.display_name("sftp://jack:secret@example.org/in/*.{csv,txt}")
+  #   # => "sftp://example.org/in/*.{csv,txt}"
+  def self.display_name(path_or_pattern)
+    directory, pattern = split_pattern(path_or_pattern, decode: false)
+    pattern            = Utils.display_text(pattern)
+    shown              = directory.display_name
+    return pattern if shown.empty?
+
+    "#{shown.chomp('/')}/#{pattern.delete_prefix('/')}"
+  end
+
+  # Returns [Array(IOStreams::Path, String)] the supplied pattern, see `.each_child`, split into the path of the
+  # directory before the first element with pattern characters, such as `s3://bucket/data` for
+  # `s3://bucket/data/*.csv`, and the pattern within it, which it lists. Only the path of a url holds the pattern, so
+  # that the `[` and `]` of an IPv6 host, a password or a query is not part of it, once the matcher checks that the
+  # pattern is text, as every path does. The pattern of a url is decoded like the rest of its path, see
+  # `IOStreams::Utils::URI.split`, unless `decode: false`, which returns it as the url writes it.
+  def self.split_pattern(pattern, decode: true)
+    authority, name, query = Utils::URI.split(Paths::Matcher.check_pattern(pattern))
+    matcher   = Paths::Matcher.new(name)
+    directory = path("#{authority}#{matcher.directory}#{query}")
+    [directory, authority.empty? || !decode ? matcher.pattern : Utils::URI.decode_path(matcher.pattern)]
+  end
+  private_class_method :split_pattern
 
   # Returns [IOStreams::Path] a copy of the default root path, or the named root path,
   # so that changing it does not change the root.
