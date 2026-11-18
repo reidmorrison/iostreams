@@ -720,6 +720,31 @@ class SliceTargetStreamTest < Minitest::Test
         assert_empty store.events
       end
 
+      it "is not called for two columns that are the same key once cleansed, which raise before the first slice" do
+        writes = {
+          array: ->(io) { io << %w[a A] << [1, 2] },
+          hash:  ->(io) { io << {"a" => 1, "A" => 2} },
+          line:  ->(io) { io << "a,A" << "1,2" }
+        }
+        writes.each_pair do |mode, write|
+          error = assert_raises(IOStreams::Errors::InvalidHeader) { stream.writer(mode) { |io| write.call(io) } }
+
+          assert_match(/\AThe columns "a" and "A" are the same key, "a"/, error.message)
+        end
+        error = assert_raises(IOStreams::Errors::InvalidHeader) do
+          IOStreams.stream(StringIO.new("Amount ($),Amount (€)\n1,2\n")).format(:csv).copy_to(store, mode: :line)
+        end
+
+        assert_match(/\AThe columns "Amount \(\$\)" and "Amount \(€\)" are the same key, "amount_"/, error.message)
+        assert_empty store.events
+      end
+
+      it "is called for a repeated key with a schema, which can name both columns" do
+        stream.schema("fields" => [{"name" => "a"}, {"name" => "a"}]).writer(:line) { |io| io << "a,A" << "1,2" }
+
+        assert_equal [[:header, %w[a A]], [:slice, %w[1,2]]], store.events
+      end
+
       it "is not called for a file without a header row" do
         stream.format(:json).writer(:hash) { |io| io << {"name" => "Jack"} }
 

@@ -18,9 +18,10 @@ module IOStreams
     #
     # The rows are rendered as lines in the format of the stream, by its schema, as they would be written to a file, and
     # then collected into slices, see `IOStreams::Slice::Collector`, so that the header row is matched to the fields of
-    # the schema, and raises `IOStreams::Errors::InvalidHeader` before the first slice is written to the store when they
-    # do not match, and each slice carries it. The last slice is written once the block finishes, or leaves early, such
-    # as with `break`, but not when it raises.
+    # the schema, or without a schema checked for two columns that are the same key once cleansed, and raises
+    # `IOStreams::Errors::InvalidHeader` before the first slice is written to the store when they do not match, and each
+    # slice carries it. The last slice is written once the block finishes, or leaves early, such as with `break`, but
+    # not when it raises.
     #
     # A store holds slices rather than bytes, so the `:stream` mode, the streams and options of #stream and #option, an
     # encoding, or an option of #encoding other than `replace:` and `cleaner:`, and #raw raise ArgumentError, see

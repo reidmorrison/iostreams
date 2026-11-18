@@ -28,8 +28,9 @@ module IOStreams
     # * Cleanses the columns of the header row, `#cleanse_header!`, without a schema, whose fields name the keys of the
     #   records read instead.
     # * Checks the keys of the first record of a file whose rows are handed on without being parsed, `#check_keys`, see
-    #   `IOStreams::Tabular#read_line`, and answers whether nothing names the columns of its rows, `#unnamed_columns?`,
-    #   see `IOStreams::Tabular#unnamed_columns?`.
+    #   `IOStreams::Tabular#read_line`, and that the columns of its header row are different keys, `#check_header_keys`,
+    #   and answers whether nothing names the columns of its rows, `#unnamed_columns?`, see
+    #   `IOStreams::Tabular#unnamed_columns?`.
     # * Answers the schema that the file declares by the first row that its rows start with, `#declared_schema`, see
     #   `IOStreams::Tabular#declared_schema`, and the error of each value of a bad row, `#value_errors`.
     #
@@ -150,6 +151,15 @@ module IOStreams
       # `IOStreams::Tabular#read_line`: nothing, since without a schema the keys of each record are its columns. A
       # schema matches them to its fields, see `IOStreams::Tabular::SchemaMapping#check_keys`.
       def check_keys(_line)
+        nil
+      end
+
+      # Checks that the records of the header row read could be keyed, for a file whose rows are handed on without being
+      # parsed, see `IOStreams::Tabular#check_header_keys`: nothing, since the fields of a schema, which
+      # `IOStreams::Tabular::SchemaMapping` has matched the header row to, name the keys of the records, and may be two
+      # fields of the same name, for rows read in order. Without a schema, see
+      # `IOStreams::Tabular::HeaderMapping#check_header_keys`.
+      def check_header_keys
         nil
       end
 

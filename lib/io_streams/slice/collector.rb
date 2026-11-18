@@ -8,10 +8,12 @@ module IOStreams
     #
     # The tabular reads the header row, and decides which row it is, see `IOStreams::Tabular#read_line`, so that the
     # header row is matched to the fields of the schema, and raises `IOStreams::Errors::InvalidHeader` when they do not
-    # match, before the first slice is handed on. It is not a row of any slice: each slice carries it instead, see
-    # `IOStreams::Slice#header`, with the format of the rows, whether their blank rows are records, and whether their
-    # values are the cells of a source of typed values, which the tabular says, see `IOStreams::Tabular#blank_rows?` and
-    # `IOStreams::Tabular#cell_text?`.
+    # match, before the first slice is handed on. Without a schema, the header row is checked once, as it is read, for
+    # two columns that are the same key once cleansed, which a job that reads a slice by its records could not read,
+    # see `IOStreams::Tabular#check_header_keys`, and raises `IOStreams::Errors::InvalidHeader` too. It is not a row of
+    # any slice: each slice carries it instead, see `IOStreams::Slice#header`, with the format of the rows, whether their
+    # blank rows are records, and whether their values are the cells of a source of typed values, which the tabular
+    # says, see `IOStreams::Tabular#blank_rows?` and `IOStreams::Tabular#cell_text?`.
     #
     # Each slice also holds the numbers of each of its rows, see `IOStreams::Slice#each`: the line of the file that it
     # starts on, which whoever adds the rows supplies when it knows it, and its record number, which whoever adds the
@@ -165,6 +167,8 @@ module IOStreams
         begin
           # The line as the tabular hands it on, or nil for the header row, which it reads instead. A line is never nil.
           text = @tabular.read_line(line) { |row_text| row_text }
+          # Once, as the header row is read, before the first slice, rather than in each job that reads a slice.
+          @tabular.check_header_keys if header_row
         rescue IOStreams::Errors::RowError => e
           # Rescued here, rather than in `IOStreams::Row::Locator.locate`, whose block would cost each row more.
           raise e.at(line_number: line_number, record_number: (number unless header_row))

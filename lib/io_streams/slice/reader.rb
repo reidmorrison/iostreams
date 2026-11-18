@@ -6,8 +6,9 @@ module IOStreams
     # `#reader(:slice)`, which create it with the rows of the file and the tabular of the stream.
     #
     # The tabular reads the header row, and decides which row it is, see `IOStreams::Tabular#read_line`, so that the
-    # header row is matched to the fields of the schema, and raises `IOStreams::Errors::InvalidHeader` when they do not
-    # match, before the first slice is yielded. It is not a row of any slice: each slice carries it instead, see
+    # header row is matched to the fields of the schema, or without a schema checked for two columns that are the same
+    # key once cleansed, see `IOStreams::Slice::Collector`, and raises `IOStreams::Errors::InvalidHeader` when they do
+    # not match, before the first slice is yielded. It is not a row of any slice: each slice carries it instead, see
     # `IOStreams::Slice#header`, with the format of the rows and whether their blank rows are records, which the tabular
     # says, see `IOStreams::Tabular#blank_rows?`, and the line number and record number of each row, see
     # `IOStreams::Slice#each`.

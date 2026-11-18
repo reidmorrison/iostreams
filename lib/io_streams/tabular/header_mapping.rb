@@ -98,6 +98,17 @@ module IOStreams
         !@requires_header && !@keyed
       end
 
+      # Checks that no two columns of the header row read are the same key once cleansed, see
+      # `IOStreams::Tabular#check_header_keys`, once the header row has been read, so that a record of the rows can hold
+      # each one. Does nothing until then, or for a file without a header row, such as JSON, whose keys are not cleansed.
+      #
+      # Raises `IOStreams::Errors::InvalidHeader` for two columns that are the same key, such as `a` and `A`, see
+      # `IOStreams::Tabular::Header#record_columns`, which keeps the keys, so that the check is made once per file.
+      def check_header_keys
+        header.record_columns if @requires_header && !header?
+        nil
+      end
+
       # Returns [IOStreams::Schema] the schema that the file declares by the supplied first row that its rows start with,
       # its header row as read, or the keys of the first record of a format of keyed records, or nil for a file without
       # rows, see `IOStreams::Tabular#declared_schema`: a field for each key of the records that #record_parse reads,
