@@ -31,9 +31,12 @@ module IOStreams
     WARNING = /\A(?:.+:\d+: warning: )?#{Regexp.escape(PREFIX)}/
     private_constant :WARNING
 
-    # The start of the paths of the code of Ruby itself, rather than of a file of it: the core methods that CRuby
-    # writes in Ruby, such as `Kernel#tap`, and the standard library of JRuby, when it is loaded from its jar.
-    RUBY_PATHS = ["<internal:", "uri:classloader:"].freeze
+    # The start of the paths of the code of Ruby itself, rather than of a file of it: the core methods that CRuby and
+    # JRuby write in Ruby, such as `Kernel#tap`, whose paths start with `<internal:`, and the other Ruby code of JRuby
+    # in its jar, which is under `/jruby/`, such as the `java_import` that calls a block, and under its home,
+    # `/META-INF/jruby.home/`, such as its standard library, when it is loaded from its jar. Only those folders of the
+    # jar, since an application packaged in a jar, such as with Warbler, is loaded from it too.
+    RUBY_PATHS = ["<internal:", "uri:classloader:/jruby/", "uri:classloader:/META-INF/jruby.home/"].freeze
     private_constant :RUBY_PATHS
 
     # The directory of the standard library of Ruby.

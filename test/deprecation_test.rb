@@ -43,7 +43,8 @@ class DeprecationTest < Minitest::Test
     "a core method of CRuby written in Ruby"   => "<internal:deprecation_test>",
     "a core method of JRuby"                   => "org/jruby/DeprecationTest.java",
     "the standard library"                     => File.join(RbConfig::CONFIG["rubylibdir"], "deprecation_test.rb"),
-    "the standard library in the jar of JRuby" => "uri:classloader:/META-INF/jruby.home/lib/ruby/stdlib/deprecation_test.rb"
+    "the standard library in the jar of JRuby" => "uri:classloader:/META-INF/jruby.home/lib/ruby/stdlib/deprecation_test.rb",
+    "the Ruby code of JRuby in its jar"        => "uri:classloader:/jruby/java/core_ext/object.rb"
   }.freeze
 
   # The name of a file of a gem.
@@ -133,6 +134,14 @@ class DeprecationTest < Minitest::Test
       it "names the line of a gem that called IOStreams" do
         code = DeprecationTest.code_in(GEM_FILE, "def self.call(message) = DeprecationTest::LIBRARY_CALLER.call(message)")
         assert_deprecated(/\A#{Regexp.escape(GEM_FILE)}:1: warning: IOStreams: old is deprecated\n\z/) do
+          code.call("old is deprecated")
+        end
+      end
+
+      it "names the line of an application that JRuby loads from a jar" do
+        file = "uri:classloader:/app/models/user.rb"
+        code = DeprecationTest.code_in(file, "def self.call(message) = DeprecationTest::LIBRARY_CALLER.call(message)")
+        assert_deprecated(/\A#{Regexp.escape(file)}:1: warning: IOStreams: old is deprecated\n\z/) do
           code.call("old is deprecated")
         end
       end
