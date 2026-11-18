@@ -895,6 +895,19 @@ class SliceTest < Minitest::Test
         assert_empty records.with_rows
       end
 
+      it "numbers the rows from the supplied numbers of the first row" do
+        copy = records.with_rows([%w[Jill 22], %w[Bob 30]], line_number: 7, record_number: 501)
+
+        assert_equal [[%w[Jill 22], 7, 501], [%w[Bob 30], 8, 502]], copy.each.to_a
+        assert_equal [[%w[Bob 30], 8, 502]], copy.from_record(502).each.to_a
+      end
+
+      it "raises for numbers that are not positive Integers, or for a slice without rows" do
+        assert_raises(ArgumentError) { records.with_rows([%w[Jill 22]], record_number: 0) }
+        assert_raises(ArgumentError) { records.with_rows([%w[Jill 22]], line_number: "7") }
+        assert_raises(ArgumentError) { records.with_rows(record_number: 501) }
+      end
+
       it "raises when the rows are not an Array" do
         assert_raises(ArgumentError) { records.with_rows("Jill,22") }
       end
@@ -1484,12 +1497,16 @@ class SliceTest < Minitest::Test
           assert_equal [["e", 6, 4]], numbered.freeze.from_record(4).each.to_a
         end
 
-        it "raises for a record that it does not hold, or one that is not an Integer" do
-          error = assert_raises(ArgumentError) { numbered.from_record(6) }
-          assert_equal "The slice holds records 1 to 4, so it cannot start from record 6: supply one of them, or 5, " \
-                       "after its last", error.message
+        it "raises for a record number that is not a positive Integer" do
           assert_raises(ArgumentError) { numbered.from_record(0) }
           assert_raises(ArgumentError) { numbered.from_record("3") }
+        end
+
+        it "returns none from a record after the record after its last" do
+          rest = numbered.from_record(100)
+
+          assert_empty rest
+          assert_equal %w[name], rest.header
         end
 
         it "returns a slice without rows for a slice without rows, which has none to skip" do
@@ -1501,14 +1518,14 @@ class SliceTest < Minitest::Test
           refute_same empty, rest
         end
 
-        it "raises for a record before its first or after the record after its last, also once those rows are removed" do
+        it "starts from the rows that are left once its first or last rows are removed" do
           numbered.delete_at(0)
           numbered.delete_at(-1)
 
+          assert_equal [[%("b\nc"), 3, 2], ["d", 5, 3]], numbered.from_record(1).each.to_a
           assert_equal [["d", 5, 3]], numbered.from_record(3).each.to_a
           assert_empty numbered.from_record(4)
-          assert_raises(ArgumentError) { numbered.from_record(1) }
-          assert_raises(ArgumentError) { numbered.from_record(5) }
+          assert_empty numbered.from_record(5)
         end
 
         it "raises for a slice with a row without a record number" do

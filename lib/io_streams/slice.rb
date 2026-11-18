@@ -531,18 +531,26 @@ module IOStreams
       rest
     end
 
-    # Returns [IOStreams::Slice] a new slice of the supplied rows, without numbers, described as this slice is: with its
-    # header row, its format, whether its blank rows are records, see #blank_rows?, whether its values are the cells of a
-    # source of typed values, see #cell_text?, and whether its values are those of
-    # the fields of a schema, see #schema, such as when its rows are replaced by others in the same form, so that a
-    # caller does not need to know what a slice holds to copy it. This slice is left as it is.
+    # Returns [IOStreams::Slice] a new slice of the supplied rows, described as this slice is: with its header row, its
+    # format, whether its blank rows are records, see #blank_rows?, whether its values are the cells of a source of typed
+    # values, see #cell_text?, and whether its values are those of the fields of a schema, see #schema, such as when its
+    # rows are replaced by others in the same form, so that a caller does not need to know what a slice holds to copy
+    # it. This slice is left as it is.
     #
     #   slice.with_rows(slice.rows.reject { |row| row.nil? })
     #
-    # Raises ArgumentError when the rows are not an Array, or for a row that the format does not read, see #add.
-    def with_rows(rows = [])
+    # The rows have no numbers, unless they are supplied, as for `IOStreams::Slice.new`: the line and record number of
+    # the first row, each row after it numbered as the next line and the next record, so that they can be found and
+    # resumed at by their numbers, see #from_record. Only rows that follow one another are numbered so: to correct the
+    # rows of a slice and keep the numbers of each, such as once a row was removed, replace them with #[]=.
+    #
+    #   slice.with_rows(rows, line_number: 502, record_number: 501)
+    #
+    # Raises ArgumentError when the rows are not an Array, for a row that the format does not read, see #add, and for a
+    # line number or record number that is not a positive Integer, nor nil, or for one without rows.
+    def with_rows(rows = [], line_number: nil, record_number: nil)
       self.class.new(rows, header: header, format: format, blank_rows: blank_rows?, cell_text: cell_text?,
-                           schema: schema)
+                           schema: schema, line_number: line_number, record_number: record_number)
     end
 
     # Returns [IOStreams::Slice] a new slice of the rows from the record of the supplied number on, which keep their
@@ -552,16 +560,16 @@ module IOStreams
     #
     #   slice.from_record(502).each { |row, line_number, record_number| process(row) }
     #
-    # It starts with the first row whose record number is the one supplied or later, so a record between its first and
-    # last that the slice no longer holds, such as one removed with #delete_at, starts with the row after it. The record
-    # after its last is the record after its rows, so it gives a slice without rows, such as for a job that stopped once
-    # it had processed the last row, as does a slice without rows, which has none to skip.
+    # It starts with the first row whose record number is the one supplied or later, so a record that the slice no longer
+    # holds, such as one removed with #delete_at, starts with the row after it: a record before its first row gives
+    # every row, and a record after its last gives a slice without rows, such as for a job that stopped once it had
+    # processed the last row, as does a slice without rows, which has none to skip. A slice holds only the numbers of
+    # its rows, so it cannot tell a record that it no longer holds from one that it never held, such as the cursor of
+    # another slice: keep the record number with the slice that it came from.
     #
-    # Raises ArgumentError for a record number that is not a positive Integer, or one before its first record or after
-    # the record after its last, such as the position of a row within it, or the cursor of another slice, whose rows it
-    # would skip. A slice holds only the numbers of its rows, so once its first or last rows are removed, it starts from
-    # a record that it still holds. Also raises for a slice with a row without a record number, see #add, since it
-    # cannot tell which records that row comes between.
+    # Raises ArgumentError for a record number that is not a positive Integer, and for a slice with a row without a
+    # record number, see #add, since it cannot tell which records that row comes between: number such rows when they
+    # are added, see #with_rows.
     def from_record(record_number)
       unless record_number.is_a?(::Integer) && record_number.positive?
         raise(ArgumentError, "The record number to start a slice from must be a positive Integer: " \
@@ -569,15 +577,8 @@ module IOStreams
       end
 
       numbers = numbered_rows.map(&:last)
-      return drop(0) if numbers.empty?
       if numbers.include?(nil)
         raise(ArgumentError, "A row of the slice has no record number, so it cannot start from record #{record_number}")
-      end
-
-      first, last = numbers.minmax
-      unless record_number.between?(first, last + 1)
-        raise(ArgumentError, "The slice holds records #{first} to #{last}, so it cannot start from record " \
-                             "#{record_number}: supply one of them, or #{last + 1}, after its last")
       end
 
       drop(numbers.index { |number| number >= record_number } || numbers.size)

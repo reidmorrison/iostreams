@@ -147,15 +147,13 @@ class ResumeAtTest < Minitest::Test
         assert_equal [%w[name age]], read(IOStreams.stream(slice), :array, resume_at: 504)
       end
 
-      it "raises for a record that it does not hold, such as the position of a row, before reading it" do
-        message = "The slice holds records 501 to 503, so it cannot start from record %d: supply one of them, or " \
-                  "504, after its last"
+      it "reads every row from a record before its first, and none from one after the record after its last" do
+        every = [{"name" => "Ann", "age" => "24"}, {"name" => "Bob", "age" => "25"}, {"name" => "Cy", "age" => "26"}]
 
-        [2, 500, 505].each do |record|
-          error = assert_raises(ArgumentError) { read(IOStreams.stream(slice), :hash, resume_at: record) }
-
-          assert_equal format(message, record), error.message
-        end
+        assert_equal every, read(IOStreams.stream(slice), :hash, resume_at: 2)
+        assert_equal every, read(IOStreams.stream(slice), :hash, resume_at: 500)
+        assert_empty read(IOStreams.stream(slice), :hash, resume_at: 505)
+        assert_equal [%w[name age]], read(IOStreams.stream(slice), :array, resume_at: 505)
       end
 
       it "resumes at the next row for a record that it no longer holds" do
@@ -170,12 +168,18 @@ class ResumeAtTest < Minitest::Test
         assert_equal [{"name" => "Cy", "age" => 26}], read(IOStreams.stream(slice).schema(typed), :hash, resume_at: 503)
       end
 
-      it "raises for a record before its first row once that row is removed, since it holds only its own numbers" do
+      it "resumes at the rows that are left once the record and those before it are removed" do
         slice.delete_at(0)
 
-        assert_raises(ArgumentError) { read(IOStreams.stream(slice), :hash, resume_at: 501) }
         assert_equal [{"name" => "Bob", "age" => "25"}, {"name" => "Cy", "age" => "26"}],
-                     read(IOStreams.stream(slice), :hash, resume_at: 502)
+                     read(IOStreams.stream(slice), :hash, resume_at: 501)
+      end
+
+      it "reads no rows once the record and those after it are removed" do
+        slice.delete_at(2)
+        slice.delete_at(1)
+
+        assert_empty read(IOStreams.stream(slice), :hash, resume_at: 503)
       end
 
       it "reads no rows of a slice without rows, which has none to skip" do
@@ -189,6 +193,13 @@ class ResumeAtTest < Minitest::Test
         unnumbered = IOStreams::Slice.new(%w[Ann,24], header: %w[name age], format: :csv)
 
         assert_raises(ArgumentError) { read(IOStreams.stream(unnumbered), :hash, resume_at: 1) }
+      end
+
+      it "resumes at the record numbers of rows that replace those of the slice" do
+        corrected = slice.with_rows(%w[Ann,34 Bob,35 Cy,36], record_number: slice.record_number)
+
+        assert_equal [{"name" => "Bob", "age" => "35"}, {"name" => "Cy", "age" => "36"}],
+                     read(IOStreams.stream(corrected), :hash, resume_at: 502)
       end
     end
 

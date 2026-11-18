@@ -240,13 +240,13 @@ end
 * `each_with_numbers` yields the record number of each record from `resume_at` on, see
   [Row and record numbers](#row-and-record-numbers). Each slice holds the line and record number of each of its rows in
   the file, see [Find a row in the file](background_jobs#find-a-row-in-the-file).
-* A slice resumes at a record number that it holds, as `slice.each` gives them, such as
+* A slice resumes at a record number of its rows, as `slice.each` gives them, such as
   `IOStreams.stream(slice).each(:hash, resume_at: 502)` for a slice of records 501 to 600, or at the record after its
-  last, which reads no rows. A record between its first and last that it no longer holds, such as one removed with
-  `slice.delete_at`, resumes at the row after it, and a slice without rows reads none. A record before its first row,
-  such as the position of a row within it, or after the record after its last, raises `ArgumentError`, so that a cursor
-  of another slice cannot skip its rows, also once its first or last rows were removed, since a slice holds only the
-  numbers of its rows. The slices read from it keep the line and record number of each row.
+  last, which reads no rows. A record that it does not hold, such as one removed with `slice.delete_at`, resumes at the
+  first row after it, so a record before its first row reads every row, and one after its last reads none, as does a
+  slice without rows. A slice holds only the numbers of its rows, so keep the cursor with the slice that it came from,
+  not the position of a row within it. A slice with a row without a record number raises `ArgumentError`. The slices
+  read from it keep the line and record number of each row.
 * A copy reads every record, so `#copy_from` and `#writer` raise `ArgumentError` for `resume_at:`, which only applies
   when reading, and a `resume_at` that is neither `nil` nor a positive Integer raises `ArgumentError` before the file
   is opened.

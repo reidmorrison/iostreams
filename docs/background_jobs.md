@@ -149,7 +149,9 @@ slice.to_h
   while a Symbol, and each key of a Hash, also within a Hash or an Array, is held as its text, and so does a value of
   a column that the schema does not list, such as one kept with `extraColumns: "keep"`. To replace the rows of a
   slice with others in the same form, `slice.with_rows(rows)` returns a new slice that keeps everything else that the
-  slice says.
+  slice says, and `slice.with_rows(rows, line_number: 502, record_number: 501)` numbers them from those of the first
+  row, each row after it as the next line and record, so that a job can resume at them by record number. To correct
+  rows and keep the numbers of each, such as once a row was removed, replace them one by one with `slice[index] = row`.
 * The slices of an Excel spreadsheet hold `"cell_text" => true`, those of its cells from `each(:slice)`, and those of
   its CSV text from `copy_from(path, mode: :line)`, since they hold each number, date and boolean cell as its default
   text, such as `1234.5`, rather than the text of a file that a schema describes, such as `1.234,5`.
@@ -365,10 +367,9 @@ end
 * A query is read again from its start too, so give the relation an order, such as `order(:id)`, so that its rows come
   back in the same order each time, and the rows skipped are those that were processed.
 * The job of one slice resumes the same way, with `IOStreams.stream(slice).each(:hash, resume_at: cursor)`, where the
-  cursor is one of the record numbers that the slice holds, as `slice.each` gives them, or the one after its last. A
-  record before its first row or after the one after its last raises `ArgumentError`, so that a cursor from another
-  slice cannot skip its rows. A slice holds only the numbers of its rows, so once a job removes its first or last rows,
-  it resumes at a record that the slice still holds.
+  cursor is a record number of the slice, as `slice.each` gives them, or the one after its last. It resumes at the
+  first row at or after the cursor, so once the row of the cursor is removed it resumes at the row after it, also when
+  that row was the first or the last. A slice holds only the numbers of its rows, so keep the cursor with its slice.
 
 The job queue decides when to save the cursor, and when to stop the job, so each one is written a little differently.
 
@@ -611,7 +612,8 @@ that it processed before it failed. The same applies to a job that resumes, whic
 processed after it last saved its cursor.
 
 To process again only the rows from the one that failed, such as once its data is corrected, resume the slice at the
-record number of that row, which the job reported, see [Find a row in the file](#find-a-row-in-the-file):
+record number of that row, which the job reported, see [Find a row in the file](#find-a-row-in-the-file). When the row
+is removed rather than corrected, such as with `slice.delete_at`, the slice resumes at the row after it:
 
 ~~~ruby
 IOStreams.stream(slice).as(PersonContract).each(:hash, resume_at: failed_record_number) do |person|
@@ -807,9 +809,8 @@ A slice holds its rows, and is responsible for them and their numbers, so it is 
   that are left keep their numbers.
 * `slice.drop(count)` returns a new slice of the rows after the first `count`, with their numbers, such as the rows
   still to be processed once the first ones were, and leaves the slice as it is. `slice.from_record(record_number)`
-  returns the rows from a record that the slice holds, or from the row after a record between its first and last that
-  it no longer holds, or none from the record after its last, or of a slice without rows, and raises `ArgumentError`
-  for a record before its first row or after the one after its last.
+  returns the rows from the first record at or after it, so every row for a record before its first row and none for
+  a record after its last, and raises `ArgumentError` when a row has no record number.
 * Slices are equal when they hold the same rows, with the same numbers, header row and format.
 * `slice.to_json` writes the Hash that `slice.to_h` returns, which `IOStreams.slice(JSON.parse(json))` turns back into
   the slice. `slice.to_json` and `slice.as_json` raise `IOStreams::Errors::InvalidValue` for a `Float` that is not
