@@ -73,6 +73,14 @@ module IOStreams
         "slice"
       end
 
+      # Returns [String] why a slice has no file name, see `IOStreams::Row::WithoutBytes#file_name=`: its rows are
+      # already split and decoded, in the format that it carries, see #format, which can be set only for a slice that
+      # carries none.
+      def file_name_reason
+        "since its rows are already split and decoded, in the format that it carries: set the format with #format " \
+          "only for a slice that carries none, such as `format(:csv)`"
+      end
+
       def rows_hint
         "iterate the slice for its rows as they are"
       end

@@ -32,14 +32,6 @@ module IOStreams
         "#<#{self.class.name} #{io_stream.inspect}>"
       end
 
-      # Raises ArgumentError, rather than ignore a file name, which has no effect on a query, whose rows are always in the
-      # `:array` format, see #format: name the file of the target instead. A query has no file name, so `#file_name`
-      # without an argument returns nil, see `IOStreams::Stream#file_name`.
-      def file_name=(_file_name)
-        raise(ArgumentError, "A query has no file name, since its rows are always in the :array format: name the file " \
-                             "that its rows are copied to instead, such as with `copy_to(\"orders.csv\", mode: :hash)`")
-      end
-
       private
 
       # Returns [IOStreams::Schema] the schema that the columns of the query declare, see `IOStreams::Stream#infer_schema`,
@@ -70,6 +62,13 @@ module IOStreams
 
       def source_name
         "query"
+      end
+
+      # Returns [String] why a query has no file name, see `IOStreams::Row::WithoutBytes#file_name=`: its rows are always
+      # in the `:array` format, see #format, so name the file of the target instead.
+      def file_name_reason
+        "since its rows are always in the :array format: name the file that its rows are copied to instead, such as " \
+          "with `copy_to(\"orders.csv\", mode: :hash)`"
       end
 
       # Returns [IOStreams::Schema] the schema of the columns of the query, see #declared_schema, which each slice of its

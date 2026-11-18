@@ -849,7 +849,8 @@ does not have:
   and the slices read from a slice keep the line and record number of each of its rows.
 * The `:stream` and `:line` modes, `#read`, `#stream`, `#option`, `#encoding` and `#raw` raise `ArgumentError`, since
   the rows of a slice are already split and decoded. Read them from the slice itself, with `slice.each` or
-  `slice.rows`, for its rows as they are in the file.
+  `slice.rows`, for its rows as they are in the file. So does setting a file name, since the rows are in the format
+  that the slice carries, see `#format`.
 * A slice is only read, so `#writer`, `#write` and `#copy_from` raise `ArgumentError`. Copy its records to a file with
   `copy_to(path, mode: :hash)`.
 

@@ -584,6 +584,20 @@ class SliceStreamTest < Minitest::Test
         assert_empty stream.pipeline
       end
 
+      it "raises for a file name, whose format and streams have no effect on the rows of a slice" do
+        error = assert_raises(ArgumentError) { stream.file_name("people.json") }
+        assert_equal "A slice has no file name, since its rows are already split and decoded, in the format that it " \
+                     "carries: set the format with #format only for a slice that carries none, such as `format(:csv)`",
+                     error.message
+        assert_raises(ArgumentError) { stream.file_name("people.csv.gz") }
+        assert_raises(ArgumentError) { stream.file_name("people.csv") }
+        assert_raises(ArgumentError) { stream.file_name = "people.csv" }
+        assert_raises(ArgumentError) { stream.file_name(nil) }
+        assert_nil stream.file_name
+        assert_equal [{"age" => "21", "name" => "Jack"}, {"age" => "22", "name" => "Jill"}], each(stream)
+        assert_raises(FrozenError) { IOStreams.stream(slice).freeze.file_name("people.json") }
+      end
+
       it "raises for the options of lines, since the rows of a slice are already split" do
         error = assert_raises(ArgumentError) { each(stream, :hash, delimiter: "|", buffer_size: 10) }
         assert_equal "delimiter:, buffer_size: cannot be used to read a slice, whose rows are already split", error.message
