@@ -111,22 +111,7 @@ module IOStreams
       # Raises ArgumentError for anything else, such as a record of a contract, or for a Hash or a schema that is not a
       # valid contract, such as one that lays out a file.
       def contract=(contract)
-        @contract =
-          case contract
-          when nil then nil
-          when ::Hash, IOStreams::Schema then IOStreams::Contract.new(contract)
-          when Class
-            unless contract < IOStreams::Contract
-              raise(ArgumentError, "A contract must be a subclass of IOStreams::Contract, a Hash or an IOStreams::Schema: " \
-                                   "#{contract.inspect}")
-            end
-
-            contract.schema
-            contract
-          else
-            raise(ArgumentError, "A contract must be a subclass of IOStreams::Contract, a Hash or an IOStreams::Schema, " \
-                                 "rather than #{contract.class.name}: #{contract.inspect}")
-          end
+        @contract = contract.nil? ? nil : IOStreams::Contract.coerce(contract)
       end
 
       # Returns [true|false] whether a format, a schema or a contract is set, which describe the rows of the file, unlike

@@ -260,6 +260,30 @@ module IOStreams
         instance
       end
 
+      # Returns [Class] the contract that the supplied value is, as `IOStreams::Stream#as` and
+      # `IOStreams::Schema#contract_errors` take one: a contract class itself, or a contract that it builds from a Hash or
+      # an `IOStreams::Schema`, see .new. For the methods of IOStreams that take a contract.
+      #
+      # Raises ArgumentError for anything else, such as a record of a contract, or for a Hash or a schema that is not a
+      # valid contract, such as one that lays out a file.
+      def coerce(contract)
+        case contract
+        when ::Hash, IOStreams::Schema
+          Contract.new(contract)
+        when Class
+          unless contract < Contract
+            raise(ArgumentError, "A contract must be a subclass of IOStreams::Contract, a Hash or an IOStreams::Schema: " \
+                                 "#{contract.inspect}")
+          end
+
+          contract.schema
+          contract
+        else
+          raise(ArgumentError, "A contract must be a subclass of IOStreams::Contract, a Hash or an IOStreams::Schema, " \
+                               "rather than #{contract.class.name}: #{contract.inspect}")
+        end
+      end
+
       # Returns [String] the name of the class, or for a contract built from a Hash, its schema.
       def inspect
         name || "#<IOStreams::Contract #{@schema ? to_h.inspect : '{}'}>"

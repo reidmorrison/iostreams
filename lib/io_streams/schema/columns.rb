@@ -179,6 +179,30 @@ module IOStreams
         [e]
       end
 
+      # Returns [Array<IOStreams::Errors::InvalidHeader>] each problem of the fields of a schema of a file as these fields,
+      # of a contract, meet them, without a file, see `IOStreams::Schema#contract_errors`.
+      #
+      # Parameters:
+      #   keys: [Array<String|Symbol>]
+      #     The keys of the fields of the schema of the file, which a file can have, see `IOStreams::Schema#contract_keys`.
+      #
+      #   certain: [Array<String|Symbol>]
+      #     Those of the keys that every file has.
+      #
+      #   keeps_extra: [true|false]
+      #     Whether the schema of the file keeps the columns that a file has besides its fields, see `extraColumns`.
+      def file_schema_errors(keys, certain, keeps_extra:)
+        found, unknown, positions = find_fields(keys, "field")
+        certain  = certain.to_h { |key| [key, true] }
+        optional = found.filter_map do |field|
+          key = keys[positions[field]]
+          [field, key] unless certain.key?(key)
+        end
+        @schema.file_schema_problems(found, unknown, optional, keeps_extra: keeps_extra)
+      rescue IOStreams::Errors::InvalidHeader => e
+        [IOStreams::Errors::InvalidHeader.new("#{Schema::FILE_SCHEMA_SUBJECT} #{e.message.sub(/\A[[:upper:]]/, &:downcase)}")]
+      end
+
       # Returns [Array<String|Symbol>] the keys of the records that the supplied header row reads, see #found_names, or
       # an empty Array when it does not match the fields, see #meeting_errors.
       def meeting_names(labels)

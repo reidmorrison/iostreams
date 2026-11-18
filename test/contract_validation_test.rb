@@ -11,6 +11,12 @@ class ContractValidationTest < Minitest::Test
     field :ordered_at, :datetime, aliases: ["created_at"]
   end
 
+  # A contract that needs every field, in order.
+  class Strict < IOStreams::Contract
+    field :id,         :integer, required: true
+    field :ordered_at, :datetime, aliases: ["created_at"]
+  end
+
   describe IOStreams::Stream do
     # Returns [IOStreams::Stream] a stream of the text, read as the file name says, through the contract.
     def upload(text, file_name = "orders.csv", contract: Order)
@@ -224,6 +230,160 @@ class ContractValidationTest < Minitest::Test
     describe "#infer_schema with a contract" do
       it "returns the schema that the source declares, which the contract meets" do
         assert_equal [{name: "id", type: "string"}], upload("ID\n1\n").infer_schema.to_h[:fields]
+      end
+    end
+  end
+
+  describe IOStreams::Schema do
+    # Returns [Array<String>] the messages of the errors of the schema of the file, as the contract meets it, without
+    # the subject that each starts with.
+    def problems(schema, contract = Order)
+      IOStreams::Schema.new(schema).contract_errors(contract).map do |error|
+        error.message.delete_prefix("The schema of the file does not meet the contract: ")
+      end
+    end
+
+    describe "#contract_errors" do
+      it "returns [] for a schema whose files all meet the contract" do
+        assert_empty problems(fields: [{name: "id", type: "integer"}, {name: "amount", type: "string"}])
+      end
+
+      it "lists a field that the contract requires, which the schema does not have" do
+        assert_equal ['it has no field for the required field "id" of the contract'], problems(fields: [{name: "amount"}])
+      end
+
+      it "lists a field that the contract requires, which the schema does not require, so that a file can lack it" do
+        assert_equal [
+          'a file can lack its field "id", which is not required, for the required field "id" of the contract: add ' \
+          'constraints: {required: true} to it, or make its fieldsMatch "exact", "equal" or "subset"'
+        ], problems(fieldsMatch: "superset", fields: [{name: "id"}, {name: "amount"}])
+        assert_empty problems(fieldsMatch: "superset", fields: [{name: "id", constraints: {required: true}}, {name: "amount"}])
+        assert_empty problems(fieldsMatch: "subset", fields: [{name: "id"}, {name: "amount"}])
+      end
+
+      it "needs every field of a contract whose fieldsMatch needs every field to be in every file" do
+        assert_equal [
+          'a file can lack its fields "id" and "ordered_at", which are not required, for the fields "id" and ' \
+          '"ordered_at" of the contract, whose fieldsMatch "exact" needs every field: add constraints: {required: true} ' \
+          'to them, or make its fieldsMatch "exact", "equal" or "subset"'
+        ], problems({fieldsMatch: "partial", fields: [{name: "id"}, {name: "ordered_at"}]}, Strict)
+        assert_equal ['it has no field for the field "ordered_at" of the contract, whose fieldsMatch "exact" needs every field'],
+                     problems({fields: [{name: "id"}]}, Strict)
+      end
+
+      it "takes every field of a file without a header row, which always has every field" do
+        assert_empty problems({header: false, fieldsMatch: "exact", fields: [{name: "id"}, {name: "ordered_at"}]}, Strict)
+        assert_empty problems({fieldsMatch: "partial", fields: [{name: "id", width: 5}, {name: "ordered_at", width: 20}]}, Strict)
+      end
+
+      it "leaves out a field that only holds the place of a column" do
+        assert_empty problems({fields: [{name: "id", width: 5}, {name: "pad", width: 2, skip: true}, {name: "ordered_at", width: 20}]},
+                              Strict)
+      end
+
+      it "lists a field that is not one of the contract, unless its fieldsMatch skips it" do
+        assert_equal [
+          'its field "notes" is not a field of the contract, whose fieldsMatch "exact" does not accept it; "subset" and ' \
+          '"partial" skip them'
+        ], problems({fields: [{name: "id"}, {name: "ordered_at"}, {name: "notes"}]}, Strict)
+        assert_empty problems(fields: [{name: "id"}, {name: "notes"}])
+      end
+
+      it "lists a schema that keeps the columns that are not its fields, which the contract meets too" do
+        schema = {fieldsMatch: "subset", extraColumns: "keep", fields: [{name: "id"}, {name: "ordered_at"}]}
+        reading = IOStreams.stream(StringIO.new("id,ordered_at,notes\n")).file_name("orders.csv").schema(schema).as(Strict)
+
+        refute_empty reading.contract_errors
+        assert_equal [
+          'it keeps the columns of a file that are not its fields, with extraColumns "keep", which the contract, whose ' \
+          'fieldsMatch is "exact", does not accept; "subset" and "partial" skip them'
+        ], problems(schema, Strict)
+        assert_empty problems(schema.merge(fields: [{name: "id"}]))
+      end
+
+      it "matches a field by an alias of the contract, and by the key of the field in the schema of the file" do
+        assert_empty problems({fields: [{name: "id"}, {name: "created_at"}]}, Strict)
+        assert_empty problems({keyType: "cleansed", fields: [{name: "ID"}, {name: "Ordered At"}]}, Strict)
+      end
+
+      it "lists two fields that are the same field of the contract" do
+        assert_equal ['the fields "created_at" and "ordered_at" are both the field "ordered_at", so either could be meant'],
+                     problems({fields: [{name: "id"}, {name: "created_at"}, {name: "ordered_at"}]}, Strict)
+      end
+
+      it "lists fields in another order than an exact contract" do
+        assert_equal [
+          'its fields are not in the order of the fields of the contract, "id" and "ordered_at", which fieldsMatch ' \
+          '"exact" requires; "equal" accepts any order'
+        ], problems({fields: [{name: "ordered_at"}, {name: "id"}]}, Strict)
+      end
+
+      it "needs a field that every file has for a contract whose fieldsMatch is partial" do
+        partial = IOStreams::Contract.new(fieldsMatch: "partial", fields: [{name: "id"}, {name: "amount"}])
+
+        assert_equal ['none of its fields is a field of the contract, whose fieldsMatch "partial" needs at least one'],
+                     problems({fields: [{name: "notes"}]}, partial)
+        assert_equal [
+          'a file can lack each of its fields that is a field of the contract, whose fieldsMatch "partial" needs at least ' \
+          "one: add constraints: {required: true} to one of them"
+        ], problems({fieldsMatch: "superset", fields: [{name: "id"}, {name: "notes", constraints: {required: true}}]}, partial)
+      end
+
+      it "lists a field whose type can never be that of its field of the contract, as an IncompatibleType" do
+        errors = IOStreams::Schema.new(fields: [{name: "id", type: "boolean"}]).contract_errors(Order)
+
+        assert_equal [IOStreams::Errors::IncompatibleType], errors.map(&:class)
+        assert_includes errors.first.message, 'holds values of type boolean, which the integer field "id" never accepts'
+      end
+
+      it "takes a contract as #as takes it: a class, a Hash or a schema" do
+        schema = IOStreams::Schema.new(fields: [{name: "amount"}])
+        hash   = {fields: [{name: "id", constraints: {required: true}}]}
+
+        assert_equal 2, schema.contract_errors(hash).size
+        assert_equal 2, schema.contract_errors(IOStreams::Schema.new(hash)).size
+        error = assert_raises(ArgumentError) { schema.contract_errors(Order.new(id: 1)) }
+        assert_includes error.message, "A contract must be a subclass of IOStreams::Contract"
+      end
+
+      it "finds no problem that reading a file of the fields of the schema would not find" do
+        [
+          {fields: [{name: "id", type: "integer"}, {name: "amount", type: "string"}]},
+          {fieldsMatch: "superset", fields: [{name: "id", constraints: {required: true}}, {name: "amount"}]},
+          {fieldsMatch: "subset", fields: [{name: "id"}, {name: "amount"}, {name: "notes"}]}
+        ].each do |schema|
+          assert_empty problems(schema)
+          file_schema = IOStreams::Schema.new(schema)
+          [file_schema.contract_keys, file_schema.contract_keys(every_file: true)].each do |columns|
+            source = IOStreams.stream(StringIO.new("#{columns.join(',')}\n")).file_name("orders.csv").schema(schema).as(Order)
+
+            assert_empty source.contract_errors, "#{schema} with the columns #{columns}"
+          end
+        end
+      end
+    end
+
+    describe "#contract_valid?" do
+      it "answers whether every file of the schema meets the contract" do
+        assert IOStreams::Schema.new(fields: [{name: "id"}]).contract_valid?(Order)
+        refute IOStreams::Schema.new(fields: [{name: "amount"}]).contract_valid?(Order)
+      end
+    end
+
+    describe "#validate_contract!" do
+      it "returns true when every file of the schema meets the contract" do
+        assert IOStreams::Schema.new(fields: [{name: "id"}]).validate_contract!(Order)
+      end
+
+      it "raises the problems of the fields as one InvalidHeader before the types" do
+        schema = IOStreams::Schema.new(fields: [{name: "id", type: "boolean"}, {name: "ordered_at"}, {name: "notes"}])
+        error  = assert_raises(IOStreams::Errors::InvalidHeader) { schema.validate_contract!(Strict) }
+
+        assert_includes error.message, 'its field "notes" is not a field of the contract'
+        error = assert_raises(IOStreams::Errors::IncompatibleType) do
+          IOStreams::Schema.new(fields: [{name: "id", type: "boolean"}]).validate_contract!(Order)
+        end
+        assert_includes error.message, 'the integer field "id" never accepts'
       end
     end
   end
