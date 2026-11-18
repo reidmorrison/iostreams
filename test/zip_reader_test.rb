@@ -111,15 +111,47 @@ class ZipReaderTest < Minitest::Test
           assert_equal "a,b\n", IOStreams.path(zip_file_name).option(:zip, entry_file_name: "café.csv".b).read
         end
 
-        it "reads a file named by bytes that are not UTF-8, as another program wrote it, by those bytes" do
-          skip "java.util.zip reads the names of files as UTF-8" if defined?(JRuby)
-
-          ::Zip::OutputStream.open(zip_file_name) do |zip|
-            zip.put_next_entry("caf\xE9.csv".b)
-            zip.write("a,b\n")
+        describe "of a zip file that another program named its files in" do
+          # Writes a zip file that names its files by the supplied names, without flagging them as UTF-8.
+          def write_unflagged(*names)
+            require "zip"
+            ::Zip::OutputStream.open(zip_file_name) do |zip|
+              names.each do |name|
+                zip.put_next_entry(name.b)
+                zip.write("#{name.b.unpack1('H*')}\n")
+              end
+            end
           end
 
-          assert_equal "a,b\n", IOStreams.path(zip_file_name).option(:zip, entry_file_name: "caf\xE9.csv".b).read
+          it "reads a file named by bytes that are not UTF-8, by those bytes and by its name in ISO-8859-1" do
+            write_unflagged("caf\xE9.csv".b)
+
+            assert_equal "636166e92e637376\n", IOStreams.path(zip_file_name).option(:zip, entry_file_name: "caf\xE9.csv".b).read
+            assert_equal "636166e92e637376\n", IOStreams.path(zip_file_name).option(:zip, entry_file_name: "café.csv").read
+          end
+
+          it "reads every other file, and the first file, of a zip file with a name that is not UTF-8" do
+            write_unflagged("caf\xE9.csv".b, "data.csv")
+
+            assert_equal "636166e92e637376\n", IOStreams.path(zip_file_name).read
+            assert_equal "646174612e637376\n", IOStreams.path(zip_file_name).option(:zip, entry_file_name: "data.csv").read
+          end
+
+          it "reads a file named in UTF-8 without the flag, by its name" do
+            write_unflagged("日本.csv")
+
+            assert_equal "e697a5e69cac2e637376\n", IOStreams.path(zip_file_name).option(:zip, entry_file_name: "日本.csv").read
+          end
+
+          it "does not read a file named in another encoding by a name that ISO-8859-1 does not hold" do
+            write_unflagged("日本.csv".encode("Shift_JIS"))
+
+            error = assert_raises(IOStreams::Errors::StreamFailure) do
+              IOStreams.path(zip_file_name).option(:zip, entry_file_name: "日本.csv").read
+            end
+            assert_kind_of IOStreams::Errors::MissingEntry, error
+            assert_equal "93fa967b2e637376\n", IOStreams.path(zip_file_name).option(:zip, entry_file_name: "日本.csv".encode("Shift_JIS").b).read
+          end
         end
 
         it "reads a file by its name in an encoding that is not ASCII-compatible" do

@@ -103,9 +103,9 @@ module IOStreams
         def self.file(file_name, entry_file_name: nil, display_name: nil)
           name  = display_name || file_name
           fin   = Java::JavaIo::FileInputStream.new(file_name)
-          zin   = Java::JavaUtilZip::ZipInputStream.new(fin)
+          zin   = Java::JavaUtilZip::ZipInputStream.new(fin, Java::JavaNioCharset::StandardCharsets::ISO_8859_1)
           entry = find_entry(zin, entry_file_name, file_name, name)
-          yield Entry.new(zin, entry.name, name)
+          yield Entry.new(zin, display_entry_name(entry.name), name)
         ensure
           zin&.close
           fin&.close
@@ -122,13 +122,40 @@ module IOStreams
           named   = Zip.entry_name_matcher(entry_file_name) unless entry_file_name.nil?
           while (entry = zin.get_next_entry)
             entries = true
-            return entry if !entry.directory? && (named.nil? || named.call(entry.name))
+            return entry if !entry.directory? && (named.nil? || held_names(entry.name).any?(&named))
           end
           raise(failure(Errors::Corrupt, "The file #{name} is not a zip file", name)) unless entries || empty_zip?(file_name)
 
           raise(failure(Errors::MissingEntry, missing_message(entry_file_name, name), name))
         rescue Java::JavaUtilZip::ZipException, Java::JavaIo::EOFException => e
           raise(failure(Errors::Corrupt, "The zip file #{name} is corrupt: #{e.message}", name))
+        end
+
+        # Returns [Array<String>] the bytes that the supplied name of a file, as `java.util.zip` gives it, may have been
+        # held as in the zip file.
+        #
+        # `java.util.zip` decodes a name that the zip file flags as UTF-8 as UTF-8, and any other name by the charset
+        # that the reader opens the zip file with, ISO-8859-1, which decodes any bytes, since a zip file that another
+        # program wrote may name its files by bytes that are not valid UTF-8, such as in CP437 or Windows-1252, which
+        # `java.util.zip` otherwise rejects as an "invalid LOC header (bad entry name)", so that no file of the zip
+        # file can be read. It does not say which one it used, so a name is compared both by its bytes in UTF-8, and,
+        # when ISO-8859-1 holds every character of it, by those bytes, which are the bytes that the zip file holds for
+        # a name that it does not flag. A name that is only ISO-8859-1 characters therefore also finds a file named by
+        # its bytes in ISO-8859-1, such as "café.csv" one named "caf\xE9.csv" by another program, which the name that
+        # is asked for finds on every platform, see `IOStreams::Zip.entry_name_matcher`.
+        def self.held_names(name)
+          latin1 = Zip.latin1_bytes(name)
+          latin1 ? [name.b, latin1] : [name.b]
+        end
+
+        # Returns [String] the name of a file within a zip file, as `java.util.zip` gives it, to name it by in a message:
+        # its bytes in ISO-8859-1 read as UTF-8 when they are valid UTF-8, since that is how most programs that do not
+        # flag the names of a zip file as UTF-8 write them, such as rubyzip, otherwise the name as it is, which is its
+        # text for a name that the zip file flags as UTF-8, or the characters of ISO-8859-1 for its bytes, see
+        # .held_names.
+        def self.display_entry_name(name)
+          text = Zip.latin1_bytes(name)&.force_encoding(Encoding::UTF_8)
+          text&.valid_encoding? ? text : name
         end
 
         # Returns [true|false] whether the file is a zip file without any entries, which holds only the end of its

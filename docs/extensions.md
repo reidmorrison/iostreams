@@ -152,6 +152,9 @@ end
 
 Reading uses the `rubyzip` gem. JRuby reads zip files with Java's own support instead, so it does not need `rubyzip`.
 
+`entry_file_name` finds a file whether the zip file names it in UTF-8, as IOStreams writes it, by the same bytes, or by
+its bytes in ISO-8859-1, as some other programs write a name such as `café.csv`.
+
 A zip file lists its contents at its end, so it is read from a local file. A local path, and the temp file that an
 SFTP path downloads into, are read where they are, while a zip file on S3 or HTTP, or within another stream, such as
 `example.csv.zip.pgp`, is first copied into a temp file, see [When temp files are used](config#when-temp-files-are-used).

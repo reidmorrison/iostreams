@@ -63,15 +63,26 @@ module IOStreams
     private_class_method :convert_entry_name
 
     # Returns [Proc] that answers whether the name of a file that a zip file holds, as the library that reads it gives
-    # it, in any encoding, is the supplied name of the file to read, by its bytes or those of the name in UTF-8, see
-    # .utf8_entry_name, so that a name that is not ASCII finds the file whether the library gives its name as UTF-8 or
-    # as its bytes, as rubyzip does, and a name in another encoding finds it too. A name that is not a String, such as
-    # a Symbol, is read by its `to_s`, as rubyzip reads it. The bytes are found once, for each file that it is asked
-    # about.
+    # it, in any encoding, is the supplied name of the file to read, by its bytes, those of the name in UTF-8, see
+    # .utf8_entry_name, or those of the name in ISO-8859-1, see .latin1_bytes, so that a name that is not ASCII finds the
+    # file whether the library gives its name as UTF-8 or as its bytes, as rubyzip does, a name in another encoding
+    # finds it too, and a name finds a file that another program named by its bytes in ISO-8859-1, as it does on JRuby,
+    # where `java.util.zip` does not say whether it read a name as UTF-8 or as ISO-8859-1, see
+    # `IOStreams::Zip::Reader.held_names`. A name that is not a String, such as a Symbol, is read by its `to_s`, as
+    # rubyzip reads it. The bytes are found once, for each file that it is asked about.
     def self.entry_name_matcher(name)
       text  = name.to_s
-      names = [text.b, utf8_entry_name(text)&.b].compact.uniq
+      utf8  = utf8_entry_name(text)
+      names = [text.b, utf8&.b, utf8 && latin1_bytes(utf8)].compact.uniq
       ->(held_name) { names.include?(held_name.b) }
+    end
+
+    # Returns [String|nil] the bytes of the supplied name in ISO-8859-1, or nil when ISO-8859-1 does not hold a
+    # character of it.
+    def self.latin1_bytes(name)
+      name.encode(Encoding::ISO_8859_1).b
+    rescue EncodingError
+      nil
     end
   end
 end
