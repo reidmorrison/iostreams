@@ -974,6 +974,48 @@ module IOStreams
           end
         end
       end
+
+      describe ".display_name" do
+        it "is the display name of a path without a pattern" do
+          ["/in/a.csv", "data/a.csv", "s3://bucket/in/a.csv", "sftp://jack:secret@example.org/in/a.csv",
+           "https://jack:secret@example.org/in/a.csv"].each do |name|
+            assert_equal IOStreams.path(name).display_name, IOStreams.display_name(name), name
+          end
+        end
+
+        it "shows a local pattern as it is" do
+          assert_equal "*.csv", IOStreams.display_name("*.csv")
+          assert_equal "in/**/*.csv", IOStreams.display_name("in/**/*.csv")
+          assert_equal "/in/*.{csv,txt}", IOStreams.display_name("/in/*.{csv,txt}")
+        end
+
+        it "shows the pattern of a url without its user name or password, also with characters a url cannot hold" do
+          assert_equal "sftp://example.org/in/*.{csv,txt}",
+                       IOStreams.display_name("sftp://jack:secret@example.org/in/*.{csv,txt}")
+          assert_equal "sftp://example.org/*.csv", IOStreams.display_name("sftp://jack:secret@example.org/*.csv")
+          assert_equal "https://example.org/in/*.csv", IOStreams.display_name("https://jack:secret@example.org/in/*.csv")
+          assert_equal "s3://bucket/in/**/*.csv", IOStreams.display_name("s3://bucket/in/**/*.csv")
+        end
+
+        it "decodes the pattern of a url, as each_child matches it" do
+          assert_equal "s3://bucket/in/café*.csv", IOStreams.display_name("s3://bucket/in/caf%C3%A9*.csv")
+        end
+
+        it "shows each byte of a pattern that is not valid UTF-8 as \\xHH" do
+          assert_equal "in/caf\\xE9*.csv", IOStreams.display_name("in/caf\xE9*.csv".b)
+        end
+
+        it "raises, rather than show credentials, for a url that each_child rejects" do
+          ["sftp://jack:secret@ho{st/in/*.csv", "sftp://jack:secret@example.org/in/*.csv?password=secret"].each do |name|
+            error = assert_raises(ArgumentError) { IOStreams.display_name(name) }
+            refute_includes error.message, "secret"
+          end
+        end
+
+        it "raises for a pattern that is not a String, as each_child does" do
+          assert_raises(ArgumentError) { IOStreams.display_name(Pathname.new("*.csv")) }
+        end
+      end
     end
   end
 end
