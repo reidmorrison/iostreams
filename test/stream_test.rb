@@ -1269,6 +1269,16 @@ class StreamTest < Minitest::Test
         assert_raises(ArgumentError) { path.lines_of_text? }
       end
 
+      it "is false for a slice, whose rows are read only as values, also when they are lines of CSV" do
+        slices = []
+        IOStreams.stream(StringIO.new("a,b\n1,2\n")).format(:csv).each(:slice, size: 10) { |slice| slices << slice }
+        stream = IOStreams.stream(slices.first)
+
+        assert_equal :csv, slices.first.format
+        refute_predicate stream, :lines_of_text?
+        assert_raises(ArgumentError) { stream.each(:line) { |line| flunk(line) } }
+      end
+
       it "answers for a store of slices, which writes lines or values as its format says" do
         store = Class.new { include IOStreams::Slice::Target }.new
 

@@ -2966,6 +2966,20 @@ IOStreams.tabular_formats.include?(:json)
 # => true
 ~~~
 
+`#lines_of_text?` says whether each row of the path's format is a line of text, which `each(:line)` reads and
+`writer(:line)` writes as it is, such as CSV, PSV, JSON, fixed width and `:text`, or a value, which the `:hash` and
+`:array` modes read and write, such as the Hashes of `:hash`, the Arrays of `:array` and the rows of Parquet. Code that
+takes its format from configuration, or from the file name, can then tell whether to hand the path lines or values,
+without listing the formats itself:
+
+~~~ruby
+IOStreams.path("people.csv").lines_of_text?
+# => true
+
+IOStreams.path("people.parquet").lines_of_text?
+# => false
+~~~
+
 ## Records and rows without a schema
 
 Without a [schema](schemas), every value is read as text, and written as its text:

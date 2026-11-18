@@ -612,7 +612,8 @@ module IOStreams
     # reads and `writer(:line)` writes as it is, such as CSV, PSV, JSON, fixed width and `:text`, also over the CSV text
     # of a spreadsheet: true without a format, since CSV is then read and written. False for a format whose rows are
     # values, which are read and written with the `:hash` or `:array` mode, such as the Hashes of `:hash`, the Arrays of
-    # `:array`, and the rows of Parquet, which are not lines.
+    # `:array`, and the rows of Parquet, which are not lines, and for a source of rows that are already split, such as
+    # a slice or a query, see `IOStreams.stream`, whose rows are read only as values.
     #
     # So that code that takes its format from configuration, or from the file name, can tell whether to hand the
     # stream lines or values, without knowing the formats.

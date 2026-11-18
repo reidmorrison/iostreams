@@ -563,10 +563,9 @@ module IOStreams
 
       # Raises ArgumentError, before anything is written, when the rows of the supplied format are not lines of text,
       # such as those of `:array` and `:hash`, which hold the values themselves, see `IOStreams::Tabular.lines_of_text?`,
-      # since the `:line` mode writes lines of text, which such a slice does not read, see `IOStreams::Slice#add`. A
-      # format that is not set is that of the lines of the tabular, CSV.
+      # since the `:line` mode writes lines of text, which such a slice does not read, see `IOStreams::Slice#add`.
       def check_lines_of_text(format)
-        return if format.nil? || IOStreams::Tabular.lines_of_text?(format)
+        return if IOStreams::Tabular.lines_of_text?(format)
 
         raise(ArgumentError, "The rows of the #{format.inspect} format are values rather than lines of text, " \
                              "so a #{source_name} of that format is written in the :array or :hash mode, not the " \
