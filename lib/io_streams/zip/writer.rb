@@ -24,9 +24,25 @@ module IOStreams
       def self.file_name_options(file_name, **options)
         return options if options[:entry_file_name]
 
-        match = Utils::PathName.basename(file_name.to_s).match(/\A(.+)\.zip(?:\.[^.]+)*\z/i)
-        match ? options.merge(entry_file_name: match[1]) : options
+        entry_file_name = entry_name(Utils::PathName.basename(file_name.to_s))
+        entry_file_name ? options.merge(entry_file_name: entry_file_name) : options
       end
+
+      # Returns [String] the supplied name of a file before its last `zip` extension that is followed only by
+      # extensions that are not empty, such as `"a.zip.csv"` for `"a.zip.csv.zip.pgp"`, or nil when it has no such
+      # extension, or no name before it.
+      #
+      # Looks at each part of the name once, so that a long name does not take quadratic time, as a Regexp that
+      # backtracks over each `.zip` in the name does where Ruby does not memoize it, such as on JRuby.
+      def self.entry_name(name)
+        parts = name.split(".", -1)
+        index = parts.rindex { |part| part.empty? || part.casecmp?("zip") }
+        return unless index&.positive? && !parts[index].empty?
+
+        entry_name = parts[0...index].join(".")
+        entry_name unless entry_name.empty?
+      end
+      private_class_method :entry_name
 
       # Write a single file in Zip format to the supplied output stream
       #
