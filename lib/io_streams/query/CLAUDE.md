@@ -25,9 +25,11 @@ and run `bundle exec rake llms_full`, when what a query does changes, and docs/e
   and a query that fails keeps an existing target. A relation is read on a connection of its own (`pool.checkout`), so
   the caller's block runs its own queries independently of the read, which reads what was committed rather than the
   caller's transaction. In Rails' transactional tests `checkout` returns the pinned connection, so the read sees the
-  fixtures. It reads on the caller's connection instead when Active Record cannot use another (an in-memory SQLite
-  database is a database of its own on each connection) or the source says it cannot (`.own_connection?`). A database
-  that no source in `SOURCES` reads raises, suggesting `in_batches`.
+  fixtures. A pool of one connection that the caller holds raises `ArgumentError` at once (`Query#checkout` asks the
+  pool without waiting, which still returns a pinned connection), since a timeout there is tagged `Unavailable` and a
+  retry would never end. It reads on the caller's connection instead when Active Record cannot use another (an
+  in-memory SQLite database is a database of its own on each connection) or the source says it cannot
+  (`.own_connection?`). A database that no source in `SOURCES` reads raises, suggesting `in_batches`.
 - Rows are cast by position, so the names (or, on AR-JDBC, the number) of the result's columns are checked against
   the description before the reader is yielded. Batches are read on the caller's connection, each loaded whole.
 - The rows tag the failures of the database but never those of the block, and a second traversal continues where the

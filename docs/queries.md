@@ -460,8 +460,10 @@ database:
 
 So the pool needs a connection free besides the one of the caller. Otherwise the read waits for one, for the
 `checkout_timeout` of the pool, 5 seconds by default, and raises `ActiveRecord::ConnectionTimeoutError`, tagged as
-`IOStreams::Errors::Unavailable`. A pool needs one connection more than the threads that use it, for each thread that
-can export at the same time.
+`IOStreams::Errors::Unavailable`, since another thread can check one in, so that a retry can succeed. A pool of one
+connection that the caller holds can never have one free, so the read raises `ArgumentError` at once instead, rather
+than a timeout that would be retried forever. A pool needs one connection more than the threads that use it, for each
+thread that can export at the same time.
 
 The batches of a relation are read on the connection of the caller instead, as Rails reads them, each batch whole
 before its rows are yielded, so they see what the open transaction of the caller has written. The block runs its

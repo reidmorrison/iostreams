@@ -376,17 +376,64 @@ class QueryStreamTest < Minitest::Test
           assert_equal "#{db.order.name} query: no connection free", error.message
         end
 
-        it "reads with a pool of one connection, which the read checks out, while the block runs no queries of its own" do
+        # Yields a model of the orders table on a pool of one connection of its own, which it disconnects afterwards.
+        def single_connection_orders
           record = Class.new(ActiveRecord::Base) { self.abstract_class = true }
           db.namespace.send(:remove_const, :SingleRecord) if db.namespace.const_defined?(:SingleRecord, false)
           db.namespace.const_set(:SingleRecord, record)
-          record.establish_connection(db.record.connection_db_config.configuration_hash.merge(pool: 1, checkout_timeout: 1))
-          single = Class.new(record) { self.table_name = "orders" }
-
-          assert_equal 3, each(IOStreams.stream(single.order(:id))).size
-          assert_equal 0, record.connection_pool.stat[:busy]
+          record.establish_connection(db.record.connection_db_config.configuration_hash.merge(pool: 1, checkout_timeout: 5))
+          yield Class.new(record) { self.table_name = "orders" }
         ensure
           record&.connection_pool&.disconnect!
+        end
+
+        it "raises ArgumentError at once, untagged, when the pool's one connection is held by the caller" do
+          single_connection_orders do |single|
+            single.with_connection do
+              started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+              error   = assert_raises(ArgumentError) { each(IOStreams.stream(single.order(:id))) }
+
+              assert_operator Process.clock_gettime(Process::CLOCK_MONOTONIC) - started, :<, 2
+              refute_kind_of IOStreams::Errors::Unavailable, error
+              assert_kind_of ActiveRecord::ConnectionTimeoutError, error.cause
+              assert_match(/\A.* query needs a connection of its own, but the pool has only one, which the caller holds: /,
+                           error.message)
+              assert_equal 1, single.connection_pool.stat[:busy]
+            end
+          end
+        end
+
+        it "keeps the target of a copy when the pool's one connection is held by the caller" do
+          single_connection_orders do |single|
+            Dir.mktmpdir do |dir|
+              path = IOStreams.path(dir, "orders.csv")
+              path.write("existing\n")
+
+              single.with_connection do
+                assert_raises(ArgumentError) { path.copy_from(single.order(:id), mode: :hash) }
+              end
+
+              assert_equal "existing\n", path.read
+            end
+          end
+        end
+
+        it "reads with a pool of one connection that is pinned, as the transactional tests of Rails pin it" do
+          single_connection_orders do |single|
+            single.connection_pool.pin_connection!(false)
+            begin
+              single.with_connection { assert_equal 3, each(IOStreams.stream(single.order(:id))).size }
+            ensure
+              single.connection_pool.unpin_connection!
+            end
+          end
+        end
+
+        it "reads with a pool of one connection, which the read checks out, while the block runs no queries of its own" do
+          single_connection_orders do |single|
+            assert_equal 3, each(IOStreams.stream(single.order(:id))).size
+            assert_equal 0, single.connection_pool.stat[:busy]
+          end
         end
       end
 

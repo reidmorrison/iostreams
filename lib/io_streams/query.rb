@@ -200,8 +200,9 @@ module IOStreams
     # ends, so that the block that the rows are yielded to runs its own queries on the connection of the caller,
     # independently of the read, such as to update the rows that it reads, and the read sees what was committed, rather
     # than a transaction of the caller. So the pool needs a connection free besides that of the caller, otherwise it
-    # waits for one, and raises `ActiveRecord::ConnectionTimeoutError`, as Active Record does. In the transactional
-    # tests of Rails, the pool checks out the connection that the tests share, so the query reads their fixtures.
+    # waits for one, and raises `ActiveRecord::ConnectionTimeoutError`, as Active Record does, see #checkout. In the
+    # transactional tests of Rails, the pool checks out the connection that the tests share, so the query reads their
+    # fixtures.
     #
     # A database that cannot be read on a connection of its own is read on the connection of the caller instead, which
     # it borrows, see `with_connection`: one that Active Record cannot use on more than one connection at a time, such
@@ -210,7 +211,7 @@ module IOStreams
     def with_source
       if @model.with_connection(prevent_permanent_checkout: true, &:supports_concurrent_connections?)
         pool       = @model.connection_pool
-        connection = pool.checkout
+        connection = checkout(pool)
         begin
           found = source(connection)
           return yield(found, connection) if found.own_connection?(connection)
@@ -220,6 +221,26 @@ module IOStreams
       end
 
       @model.with_connection(prevent_permanent_checkout: true) { |connection| yield(source(connection), connection) }
+    end
+
+    # Returns [ActiveRecord::ConnectionAdapters::AbstractAdapter] a connection of the pool for the read, see #with_source,
+    # which waits for one to be free, and raises `ActiveRecord::ConnectionTimeoutError` when none is in time, which is
+    # tagged `IOStreams::Errors::Unavailable`, since another thread can check one in, so that a retry can succeed.
+    #
+    # Raises ArgumentError instead, without waiting, when no connection can ever be free for the read: when the pool has
+    # one connection, which the caller holds, so that a caller that retries what is unavailable does not retry forever.
+    # The pool is still asked for one, since in the transactional tests of Rails it returns the connection that the
+    # tests share.
+    def checkout(pool)
+      return pool.checkout unless pool.size == 1 && pool.active_connection?
+
+      begin
+        pool.checkout(0)
+      rescue ::ActiveRecord::ConnectionTimeoutError
+        raise(ArgumentError, "#{@model.name} query needs a connection of its own, but the pool has only one, which " \
+                             "the caller holds: give the database a pool of two or more connections, such as " \
+                             "`max_connections: 2` (`pool: 2` before Active Record 8.1) in config/database.yml")
+      end
     end
 
     # Returns [Class] the source that reads a query as one query on the database of the connection, see SOURCES.
