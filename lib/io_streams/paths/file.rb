@@ -179,7 +179,8 @@ module IOStreams
         nil
       end
 
-      # Moves this file to the `target_path`, renaming it, or copying it when the target is on another file system.
+      # Moves this file to the `target_path`, renaming it, or copying it when the target is on another file system, and
+      # then deleting it, or deleting the copy when it cannot, see `IOStreams::Path#move_to`.
       #
       # Raises ArgumentError when the target is the same file, see #same_location?, or is a directory, since another
       # path cannot move a file onto a directory either.
@@ -198,8 +199,14 @@ module IOStreams
         target.mkpath
         # The target failed when its directory cannot be written to, otherwise this file did.
         failed = ::File.writable?(Utils::PathName.dirname(target.to_s)) ? self : target
-        # In case the file is being moved across partitions
-        tag_failure(failed) { FileUtils.move(path, target.to_s) }
+        begin
+          tag_failure(failed) { ::File.rename(path, target.to_s) }
+        rescue Errno::EXDEV
+          # The target is on another file system, so the file is copied, and then deleted, or the copy is deleted when it
+          # cannot be, see IOStreams::Path#delete_after_move.
+          tag_failure(target) { FileUtils.copy_entry(path, target.to_s, true) }
+          delete_after_move(target)
+        end
         target
       end
 

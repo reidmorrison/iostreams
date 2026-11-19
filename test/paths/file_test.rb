@@ -593,6 +593,46 @@ module Paths
           end
         end
 
+        describe "to another file system" do
+          # Each rename raises as it does across file systems, so that the file is copied.
+          def across_file_systems(&)
+            File.stub(:rename, ->(*) { raise Errno::EXDEV }, &)
+          end
+
+          it "copies the file, and deletes it" do
+            Dir.mktmpdir do |dir|
+              source = IOStreams.path(dir, "source.txt")
+              target = IOStreams.path(dir, "target.txt")
+              source.write("Hello World")
+
+              across_file_systems { source.move_to(target) }
+
+              assert_equal "Hello World", target.read
+              refute_predicate source, :exist?
+            end
+          end
+
+          it "deletes the copy, and raises, when it may not delete the file" do
+            skip "Root can delete any file" if Process.uid.zero?
+
+            Dir.mktmpdir do |dir|
+              FileUtils.mkdir(File.join(dir, "in"))
+              source = IOStreams.path(dir, "in", "source.txt")
+              target = IOStreams.path(dir, "target.txt")
+              source.write("Hello World")
+              File.chmod(0o555, File.join(dir, "in"))
+
+              error = assert_raises(IOStreams::Errors::PermissionDenied) { across_file_systems { source.move_to(target) } }
+
+              assert_equal source.display_name, error.display_name
+              refute_predicate target, :exist?
+              assert_equal "Hello World", source.read
+            ensure
+              File.chmod(0o755, File.join(dir, "in"))
+            end
+          end
+        end
+
         it "missing source file" do
           IOStreams.temp_file("iostreams_move_test", ".txt") do |temp_file|
             refute_predicate temp_file, :exist?
