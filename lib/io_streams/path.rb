@@ -214,6 +214,10 @@ module IOStreams
     # Raises ArgumentError when the target is the same location as this path, see #same_location?, since the file
     # would be deleted once it was copied onto itself.
     #
+    # Raises what deleting this file raises, such as `IOStreams::Errors::PermissionDenied`, once the copy is deleted,
+    # see #delete_after_move, so that a move that fails leaves the file where it was, and not also at the target. A file
+    # that was already at the target was replaced by the copy, so such a move leaves no file at the target.
+    #
     # Notes:
     # - Currently only supports moving individual files, not directories.
     def move_to(target_path)
@@ -222,7 +226,7 @@ module IOStreams
       # Through a copy of the target, so that the directories that #mkpath creates when a file is next written, as on
       # SFTP, are not a lasting change to the target supplied.
       target.dup.mkpath.copy_from(self, convert: false)
-      delete
+      delete_after_move(target)
       target
     end
 
@@ -455,6 +459,26 @@ module IOStreams
     end
 
     private
+
+    # Deletes this file once it was copied to the supplied target by a move, see #move_to. When it cannot be deleted,
+    # such as when the storage does not permit it, the copy is deleted before what deleting this file raised is raised
+    # again, so that the file is not in both places, which a caller that moves files, such as one that archives each
+    # file that it finds, would otherwise copy again each time that it tried.
+    #
+    # The copy is deleted only once this file is found to still exist, since a delete can take effect and still raise,
+    # such as when an SFTP connection drops before the server replies, and the copy is then the only one. A copy is left
+    # when this file is gone, or cannot be checked, or when the copy cannot be deleted either, and what deleting this file
+    # raised is raised again, since it says why the move failed.
+    def delete_after_move(target)
+      delete
+    rescue StandardError
+      begin
+        target.delete if exist?
+      rescue StandardError
+        nil
+      end
+      raise
+    end
 
     # Returns [String] the normalized location of this path, which is compared against the allowed paths.
     #

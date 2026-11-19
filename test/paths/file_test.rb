@@ -593,6 +593,95 @@ module Paths
           end
         end
 
+        describe "to another file system" do
+          # A rename of the supplied file raises as it does across file systems, so that the file is copied, while
+          # the copy is renamed within the target's directory.
+          def across_file_systems(source, &)
+            rename = File.method(:rename)
+            File.stub(:rename, ->(from, to) { from == source.to_s ? raise(Errno::EXDEV) : rename.call(from, to) }, &)
+          end
+
+          # Returns [Array<String>] the names of the files in the supplied directory, hidden ones included.
+          def file_names(dir)
+            Dir.children(dir).sort
+          end
+
+          it "copies the file, and deletes it" do
+            Dir.mktmpdir do |dir|
+              source = IOStreams.path(dir, "source.txt")
+              target = IOStreams.path(dir, "target.txt")
+              source.write("Hello World")
+
+              across_file_systems(source) { source.move_to(target) }
+
+              assert_equal "Hello World", target.read
+              refute_predicate source, :exist?
+              assert_equal ["target.txt"], file_names(dir)
+            end
+          end
+
+          it "leaves no partial copy, and keeps a file already at the target, when the copy fails" do
+            Dir.mktmpdir do |dir|
+              source = IOStreams.path(dir, "source.txt")
+              target = IOStreams.path(dir, "target.txt")
+              source.write("Hello World")
+              target.write("Already here")
+              # The file system is full once part of the file was copied.
+              copy_entry = FileUtils.method(:copy_entry)
+              full       = lambda do |from, to, *args|
+                copy_entry.call(from, to, *args)
+                File.truncate(to, 5)
+                raise Errno::ENOSPC
+              end
+
+              assert_raises(Errno::ENOSPC) do
+                FileUtils.stub(:copy_entry, full) { across_file_systems(source) { source.move_to(target) } }
+              end
+              assert_equal "Already here", target.read
+              assert_equal "Hello World", source.read
+              assert_equal ["source.txt", "target.txt"], file_names(dir)
+            end
+          end
+
+          it "keeps the copy, and raises, when deleting the file deleted it and still raised" do
+            Dir.mktmpdir do |dir|
+              source = IOStreams.path(dir, "source.txt")
+              target = IOStreams.path(dir, "target.txt")
+              source.write("Hello World")
+              # As when an SFTP connection drops once the server deleted the file, before it replied.
+              lost = IOStreams::Errors::Unavailable.tag(IOError.new("connection closed"), source.display_name)
+              source.define_singleton_method(:delete) do
+                super()
+                raise lost
+              end
+
+              assert_raises(IOStreams::Errors::Unavailable) { across_file_systems(source) { source.move_to(target) } }
+              assert_equal "Hello World", target.read
+              refute_predicate source, :exist?
+            end
+          end
+
+          it "deletes the copy, and raises, when it may not delete the file" do
+            skip "Root can delete any file" if Process.uid.zero?
+
+            Dir.mktmpdir do |dir|
+              FileUtils.mkdir(File.join(dir, "in"))
+              source = IOStreams.path(dir, "in", "source.txt")
+              target = IOStreams.path(dir, "target.txt")
+              source.write("Hello World")
+              File.chmod(0o555, File.join(dir, "in"))
+
+              error = assert_raises(IOStreams::Errors::PermissionDenied) { across_file_systems(source) { source.move_to(target) } }
+
+              assert_equal source.display_name, error.display_name
+              refute_predicate target, :exist?
+              assert_equal "Hello World", source.read
+            ensure
+              File.chmod(0o755, File.join(dir, "in"))
+            end
+          end
+        end
+
         it "missing source file" do
           IOStreams.temp_file("iostreams_move_test", ".txt") do |temp_file|
             refute_predicate temp_file, :exist?
