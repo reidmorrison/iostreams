@@ -204,7 +204,7 @@ module IOStreams
         rescue Errno::EXDEV
           # The target is on another file system, so the file is copied, and then deleted, or the copy is deleted when it
           # cannot be, see IOStreams::Path#delete_after_move.
-          tag_failure(target) { FileUtils.copy_entry(path, target.to_s, true) }
+          copy_across_file_systems(target)
           delete_after_move(target)
         end
         target
@@ -301,6 +301,23 @@ module IOStreams
       end
 
       private
+
+      # Copies this file to the supplied target on another file system, keeping its permissions and times, as a rename
+      # keeps them. The file is copied to a hidden file in the target's directory, which is then renamed onto the target,
+      # so that a copy that fails, such as when that file system is full, leaves no partial file at the target, and keeps
+      # a file that was already there.
+      def copy_across_file_systems(target)
+        temp_name = Utils::PathName.join(
+          Utils::PathName.dirname(target.to_s), ".iostreams-move-#{Random.urandom(8).unpack1('H*')}"
+        )
+        tag_failure(target) do
+          FileUtils.copy_entry(path, temp_name, true)
+          ::File.rename(temp_name, target.to_s)
+        ensure
+          # Once renamed, there is no file of this name left to delete.
+          ::FileUtils.rm_f(temp_name)
+        end
+      end
 
       # Returns [Module] the kind of failure that an exception raised by the file system means,
       # see `IOStreams::Path#failure_kind`.

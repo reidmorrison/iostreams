@@ -493,6 +493,26 @@ module Paths
           target&.delete
         end
 
+        it "keeps the copy, and raises, when deleting the file deleted it and still raised" do
+          source = root_path.join("move_test_source.txt")
+          target = source.directory.join("move_test_target.txt")
+          source.write("Hello World")
+          # As when the connection drops once the store deleted the file, before it replied.
+          lost = IOStreams::Errors::Unavailable.tag(IOError.new("connection closed"), source.display_name)
+          source.define_singleton_method(:delete) do
+            super()
+            raise lost
+          end
+
+          assert_raises(IOStreams::Errors::Unavailable) { source.move_to(target) }
+          assert_equal "Hello World", target.read
+          refute_predicate source, :exist?
+        ensure
+          source&.singleton_class&.remove_method(:delete)
+          source&.delete
+          target&.delete
+        end
+
         it "deletes the copy of a local file, and raises, when it may not delete the file" do
           target = root_path.join("move_test_target.txt")
           IOStreams.temp_file("iostreams_move_test", ".txt") do |source|

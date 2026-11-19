@@ -292,7 +292,8 @@ module IOStreams
       end
 
       # Moves this file to the `target_path` by copying it to the new name and then deleting the current file. When this
-      # file cannot be deleted, the copy is deleted before it raises, see `IOStreams::Path#move_to`.
+      # file cannot be deleted, the copy is deleted before it raises, see `IOStreams::Path#move_to`, which also says what
+      # happens to a file that was already at the target.
       #
       # Notes:
       # - Can copy across buckets.
