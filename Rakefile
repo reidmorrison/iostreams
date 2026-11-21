@@ -115,6 +115,22 @@ Rake::TestTask.new(:query_test) do |t|
   t.warning = true
 end
 
+desc "Compare what is read from ExcelDataReader's test workbooks with test/xlsx_corpus.json, SHOW=1 for every row"
+task :xlsx_corpus do
+  $LOAD_PATH.unshift(File.expand_path("lib", __dir__))
+  require "iostreams"
+  require_relative "test/xlsx_corpus"
+  exit(1) unless XlsxCorpus.matches_recording?
+end
+
+desc "Record what is read from ExcelDataReader's test workbooks in test/xlsx_corpus.json"
+task :xlsx_corpus_record do
+  $LOAD_PATH.unshift(File.expand_path("lib", __dir__))
+  require "iostreams"
+  require_relative "test/xlsx_corpus"
+  XlsxCorpus.record
+end
+
 # JRuby cannot load the zstd-ruby C extension, so the tests use the zstd-jni jar.
 task test: :zstd_jni if RUBY_ENGINE == "jruby"
 # The upgrade suite runs with the same test helper, which loads the jar.
