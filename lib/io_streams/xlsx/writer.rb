@@ -10,6 +10,10 @@ module IOStreams
       # The characters that Excel does not allow in the name of a worksheet.
       INVALID_SHEET_NAME_CHARACTERS = %r{[\[\]:*?/\\]}
 
+      # A control character, or another character that XML cannot hold, such as U+FFFE, which the name of a worksheet
+      # cannot hold.
+      CONTROL_CHARACTER = /[[:cntrl:]]|[^\t\n\r\u0020-\uD7FF\uE000-\uFFFD\u{10000}-\u{10FFFF}]/
+
       # The bytes that can end a CSV record.
       LINE_BREAK      = /[\r\n]/n
       CARRIAGE_RETURN = "\r".ord
@@ -44,7 +48,10 @@ module IOStreams
       def self.sheet_name_problem(sheet_name)
         if sheet_name.nil? then nil
         elsif !sheet_name.is_a?(String) then "supply the name of the worksheet as a String"
-        elsif sheet_name.empty? then "Excel rejects an empty name for a worksheet"
+        elsif (problem = utf8_problem(sheet_name)) then problem
+        elsif (sheet_name = Text.utf8(sheet_name)).empty? then "Excel rejects an empty name for a worksheet"
+        elsif sheet_name.match?(CONTROL_CHARACTER)
+          "Excel rejects the name of a worksheet with a control character, or one that XML cannot hold"
         elsif sheet_name.length > 31 then "Excel rejects the name of a worksheet that is longer than 31 characters"
         elsif sheet_name.match?(INVALID_SHEET_NAME_CHARACTERS)
           "Excel rejects the name of a worksheet that contains any of [ ] : * ? / \\"
@@ -52,7 +59,16 @@ module IOStreams
           "Excel rejects the name of a worksheet that starts or ends with an apostrophe"
         end
       end
-      private_class_method :sheet_name_problem
+
+      # Returns [String|nil] why the name of the worksheet cannot be written as UTF-8, as the workbook holds it, or nil
+      # when it can, see `IOStreams::Xlsx::Text.utf8`, whose checks of its characters it is then converted for.
+      def self.utf8_problem(sheet_name)
+        Text.utf8(sheet_name, place: "the name of the worksheet")
+        nil
+      rescue Errors::InvalidEncoding => e
+        e.message
+      end
+      private_class_method :sheet_name_problem, :utf8_problem
 
       # Write CSV text as the rows of a workbook with one worksheet, to the supplied output stream.
       #
@@ -122,6 +138,9 @@ module IOStreams
           writer.finish
           # Ends the zip file without closing the output stream.
           workbook.close
+        rescue Exception # rubocop:disable Lint/RescueException -- releases the part whatever ends the finish
+          workbook.abort
+          raise
         end
         Utils.finish_or_abort(finish: finish, abort: -> { workbook.abort }) { yield(writer) }
       end

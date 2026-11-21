@@ -109,13 +109,24 @@ module IOStreams
       # Returns the number, date, time or boolean that the text looks like, or the text.
       def auto_format(text)
         return BOOLEAN[text] if BOOLEAN.key?(text)
-        return text.include?(".") ? text.to_f : text.to_i if NUMBER.match?(text)
+        return auto_number(text) if NUMBER.match?(text)
         return Date.iso8601(text) if DATE.match?(text)
         return early_text(DateTime.iso8601(text).to_time.getutc, text) if TIME.match?(text)
 
         text
       rescue ArgumentError
         text
+      end
+
+      # Returns [Numeric|String] the number of text that looks like one, as #number writes it, or the text itself for a
+      # number that #number writes as text, such as one of 16 digits, with its leading zeros, or that a Float cannot
+      # hold, such as one of 400 digits, rather than an infinity.
+      def auto_number(text)
+        value = text.include?(".") ? text.to_f : text.to_i
+        return text unless value.finite?
+
+        value = number(value)
+        value.is_a?(String) ? text : value
       end
 
       # Returns [WorksheetWriter::TimeOfDay] the clock of the time, as a time of day.

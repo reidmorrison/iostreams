@@ -3271,7 +3271,7 @@ The writer accepts these options:
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `sheet_name` | `"Sheet1"` | The name of the worksheet: 1 to 31 characters, without any of `[ ] : * ? / \`, and not starting or ending with an apostrophe, as Excel requires. Any other name raises `ArgumentError` before the file is opened. |
+| `sheet_name` | `"Sheet1"` | The name of the worksheet: 1 to 31 characters, without any of `[ ] : * ? / \` or a control character, and not starting or ending with an apostrophe, as Excel requires. Any other name, or one that UTF-8 cannot hold, raises `ArgumentError` before the file is opened. A name in another encoding is written as UTF-8. |
 | `auto_format` | `false` | Write text that looks like a number, date, time or boolean, such as `"1.5"`, `"2026-10-09"` or `"true"`, as an Excel number, date or boolean. Only the text of a column whose type is not known is written so: a field of type `any`, a file without a schema, or a line of CSV text, while the text of a `string` field stays text. Such text may then read back differently, such as `"01234"` as `1234.0`. |
 | `use_shared_strings` | `false` | Store each distinct value once, which makes the workbook smaller when values repeat, but holds every distinct value in memory until the workbook is complete. |
 

@@ -49,6 +49,7 @@ module IOStreams
       def close
         @worksheet.close
         @part.close
+        @part = nil
         write_part(WORKBOOK_PART, workbook)
         write_part(CellStyles::PART, CellStyles::XML)
         write_part(SharedStringTable::PART) { |io| @shared_strings.write(io) } if shared_strings?
@@ -60,7 +61,7 @@ module IOStreams
 
       # Releases what the part being written holds, after a failure, leaving the output that is not a workbook.
       def abort
-        @part.release_resources_on_failure!
+        @part&.release_resources_on_failure!
       end
 
       private
@@ -74,9 +75,10 @@ module IOStreams
       end
 
       def workbook
+        name = Text.utf8(@sheet_name, place: "the name of the worksheet").encode(xml: :attr)
         "#{XML_DECLARATION}<workbook xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\" " \
           "xmlns:r=\"#{RELATIONSHIP}\"><workbookPr date1904=\"false\"/><sheets>" \
-          "<sheet name=#{@sheet_name.encode(xml: :attr)} sheetId=\"1\" r:id=\"rId1\"/></sheets></workbook>"
+          "<sheet name=#{name} sheetId=\"1\" r:id=\"rId1\"/></sheets></workbook>"
       end
 
       def workbook_relationships

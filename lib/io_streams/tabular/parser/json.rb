@@ -179,27 +179,8 @@ module IOStreams
         # checked a key or value at a time, before its line is written, so the error names its first invalid bytes and
         # their byte offset within that key or value, see `IOStreams::Encode.utf8_failure`.
         def self.json_text(text)
-          return text if text.ascii_only? || (text.encoding == ::Encoding::UTF_8 && text.valid_encoding?)
-
-          utf8_text(text) || raise(IOStreams::Encode.utf8_failure(text, place: "a key or value written to JSON").last)
+          IOStreams::Encode.utf8(text, place: "a key or value written to JSON")
         end
-
-        # Returns [String|nil] the UTF-8 text of the bytes of binary text, or the text in another encoding converted to
-        # UTF-8, or nil when it holds a character that is not valid, or that UTF-8 does not have, see .json_text.
-        def self.utf8_text(text)
-          case text.encoding
-          when ::Encoding::UTF_8
-            nil
-          when ::Encoding::BINARY
-            utf8 = text.dup.force_encoding(::Encoding::UTF_8)
-            utf8 if utf8.valid_encoding?
-          else
-            text.encode(::Encoding::UTF_8)
-          end
-        rescue ::Encoding::InvalidByteSequenceError, ::Encoding::UndefinedConversionError
-          nil
-        end
-        private_class_method :utf8_text
 
         # Returns [Hash] the hash as the JSON format writes it, see .json_value, or the hash itself when none of its keys
         # and values needs it. A key that is not text, such as an Integer, is kept, which JSON writes with `to_s`.

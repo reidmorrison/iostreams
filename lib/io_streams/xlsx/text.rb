@@ -25,16 +25,22 @@ module IOStreams
         text.match?(EDGE_SPACE) ? %(<t xml:space="preserve">#{text}</t>) : "<t>#{text}</t>"
       end
 
-      # Returns [String] the text in UTF-8, escaped as XML holds it, and as Excel escapes it, see the module, which
-      # .decode reads back: the inverse of .decode and of reading the XML.
+      # Returns [String] the text in UTF-8, see .utf8, escaped as XML holds it, and as Excel escapes it, see the module,
+      # which .decode reads back: the inverse of .decode and of reading the XML.
       #
-      # Raises [ArgumentError] for text that is not valid in its encoding, and [Encoding::UndefinedConversionError] for
-      # text whose characters UTF-8 does not hold, such as binary text that is not ASCII.
+      # Raises [IOStreams::Errors::InvalidEncoding] for text that UTF-8 cannot hold, see .utf8.
       def self.encode(text)
-        text = text.encode(Encoding::UTF_8) unless text.encoding == Encoding::UTF_8
+        text = utf8(text)
         return text unless text.match?(SPECIAL)
 
         text.gsub(SPECIAL) { |char| REPLACEMENTS[char] || format("_x%04X_", char.ord) }
+      end
+
+      # Returns [String] the text as UTF-8, as a workbook holds it, see `IOStreams::Encode.utf8`.
+      #
+      # Raises [IOStreams::Errors::InvalidEncoding] for text that UTF-8 cannot hold, starting with where the text is.
+      def self.utf8(text, place: "the text of a cell")
+        IOStreams::Encode.utf8(text, place: place)
       end
 
       # Returns [String] the text with the characters that Excel escapes decoded, keeping an escape of a code that is not

@@ -514,8 +514,55 @@ class XlsxWriterTest < Minitest::Test
         assert_equal 1, worksheet_xml(second).scan("<worksheet").size
       end
 
-      it "raises for text that is not valid in its encoding" do
-        assert_raises(ArgumentError) { write(rows: true) { |io| io << ["caf\xE9"] } }
+      it "raises InvalidEncoding for text that is not valid in its encoding, naming the byte" do
+        error = assert_raises(IOStreams::Errors::InvalidEncoding) { write(rows: true) { |io| io << ["caf\xE9"] } }
+
+        assert_equal "In the text of a cell, \"\\xE9\" is not valid UTF-8 at byte offset 3", error.message
+        assert_equal 3, error.byte_offset
+      end
+
+      it "writes binary text of UTF-8 as its text, and text of another encoding converted" do
+        data = write(rows: true) { |io| io << ["café".b, "café".encode("Windows-1252")] }
+
+        assert_equal [%w[café café]], read_rows(data)
+      end
+    end
+
+    describe "auto_format" do
+      it "writes text of a number that Excel cannot hold as text, and the CSV time of an offset in UTC" do
+        big = "9" * 400
+        data = write(auto_format: true) do |io|
+          io.write(["#{big}.5", "0012345678901234567890", "1.5", "2026-01-02T09:30:00+02:00"].to_csv)
+        end
+
+        refute_includes worksheet_xml(data), "Infinity"
+        assert_equal [["#{big}.5", "0012345678901234567890", "1.5", "2026-01-02T07:30:00"]], read_rows(data)
+      end
+    end
+
+    describe "sheet_name" do
+      it "raises before it opens the output for a name with a control character, or that UTF-8 cannot hold" do
+        ["a\u0001b", "a\uFFFEb", "caf\xE9", "caf\xE9".b, "a\x81".dup.force_encoding("Windows-1252"), "ab".dup.force_encoding("UTF-7")].each do |name|
+          output = StringIO.new(+"")
+          error  = assert_raises(ArgumentError) { write(output, sheet_name: name) { |io| io << "a\n" } }
+
+          assert_match(/Invalid sheet_name .*(control character|the name of the worksheet)/, error.message, name.dump)
+          assert_equal "", output.string
+        end
+      end
+
+      it "counts the characters of a name in another encoding, as UTF-8" do
+        ["é" * 31, ("é" * 31).b, ("é" * 31).encode("UTF-16LE")].each do |name|
+          data = write(sheet_name: name) { |io| io << "a\n" }
+
+          assert_includes worksheet_xml(data, "xl/workbook.xml").force_encoding(Encoding::UTF_8), %(name="#{'é' * 31}")
+        end
+      end
+
+      it "writes a name of another encoding as UTF-8" do
+        data = write(sheet_name: "Café & <Co>".encode("Windows-1252")) { |io| io << "a\n" }
+
+        assert_includes worksheet_xml(data, "xl/workbook.xml").force_encoding(Encoding::UTF_8), %(name="Café &amp; &lt;Co&gt;")
       end
     end
 
