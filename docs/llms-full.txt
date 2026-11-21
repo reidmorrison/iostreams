@@ -2119,7 +2119,8 @@ path = IOStreams.path("sftp://sftp.example.org/inbound/data.csv", username: "jac
 ~~~
 
 Reading and writing run the `sftp` program of OpenSSH, which must be on the `PATH`, and the `sshpass` program, which
-gives `sftp` the password, when a password is supplied. Reading downloads the file into a temp file before the block
+gives `sftp` the password, when a password is supplied. `sshpass` reads the password from its environment, so it is
+never in the arguments that the process list shows, nor in the input of `sftp`, which holds only its commands. Reading downloads the file into a temp file before the block
 is called, and writing writes into a temp file, which is uploaded once the block completes, see
 [When temp files are used](config#when-temp-files-are-used).
 
@@ -2178,7 +2179,7 @@ gem "jruby-openssl", ">= 0.19.4", platform: :jruby
 | Argument | Meaning | Default |
 |----------|---------|---------|
 | `username:` | The user to log in as. A name that starts with `-`, or holds a control character, raises `ArgumentError` | The user name in the url, otherwise the user of the ssh config, or the current user |
-| `password:` | The password to log in with, which reading and writing give to `sftp` with `sshpass`. With a password, only the password is tried, and without one, only public keys, so that `sftp` never waits for a password | The password in the url, otherwise none |
+| `password:` | The password to log in with, which reading and writing give to `sftp` with `sshpass`. With a password, only the password is tried, and without one, only public keys, so that `sftp` never waits for a password. A password that holds a control character, such as a line feed, raises `ArgumentError`, whose message does not include it | The password in the url, otherwise none |
 | `ssh_options:` | A Hash of ssh options, by their names in `ssh_config`, as Strings or Symbols, see [ssh options](#ssh-options) | `{}` |
 
 A path answers `#hostname`, `#port`, `#username`, `#ssh_options`, and `#url`, which is `#to_s`.
@@ -10255,6 +10256,11 @@ passphrases. As a precaution, any option whose name contains `passphrase`, `pass
 `credential`, `auth`, `apikey` or `privatekey` is replaced too, whatever its case, and with or without `_` and `-`,
 such as the headers `Authorization` and `X-Api-Key`, including within a Hash option, such as `ssh_options:` or
 `headers:`.
+
+The SFTP password is given to `sshpass` in its environment, which only the same user and root can read, never in its
+arguments, which every user can see in the process list, nor in the input of `sftp`, which runs each line of it as a
+command. A password that holds a control character, such as a line feed, raises `ArgumentError` when the path is
+created.
 
 ## Untrusted HTTP urls
 
