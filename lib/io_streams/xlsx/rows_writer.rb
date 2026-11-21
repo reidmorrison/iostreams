@@ -8,7 +8,8 @@ module IOStreams
     # `IOStreams::Xlsx::Writer.stream`'s `rows: true`, so that a number is a number, a Date or Time a date or time, and
     # text is text, such as `01234`, rather than every cell text, or a guess, or nil for a blank row, written as a row
     # without cells. A time is written in UTC, and a date or time that Excel does not show, before 1899-12-31 or after
-    # 9999-12-31, as its text, see #excel_date?, a BigDecimal as the Float that Excel holds,
+    # 9999-12-31, as its text, see #excel_date?, a BigDecimal as the Float that Excel holds, or its digits when a
+    # double cannot hold it,
     # a whole number of more digits than Excel keeps, or NaN or an infinity, as its text, a Hash or an Array as its
     # JSON, and any other value as its text, see `IOStreams::Schema::Field.any_text`.
     #
@@ -54,15 +55,16 @@ module IOStreams
       #     The positions of the columns whose values are times of day by their field, a `time`, whose cells are written
       #     as times of day, the clock of each value, rather than as dates and times.
       #
-      #   decimal_columns: [Hash<Integer, Integer>|nil]
-      #     The number of decimals of the columns whose values are numbers with decimals by their field, by their
-      #     positions, whose cells show each number with that many, such as `12.50`.
-      def initialize(worksheet, auto_format: false, text_columns: nil, time_columns: nil, decimal_columns: nil)
+      #   number_columns: [Hash<Integer, IOStreams::Schema::Field>|nil]
+      #     The fields of the columns whose values are numbers, a `number` or an `integer`, by their positions, whose
+      #     cells show each number with the `decimals` of its field, if any, such as `12.50`, and hold the text of the
+      #     field for a number that a cell cannot hold as a number, see #number_cell.
+      def initialize(worksheet, auto_format: false, text_columns: nil, time_columns: nil, number_columns: nil)
         @worksheet       = worksheet
         @auto_format     = auto_format
         @text_columns    = (text_columns || []).to_h { |index| [index, true] }
         @time_columns    = (time_columns || []).to_h { |index| [index, true] }
-        @decimal_columns = decimal_columns || {}
+        @number_columns = number_columns || {}
       end
 
       # Writes the row, an Array of the values of its cells, see the class, or a row without cells for nil, a blank row,
@@ -90,9 +92,9 @@ module IOStreams
         when Time then time_cell(value, index)
         when nil, true, false then value
         when Date then excel_date?(value) ? value : value.iso8601
-        when Integer, Float then decimal(number(value), index)
+        when Integer, Float then number_cell(value, index)
         when String then @auto_format && !@text_columns.key?(index) ? auto_format(value) : value
-        else value.is_a?(::BigDecimal) ? decimal(number(value), index) : IOStreams::Schema::Field.any_text(value)
+        else value.is_a?(::BigDecimal) ? number_cell(value, index) : IOStreams::Schema::Field.any_text(value)
         end
       end
 
@@ -113,10 +115,11 @@ module IOStreams
       # contract's `integer` or `number` field reads back whole, and NaN or an infinity, which Excel has no number for,
       # as the text that a number field reads, such as "NaN" or "INF", see `IOStreams::Schema::Field.special_text`. A
       # BigDecimal with a fraction is the double that Excel holds, as a number that Excel displays to 15 digits, or its
-      # text, such as `1.5e400` in plain digits, when it is larger than a double holds.
+      # text, such as `1.5e400` in plain digits, when a double loses it, see #lost?, as is a Float smaller than Excel's
+      # smallest number. A column of a field writes such text as the field does, see #number_cell.
       def number(value)
         return IOStreams::Schema::Field.special_text(value) unless value.finite?
-        return value if value.is_a?(Float)
+        return (lost?(value) { value } ? value.to_s : value) if value.is_a?(Float)
         return fraction(value) unless value.is_a?(Integer) || value.frac.zero?
         return value.to_i.to_s if value.abs >= EXACT
 
@@ -135,18 +138,33 @@ module IOStreams
         text
       end
 
-      # Returns [WorksheetWriter::Decimal|Numeric|String] the number of a column of decimals shown with them, or the
-      # number, or its text, as it is otherwise.
-      def decimal(number, index)
-        decimals = @decimal_columns[index]
-        decimals && number.is_a?(Numeric) ? WorksheetWriter::Decimal.new(number, decimals) : number
+      # Returns [WorksheetWriter::Decimal|Numeric|String] the number of the column, see #number, shown with the
+      # `decimals` of the field of its column, if it has them, or for a number that #number writes as text, the text of
+      # the field, as CSV writes it, such as `12345678901234567.00` for 2 decimals, see `IOStreams::Schema::Field#render`,
+      # or without a field, as #number writes it.
+      def number_cell(value, index)
+        number = number(value)
+        field  = @number_columns[index]
+        return number unless field
+        return field.render(value, :text) unless number.is_a?(Numeric)
+
+        field.decimals ? WorksheetWriter::Decimal.new(number, field.decimals) : number
       end
 
       # Returns [Float|String] the double of a BigDecimal with a fraction, or its plain digits when it is larger than a
       # double holds, rather than an infinity, which Excel has no number for.
       def fraction(value)
         float = value.to_f
-        float.finite? ? float : value.to_s("F")
+        lost?(float) { value } ? value.to_s("F") : float
+      end
+
+      # Returns [true|false] whether the double of the number lost it: an infinity for one larger than a double holds,
+      # or, for one other than 0 that is smaller than the smallest normal double, which Excel holds, 0 or a subnormal
+      # double, of fewer digits. The number is only built, by the block, when the double is that small.
+      def lost?(float)
+        return true unless float.finite?
+
+        float.abs < Float::MIN && !yield.zero?
       end
 
       # Returns [Numeric|String] the number of text that looks like one, as #number writes it, or the text itself for a
@@ -154,7 +172,7 @@ module IOStreams
       # hold, such as one of 400 digits, rather than an infinity.
       def auto_number(text)
         value = text.include?(".") ? text.to_f : text.to_i
-        return text unless value.finite?
+        return text if value.is_a?(Float) && lost?(value) { BigDecimal(text) }
 
         value = number(value)
         value.is_a?(String) ? text : value

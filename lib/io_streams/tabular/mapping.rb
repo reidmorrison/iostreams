@@ -215,9 +215,9 @@ module IOStreams
         []
       end
 
-      # Returns [Hash<Integer, Integer>] the decimals of the values of the rows rendered whose field has them, by their
-      # positions, see `IOStreams::Tabular#decimals_by_position`: none without a schema, whose values have no type.
-      def decimals_by_position
+      # Returns [Hash<Integer, IOStreams::Schema::Field>] the fields of the values of the rows rendered that are numbers,
+      # by their positions, see `IOStreams::Tabular#number_fields`: none without a schema.
+      def number_fields
         {}
       end
 

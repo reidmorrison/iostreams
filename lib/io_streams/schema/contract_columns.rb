@@ -95,10 +95,10 @@ module IOStreams
         @source.time_positions
       end
 
-      # Returns [Hash<Integer, Integer>] the decimals of the values of the rows rendered whose field of the file has
-      # them, by their positions, see `IOStreams::Schema::Columns#decimals_by_position`.
-      def decimals_by_position
-        @source.decimals_by_position
+      # Returns [Hash<Integer, IOStreams::Schema::Field>] the fields of the file of the values of the rows rendered that
+      # are numbers, by their positions, see `IOStreams::Schema::Columns#number_fields`.
+      def number_fields
+        @source.number_fields
       end
 
       # Returns [true|false] whether the columns of the file read are known, see #match.

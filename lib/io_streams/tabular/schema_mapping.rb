@@ -245,10 +245,10 @@ module IOStreams
         @columns.time_positions
       end
 
-      # Returns [Hash<Integer, Integer>] the decimals of the values of the rows rendered whose field has them, by their
-      # positions, see `IOStreams::Schema::Columns#decimals_by_position`.
-      def decimals_by_position
-        @columns.decimals_by_position
+      # Returns [Hash<Integer, IOStreams::Schema::Field>] the fields of the values of the rows rendered that are numbers,
+      # by their positions, see `IOStreams::Schema::Columns#number_fields`.
+      def number_fields
+        @columns.number_fields
       end
 
       # Returns [Array<IOStreams::Errors::InvalidValue>] an error for each field whose value of the line is not valid, see

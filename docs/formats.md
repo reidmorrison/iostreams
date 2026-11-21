@@ -361,7 +361,11 @@ and text, such as `"01234"`, is text. A date and time that Excel cannot show, be
 10000-01-01 in UTC, is written as the text of its clock, such as `1899-12-30T12:00:00`, and a date before 1899-12-31,
 or after 9999-12-31, as its text, such as `1899-12-30`. A `datetime` or `date` field reads back the text of one before
 1899-12-31, but not of one after 9999-12-31, as for CSV. A `BigDecimal` is written as the `Float` that Excel
-holds, shown with the `decimals` of its field, such as `12.50`, see [Limitations](#spreadsheet-limitations). A field whose value is
+holds, to its 15 significant digits, shown with the `decimals` of its field, such as `12.50`, see
+[Limitations](#spreadsheet-limitations). A number outside the range that Excel holds, larger than a double holds, or
+other than 0 and smaller than its smallest normal value, about 2.2e-308, and a whole number of more than 15 digits,
+such as an identifier, is written as its text instead, as its field writes it to CSV, such as `12345678901234567.00`
+for a field with 2 decimals, or `12,345,678,901,234,567` with a `groupChar`, which the field reads back whole. A field whose value is
 not one value, a `list`, `geopoint`, `array` or `object`, a `yearmonth` and a `duration`, is written as its text, as
 CSV writes it, such as `a,b`, `2026-10` or `P1D`, and a `Hash` or an `Array` of a field of type `any`, or without a schema, as its JSON:
 
