@@ -40,9 +40,10 @@ module IOStreams
       def initialize(output_stream, sheet_name:, use_shared_strings: false)
         @sheet_name     = sheet_name
         @shared_strings = SharedStringTable.new if use_shared_strings
+        @styles         = CellStyles.new
         @zip            = ZipKit::Streamer.new(output_stream)
         @part           = @zip.write_deflated_file(WORKSHEET_PART)
-        @worksheet      = WorksheetWriter.new(@part, shared_strings: @shared_strings)
+        @worksheet      = WorksheetWriter.new(@part, styles: @styles, shared_strings: @shared_strings)
       end
 
       # Ends the worksheet, writes the other parts, and ends the zip file, without closing the output stream.
@@ -51,7 +52,7 @@ module IOStreams
         @part.close
         @part = nil
         write_part(WORKBOOK_PART, workbook)
-        write_part(CellStyles::PART, CellStyles::XML)
+        write_part(CellStyles::PART, @styles.xml)
         write_part(SharedStringTable::PART) { |io| @shared_strings.write(io) } if shared_strings?
         write_part("xl/_rels/workbook.xml.rels", workbook_relationships)
         write_part("_rels/.rels", ROOT_RELATIONSHIPS)

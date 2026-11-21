@@ -43,11 +43,16 @@ module IOStreams
       #   time_columns: [Array<Integer>|nil]
       #     The positions of the columns whose values are times of day by their field, a `time`, whose cells are written
       #     as times of day, the clock of each value, rather than as dates and times.
-      def initialize(worksheet, auto_format: false, text_columns: nil, time_columns: nil)
-        @worksheet    = worksheet
-        @auto_format  = auto_format
-        @text_columns = (text_columns || []).to_h { |index| [index, true] }
-        @time_columns = (time_columns || []).to_h { |index| [index, true] }
+      #
+      #   decimal_columns: [Hash<Integer, Integer>|nil]
+      #     The number of decimals of the columns whose values are numbers with decimals by their field, by their
+      #     positions, whose cells show each number with that many, such as `12.50`.
+      def initialize(worksheet, auto_format: false, text_columns: nil, time_columns: nil, decimal_columns: nil)
+        @worksheet       = worksheet
+        @auto_format     = auto_format
+        @text_columns    = (text_columns || []).to_h { |index| [index, true] }
+        @time_columns    = (time_columns || []).to_h { |index| [index, true] }
+        @decimal_columns = decimal_columns || {}
       end
 
       # Writes the row, an Array of the values of its cells, see the class, or a row without cells for nil, a blank row,
@@ -74,9 +79,9 @@ module IOStreams
         when DateTime then time_cell(value.to_time, index)
         when Time then time_cell(value, index)
         when nil, true, false, Date then value
-        when Integer, Float then number(value)
+        when Integer, Float then decimal(number(value), index)
         when String then @auto_format && !@text_columns.key?(index) ? auto_format(value) : value
-        else value.is_a?(::BigDecimal) ? number(value) : IOStreams::Schema::Field.any_text(value)
+        else value.is_a?(::BigDecimal) ? decimal(number(value), index) : IOStreams::Schema::Field.any_text(value)
         end
       end
 
@@ -116,6 +121,13 @@ module IOStreams
         text
       rescue ArgumentError
         text
+      end
+
+      # Returns [WorksheetWriter::Decimal|Numeric|String] the number of a column of decimals shown with them, or the
+      # number, or its text, as it is otherwise.
+      def decimal(number, index)
+        decimals = @decimal_columns[index]
+        decimals && number.is_a?(Numeric) ? WorksheetWriter::Decimal.new(number, decimals) : number
       end
 
       # Returns [Numeric|String] the number of text that looks like one, as #number writes it, or the text itself for a

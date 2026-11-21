@@ -3295,17 +3295,17 @@ Notes:
 
 ### Limitations {#spreadsheet-limitations}
 
-A `number` field with `decimals` is written as a number cell in Excel's General format, since IOStreams
-writes only the number formats of dates and times, so Excel shows the digits of its value, such as `12.5`, where CSV
-writes `12.50`, and so do the lines of the spreadsheet, its CSV text. The cell holds the same number, which the field
-reads back:
+A `number` field with `decimals` is written as a number cell whose format shows that many decimals, such as `0.00`
+for 2, so Excel shows `12.50`, as CSV writes it. The cell holds the number itself, `12.5`, which is what the lines of
+the spreadsheet, its CSV text, hold, since they hold the digits of each number rather than the text that its format
+shows. The field reads the number back:
 
 ~~~ruby
 # Order is a contract whose amount field has 2 decimals, see Contracts.
 IOStreams.path("report.xlsx").as(Order).writer(:hash) do |io|
   io << {"id" => 1001, "amount" => BigDecimal("12.5"), "ordered_at" => Time.utc(2026, 10, 25, 9, 30), "zip" => "01234"}
 end
-# Excel shows 12.5 as the amount, where report.csv holds 12.50.
+# Excel shows 12.50 as the amount, as report.csv holds it.
 
 IOStreams.path("report.xlsx").as(Order).each(:hash) do |order|
   p order
