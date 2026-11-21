@@ -590,6 +590,12 @@ A value that its column cannot hold raises `IOStreams::Errors::InvalidValue`, na
 written: an integer outside the range of an `int64`, or a number with more digits before its decimal point than its
 `decimal(38, decimals)` holds, that is `38 - decimals`.
 
+A file that is not Parquet, or is damaged or cut short, raises `IOStreams::Errors::Corrupt`, naming the file, also a
+damaged file that makes the `parquet` gem panic, see [Errors](errors). A small Parquet file can hold very large
+values, since its columns are compressed, such as a 10 KB file compressed with zstd that holds a value of 300 MB, so a
+limit on the size of an upload does not limit the memory that reading it needs: decide how large a Parquet file, and
+its values, an application accepts from those who send it one.
+
 A Parquet file has no lines, so the `:line` mode, and the `delimiter:` and `buffer_size:` options, raise
 `ArgumentError`, and so does `#encoding`, since its values are not text, which the `parquet` gem reads and writes as
 UTF-8. Like JSON, it has no header row, so the first row that `each(:array)` yields is a header row of its columns,

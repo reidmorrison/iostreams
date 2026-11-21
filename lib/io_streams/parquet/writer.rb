@@ -90,6 +90,13 @@ module IOStreams
       end
       private_class_method :compression_of
 
+      # Returns [IOStreams::Errors::StreamFailure] the failure for a panic of the gem while it writes the file, see
+      # `IOStreams::Parquet.within_gem`, whose cause is the panic. Not tagged with a kind of failure, which describes the
+      # data of a file that is read.
+      def self.panic_failure(panic)
+        Errors::StreamFailure.new("The parquet gem could not write the file: #{panic.message}")
+      end
+
       def initialize(file_name, columns, compression)
         super(nil)
         @columns = columns
@@ -144,7 +151,12 @@ module IOStreams
               yielder << row
             end
           end
-          ::Parquet.write_rows(rows, schema: schema, write_to: file_name, compression: compression)
+          # A panic of the gem ends this thread with an exception that `rescue StandardError` rescues, see .panic_failure,
+          # rather than `fatal`, which #<< and #finish raise in the thread of the caller, as they raise any other error
+          # of the gem, so that the file is not completed.
+          Parquet.within_gem(on_panic: ->(panic) { self.class.panic_failure(panic) }) do
+            ::Parquet.write_rows(rows, schema: schema, write_to: file_name, compression: compression)
+          end
         ensure
           # So that #<< raises rather than waits for a thread that will not take its row.
           queue.close

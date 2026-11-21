@@ -30,6 +30,28 @@ module IOStreams
         Errors::Corrupt
       end
 
+      # Calls the block, which calls the gem, and tags the RuntimeError that it raises, see .failure_kind, and the
+      # display name of the file, see `IOStreams::Reader.tag_failure`, or raises its panic as
+      # `IOStreams::Errors::StreamFailure`, tagged as `IOStreams::Errors::Corrupt`, see .panic_failure.
+      def self.tag_failure(display_name = nil, &)
+        Parquet.within_gem(on_panic: ->(panic) { panic_failure(panic, display_name) }) { super }
+      end
+
+      # Returns [IOStreams::Errors::StreamFailure] the failure, tagged as `IOStreams::Errors::Corrupt` and the display
+      # name of the file, for a panic of the gem, see `IOStreams::Parquet.within_gem`, which a damaged file, such as one
+      # with a single byte changed, can cause, also when its schema reads without error, see #declared_schema. Its cause
+      # is the panic, whose message is that of the Rust code of the gem.
+      def self.panic_failure(panic, display_name)
+        Errors::Corrupt.tag(Errors::StreamFailure.new("The parquet gem could not read the file: #{panic.message}"),
+                            display_name)
+      end
+
+      # Returns [true] its failures name the file that is read, see `IOStreams::Reader.takes_display_name?`, rather than
+      # the temp file that a stream is copied into.
+      def self.takes_display_name?
+        true
+      end
+
       # Yields [IOStreams::Parquet::Reader] the reader of the rows of the file.
       #
       # Parameters:
@@ -45,15 +67,20 @@ module IOStreams
       #     file, which hold every column, see `IOStreams::Stream#open_slice_rows`, as the schema that the reader
       #     declares describes them, see #declared_schema.
       #     Default: false, only the columns of the fields of a schema that skips the others.
-      def self.file(file_name, schema: nil, every_column: false)
+      #
+      #   display_name: [String]
+      #     The name of the file in its failures, see .takes_display_name?.
+      #     Default: nil, which does not name it.
+      def self.file(file_name, schema: nil, every_column: false, display_name: nil)
         Parquet.load_dependency
-        yield new(file_name, schema, every_column: every_column)
+        yield new(file_name, schema, every_column: every_column, display_name: display_name)
       end
 
-      def initialize(file_name, schema = nil, every_column: false)
+      def initialize(file_name, schema = nil, every_column: false, display_name: nil)
         super(nil)
-        @file_name = file_name
-        @columns   = schema&.projection { labels } unless every_column
+        @file_name    = file_name
+        @display_name = display_name
+        @columns = schema&.projection { labels } unless every_column
       end
 
       # Yields [Hash<String, Object>] each row, by the names of its columns, in the order of the columns, with each time of
@@ -62,29 +89,33 @@ module IOStreams
       # #text_columns.
       #
       # Raises the RuntimeError of the parquet gem, tagged as `IOStreams::Errors::Corrupt`, for a file that it cannot
-      # read, see .failure_kind.
+      # read, see .failure_kind, and `IOStreams::Errors::StreamFailure`, tagged the same way, for a file that makes it
+      # panic, see .panic_failure.
       #
       # The gem calls the block for each row itself, so it cannot be called within `.tag_failure`, which would tag what
       # the block raises. The gem raises what the block raised, the same object, so an exception is only tagged when the
-      # block is not running.
+      # block is not running, and a `fatal` that the block raised is raised as it is.
       def each(&block)
         in_block = false
         times    = time_columns
         texts    = text_columns
-        ::Parquet.each_row(@file_name, columns: @columns) do |row|
-          times.each { |name| (time = row[name]) && (row[name] = Schema::Field.time_of_day(time)) }
-          texts.each { |name| row[name] = nil if row[name] == "" }
-          in_block = true
-          block.call(row)
-          # Not reset in an ensure, which would clear it before the exception that the block raised reaches the rescue.
-          in_block = false
+        on_panic = ->(panic) { in_block ? panic : self.class.panic_failure(panic, @display_name) }
+        Parquet.within_gem(on_panic: on_panic) do
+          ::Parquet.each_row(@file_name, columns: @columns) do |row|
+            times.each { |name| (time = row[name]) && (row[name] = Schema::Field.time_of_day(time)) }
+            texts.each { |name| row[name] = nil if row[name] == "" }
+            in_block = true
+            block.call(row)
+            # Not reset in an ensure, which would clear it before the exception that the block raised reaches the rescue.
+            in_block = false
+          end
         end
         nil
       rescue StandardError => e
         raise if in_block
 
         kind = self.class.failure_kind(e)
-        raise(kind ? kind.tag(e) : e)
+        raise(kind ? kind.tag(e, @display_name) : e)
       end
 
       # Returns [IOStreams::Schema] the schema that the file declares, see `IOStreams::Stream#infer_schema`: a field for
@@ -196,7 +227,7 @@ module IOStreams
 
       # Returns [Array<Hash>] the columns of the file, as the `parquet` gem describes them, read once from its end.
       def fields
-        @fields ||= self.class.tag_failure { ::Parquet.metadata(@file_name) }["schema"]["fields"]
+        @fields ||= self.class.tag_failure(@display_name) { ::Parquet.metadata(@file_name) }["schema"]["fields"]
       end
     end
   end

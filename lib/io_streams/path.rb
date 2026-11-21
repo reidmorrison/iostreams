@@ -460,6 +460,12 @@ module IOStreams
 
     private
 
+    # Returns [String] the display name of this path, which the failures of a reader of rows name, see
+    # `IOStreams::Stream#failure_name`, as the readers of its streams do, see `IOStreams::Builder#reader`.
+    def failure_name
+      display_name
+    end
+
     # Deletes this file once it was copied to the supplied target by a move, see #move_to. When it cannot be deleted,
     # such as when the storage does not permit it, the copy is deleted before what deleting this file raised is raised
     # again, so that the file is not in both places, which a caller that moves files, such as one that archives each

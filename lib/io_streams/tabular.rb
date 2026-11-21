@@ -355,12 +355,14 @@ module IOStreams
     # The reader is given the schema, as the writer is, see #write_rows, so that a reader that can read only some of the
     # columns of a file, such as Parquet, reads only those of its fields when the schema skips the others, see
     # `IOStreams::Parquet::Reader.file`, unless the caller needs every column, `every_column: true`, such as for the
-    # slices of the file, which hold every column.
+    # slices of the file, which hold every column. A reader that names the file in its failures, such as Parquet, names
+    # it by `display_name:`, see `IOStreams::Reader.takes_display_name?`, when it is supplied.
     #
     # Returns the result of the block.
-    def read_rows(io, every_column: false, &)
+    def read_rows(io, every_column: false, display_name: nil, &)
       arguments = {schema: schema, every_column: every_column}
-      parser.class.row_format.open_stream(:reader, io, @row_format_options, name: format, arguments: arguments, &)
+      parser.class.row_format.open_stream(:reader, io, @row_format_options, name: format, display_name: display_name,
+                                                                            arguments: arguments, &)
     end
 
     # Takes the schema that the rows declare, which the block returns, such as that of a Parquet file, which its
