@@ -22,12 +22,12 @@ module IOStreams
         %i[sheet_name]
       end
 
-      # Returns [Module] `IOStreams::Errors::Corrupt` for an exception that creek raises for a file that is not a
-      # spreadsheet, see `IOStreams::Reader.failure_kind`: `Zip::Error` from rubyzip, which creek reads the spreadsheet
-      # with, for a file that is not a zip file, or `Errno::ENOENT` for a zip file without the parts of a spreadsheet,
-      # such as `xl/workbook.xml`.
+      # Returns [Module] `IOStreams::Errors::Corrupt` for an exception that rubyzip raises for a file that is not a zip
+      # file, `Zip::Error`, see `IOStreams::Reader.failure_kind`. IOStreams raises its own, tagged the same way, for a
+      # zip file that is not a spreadsheet, see `IOStreams::Xlsx::Package`, and for XML that is not well formed, see
+      # `IOStreams::Xlsx::XmlScanner`.
       def self.failure_kind(exception)
-        Errors::Corrupt if (defined?(::Zip::Error) && exception.is_a?(::Zip::Error)) || exception.is_a?(::Errno::ENOENT)
+        Errors::Corrupt if defined?(::Zip::Error) && exception.is_a?(::Zip::Error)
       end
 
       # Its failures name the spreadsheet that is read, rather than the temp file that a spreadsheet that is not a local
@@ -40,8 +40,9 @@ module IOStreams
       # rows of its first worksheet, each an Array of the value of each of its cells, typed by Excel, see
       # `IOStreams::Xlsx::Cells`.
       #
-      # Raises the exception of creek, tagged as `IOStreams::Errors::Corrupt`, for a file that is not a spreadsheet, see
-      # .failure_kind, and `IOStreams::Errors::StreamFailure`, tagged the same way, for a part of the spreadsheet that is
+      # Raises the exception of rubyzip, tagged as `IOStreams::Errors::Corrupt`, for a file that is not a zip file, see
+      # .failure_kind, and `IOStreams::Errors::StreamFailure`, tagged the same way, for a zip file that is not a
+      # spreadsheet, and `IOStreams::Errors::StreamFailure`, tagged the same way, for a part of the spreadsheet that is
       # damaged, see .verify, naming the spreadsheet by its `display_name`, see .takes_display_name?, otherwise by the name
       # of the local file.
       def self.file(file_name, display_name: nil, rows: false, decimals: nil, strings: nil, missing: nil, times: nil,
@@ -54,15 +55,15 @@ module IOStreams
         # Stream into a temp file as csv
         Utils.private_temp_file("iostreams_csv", purpose: "the rows of the spreadsheet as CSV") do |temp_file_name|
           ::File.open(temp_file_name, "wb") do |io|
-            tag_failure(name) { new(file_name).each { |lines| io << lines.to_csv } }
+            tag_failure(name) { each_text_row(file_name, name) { |row| io << row.to_csv } }
           end
           ::File.open(temp_file_name, "rb", &block)
         end
       end
 
       # Raises unless each part of the spreadsheet has the size and the CRC32 that the spreadsheet records for it, see
-      # `IOStreams::Zip::Reader.check_entry`, since rubyzip, which creek reads it with, checks neither, so that a damaged
-      # part read wrong values without an error. Reads each part once more, before creek reads it.
+      # `IOStreams::Zip::Reader.check_entry`, since rubyzip, which reads it, checks neither, so that a damaged part read
+      # wrong values without an error. Reads each part once more, before its rows are read.
       def self.verify(file_name, name)
         Zip::Reader.open_zip(file_name, name).each do |entry|
           next unless entry.file?
@@ -81,53 +82,28 @@ module IOStreams
         end
       end
 
-      # Reads with creek rather than xsv, for now. xsv (checked at 1.4.1) loses data when converting cells: it rounds
-      # datetimes to the minute, returns a time of day as "HH:MM", misreads a lowercase exponent (1e+20 as 1), leaves
-      # _xHHHH_ escapes such as _x000D_ undecoded, ignores date1904, turns errors such as #N/A into nil, strips
-      # formula results, returns gap rows as rows of nil, and pads every row to the sheet's width. It has no option to
-      # return raw values. Revisit once xsv resolves these type conversion issues.
-      def initialize(file_name)
-        Utils.load_soft_dependency("creek", "Xlsx") unless defined?(Creek::Book)
-
-        workbook   = Creek::Book.new(file_name, check_file_extension: false)
-        @worksheet = workbook.sheets[0]
+      # Yields [IOStreams::Xlsx::Book] the workbook of the spreadsheet file, which it closes once the block returns.
+      def self.open_book(file_name, display_name)
+        zip = Zip::Reader.open_zip(file_name, display_name)
+        book = tag_failure(display_name) { Book.new(Package.new(zip, display_name)) }
+        yield(book)
+      ensure
+        zip&.close
       end
 
-      # Returns each [Array] row from the spreadsheet, with the text of each cell, as `IOStreams::Xlsx::Cells.text` gives
-      # it, the same in every process, so that the lines and the rows of the workbook agree on which cells hold a date or
-      # a time, or nil for an empty cell.
-      def each
-        formats = self.class.number_formats(@worksheet)
-        self.class.convert_cells(@worksheet) { |text, type, style, options| Cells.text(text, type, formats[style], options) }
-        @worksheet.rows.each { |row| yield(row.values) }
-      end
-
-      # Replaces creek's conversion of each cell of a worksheet, `Creek::Sheet#convert`, with the block, which it calls
-      # with the text of the cell, its cell type, the index of its style, and `Creek::Sheet#converter_options`, the
-      # shared strings and the first day of the workbook, so that IOStreams types its cells, see
-      # `IOStreams::Xlsx::Cells`, rather than creek, which only reads them.
-      #
-      # Raises `IOStreams::Errors::Error` when the version of creek no longer has those methods, rather than let creek
-      # type the cells itself.
-      def self.convert_cells(sheet, &block)
-        unless sheet.respond_to?(:convert, true) && sheet.respond_to?(:converter_options, true)
-          raise(IOStreams::Errors::Error, "creek #{Creek::VERSION} no longer has Creek::Sheet#convert and " \
-                                          "#converter_options, which IOStreams replaces to type the cells of a spreadsheet")
+      # Yields [Array] each row of the first worksheet of the spreadsheet file, with the text of each cell, as
+      # `IOStreams::Xlsx::Cells.text` gives it, the same in every process, so that the lines and the rows of the
+      # workbook agree on which cells hold a date or a time, or nil for an empty cell.
+      def self.each_text_row(file_name, display_name, &block)
+        open_book(file_name, display_name) do |book|
+          formats = book.number_formats
+          options = {shared_strings: book.shared_strings, base_date: book.base_date}
+          book.each_row(->(text, type, style) { Cells.text(text, type, formats[style], options) }, &block)
         end
-
-        sheet.define_singleton_method(:convert) do |text, type, style_index|
-          block.call(text, type, style_index.to_i, converter_options)
-        end
-      end
-
-      # Returns [Array<Symbol|nil>] the class of the number format of each style of the workbook of a worksheet, see
-      # `IOStreams::Xlsx::Cells.number_formats`.
-      def self.number_formats(sheet)
-        Cells.number_formats(Creek::Styles.new(sheet.book).styles_xml)
       end
 
       # The rows of the first worksheet of a workbook, each an Array of the value of each of its cells, typed by Excel's own
-      # cell type and number format, see `IOStreams::Xlsx::Cells`, rather than by creek, which only reads them.
+      # cell type and number format, see `IOStreams::Xlsx::Cells`.
       class Rows
         include Enumerable
 
@@ -186,24 +162,25 @@ module IOStreams
         # Yields [Array] each row, as an Array of the values of its cells, from the first, the header row of a worksheet
         # with one, see `IOStreams::Tabular`, and the empty cells before a cell that holds a value as nil.
         #
-        # Raises the exception of creek, tagged as `IOStreams::Errors::Corrupt`, for a worksheet that it cannot read, see
-        # `IOStreams::Xlsx::Reader.failure_kind`.
+        # Raises `IOStreams::Errors::StreamFailure` tagged as `IOStreams::Errors::Corrupt` for a worksheet that it
+        # cannot read, see `IOStreams::Xlsx::Reader.file`.
         def each
           return enum_for(:each) unless block_given?
 
-          sheet     = Reader.tag_failure(@display_name) { Reader.new(@file_name).worksheet }
-          times     = type_cells(sheet)
           positions = {}
-          each_row(sheet) do |row|
-            read_row(row, positions, times)
-            yield(row)
+          Reader.open_book(@file_name, @display_name) do |book|
+            times = {}.compare_by_identity
+            each_row(book, converter(book, times)) do |row|
+              read_row(row, positions, times)
+              yield(row)
+            end
           end
         end
 
         private
 
         # Reads the values of the row as the fields of their positions read them, see #initialize, which are known once
-        # the header row is read, and kept in the supplied Hash, and forgets the time cells of the row, see #type_cells.
+        # the header row is read, and kept in the supplied Hash, and forgets the time cells of the row, see #converter.
         def read_row(row, positions, times)
           read_cells(row, known(positions, :missing, @missing), times) if @missing
           forms = known(positions, :times, @times)
@@ -219,20 +196,19 @@ module IOStreams
           positions[kind] ||= source&.call
         end
 
-        # Types the cells of the worksheet by Excel's own cell type and number format, see `IOStreams::Xlsx::Cells.value`.
-        #
-        # Returns [Hash] the TimeCell of each cell of a time format, by the Time that the cell holds, itself, rather than
-        # its value, since a cell of a date and time can hold the same time: the text of its clock, see
+        # Returns [#call] the converter of the text, type and style of each cell of the workbook to its value, typed by
+        # Excel's own cell type and number format, see `IOStreams::Xlsx::Cells.value`, which fills the supplied Hash
+        # with the TimeCell of each cell of a time format, by the Time that the cell holds, itself, rather than its
+        # value, since a cell of a date and time can hold the same time: the text of its clock, see
         # `IOStreams::Xlsx::Cells.clock`, and of its length, see `IOStreams::Xlsx::Cells.length`, which a field that
-        # reads it otherwise than as the Time reads, see `times` in #initialize, filled as the worksheet is read, and
-        # only when there are such fields.
+        # reads it otherwise than as the Time reads, see `times` in #initialize, only when there are such fields.
         #
         # When the text of a cell can be a missing value, see `missing` in #initialize, each cell is its value with its
         # text, a Cell, until #read_cells reads the row.
-        def type_cells(sheet)
-          formats = Reader.tag_failure(@display_name) { Reader.number_formats(sheet) }
-          times   = {}.compare_by_identity
-          Reader.convert_cells(sheet) do |text, type, style, options|
+        def converter(book, times)
+          formats = book.number_formats
+          options = {shared_strings: book.shared_strings, base_date: book.base_date}
+          lambda do |text, type, style|
             next Cells.text(text, type, formats[style], options) if @text
 
             value  = Cells.value(text, type, formats[style], options)
@@ -240,10 +216,9 @@ module IOStreams
             times[value] = TimeCell.new(Cells.clock(text, type, formats[style]), length) if length
             @missing ? Cell.new(value, Cells.text(text, type, formats[style], options)) : value
           end
-          times
         end
 
-        # The text of a cell of a time format, see #type_cells: its clock, below a day, otherwise nil, and its length.
+        # The text of a cell of a time format, see #converter: its clock, below a day, otherwise nil, and its length.
         TimeCell = Data.define(:clock, :length)
 
         # The value of a cell with its text, see `IOStreams::Xlsx::Cells.text`, which a missing value is compared with,
@@ -252,7 +227,7 @@ module IOStreams
 
         # Replaces each cell of the row with its value, or its text when that is a missing value of the field of its
         # position, see `missing` in #initialize, which the field reads as missing, forgetting the time cell of a time
-        # that is missing, see #type_cells.
+        # that is missing, see #converter.
         def read_cells(row, missing, times)
           row.each_with_index do |cell, index|
             next unless cell.is_a?(Cell)
@@ -295,13 +270,13 @@ module IOStreams
           Cells.displayed_text(value)
         end
 
-        # Yields the values of each row of the worksheet, tagging a failure of creek as `.failure_kind` says, but not one
-        # that the block raises, which creek raises as it is, as it calls the block while it reads the worksheet.
-        def each_row(sheet)
+        # Yields the values of each row of the worksheet, tagging a failure of rubyzip as `.failure_kind` says, but not one
+        # that the block raises, which is raised as it is, as the block is called while the worksheet is read.
+        def each_row(book, converter)
           in_block = false
-          sheet.rows.each do |row|
+          book.each_row(converter) do |row|
             in_block = true
-            yield(row.values)
+            yield(row)
             # Not reset in an ensure, which would clear it before the exception that the block raised reaches the rescue.
             in_block = false
           end
@@ -313,9 +288,6 @@ module IOStreams
           raise(kind ? kind.tag(e, @display_name) : e)
         end
       end
-
-      # Returns [Creek::Sheet] the first worksheet of the workbook, which #each reads.
-      attr_reader :worksheet
     end
   end
 end

@@ -5,7 +5,7 @@ require "date"
 module IOStreams
   module Xlsx
     # The value of each cell of a worksheet, typed by Excel's own cell type and number format, so that the gem that reads
-    # the workbook, creek, is only its reader, and another could replace it once it exposes the same:
+    # the workbook, `IOStreams::Xlsx::Book`, is only its reader:
     #
     #   Excel cell                     | Ruby value
     #   Text                           | a String, keeping `01234`
@@ -63,21 +63,16 @@ module IOStreams
 
       # Returns [Array<Symbol|nil>] the class of the number format of each style of a workbook, by the index of the style,
       # as a cell names it with its `s` attribute: `:date`, `:time`, `:elapsed` or `:date_time`, or nil for a number,
-      # from Excel's own number formats, see BUILT_IN_FORMATS and .custom_format, rather than as creek finds them.
+      # from Excel's own number formats, see BUILT_IN_FORMATS and .custom_format.
       #
       # Parameters:
-      #   styles: [Nokogiri::XML::Document|nil]
-      #     The styles of the workbook, `xl/styles.xml`, or nil for a workbook without them.
-      def self.number_formats(styles)
-        return [] if styles.nil?
-
-        custom = styles.css("styleSheet numFmts numFmt").to_h do |format|
-          [format["numFmtId"].to_i, custom_format(format["formatCode"].to_s)]
-        end
-        styles.css("styleSheet cellXfs xf").map do |style|
-          id = style["numFmtId"]&.to_i
-          BUILT_IN_FORMATS.fetch(id) { custom[id] } if id
-        end
+      #   format_codes: [Hash<Integer, String>]
+      #     The code of each custom number format of the workbook, by its id.
+      #   format_ids: [Array<Integer|nil>]
+      #     The id of the number format of each style of the workbook, by its index, or nil for a style without one.
+      def self.number_formats(format_codes, format_ids)
+        custom = format_codes.transform_values { |code| custom_format(code) }
+        format_ids.map { |id| BUILT_IN_FORMATS.fetch(id) { custom[id] } if id }
       end
 
       # Returns [BigDecimal] the number of a finite Float that a cell holds, to the digits that Excel displays, its most
@@ -125,13 +120,14 @@ module IOStreams
 
       # Returns the value of a cell of the supplied text of its `<v>` or `<t>` element, cell type, its `t` attribute,
       # and the class of its number format, see .number_formats, such as `:date`, with the shared strings and the first
-      # day of the workbook, see `Creek::Sheet#converter_options`.
+      # day of the workbook, see `IOStreams::Xlsx::Book`. The text of a string has the characters that Excel escapes
+      # decoded, see `IOStreams::Xlsx::Text`.
       def self.value(text, type, style, options)
         return if text.nil? || text.empty?
 
         case type
         when "s" then options[:shared_strings][text.to_i]
-        when "str", "inlineStr" then Creek::Styles::Converter.unescape_string(text)
+        when "str", "inlineStr" then text
         when "b" then text == "1" || text.casecmp?("true")
         when "e" then nil
         else number(text, style, options[:base_date])

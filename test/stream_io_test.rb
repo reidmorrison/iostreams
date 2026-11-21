@@ -23,12 +23,6 @@ class StreamIOTest < Minitest::Test
       IOStreams.stream(StringIO.new(output.string)).stream(name, **reader_options).reader(&)
     end
 
-    def skip_unless_read_back(format)
-      return unless defined?(JRuby) && format == IOStreams::Xlsx
-
-      skip("creek on JRuby loses characters of the cells of a large worksheet")
-    end
-
     # Every stream registered for a file name extension that both writes and reads.
     IOStreams.extensions.each_pair do |name, format|
       next unless format.reader_class && format.writer_class
@@ -36,8 +30,6 @@ class StreamIOTest < Minitest::Test
       writer_options, reader_options = STREAM_OPTIONS.fetch(name, [{}, {}])
 
       it "reads parts of the data like an IO for the #{name.inspect} stream" do
-        skip_unless_read_back(format)
-
         read_back(name, writer_options, reader_options) do |io|
           assert_equal "", io.read(0)
           refute_predicate io, :eof?
@@ -64,8 +56,6 @@ class StreamIOTest < Minitest::Test
       end
 
       it "reads lines like an IO for the #{name.inspect} stream" do
-        skip_unless_read_back(format)
-
         read_back(name, writer_options, reader_options) do |io|
           assert_equal "0,#{'x' * 20}\n", io.gets
           assert_equal "1,#{'x' * 20}", io.gets(chomp: true)
@@ -81,8 +71,6 @@ class StreamIOTest < Minitest::Test
       end
 
       it "reads the rest of the lines like IO#readlines for the #{name.inspect} stream" do
-        skip_unless_read_back(format)
-
         read_back(name, writer_options, reader_options) do |io|
           assert_equal "0,#{'x' * 20}\n", io.gets
           assert_equal data.lines[1..], io.readlines
@@ -91,8 +79,6 @@ class StreamIOTest < Minitest::Test
       end
 
       it "is read by CSV for the #{name.inspect} stream, as an IO is" do
-        skip_unless_read_back(format)
-
         rows = read_back(name, writer_options, reader_options) { |io| CSV.new(io).to_a }
 
         assert_equal 5000, rows.size
@@ -100,8 +86,6 @@ class StreamIOTest < Minitest::Test
       end
 
       it "reads the end of the data like an IO for the #{name.inspect} stream" do
-        skip_unless_read_back(format)
-
         read_back(name, writer_options, reader_options) do |io|
           assert_equal data, io.read
           assert_predicate io, :eof?
@@ -282,10 +266,6 @@ class StreamIOTest < Minitest::Test
       end
 
       it "writes the text of each object, and the separators of #print, like an IO, for the #{name.inspect} stream" do
-        if defined?(JRuby) && format == IOStreams::Xlsx
-          skip("creek on JRuby reads a cell only up to a character that XML escapes, such as the < of Object#to_s")
-        end
-
         # The separators are set only while #print writes, since `$,` also separates the values of `Array#join`, which
         # the gems of some streams call to build their output, such as that of a zip file.
         write = lambda do |io|
