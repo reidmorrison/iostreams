@@ -477,6 +477,25 @@ class XlsxWriterTest < Minitest::Test
       end
     end
 
+    describe "Excel's limits" do
+      it "raises for a value after Excel's last column, and discards the workbook" do
+        File.write(file_name, "existing")
+        error = assert_raises(IOStreams::Errors::Error) do
+          IOStreams.path(file_name).writer(:array) { |io| io << ["a", *Array.new(16_383), "b"] }
+        end
+
+        assert_equal "A worksheet holds at most 16384 columns, to XFD, as Excel limits it, which a value of row 1, in " \
+                     "column 16385, exceeds", error.message
+        refute_path_exists file_name
+      end
+
+      it "writes a value in the last column, and nils after it" do
+        data = write(rows: true) { |io| io << [*Array.new(16_383), "last", nil, nil] }
+
+        assert_includes worksheet_xml(data), '<c r="XFD1" t="inlineStr">'
+      end
+    end
+
     describe "the text of a cell" do
       let :texts do
         ["a\r\nb\rc", " padded ", "_x0041_ stays", "bell\u0007", "<b> & </b>", "tab\tnew\nline"]

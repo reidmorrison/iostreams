@@ -29,6 +29,10 @@ module IOStreams
 
       SECONDS_PER_DAY = 86_400.0
 
+      # The most rows and columns of a worksheet, as Excel limits them: its last row is 1,048,576 and its last column XFD.
+      MOST_ROWS    = 1_048_576
+      MOST_COLUMNS = 16_384
+
       # The size of XML that is collected before it is written to the part, since each write compresses it.
       BUFFER_SIZE = 65_536
 
@@ -53,8 +57,16 @@ module IOStreams
       end
 
       # Writes the row, an Array of the values of its cells, see the class.
+      #
+      # Raises [IOStreams::Errors::Error] for a row after Excel's last, or a value of a cell after its last column, which
+      # Excel would report as corrupt, so that the write is discarded rather than leave a workbook that cannot be read.
       def <<(row)
         @row_number += 1
+        if @row_number > MOST_ROWS
+          raise(Errors::Error,
+                "A worksheet holds at most #{MOST_ROWS} rows, as Excel limits it, which row #{@row_number} exceeds")
+        end
+
         @buffer << %(<row r="#{@row_number}">)
         row.each_with_index { |value, index| add_cell(@buffer, value, index) }
         @buffer << "</row>"
@@ -112,6 +124,10 @@ module IOStreams
 
       # Returns [String] the reference of the cell of the column at the index in the current row, such as `B2`.
       def reference(index)
+        if index >= MOST_COLUMNS
+          raise(Errors::Error, "A worksheet holds at most #{MOST_COLUMNS} columns, to XFD, as Excel limits it, which a " \
+                               "value of row #{@row_number}, in column #{index + 1}, exceeds")
+        end
         @columns << @columns.last.next while @columns.size <= index
         "#{@columns[index]}#{@row_number}"
       end
