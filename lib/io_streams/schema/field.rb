@@ -702,7 +702,7 @@ module IOStreams
       # of `1e999999999`.
       def cast_integer(value)
         return integer_text(value) if value.is_a?(String)
-        return out_of_range(value) if value.is_a?(Numeric) && !NumberRange.within?(value)
+        return out_of_range(value, NumberRange::INTEGER_DESCRIPTION) if NumberRange.above?(value)
 
         case value
         when Integer then value
@@ -719,17 +719,17 @@ module IOStreams
         digits = INTEGER.match?(text) ? text : WHOLE.match(text)&.[](1)
         return invalid(text) if digits.nil?
 
-        NumberRange.integer(digits) || out_of_range(text)
+        NumberRange.integer(digits) || out_of_range(text, NumberRange::INTEGER_DESCRIPTION)
       end
 
       # Raises `IOStreams::Errors::InvalidValue` for a number outside the range of `IOStreams::Schema::NumberRange`, such
       # as the BigDecimal that JSON reads for `1e999999999`, whose plain text, which IOStreams writes, has a billion
-      # digits.
+      # digits, unless the field returns a Float, see `floatNumber` above, whose text is short whatever the number.
       def cast_number(value)
         return parse_number(value) if value.is_a?(String)
         return invalid(value) unless value.is_a?(Integer) || value.is_a?(Float) || value.is_a?(Rational) || bigdecimal?(value)
-        return out_of_range(value) unless NumberRange.within?(value)
         return value.to_f if @float
+        return out_of_range(value, NumberRange::DESCRIPTION) unless NumberRange.within?(value)
         return rational_number(value) if value.is_a?(Rational)
 
         bigdecimal?(value) ? value : BigDecimal(value.to_s)
@@ -764,13 +764,13 @@ module IOStreams
 
       # Returns [BigDecimal|Float] the number of text that NUMBER matches, naming the text as it was read when it is not
       # one, or when it is outside the range of `IOStreams::Schema::NumberRange`, such as "1e999999999", whose
-      # BigDecimal is read at once, while the plain text that IOStreams writes for it has a billion digits. A Float has
-      # a smaller range of its own, beyond which it is infinite.
+      # BigDecimal is read at once, while the plain text that IOStreams writes for it has a billion digits, or
+      # "1e99999999999999999999", which BigDecimal reads as Infinity. A Float has a smaller range of its own, beyond which
+      # it is infinite.
       def number(text, read = text)
         return Float(text) if @float
 
-        decimal = BigDecimal(text)
-        NumberRange.within?(decimal) ? decimal : out_of_range(read)
+        NumberRange.decimal(text) || out_of_range(read, NumberRange::DESCRIPTION)
       rescue ArgumentError
         return invalid(read) unless BARE_POINT.match?(text)
 
@@ -984,12 +984,18 @@ module IOStreams
       end
 
       # Raises `IOStreams::Errors::InvalidValue` for a number outside the range of `IOStreams::Schema::NumberRange`,
-      # showing an Integer by its number of bits, rather than building the text of all of its digits, and any other
-      # value by its inspect, such as the text that it was read from.
-      def out_of_range(value)
-        text  = value.is_a?(Integer) ? "an Integer of #{value.bit_length} bits" : value.inspect
-        text  = "#{text[0, 60]}..." if text.length > 63
-        range = type == "integer" ? NumberRange::INTEGER_DESCRIPTION : NumberRange::DESCRIPTION
+      # which the caller describes, showing an Integer or a Rational by its number of bits, rather than building the
+      # text of all of its digits, and any other value by its inspect, such as the text that it was read from.
+      def out_of_range(value, range)
+        text =
+          if value.is_a?(Integer)
+            "an Integer of #{value.bit_length} bits"
+          elsif value.is_a?(Rational)
+            "a Rational of #{value.numerator.bit_length} bits over #{value.denominator.bit_length} bits"
+          else
+            value.inspect
+          end
+        text = "#{text[0, 60]}..." if text.length > 63
         raise(IOStreams::Errors::InvalidValue, "Field #{name.inspect}: #{text} is not a valid #{type}, since #{range}")
       end
     end

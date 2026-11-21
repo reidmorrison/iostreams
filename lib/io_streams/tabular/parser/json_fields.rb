@@ -96,6 +96,10 @@ module IOStreams
 
         # Returns the value of the line, with the numbers of each key that is the column of a number field that keeps
         # every digit as BigDecimals, and every other number as a Float, see #parse.
+        #
+        # Raises `IOStreams::Errors::InvalidValue` for a number of such a key whose exponent is beyond those that a
+        # BigDecimal holds, such as `1e99999999999999999999`, which BigDecimal reads as Infinity, since JSON holds no
+        # number that is not finite, see `IOStreams::Schema::NumberRange`.
         def parse_decimals(line)
           values = JSON.parse(line, decimal_class: ::BigDecimal)
           return values unless values.is_a?(::Hash)
@@ -103,9 +107,20 @@ module IOStreams
           values.each_pair do |key, value|
             next unless value.is_a?(::BigDecimal) || value.is_a?(::Array) || value.is_a?(::Hash)
 
-            values[key] = floats(value) unless decimal_key?(key)
+            if decimal_key?(key)
+              overflow(key) if value.is_a?(::BigDecimal) && !value.finite?
+            else
+              values[key] = floats(value)
+            end
           end
           values
+        end
+
+        # Raises `IOStreams::Errors::InvalidValue` for the number of the key that is beyond the exponents of a BigDecimal.
+        def overflow(key)
+          raise(IOStreams::Errors::InvalidValue,
+                "Field #{key.inspect}: a JSON number whose exponent a BigDecimal does not hold is not a valid number, " \
+                "since #{IOStreams::Schema::NumberRange::DESCRIPTION}")
         end
 
         # Returns [true|false] whether the key is the column of a number field that keeps every digit, worked out once
