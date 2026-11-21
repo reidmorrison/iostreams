@@ -7555,9 +7555,17 @@ tenancy and authorization:
 * MySQL's `USE`, such as a database for each tenant, and the variables of a session, such as `@tenant_id`.
 
 Read without that state, a query could export the rows of another tenant, or rows that a policy would hide. So, before
-it runs the query, the read compares the session of its connection with that of the connection that the caller leased:
-on PostgreSQL its `current_user` and `search_path`, and on MySQL its database. When they differ it raises
-`ArgumentError`, before a copy opens its target:
+it runs the query, the read compares the session of its connection with that of the connection that the caller leased,
+when it leased one:
+
+| Database | What is compared |
+|----------|------------------|
+| PostgreSQL | `current_user`, which `SET ROLE` changes, and `search_path` |
+| MySQL 8.0 and later, MariaDB 10.0.5 and later | the database, which `USE` changes, and `CURRENT_ROLE()`, which `SET ROLE` changes |
+| Earlier MySQL and MariaDB, which have no roles | the database |
+| SQLite | nothing |
+
+When they differ it raises `ArgumentError`, before a copy opens its target:
 
 ~~~ruby
 Order.connection.execute("SET search_path TO tenant_42")
@@ -7567,19 +7575,35 @@ IOStreams.path("orders.csv").copy_from(Order.all, mode: :hash)
 # caller in its search_path, ...
 ~~~
 
+It also raises `ArgumentError`, whose cause is the failure, when the connection of the caller cannot run the query of
+its session, such as within a PostgreSQL transaction that a failed statement aborted, rather than read without the
+check. Each read sends two small queries of the session, one on each connection, which Active Record reports as
+`IOStreams Session`; the one on the connection of the caller starts a transaction that the caller opened but has not
+used yet, as any query does, since Active Record begins a transaction only at its first query.
+
 That check cannot see a setting of the application, such as `app.tenant_id`, which PostgreSQL does not list, a
-variable of a MySQL session, or a temporary table or attached database of a SQLite connection. Nothing raises for them,
-so apply such state in one of these ways instead:
+variable of a MySQL session, or a temporary table or attached database of a SQLite connection. It compares only the
+connection that the caller leases, so it cannot see state that was set without a lease either: a statement within a
+`with_connection` that has since returned its connection, or on a connection of the pool that the caller checked out
+itself, leaves the state on that connection, for whichever query the pool gives it to next, such as the read. Set
+state for one task with `SET LOCAL`, or `set_config(..., true)`, within a transaction, which ends with it, or for every
+connection, as below. Nothing raises for state that the check cannot see, so apply it in one of these ways instead:
 
 * **Set it for every connection** that the pool checks out, with a checkout callback of Active Record, from where the
   application keeps the tenant, such as `Current`. The pool runs it, in the thread of the caller, for the connection
-  that the read checks out too, so set the tenant before the export starts:
+  that the read checks out too, so set the tenant before the export starts. Set the setting at every checkout, and
+  reset it when there is no tenant, so that a connection never keeps the tenant of an earlier checkout:
 
   ~~~ruby
   # config/initializers/tenant.rb
   ActiveSupport.on_load(:active_record_postgresqladapter) do
     set_callback(:checkout, :after) do
-      execute("SELECT set_config('app.tenant_id', #{quote(Current.tenant_id.to_s)}, false)")
+      if (tenant_id = Current.tenant_id)
+        execute("SELECT set_config('app.tenant_id', #{quote(tenant_id.to_s)}, false)")
+      else
+        # Unset, so that a policy that reads it fails, or matches no row, rather than read another tenant's.
+        execute("RESET app.tenant_id")
+      end
     end
   end
   ~~~
@@ -10337,9 +10361,12 @@ checked out of the pool, rather than on the connection of the caller. So state t
 connection with a statement, such as PostgreSQL's `SET search_path` for a schema of each tenant, `SET ROLE`, a setting
 such as `app.tenant_id` that a row-level security policy reads, or MySQL's `USE`, does not apply to the rows read, which
 could then be those of another tenant. IOStreams raises `ArgumentError` when the `current_user` or `search_path` of
-PostgreSQL, or the database of MySQL, differs between the two connections, but cannot see a setting of the application
-or a session variable. Set such state for every connection in a checkout callback of Active Record, put the tenant into
-the query as a condition, or read the relation in batches, which run on the connection of the caller. See
+PostgreSQL, or the database or `CURRENT_ROLE()` of MySQL 8.0 or MariaDB 10.0.5 and later, differs between the
+connection of the read and the one that the caller leases. It cannot see a setting of the application, a session
+variable, or state set on a connection that the caller no longer holds, such as within a `with_connection` that has
+returned it, which stays on that connection of the pool for the next query, such as the read. Set state for one task
+with `SET LOCAL` within a transaction, or for every connection in a checkout callback of Active Record, put the tenant
+into the query as a condition, or read the relation in batches, which run on the connection of the caller. See
 [Session state, tenants and row security](queries#session-state).
 
 ## PGP

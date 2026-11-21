@@ -402,6 +402,25 @@ class PostgresqlCursorTest < Minitest::Test
           end
         end
 
+        it "raises ArgumentError, whose cause is the failure, when the transaction of the caller was aborted" do
+          stream = IOStreams.stream(orders)
+          stream.infer_schema
+          db.record.transaction do
+            begin
+              execute("SELECT 1 / 0")
+            rescue ActiveRecord::StatementInvalid
+              nil
+            end
+            error = assert_raises(ArgumentError) { each(stream) }
+
+            assert_match(/\A#{db.order.name} query is read on a connection of its own, whose session could not be compared with that of the caller, since the connection of the caller cannot run a query: /, error.message)
+            assert_kind_of ActiveRecord::StatementInvalid, error.cause
+            assert_match(/current transaction is aborted/, error.cause.message)
+            refute_kind_of IOStreams::Errors::StorageError, error
+            raise ActiveRecord::Rollback
+          end
+        end
+
         it "reads the rows of a search_path that a checkout callback of Active Record sets for every connection" do
           adapter  = db.record.with_connection(&:class)
           path     = search_path

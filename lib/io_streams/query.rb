@@ -264,13 +264,19 @@ module IOStreams
     # on its own connection, such as with `SET search_path` or `USE`, does not reach the connection of the read, while
     # one that every connection of the pool sets, such as in a checkout callback of Active Record, or the `variables` of
     # the configuration of its database, does. Asks nothing when the caller has no connection leased, whose session
-    # holds nothing, or the read shares that connection, as in the transactional tests of Rails.
+    # holds nothing, or the read shares that connection, as in the transactional tests of Rails. Only the leased
+    # connection is compared: what the caller set on a connection of the pool that it no longer holds, such as within a
+    # `with_connection` that has returned it, stays on that connection, which the read may check out.
+    #
+    # Raises ArgumentError too, with the failure as its cause, when the connection of the caller cannot run the query of
+    # its session, such as within a transaction of PostgreSQL that a failed statement aborted, so that the session is
+    # never left unchecked, see #caller_session.
     def check_session(pool, source, connection)
       leased = pool.active_connection?
       return if leased.nil? || leased.equal?(connection)
 
       read    = source.session(connection)
-      caller  = source.session(leased)
+      caller  = caller_session(source, leased)
       differs = (read.keys | caller.keys).reject { |name| read[name] == caller[name] }
       return if differs.empty?
 
@@ -278,6 +284,21 @@ module IOStreams
                            "the caller in its #{differs.join(' and ')}, so it would read other rows than the caller: " \
                            "set them for every connection of the pool, such as in a checkout callback, or " \
                            "#{IN_BATCHES}, whose batches are read on the connection of the caller")
+    end
+
+    # Returns [Hash] the session of the connection that the caller leased, see #check_session. A failure of its query
+    # that is a kind of failure, such as a lost connection, which is `Unavailable`, is raised as it is, to be tagged, see
+    # #tag_failure, while any other, such as `PG::InFailedSqlTransaction` within a transaction that a failed statement
+    # aborted, raises ArgumentError, whose cause it is, since the read cannot tell whether it would read the rows that
+    # the caller would.
+    def caller_session(source, leased)
+      source.session(leased)
+    rescue ::ActiveRecord::StatementInvalid => e
+      raise if failure_kind(e)
+
+      raise(ArgumentError, "#{display_name} is read on a connection of its own, whose session could not be compared " \
+                           "with that of the caller, since the connection of the caller cannot run a query: " \
+                           "#{e.message}")
     end
 
     # Returns [true|false] whether the caller holds every connection that the pool can hold: the connection that it
