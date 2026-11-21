@@ -246,6 +246,8 @@ module IOStreams
       # Notes:
       # * No error is raised when there is nothing to delete.
       # * A key that only starts with the same characters, such as `a.csv` for `s3://bucket/a`, is not deleted.
+      # * A key within it that `#each_child` skips, such as `a/../b.csv`, whose name within it could leave a directory
+      #   that it is joined onto, is deleted too, since it is a key within `a/`.
       def delete_all
         authorize!
         delete if file_key?
@@ -279,7 +281,7 @@ module IOStreams
       end
 
       # Returns [true|false] whether this path is an object without any data, or a directory without any keys
-      # within it other than its folder object.
+      # within it other than its folder object, and those that `#each_child` skips, such as `a/../b.csv`.
       def empty?
         authorize!
         if file_key?
@@ -287,8 +289,10 @@ module IOStreams
           return size.zero? if size
         end
 
-        keys = directory_keys(2)
-        path.empty? ? keys.empty? : keys == [directory_prefix]
+        # A key that `#each_child` skips, since its name could leave a directory that it is joined onto, is not counted,
+        # so a directory is empty once it holds no child that `#each_child` yields, see `Listing#contents`.
+        contents = listing.contents(directory_prefix)
+        path.empty? ? contents != :child : contents == :none
       end
 
       # Moves this file to the `target_path` by copying it to the new name and then deleting the current file. When this
@@ -439,7 +443,7 @@ module IOStreams
 
         # List within the key as a directory, so that a key such as "reports" does not also list "reports_2024.csv".
         prefix = "#{prefix}/" unless prefix.empty? || prefix.end_with?("/")
-        listing.each(prefix, matcher, directories: directories) do |key, attributes|
+        listing.each(prefix, matcher, directories: directories, nested: !matcher.directory.empty?) do |key, attributes|
           child = child_path(key)
           yield(child, attributes) if allowed_child?(child)
         end

@@ -2088,14 +2088,29 @@ module Paths
           IOStreams.logger = original
         end
 
-        it "deletes only the entries within the directory with #delete_all" do
+        it "deletes only the entries within the directory with #delete_all, and raises naming those it left" do
           with_listing_session do |session|
-            path.delete_all
+            error = assert_raises(IOStreams::Errors::AccessDenied) { path.delete_all }
 
+            refute_kind_of IOStreams::Errors::StorageError, error
+            assert_equal "Access denied to delete all of sftp://example.org/data: the SFTP server listed entries that " \
+                         "are not the names of files or directories within their directories, which were left with the " \
+                         'directories that hold them: "../../escaped.csv" in "/data/sub", "../outside.csv" in "/data", ' \
+                         '"a/b" in "/data", "" in "/data", "x\u0000y" in "/data", "../../etc" in "/data"',
+                         error.message
+            # Neither directory is empty, so neither is removed.
             assert_equal [
               [:remove, "/data/a.csv"], [:remove, "/data/.hidden.csv"], [:remove, "/data/..dots.csv"],
-              [:remove, "/data/sub/b.csv"], [:rmdir, "/data/sub"], [:rmdir, "/data"]
+              [:remove, "/data/sub/b.csv"]
             ], session.deleted
+          end
+        end
+
+        it "removes a directory with #delete_all once the server lists only names within it, and . and .." do
+          directories.replace("/data" => [[".", :directory], ["..", :directory], ["a.csv", :file]])
+          with_listing_session do |session|
+            assert_same path, path.delete_all
+            assert_equal [[:remove, "/data/a.csv"], [:rmdir, "/data"]], session.deleted
           end
         end
       end

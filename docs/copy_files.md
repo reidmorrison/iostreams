@@ -245,6 +245,8 @@ source.each_child("**/*") do |file|
 end
 ~~~
 
-Each file that `#each_child` lists is within the source, on every store, so the copy stays within the target, even
-with `hidden: true`, and when whoever writes to the source chooses names such as an S3 key `exports/../a.csv`, which
-is skipped, see [Listing files](path#listing-files).
+The name of each file that `#each_child` lists stays within the target, on every store, even with `hidden: true`, and
+when whoever writes to the source chooses names such as an S3 key `exports/../a.csv`, which is skipped, see
+[Listing files](path#listing-files). The pattern itself is the application's own, so keep untrusted input out of it.
+A key with a repeated `/`, such as `exports/2024//a.csv`, is copied to `2024/a.csv` on a local target, where it
+replaces the copy of `exports/2024/a.csv`, if both exist.

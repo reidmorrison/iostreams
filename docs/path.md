@@ -1005,12 +1005,27 @@ end
   `a/b/c.csv`, and each folder object, without its trailing `/`. A pattern that can only match names within the
   directory, such as `*`, lists them by name, with the names of the keys within it, so they have empty attributes,
   while one that lists every key below the directory, such as `**/*`, returns each folder object with its attributes.
-* Every child is within the path, on every store, so `child.relative_path_from(path)` never starts with `..`. S3 holds
-  `.`, `..` and repeated `/` in a key as ordinary characters, so whoever can write below the path could name a key such
-  as `exports/../outside.csv`, which a local path would read as outside `exports`. A key whose name within the path
-  has an empty, `.` or `..` name, such as `../a.csv`, `./a.csv` or `a//b.csv`, is not returned, nor is an entry that an
-  SFTP server lists by a name that is not the name of a file within the directory, such as `a/b` or `..`. Each one is
-  logged as a warning. `Dir.glob` never lists such a name, and the `.` that it lists in each directory is never a child.
+* A name that the store lists never leaves the directory that it is listed in, on every store, so the name of a child
+  that `child.relative_path_from(path)` gives stays within a directory that it is joined onto with `#join`,
+  `File.join` or `Pathname#+`. The directory and exact names of the pattern are the caller's own, so
+  `each_child("../*.csv")` lists the parent directory.
+  * S3 holds `.`, `..` and `/` in a key as ordinary characters, so whoever can write below the path could name a key
+    such as `exports/../outside.csv`, which a local path would read as outside `exports`. A key whose name within the
+    path has a `.` or `..` name or a NUL, or starts with `/`, such as `../a.csv`, `a/./b.csv`, or `/a.csv` for the key
+    `exports//a.csv` within `exports`, is not returned, as a local path never lists one. A key with a repeated `/`
+    after its first name, such as `exports/2024//a.csv`, is returned: its name, `2024//a.csv`, stays within a directory,
+    but reads as `2024/a.csv` on a local path, so a copy of it can land on the copy of `exports/2024/a.csv`.
+  * An entry that an SFTP server lists by a name that is not the name of a file within its directory, such as `a/b`,
+    `..`, `a//b` or an empty name, is not returned either.
+  * Each one that the pattern matches is logged as a warning, apart from the `.` and `..` that every SFTP server lists.
+    With a pattern such as `*`, S3 lists a key such as `exports/a/../x.csv` only within the directory `a`, so it is not
+    logged. `Dir.glob` never lists such a name, and the `.` that it lists in each directory is never a child.
+  * `#empty?` does not count the S3 keys that are skipped, while `#delete_all` deletes them, since they are keys within
+    the directory. `#delete_all` leaves such an SFTP entry, and each directory that holds it, and raises
+    `IOStreams::Errors::AccessDenied` naming it, once it has deleted everything else.
+  * Names are checked with `/` as the separator, so a target on Windows, where `\` is one too, is not covered.
+    `File.expand_path` reads a name that starts with `~`, such as Excel's `~$Q3.xlsx`, as a home directory, so prefix
+    the name with `./` before expanding it: `File.expand_path("./#{child.relative_path_from(path)}", target)`.
 * A path that does not exist, or that is a file, has no children, on every store. A directory that cannot be read
   raises the exception of its store, tagged as `IOStreams::Errors::PermissionDenied`: `Errno::EACCES` for a local
   directory, `Net::SFTP::StatusException` on SFTP, or `Aws::S3::Errors::AccessDenied` on S3. A directory below it that

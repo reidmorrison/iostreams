@@ -177,7 +177,9 @@ IOStreams raises these classes itself:
 
 * `IOStreams::Errors::Error`, a `StandardError`:
   * `IOStreams::Errors::AccessDenied`: the path is not within the allowed paths, see
-    [Allowed paths](security#allowed-paths). It is not a `PermissionDenied`, see below.
+    [Allowed paths](security#allowed-paths), or SFTP `#delete_all` left an entry that the server listed by a name that
+    is not the name of a file within its directory, such as `../a.csv`, see [Listing files](path#listing-files). It is
+    not a `PermissionDenied`, see below.
   * `IOStreams::Errors::CommunicationsFailure`: an SFTP or HTTP request failed. It is also tagged with the kind
     of failure when the failure is known, such as a `404 Not Found` response.
   * `IOStreams::Errors::StreamFailure`: a stream found that it cannot read the data, such as a zip file that does not
@@ -453,7 +455,9 @@ end
 ## AccessDenied is not a PermissionDenied
 
 IOStreams raises `IOStreams::Errors::AccessDenied` itself, before it accesses the storage, when a path is not within
-the allowed paths of the application, see [Allowed paths](security#allowed-paths).
+the allowed paths of the application, see [Allowed paths](security#allowed-paths), and when SFTP `#delete_all` refuses
+to delete an entry whose name, as the server listed it, could refer to a file outside the directory, once it has
+deleted everything else.
 `IOStreams::Errors::PermissionDenied` is a failure of the storage, such as a file that the credentials cannot read.
 
 They are kept apart, so that rescuing `PermissionDenied`, for example to report a configuration problem, does not

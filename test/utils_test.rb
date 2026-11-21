@@ -257,16 +257,26 @@ class UtilsTest < Minitest::Test
         end
       end
 
-      describe ".descendant?" do
-        it "names a file or directory within its directory" do
-          ["a.csv", "a/b.csv", ".a/.b", "a/", "a/b/", "..a/b..", "a/#{latin}"].each do |name|
-            assert IOStreams::Utils::PathName.descendant?(name), "#{name.inspect} is within its directory"
+      describe ".stays_within?" do
+        it "stays within a directory that it is joined onto" do
+          ["a.csv", "a/b.csv", ".a/.b", "a/", "a/b/", "..a/b..", "a/#{latin}", "a//b", "a//", "~", "~/a", "~root/a", "a~/~b"].
+            each { |name| assert IOStreams::Utils::PathName.stays_within?(name), "#{name.inspect} stays within" }
+        end
+
+        it "is not empty, has no . or .. name and no NUL, and does not start with /" do
+          ["", "/", ".", "..", "./a", "a/.", "a/./b", "../a", "a/..", "a/../b", "/a", "//a", "a/b/../../c", "a\0b"].each do |name|
+            refute IOStreams::Utils::PathName.stays_within?(name), name.inspect
+            refute IOStreams::Utils::PathName.stays_within?(name.b), name.inspect
           end
         end
 
-        it "has no empty, . or .. name, apart from after a trailing /" do
-          ["", "/", ".", "..", "../a", "a/..", "a/../b", "./a", "a/./b", "a//b", "/a", "a//", "a/b/../../c", "a\0b"].each do |name|
-            refute IOStreams::Utils::PathName.descendant?(name), name.inspect
+        # `File.expand_path` is left out: it reads a name that starts with `~` as a home directory, see the docs.
+        it "is false for each name that Pathname#+ or File.join joins outside the directory" do
+          ["a.csv", "a//b", "../a", "/a", "~/a", "a/../../b", "//a"].each do |name|
+            joined = [(Pathname.new("/backup") + name).cleanpath.to_s, Pathname.new(::File.join("/backup", name)).cleanpath.to_s]
+            next if joined.all? { |full| full.start_with?("/backup/") }
+
+            refute IOStreams::Utils::PathName.stays_within?(name), "#{name.inspect} is joined as #{joined.inspect}"
           end
         end
       end

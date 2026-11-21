@@ -2590,12 +2590,27 @@ end
   `a/b/c.csv`, and each folder object, without its trailing `/`. A pattern that can only match names within the
   directory, such as `*`, lists them by name, with the names of the keys within it, so they have empty attributes,
   while one that lists every key below the directory, such as `**/*`, returns each folder object with its attributes.
-* Every child is within the path, on every store, so `child.relative_path_from(path)` never starts with `..`. S3 holds
-  `.`, `..` and repeated `/` in a key as ordinary characters, so whoever can write below the path could name a key such
-  as `exports/../outside.csv`, which a local path would read as outside `exports`. A key whose name within the path
-  has an empty, `.` or `..` name, such as `../a.csv`, `./a.csv` or `a//b.csv`, is not returned, nor is an entry that an
-  SFTP server lists by a name that is not the name of a file within the directory, such as `a/b` or `..`. Each one is
-  logged as a warning. `Dir.glob` never lists such a name, and the `.` that it lists in each directory is never a child.
+* A name that the store lists never leaves the directory that it is listed in, on every store, so the name of a child
+  that `child.relative_path_from(path)` gives stays within a directory that it is joined onto with `#join`,
+  `File.join` or `Pathname#+`. The directory and exact names of the pattern are the caller's own, so
+  `each_child("../*.csv")` lists the parent directory.
+  * S3 holds `.`, `..` and `/` in a key as ordinary characters, so whoever can write below the path could name a key
+    such as `exports/../outside.csv`, which a local path would read as outside `exports`. A key whose name within the
+    path has a `.` or `..` name or a NUL, or starts with `/`, such as `../a.csv`, `a/./b.csv`, or `/a.csv` for the key
+    `exports//a.csv` within `exports`, is not returned, as a local path never lists one. A key with a repeated `/`
+    after its first name, such as `exports/2024//a.csv`, is returned: its name, `2024//a.csv`, stays within a directory,
+    but reads as `2024/a.csv` on a local path, so a copy of it can land on the copy of `exports/2024/a.csv`.
+  * An entry that an SFTP server lists by a name that is not the name of a file within its directory, such as `a/b`,
+    `..`, `a//b` or an empty name, is not returned either.
+  * Each one that the pattern matches is logged as a warning, apart from the `.` and `..` that every SFTP server lists.
+    With a pattern such as `*`, S3 lists a key such as `exports/a/../x.csv` only within the directory `a`, so it is not
+    logged. `Dir.glob` never lists such a name, and the `.` that it lists in each directory is never a child.
+  * `#empty?` does not count the S3 keys that are skipped, while `#delete_all` deletes them, since they are keys within
+    the directory. `#delete_all` leaves such an SFTP entry, and each directory that holds it, and raises
+    `IOStreams::Errors::AccessDenied` naming it, once it has deleted everything else.
+  * Names are checked with `/` as the separator, so a target on Windows, where `\` is one too, is not covered.
+    `File.expand_path` reads a name that starts with `~`, such as Excel's `~$Q3.xlsx`, as a home directory, so prefix
+    the name with `./` before expanding it: `File.expand_path("./#{child.relative_path_from(path)}", target)`.
 * A path that does not exist, or that is a file, has no children, on every store. A directory that cannot be read
   raises the exception of its store, tagged as `IOStreams::Errors::PermissionDenied`: `Errno::EACCES` for a local
   directory, `Net::SFTP::StatusException` on SFTP, or `Aws::S3::Errors::AccessDenied` on S3. A directory below it that
@@ -7072,9 +7087,11 @@ source.each_child("**/*") do |file|
 end
 ~~~
 
-Each file that `#each_child` lists is within the source, on every store, so the copy stays within the target, even
-with `hidden: true`, and when whoever writes to the source chooses names such as an S3 key `exports/../a.csv`, which
-is skipped, see [Listing files](path#listing-files).
+The name of each file that `#each_child` lists stays within the target, on every store, even with `hidden: true`, and
+when whoever writes to the source chooses names such as an S3 key `exports/../a.csv`, which is skipped, see
+[Listing files](path#listing-files). The pattern itself is the application's own, so keep untrusted input out of it.
+A key with a repeated `/`, such as `exports/2024//a.csv`, is copied to `2024/a.csv` on a local target, where it
+replaces the copy of `exports/2024/a.csv`, if both exist.
 
 ---
 
@@ -8894,7 +8911,9 @@ IOStreams raises these classes itself:
 
 * `IOStreams::Errors::Error`, a `StandardError`:
   * `IOStreams::Errors::AccessDenied`: the path is not within the allowed paths, see
-    [Allowed paths](security#allowed-paths). It is not a `PermissionDenied`, see below.
+    [Allowed paths](security#allowed-paths), or SFTP `#delete_all` left an entry that the server listed by a name that
+    is not the name of a file within its directory, such as `../a.csv`, see [Listing files](path#listing-files). It is
+    not a `PermissionDenied`, see below.
   * `IOStreams::Errors::CommunicationsFailure`: an SFTP or HTTP request failed. It is also tagged with the kind
     of failure when the failure is known, such as a `404 Not Found` response.
   * `IOStreams::Errors::StreamFailure`: a stream found that it cannot read the data, such as a zip file that does not
@@ -9170,7 +9189,9 @@ end
 ## AccessDenied is not a PermissionDenied
 
 IOStreams raises `IOStreams::Errors::AccessDenied` itself, before it accesses the storage, when a path is not within
-the allowed paths of the application, see [Allowed paths](security#allowed-paths).
+the allowed paths of the application, see [Allowed paths](security#allowed-paths), and when SFTP `#delete_all` refuses
+to delete an entry whose name, as the server listed it, could refer to a file outside the directory, once it has
+deleted everything else.
 `IOStreams::Errors::PermissionDenied` is a failure of the storage, such as a file that the credentials cannot read.
 
 They are kept apart, so that rescuing `PermissionDenied`, for example to report a configuration problem, does not
@@ -10214,11 +10235,14 @@ Notes:
 
 * By default there are no allowed paths, and every path can be accessed.
 * `#each_child` skips the children that are not within the allowed paths, such as a symbolic link to a file elsewhere.
-* `#each_child` only returns children within the path that it lists, on every store, so the name that
-  `#relative_path_from` gives each one can be joined to another path, such as to copy a directory, without leaving
-  it: an S3 key or an SFTP entry with a name such as `../a.csv` is skipped and logged, see
-  [Listing files](path#listing-files). Any other name relative to a path can start with `..`, so check it before
-  joining it to another path.
+* `#each_child` skips each name that the store lists that could leave a directory that it is joined onto, on every
+  store, such as an S3 key or an SFTP entry named `../a.csv`, and logs it, see [Listing files](path#listing-files).
+  So when the pattern is the application's own, the name that `#relative_path_from` gives each child can be joined
+  to another path with `#join`, `File.join` or `Pathname#+`, such as to copy a directory, without leaving it. A
+  pattern whose directory or name comes from untrusted input, or any other name relative to a path, can start with
+  `..`, so check it before joining it to another path. Names are checked with `/` as the separator, so a target on
+  Windows is not covered, and `File.expand_path` reads a name that starts with `~` as a home directory, so prefix it
+  with `./` before expanding it.
 * The temp files of `IOStreams.temp_file` can always be accessed.
 * `IOStreams.allowed_paths` returns the normalized allowed paths, and `IOStreams.delete_allowed_path` removes one.
 * The paths of a scheme registered with `IOStreams.register_scheme` are denied, unless its path class says where it
@@ -10638,9 +10662,9 @@ implements:
   `#delete`, `#delete_all`, `#each_child`, `#mkpath` and `#mkdir`, each of which behaves as it does for a local file,
   wherever the store allows, so that a path held in configuration can move to the store without a code change. An
   operation that it does not implement raises `NotImplementedError`, and `#respond_to?` returns false for it.
-  `#each_child` yields only children within the path, skipping a name that the store lists that is empty, `.` or
-  `..`, or that has such a name within it, as the stores of IOStreams do, so that `#relative_path_from` never leaves
-  the path.
+  `#each_child` skips a name that the store lists that could leave a directory that it is joined onto, such as one
+  with a `.` or `..` name or that starts with `/`, as the stores of IOStreams do, so that the name that
+  `#relative_path_from` gives a child stays within a directory that it is joined onto.
 
 ### Failed writes
 

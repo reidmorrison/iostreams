@@ -75,15 +75,43 @@ module IOStreams
         end
 
         # Deletes the remote directory and everything within it, deepest first, without following symbolic links.
-        # Used by `SFTP#delete_all`.
-        def self.remove_tree(sftp, directory)
+        # Used by `SFTP#delete_all`, whose display name is supplied.
+        #
+        # An entry that is not the name of a file or directory within its directory, see `.entry_name?`, is left as it
+        # is, as is each directory that holds one, since it is not empty.
+        #
+        # Raises [IOStreams::Errors::AccessDenied] naming each entry that was left, once everything else is deleted, since
+        # IOStreams refuses to delete what such a name could refer to, as it refuses a path outside the allowed paths.
+        def self.remove_tree(sftp, directory, display_name)
+          left = remove_entries(sftp, directory)
+          return if left.empty?
+
+          raise(
+            Errors::AccessDenied,
+            "Access denied to delete all of #{display_name}: the SFTP server listed entries that are not the names of " \
+            "files or directories within their directories, which were left with the directories that hold them: " \
+            "#{left.join(', ')}"
+          )
+        end
+
+        # Deletes the remote directory and everything within it, deepest first, apart from each entry that is not the
+        # name of a file or directory within its directory, and each directory that holds one, see `.remove_tree`.
+        #
+        # Returns [Array<String>] each entry that was left, as its name and the directory that listed it, such as
+        # `"../x.csv" in "/data"`, or an empty Array when everything was deleted.
+        def self.remove_entries(sftp, directory)
+          left = []
           sftp.dir.entries(directory).each do |entry|
-            next unless entry_name?(directory, nil, entry.name)
+            unless entry_name?(directory, nil, entry.name)
+              left << "#{utf8(entry.name).inspect} in #{directory.inspect}" unless %w[. ..].include?(entry.name)
+              next
+            end
 
             name = IOStreams::Utils::PathName.join(directory, utf8(entry.name))
-            entry.directory? ? remove_tree(sftp, name) : sftp.remove!(name)
+            entry.directory? ? left.concat(remove_entries(sftp, name)) : sftp.remove!(name)
           end
-          sftp.rmdir!(directory)
+          sftp.rmdir!(directory) if left.empty?
+          left
         end
 
         # Returns [true|false] whether the name of an entry that the server listed in the remote directory, or in the
@@ -128,7 +156,7 @@ module IOStreams
           nil
         end
 
-        private_class_method :each_entry, :entries, :entry_name?, :utf8, :link_attributes
+        private_class_method :each_entry, :entries, :remove_entries, :entry_name?, :utf8, :link_attributes
       end
     end
   end
