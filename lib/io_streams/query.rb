@@ -42,6 +42,8 @@ module IOStreams
     #   `.reads?(connection)`: whether it reads the database of the connection.
     #   `.own_connection?(connection)`: whether that database can be read on a connection of its own, see #with_source.
     #   `.failure_kind(exception)`: the kind of failure that an exception of the driver of that database means.
+    #   `.session(connection)`: the settings of the session of the connection that decide which rows a query reads,
+    #   which a connection of its own must share with that of the caller, see #check_session.
     #   `.new(connection).open(statement, columns) { |reader| }`: yields once the statement, see
     #   `IOStreams::Query::Statement`, is open on the connection, and the names of its columns are checked, see
     #   `IOStreams::Query::Columns#check`, a reader whose `#each` yields the raw values of each row, from the row after
@@ -215,7 +217,10 @@ module IOStreams
         if connection
           begin
             found = source(connection)
-            return yield(found, connection) if found.own_connection?(connection)
+            if found.own_connection?(connection)
+              check_session(pool, found, connection)
+              return yield(found, connection)
+            end
           ensure
             pool.checkin(connection)
           end
@@ -250,6 +255,29 @@ module IOStreams
                              "`max_connections: #{pool.size + 1}` (`pool:` before Active Record 8.1) in " \
                              "config/database.yml")
       end
+    end
+
+    # Raises ArgumentError when the settings of the session of the connection that the read checked out, which decide
+    # which rows a query reads, see the `.session` of each of the SOURCES, such as the `search_path` and the role of
+    # PostgreSQL, or the database that MySQL uses, differ from those of the connection that the caller leased, since the
+    # read would then read other rows than the caller would, such as those of another tenant: one that the caller set
+    # on its own connection, such as with `SET search_path` or `USE`, does not reach the connection of the read, while
+    # one that every connection of the pool sets, such as in a checkout callback of Active Record, or the `variables` of
+    # the configuration of its database, does. Asks nothing when the caller has no connection leased, whose session
+    # holds nothing, or the read shares that connection, as in the transactional tests of Rails.
+    def check_session(pool, source, connection)
+      leased = pool.active_connection?
+      return if leased.nil? || leased.equal?(connection)
+
+      read    = source.session(connection)
+      caller  = source.session(leased)
+      differs = (read.keys | caller.keys).reject { |name| read[name] == caller[name] }
+      return if differs.empty?
+
+      raise(ArgumentError, "#{display_name} is read on a connection of its own, whose session differs from that of " \
+                           "the caller in its #{differs.join(' and ')}, so it would read other rows than the caller: " \
+                           "set them for every connection of the pool, such as in a checkout callback, or " \
+                           "#{IN_BATCHES}, whose batches are read on the connection of the caller")
     end
 
     # Returns [true|false] whether the caller holds every connection that the pool can hold: the connection that it

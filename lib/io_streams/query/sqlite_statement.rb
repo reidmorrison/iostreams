@@ -50,6 +50,14 @@ module IOStreams
         "any"
       end
 
+      # Returns [Hash] no settings of the session of the connection that decide which rows a query reads, see
+      # `IOStreams::Query#check_session`, since SQLite has none that IOStreams can compare: what the connection of the
+      # caller attached, or a temporary table of its own that hides a table of the database, does not reach the
+      # connection of the read, which reads the database file of the pool.
+      def self.session(_connection)
+        {}
+      end
+
       # Parameters:
       #   connection: [ActiveRecord::ConnectionAdapters::SQLite3Adapter]
       #     The connection that the query is read on, which the caller holds while it is read.

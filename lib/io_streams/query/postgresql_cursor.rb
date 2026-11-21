@@ -53,6 +53,9 @@ module IOStreams
       # has, as `server_version_num` numbers it, on which the transaction sets it, see #settings.
       SETTING_VERSIONS = {"idle_in_transaction_session_timeout" => 90_600, "transaction_timeout" => 170_000}.freeze
 
+      # The query of the settings of the session that decide which rows a query reads, see .session.
+      SESSION = %(SELECT current_user::text AS "current_user", current_setting('search_path') AS "search_path")
+
       # The names of the adapters of Active Record whose databases it reads, see .reads?: that of PostgreSQL, and that of
       # PostGIS, which adds the types of its extension to it, rather than every subclass of the adapter of PostgreSQL,
       # such as that of CockroachDB, whose server may not take the settings of the cursor, see SETTINGS.
@@ -144,6 +147,15 @@ module IOStreams
       # Active Record returns as it is.
       def self.unknown_type
         "string"
+      end
+
+      # Returns [Hash<String, String>] the settings of the session of the connection that decide which rows a query
+      # reads, see `IOStreams::Query#check_session`: `current_user`, the role whose privileges and row security policies
+      # apply, which `SET ROLE` changes, and `search_path`, the schemas in which the names of the tables are found, which
+      # `SET search_path` changes, such as for a schema of each tenant. Not a setting of the application, such as one
+      # that a row security policy reads with `current_setting('app.tenant_id')`, since PostgreSQL does not list them.
+      def self.session(connection)
+        connection.uncached(dirties: false) { connection.select_all(SESSION, "IOStreams Session").first }
       end
 
       # Returns [Module] the kind of failure that an exception raised by the pg gem means: `PermissionDenied` for a table

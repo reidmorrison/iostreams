@@ -356,6 +356,73 @@ class PostgresqlCursorTest < Minitest::Test
         end
       end
 
+      describe "the session of the caller" do
+        let(:tenant) { "#{QueryDatabase::PostgresqlSchema.schema_name}_tenant" }
+        let(:search_path) { "#{tenant}, #{QueryDatabase::PostgresqlSchema.schema_name}" }
+
+        # Creates the schema of a tenant, whose orders table holds one order of its own, until the block ends.
+        def with_tenant
+          execute("CREATE SCHEMA #{tenant}")
+          execute("CREATE TABLE #{tenant}.orders (LIKE orders INCLUDING ALL)")
+          execute("INSERT INTO #{tenant}.orders (name, amount, status) VALUES ('tenant', 1, 0)")
+          yield
+        ensure
+          execute("DROP SCHEMA IF EXISTS #{tenant} CASCADE")
+        end
+
+        # Returns [ArgumentError] what reading the orders raises, which it asserts names the supplied settings.
+        def assert_session_differs(settings)
+          error = assert_raises(ArgumentError) { each(IOStreams.stream(orders)) }
+
+          assert_match(/\A#{db.order.name} query is read on a connection of its own, whose session differs from that of the caller in its #{settings}, /, error.message)
+          error
+        end
+
+        it "raises ArgumentError for a search_path of the caller, as for a schema of each tenant, which pluck reads" do
+          with_tenant do
+            db.record.transaction do
+              execute("SET LOCAL search_path TO #{search_path}")
+
+              assert_equal ["tenant"], db.order.pluck(:name)
+              assert_session_differs("search_path")
+              assert_equal(["tenant"], each(IOStreams.stream(orders.in_batches(of: 2))).map { |order| order["name"] })
+              raise ActiveRecord::Rollback
+            end
+          end
+        end
+
+        it "raises ArgumentError for a role of the caller, whose privileges and row security policies the read would not apply" do
+          reader = db.record.with_connection { |connection| connection.quote_column_name(role) }
+          db.record.transaction do
+            execute("GRANT SELECT ON orders TO #{reader}")
+            execute("SET LOCAL ROLE #{reader}")
+
+            assert_session_differs("current_user")
+            raise ActiveRecord::Rollback
+          end
+        end
+
+        it "reads the rows of a search_path that a checkout callback of Active Record sets for every connection" do
+          adapter  = db.record.with_connection(&:class)
+          path     = search_path
+          callback = -> { execute("SET search_path TO #{path}") if Thread.current[:iostreams_test_tenant] }
+          with_tenant do
+            db.pool.release_connection
+            adapter.set_callback(:checkout, :after, &callback)
+            Thread.current[:iostreams_test_tenant] = true
+
+            db.record.with_connection do
+              assert_equal(["tenant"], each(IOStreams.stream(orders)).map { |order| order["name"] })
+            end
+          ensure
+            Thread.current[:iostreams_test_tenant] = nil
+            adapter.skip_callback(:checkout, :after, &callback)
+            # So that no connection keeps the search_path of the tenant.
+            db.pool.disconnect!
+          end
+        end
+      end
+
       # Returns [Class] a model of the orders table on a connection to the url of POSTGRES_URL, changed by the block.
       def orders_at(name)
         url = URI(QueryDatabase::PostgresqlSchema.url)

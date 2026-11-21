@@ -34,6 +34,16 @@ and run `bundle exec rake llms_full`, when what a query does changes, and docs/e
   with `pool.checkout` and no lease is not detected: Active Record's own `with_connection` waits there first. It reads on the caller's connection instead when Active Record cannot use another (an
   in-memory SQLite database is a database of its own on each connection) or the source says it cannot
   (`.own_connection?`). A database that no source in `SOURCES` reads raises, suggesting `in_batches`.
+- Session state that the caller set on its own connection with a statement (PostgreSQL `SET search_path`, `SET ROLE`,
+  `set_config`, MySQL `USE`) does not reach the read's own connection, which could then read another tenant's rows or
+  bypass row-level security. So `Query#check_session` compares each source's `.session` (PostgreSQL `current_user`
+  and `search_path`, MySQL `DATABASE()`, SQLite nothing) of the read's connection with that of the caller's leased one,
+  and raises `ArgumentError` before the read opens when they differ; it asks nothing without a lease or when the read
+  shares the caller's connection. PostgreSQL does not list custom settings such as `app.tenant_id` (not in
+  `pg_settings` or `SHOW ALL`), and MySQL lists user variables only with Performance Schema privileges, so neither is
+  compared: docs/queries.md ("Session state, tenants and row security") points to checkout callbacks, which
+  `pool.checkout` runs (`checkout_and_verify` in 7.2, `clean!` in 8.1) in the caller's thread, conditions in the query,
+  shards, or batches. A pinned connection is returned without the callbacks, but it is the caller's.
 - Rows are cast by position, so the names (or, on AR-JDBC, the number) of the result's columns are checked against
   the description before the reader is yielded. Batches are read on the caller's connection, each loaded whole.
 - The rows tag the failures of the database but never those of the block, and a second traversal continues where the
