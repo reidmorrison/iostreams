@@ -28,10 +28,7 @@ module IOStreams
         @styles_part   = related_part(relationships, "styles")
         workbook       = package.scan(@part, WorkbookPart.new)
         @date1904      = workbook.date1904
-        @sheets        = workbook.sheets.filter_map do |name, id|
-          relationship = @related[id]
-          Sheet.new(name, relationship.target) if relationship&.type == "worksheet"
-        end
+        @sheets        = relationships.empty? ? named_sheets(workbook.sheets) : related_sheets(workbook.sheets)
       end
 
       # Returns [Array<Sheet>] the worksheets of the workbook, in the order that the application shows them, without
@@ -42,7 +39,8 @@ module IOStreams
       #
       # Raises [IOStreams::Errors::StreamFailure] tagged as `IOStreams::Errors::Corrupt` for a workbook without one.
       def first_sheet
-        sheets.first || raise(@package.missing("of a worksheet"))
+        sheets.first || raise(Zip::Reader.failure(Errors::Corrupt, "The spreadsheet #{@package.display_name} has no worksheet",
+                                                  @package.display_name))
       end
 
       # Returns [Date] the date that the number 0 is in the date system of the workbook, see DATE_1900.
@@ -75,6 +73,24 @@ module IOStreams
       end
 
       private
+
+      # Returns [Array<Sheet>] the worksheets of the sheets of the workbook, by their relationships.
+      def related_sheets(sheets)
+        sheets.filter_map do |name, id|
+          relationship = @related[id]
+          Sheet.new(name, relationship.target) if relationship&.type == "worksheet"
+        end
+      end
+
+      # Returns [Array<Sheet>] the worksheets of the sheets of a workbook without a relationships part, as some writers
+      # leave out, by the parts that Excel names them, in order, `xl/worksheets/sheet1.xml` for the first, that the
+      # package holds.
+      def named_sheets(sheets)
+        sheets.each_with_index.filter_map do |(name, _id), index|
+          part = "xl/worksheets/sheet#{index + 1}.xml"
+          Sheet.new(name, part) if @package.part?(part)
+        end
+      end
 
       # Returns [String|nil] the part of the first relationship of the type, or the part that Excel names, when the
       # workbook has no relationships part, as some writers leave out, or nil when the package does not hold it, since

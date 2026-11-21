@@ -23,7 +23,8 @@ class XlsxPartsTest < Minitest::Test
         "xl/_rels/workbook.xml.rels" => relationships({"worksheet" => "worksheets/sheet1.xml"}.merge(parts.delete(:related) || {}))
       }.merge(parts)
       file_name = File.join(dir, "parts.xlsx")
-      Zip::OutputStream.open(file_name) { |zip| parts.each { |name, xml| zip.put_next_entry(name) && zip.write(xml) } }
+      # A part of nil is left out.
+      Zip::OutputStream.open(file_name) { |zip| parts.compact.each { |name, xml| zip.put_next_entry(name) && zip.write(xml) } }
       file_name
     end
 
@@ -160,6 +161,27 @@ class XlsxPartsTest < Minitest::Test
       assert_equal expected, rows(name)
     end
 
+    it "reads text whose characters of more than one byte span the chunks of a part, with entities and line breaks" do
+      chunk = IOStreams::Xlsx::XmlScanner::CHUNK_SIZE
+      texts = (1..12).map { |n| "#{'x' * (chunk - 40 + n)}é日\u{1F600}\r\né&amp;日\r\n\u{1F600}" }
+      cells = texts.each_with_index.map { |t, i| %(<c r="A#{i + 1}" t="inlineStr"><is><t>#{t}</t></is></c>) }
+      # Each cell in a row of its own, which places each text at another offset of its chunk.
+      name  = workbook("xl/worksheets/sheet1.xml" => sheet(cells.map { |c| "<row>#{c}</row>" }.join))
+      expected = (1..12).map { |n| ["#{'x' * (chunk - 40 + n)}é日\u{1F600}\né&日\n\u{1F600}"] }
+
+      assert_equal expected, rows(name)
+    end
+
+    it "reads a workbook without relationships of its own by the parts that Excel names" do
+      name = workbook(
+        "xl/_rels/workbook.xml.rels" => nil,
+        "xl/sharedStrings.xml"       => %(<sst xmlns="#{MAIN}"><si><t>shared</t></si></sst>),
+        "xl/worksheets/sheet1.xml"   => sheet(%(<row><c r="A1" t="s"><v>0</v></c></row>))
+      )
+
+      assert_equal [["shared"]], rows(name)
+    end
+
     it "reads a part that starts with a UTF-8 byte order mark" do
       name = workbook("xl/worksheets/sheet1.xml" => "\xEF\xBB\xBF".b + sheet(%(<row><c r="A1"><v>1</v></c></row>)))
 
@@ -190,7 +212,7 @@ class XlsxPartsTest < Minitest::Test
       it "for a workbook without a worksheet" do
         name = workbook("xl/workbook.xml" => %(<workbook xmlns="#{MAIN}"><sheets/></workbook>))
 
-        assert_corrupt name, "worksheet"
+        assert_corrupt name, "has no worksheet"
       end
 
       it "for a zip file without a workbook" do

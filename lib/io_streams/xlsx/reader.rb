@@ -47,6 +47,7 @@ module IOStreams
       # of the local file.
       def self.file(file_name, display_name: nil, rows: false, decimals: nil, strings: nil, missing: nil, times: nil,
                     text: false, &block)
+        Utils.load_soft_dependency("rubyzip", "Xlsx", "zip") unless defined?(::Zip::File)
         name = display_name || file_name
         verify(file_name, name)
         arguments = {decimals: decimals, strings: strings, missing: missing, times: times, text: text}
@@ -170,7 +171,9 @@ module IOStreams
           positions = {}
           Reader.open_book(@file_name, @display_name) do |book|
             times = {}.compare_by_identity
-            each_row(book, converter(book, times)) do |row|
+            # Reads the styles and the shared strings of the workbook.
+            convert = Reader.tag_failure(@display_name) { converter(book, times) }
+            each_row(book, convert) do |row|
               read_row(row, positions, times)
               yield(row)
             end

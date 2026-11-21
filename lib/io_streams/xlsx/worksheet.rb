@@ -4,7 +4,7 @@ module IOStreams
   module Xlsx
     # Reads the rows of a worksheet part, yielding each as an Array of the value of each of its cells, from column A, as
     # the converter returns it for the cell's text, type and style, with nil for each cell that holds no value, up to its
-    # last cell, as creek returns them:
+    # last cell, as v2 read them with the creek gem, so that rows read as before:
     # * An empty row, and a row whose cells hold no value, such as cells that only have a style, is an empty Array.
     # * A row that the worksheet leaves out, since it is empty, is not yielded.
     # * A cell without a reference, which some writers leave out, is in the column after the cell before it.

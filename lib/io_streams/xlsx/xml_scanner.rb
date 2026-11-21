@@ -29,6 +29,9 @@ module IOStreams
     #   text(text)                       text [String], the text between tags, in one or more calls
     class XmlScanner
       # The bytes of a part that are read at a time.
+      # The byte of a CR, which may be the first of a CR LF.
+      CARRIAGE_RETURN = 13
+
       CHUNK_SIZE = 65_536
 
       # The most bytes of a tag, of its name and attributes, so that a part that never closes a tag raises, rather than
@@ -188,8 +191,8 @@ module IOStreams
         true
       end
 
-      # Reads the text up to the next tag. At the end of the chunk, it holds back a part of an entity or a CR, which the
-      # next chunk can complete, rather than read the chunk again.
+      # Reads the text up to the next tag. At the end of the chunk, it holds back a part of an entity, a CR, or a part of
+      # a character, which the next chunk can complete, rather than read the chunk again.
       def read_text(scanner, handler)
         text = scanner.scan(TEXT)
         if scanner.eos? && !@eof
@@ -223,12 +226,34 @@ module IOStreams
       end
 
       # Returns [Integer] the bytes at the end of the text that may continue in the next chunk: from an `&` without its
-      # `;`, or a trailing CR, which may be the start of a CR LF.
+      # `;`, the bytes of a UTF-8 character that the chunk cuts short, so that the text read is whole characters, which
+      # .decode can read, and a CR before them, which may be the start of a CR LF.
       def held_back(text)
         amp = text.rindex("&")
         return text.bytesize - amp if amp && !text.index(";", amp)
 
-        text.end_with?("\r") ? 1 : 0
+        held = partial_character(text)
+        held += 1 if held < text.bytesize && text.getbyte(text.bytesize - held - 1) == CARRIAGE_RETURN
+        held
+      end
+
+      # Returns [Integer] the bytes at the end of the text of a UTF-8 character that it cuts short, if any: up to 3 bytes
+      # after the first byte of a character of more bytes than follow it.
+      def partial_character(text)
+        size = text.bytesize
+        1.upto([3, size].min) do |back|
+          byte = text.getbyte(size - back)
+          # A byte that continues a character.
+          next if byte.between?(0x80, 0xBF)
+
+          length = if byte >= 0xF0 then 4
+                   elsif byte >= 0xE0 then 3
+                   elsif byte >= 0xC0 then 2
+                   else 1
+                   end
+          return length > back ? back : 0
+        end
+        0
       end
 
       # Returns [String] the value of an attribute, decoded, with each line break and tab a space, as XML normalizes the

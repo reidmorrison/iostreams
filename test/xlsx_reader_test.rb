@@ -40,7 +40,7 @@ class XlsxReaderTest < Minitest::Test
 
     describe "a file that is not a spreadsheet" do
       it "raises Corrupt naming the spreadsheet that is read, rather than the temp file that it is copied into" do
-        # creek reads a spreadsheet with rubyzip, whose error is tagged.
+        # IOStreams opens a spreadsheet with rubyzip, whose error is tagged.
         require "zip"
         stream = IOStreams.stream(StringIO.new("not a spreadsheet")).file_name("archive/bad.xlsx")
 
@@ -100,7 +100,7 @@ class XlsxReaderTest < Minitest::Test
         lib     = File.expand_path("../lib", __dir__)
         message = IO.popen([RbConfig.ruby, "-I", lib, "-e", script, file_name], err: File::NULL, &:read)
 
-        assert_equal "Please install the gem 'rubyzip' to support Zip. cannot load such file -- zip", message
+        assert_equal "Please install the gem 'rubyzip' to support Xlsx. cannot load such file -- zip", message
       end
     end
 
