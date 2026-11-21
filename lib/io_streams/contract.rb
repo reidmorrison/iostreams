@@ -49,7 +49,9 @@ module IOStreams
     # The properties that name fields, which `.to_dsl` writes after them, since the contract checks that the fields
     # that they name are declared.
     KEY_PROPERTIES = %i[primaryKey uniqueKeys].freeze
-    private_constant :DSL_PROPERTIES, :ACCESSOR, :KEY_PROPERTIES
+    # A name of a constant in Ruby, such as `Billing::Order`, which the class that `.to_dsl` writes must have.
+    CLASS_NAME = /\A(?:::)?[[:upper:]][[:word:]]*(?:::[[:upper:]][[:word:]]*)*\z/
+    private_constant :DSL_PROPERTIES, :ACCESSOR, :KEY_PROPERTIES, :CLASS_NAME
 
     # Decides what a contract is for every method of IOStreams that takes one, such as `IOStreams::Stream#as` and
     # `IOStreams::Schema#contract_errors`, apart from the class methods of a contract, which every contract inherits,
@@ -240,13 +242,22 @@ module IOStreams
       #
       # The name of each field in Ruby is its name in its schema when that is a Ruby name, otherwise the name once
       # cleansed, as a header row is, with `name:` the name in its schema, see .accessor_of. The properties that only
-      # describe the contract to people, or are those of another tool, are comments.
+      # describe the contract to people, or are those of another tool, are comments, those of a field on the line before
+      # it. Every name and value of the schema is written as a literal of Ruby, such as `"my key":`, so that a schema
+      # document from anyone, which can have properties of any name, never writes Ruby that does more than declare it.
       #
       # Parameters:
       #   class_name: [String]
-      #     The name of the class.
+      #     The name of the class, a constant of Ruby, such as "Order" or "Billing::Order".
       #     Default: the name of this class, or "Contract" for one without a name.
+      #
+      # Raises ArgumentError for a class name that is not the name of a constant of Ruby.
       def to_dsl(class_name = name || "Contract")
+        unless class_name.is_a?(String) && CLASS_NAME.match?(class_name)
+          raise(ArgumentError, "The class name of to_dsl must be a String that names a constant of Ruby, such as " \
+                               "\"Order\" or \"Billing::Order\": #{class_name.inspect}")
+        end
+
         lines = ["class #{class_name} < IOStreams::Contract"]
         keys  = to_h.slice(*KEY_PROPERTIES)
         to_h.except(:fields, *KEY_PROPERTIES).each { |property, value| lines << "  #{dsl_property(property, value)}" }
@@ -386,27 +397,37 @@ module IOStreams
         end
       end
 
-      # Returns [String] the line of the class that declares a property of the contract, see #to_dsl.
+      # Returns [String] the line of the class that declares a property of the contract, see #to_dsl, or a comment for a
+      # property that the class cannot declare, such as `title` or one of another tool, whose name is written as a key of
+      # a Hash in Ruby, see #ruby_key, so that a name of a schema document, which a person may not have written, is
+      # never Ruby, nor ends the line of the comment.
       def dsl_property(property, value)
         method = DSL_PROPERTIES[property]
-        method ? "#{method} #{ruby_literal(value)}" : "# #{property}: #{ruby_literal(value)}"
+        method ? "#{method} #{ruby_literal(value)}" : "# #{ruby_key(property.to_sym)} #{ruby_literal(value)}"
       end
 
       # Returns [Array<String>] the line of `field` that declares each field, see #to_dsl, its accessor, type and options
-      # aligned.
+      # aligned, after a comment of the properties of the field that `field` does not take, see #dsl_options.
       def dsl_fields
-        rows  = fields.zip(accessors).map { |field, accessor| [":#{accessor}", ":#{field.type}", dsl_options(field, accessor)] }
+        rows = fields.zip(accessors).map do |field, accessor|
+          [accessor.inspect, field.type.to_sym.inspect, *dsl_options(field, accessor)]
+        end
         width = rows.map { |row| row[0].size }.max.to_i + 1
         types = rows.map { |row| row[1].size }.max.to_i + 1
-        rows.map do |accessor, type, options|
+        rows.flat_map do |accessor, type, options, others|
           type = "#{"#{type},".ljust(types)} #{options}" unless options.empty?
-          "  field #{"#{accessor},".ljust(width)} #{type}".rstrip
+          line = "  field #{"#{accessor},".ljust(width)} #{type}".rstrip
+          others.empty? ? [line] : ["  # #{accessor.delete_prefix(':')}: #{ruby_literal(others)}", line]
         end
       end
 
-      # Returns [String] the options of `field` that declare the supplied field, see #to_dsl.
+      # Returns [Array(String, Hash)] the options of `field` that declare the supplied field, see #to_dsl, and the
+      # properties of the field that are not options of `field`, those of another tool, which a schema keeps, see
+      # `IOStreams::Schema::Field.known_property?`, by their names in its schema, which #dsl_fields writes as a comment.
       def dsl_options(field, accessor)
         properties = field.to_h.except(:name, :type)
+        others     = properties.reject { |property, _value| IOStreams::Schema::Field.known_property?(property) }
+        properties = properties.except(*others.keys)
         options    = []
         options << "required: true" if properties.dig(:constraints, :required)
         constraints = properties.delete(:constraints)&.except(:required)
@@ -415,7 +436,7 @@ module IOStreams
         end
         properties.each { |property, value| options << "#{ruby_name(property)}: #{ruby_literal(value)}" }
         options << "name: #{field.name.inspect}" unless field.name.to_s == accessor.to_s && field.name.is_a?(String)
-        options.join(", ")
+        [options.join(", "), others]
       end
 
       # Returns [String] the Ruby of a value of a property, such as `{maximum: 120}`, which writes a Hash as Ruby 3.4

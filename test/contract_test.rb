@@ -311,6 +311,74 @@ class ContractTest < Minitest::Test
         assert_equal %i[ordered_at_2 ordered_at ordered_at_3], contract.accessors # rubocop:disable Naming/VariableNumber
       end
 
+      it "writes a property of another tool of a field as a comment before it" do
+        contract = IOStreams::Contract.new(fields: [{name: "weight", type: "number", unit: "kg"}, {name: "id"}])
+
+        assert_equal(<<~RUBY, contract.to_dsl("Parcel"))
+          class Parcel < IOStreams::Contract
+            # weight: {unit: "kg"}
+            field :weight, :number
+            field :id,     :any
+          end
+        RUBY
+      end
+
+      describe "with names and values of a schema document that are not Ruby" do
+        injected = %w[schema field name value].map { |place| "IOSTREAMS_DSL_INJECTED_#{place.upcase}" }
+        hostile  = lambda do |constant|
+          ["x\nObject.const_set(:#{constant}, 1)\n# y", %(a"; Object.const_set(:#{constant}, 1) #),
+           "\#{Object.const_set(:#{constant}, 1)}", "back\\slash\\", "semi; colon", "$schema"]
+        end
+        let(:descriptor) do
+          {
+            **hostile.call(injected[0]).to_h { |key| [key, key] },
+            title:         hostile.call(injected[3]).first,
+            missingValues: ["", *hostile.call(injected[3])],
+            primaryKey:    hostile.call(injected[2]).first,
+            fields:        hostile.call(injected[2]).map do |name|
+              {name: name, type: "string", description: hostile.call(injected[3])[1],
+               constraints: {enum: hostile.call(injected[3])}, **hostile.call(injected[1]).to_h { |key| [key, key] }}
+            end
+          }
+        end
+        let(:contract) { IOStreams::Contract.new(descriptor) }
+
+        after { injected.each { |constant| Object.send(:remove_const, constant) if Object.const_defined?(constant) } }
+
+        it "writes them as literals, which declare the same contract without running any of them" do
+          dsl  = contract.to_dsl("Hostile")
+          copy = Class.new(IOStreams::Contract) { class_eval(dsl.lines[1..-2].join, __FILE__, __LINE__) }
+
+          injected.each { |constant| refute Object.const_defined?(constant), "#{constant} was set by:\n#{dsl}" }
+          known = IOStreams::Contract.new(
+            descriptor.slice(:title, :missingValues, :primaryKey).merge(
+              fields: descriptor[:fields].map { |field| field.slice(:name, :type, :description, :constraints) }
+            )
+          )
+
+          assert_equal known.to_h.except(:title), copy.to_h
+        end
+
+        it "writes the properties of other tools as comments of one line each" do
+          dsl      = contract.to_dsl("Hostile")
+          comments = dsl.lines.grep(/\A\s*#/)
+
+          assert_equal hostile.call(injected[0]).size + 1 + contract.fields.size, comments.size
+          comments.each { |line| assert_match(/\A  # /, line) }
+          assert_includes dsl, %(  # "x\\nObject.const_set(:IOSTREAMS_DSL_INJECTED_SCHEMA, 1)\\n# y": )
+          assert_includes dsl, %(  # "$schema": "$schema"\n)
+        end
+      end
+
+      it "raises for a class name that is not a constant of Ruby" do
+        assert_equal "class Billing::Order < IOStreams::Contract\n  field :id, :any\nend\n",
+                     IOStreams::Contract.new(fields: [{name: "id"}]).to_dsl("Billing::Order")
+        ["order", "Order; system('true')", "Order\n", :Order].each do |class_name|
+          error = assert_raises(ArgumentError) { IOStreams::Contract.new(fields: [{name: "id"}]).to_dsl(class_name) }
+          assert_match(/names a constant of Ruby/, error.message)
+        end
+      end
+
       it "writes no blank line for a contract without fields" do
         assert_equal "class Empty < IOStreams::Contract\n  fields_match \"subset\"\nend\n",
                      IOStreams::Contract.new(fieldsMatch: "subset", fields: []).to_dsl("Empty")
