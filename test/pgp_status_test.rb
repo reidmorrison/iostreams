@@ -4,6 +4,28 @@ require_relative "test_helper"
 
 # The status lines are those that gpg 2.5 reported while decrypting each kind of data.
 class PgpStatusTest < Minitest::Test
+  # A good signature, by the key "B" * 40.
+  GOOD = [
+    "NEWSIG good@example.org", "KEY_CONSIDERED #{'B' * 40} 0", "SIG_ID qS+D1zIaosiryOJWVEKe6iQ/XGk 2026-11-21 1795301020",
+    "GOODSIG 528DF60DBCF1BD8B Good <good@example.org>",
+    "VALIDSIG #{'B' * 40} 2026-11-21 1795301020 0 4 0 22 10 00 #{'B' * 40}", "TRUST_ULTIMATE 0 pgp good@example.org"
+  ].freeze
+
+  # A signature by the key "A" * 40, which was revoked, and which gpg still trusts ultimately.
+  REVOKED_KEY = [
+    "NEWSIG revoked@example.org", "KEY_CONSIDERED #{'A' * 40} 0",
+    "SIG_ID WceJMsagnJwfEagq0xvS8dJS6zc 2026-11-21 1795301020", "REVKEYSIG BB9C99A24C25FF6F Revoked <revoked@example.org>",
+    "VALIDSIG #{'A' * 40} 2026-11-21 1795301020 0 4 0 22 10 00 #{'A' * 40}", "KEYREVOKED", "KEY_CONSIDERED #{'A' * 40} 0",
+    "TRUST_ULTIMATE 0 pgp revoked@example.org"
+  ].freeze
+
+  # A signature by the key "C" * 40, which has expired, for which gpg reports no trust.
+  EXPIRED_KEY = [
+    "NEWSIG expired@example.org", "KEY_CONSIDERED #{'C' * 40} 0", "KEYEXPIRED 1577923200",
+    "SIG_ID 0XXnUtEC45/sx0oS1KbfCyCZT8k 2020-01-01 1577836800", "EXPKEYSIG A614127A7E3F1946 Expired <expired@example.org>",
+    "VALIDSIG #{'C' * 40} 2020-01-01 1577836800 0 4 0 22 10 00 #{'C' * 40}"
+  ].freeze
+
   # The status of gpg for data that is not PGP data, or is damaged or cut short.
   CORRUPT = [
     ["data that is not PGP data",
@@ -115,6 +137,71 @@ class PgpStatusTest < Minitest::Test
 
       it "ignores a status line without a keyword" do
         assert_empty IOStreams::Pgp::Status.new("[GNUPG:]\n[GNUPG:] NEWSIG\n").good_signatures
+      end
+
+      it "ignores a signature by a revoked key, which gpg still trusts" do
+        assert_empty status(*REVOKED_KEY).good_signatures
+      end
+
+      it "ignores a signature by an expired key" do
+        assert_empty status(*EXPIRED_KEY).good_signatures
+      end
+
+      it "ignores a signature that gpg reports as good, but whose key it reports as revoked" do
+        lines = GOOD + ["KEYREVOKED"]
+
+        assert_empty status(*lines).good_signatures
+      end
+
+      it "ignores a fingerprint without the result of the signature" do
+        assert_empty status("NEWSIG", "VALIDSIG #{'A' * 40} 2026-11-21 1795301020 0 4 0 22 10 00 #{'A' * 40}",
+                            "TRUST_ULTIMATE 0 pgp").good_signatures
+      end
+
+      it "keeps the result, fingerprint and trust of each signature apart" do
+        result = status(*(REVOKED_KEY + GOOD)).good_signatures
+
+        assert_equal [{fingerprint: "B" * 40, trust: "TRUST_ULTIMATE"}], result
+      end
+
+      it "returns a good signature that follows one by a revoked key" do
+        result = status(*(GOOD + REVOKED_KEY)).good_signatures
+
+        assert_equal [{fingerprint: "B" * 40, trust: "TRUST_ULTIMATE"}], result
+      end
+
+      it "starts a signature at its result, for a gpg that does not report NEWSIG" do
+        lines  = (REVOKED_KEY + GOOD).grep_v(/\ANEWSIG/)
+        result = status(*lines)
+
+        assert_equal [{fingerprint: "B" * 40, trust: "TRUST_ULTIMATE"}], result.good_signatures
+        assert_equal [{fingerprint: "A" * 40, key: :revoked}], result.unusable_key_signatures
+      end
+
+      it "does not ignore a good signature by a key with an expired subkey, for which gpg reports KEYEXPIRED" do
+        lines = GOOD.dup.insert(2, "KEYEXPIRED 1577923200")
+
+        assert_equal [{fingerprint: "B" * 40, trust: "TRUST_ULTIMATE"}], status(*lines).good_signatures
+      end
+    end
+
+    describe "#unusable_key_signatures" do
+      it "returns the fingerprint of a signature by a revoked key" do
+        assert_equal [{fingerprint: "A" * 40, key: :revoked}], status(*REVOKED_KEY).unusable_key_signatures
+      end
+
+      it "returns the fingerprint of a signature by an expired key" do
+        assert_equal [{fingerprint: "C" * 40, key: :expired}], status(*EXPIRED_KEY).unusable_key_signatures
+      end
+
+      it "returns a signature that gpg reports as good, but whose key it reports as revoked" do
+        lines = GOOD + ["KEYREVOKED"]
+
+        assert_equal [{fingerprint: "B" * 40, key: :revoked}], status(*lines).unusable_key_signatures
+      end
+
+      it "is empty for a good signature" do
+        assert_empty status(*GOOD).unusable_key_signatures
       end
     end
   end

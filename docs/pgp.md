@@ -207,6 +207,14 @@ The `signer` is an email address, key id or fingerprint, and gpg must consider i
 and a partner's key that you trust ultimately, or that you have signed, see [Trust level](#trust-level). Instead of
 importing the sender's key, it can be supplied with the file, see [import_and_trust_key](#import_and_trust_key).
 
+A signature by a key that has been revoked or has expired is rejected, whatever its trust, both for the `signer` and
+for `import_and_trust_key`. gpg itself reports such a signature as matching the data and exits successfully, so a file
+signed with a stolen key is still rejected once its owner has revoked it and you have imported the revocation:
+
+~~~
+IOStreams::Pgp::Failure: PGP file was signed by sender@example.org, but the key that signed it is revoked, so the signature is not accepted: /home/jack/sample/example.csv.pgp
+~~~
+
 The signature is only known once the whole file has been read, so the block has already processed the contents when
 the check fails, see [Verifying a file before processing it](#verifying-a-file-before-processing-it).
 
@@ -305,8 +313,8 @@ IOStreams::Pgp.delete_keys(email: "receiver@example.org", private: true)
 | Option | Default | Description |
 |--------|---------|-------------|
 | `passphrase` | `IOStreams::Pgp::Reader.default_passphrase` | The passphrase of the private key that decrypts the file, or of a file encrypted with a passphrase alone, such as by `gpg --symmetric`. A file that is only signed needs none. |
-| `signer` | None | The email address, key id or fingerprint of the key that must have signed the file. Reading raises `IOStreams::Pgp::Failure` unless the file has a good signature by that key, and gpg considers the key valid, see [Trust level](#trust-level). |
-| `import_and_trust_key` | None | The public key of the sender, or an Array of them, as text. Each one is imported, and the file must be signed by one of them, or by the `signer` when both are supplied. A signature by a supplied key is accepted whatever its trust, see [import_and_trust_key](#import_and_trust_key). |
+| `signer` | None | The email address, key id or fingerprint of the key that must have signed the file. Reading raises `IOStreams::Pgp::Failure` unless the file has a good signature by that key, gpg considers the key valid, see [Trust level](#trust-level), and the key is neither revoked nor expired. |
+| `import_and_trust_key` | None | The public key of the sender, or an Array of them, as text. Each one is imported, and the file must be signed by one of them, or by the `signer` when both are supplied. A signature by a supplied key is accepted whatever its trust, but not when the key is revoked or expired, see [import_and_trust_key](#import_and_trust_key). |
 | `import_and_trust_level` | None, which leaves the trust of the key as it is | The owner trust to give each key supplied as `import_and_trust_key`, from 1 to 5, see [Trust level](#trust-level). |
 | `verify_first` | `false` | Decrypt and check the whole file before the block reads any of it, see [Verifying a file before processing it](#verifying-a-file-before-processing-it). |
 | `ignore_mdc_error` | `false` | Decrypt a file without integrity protection, see [Reading legacy files without MDC integrity protection](#reading-legacy-files-without-mdc-integrity-protection). |
@@ -400,7 +408,8 @@ IOStreams.path("inbound/invoices.csv.pgp").
   never used instead.
 * When reading, the key is imported, and the file must be signed by it, or by the `signer` when both are supplied. Since
   the key itself is supplied, a signature by it is accepted whatever its trust, so the trust of the key is only changed
-  when `import_and_trust_level` is supplied, and a key that is already trusted keeps its trust.
+  when `import_and_trust_level` is supplied, and a key that is already trusted keeps its trust. A signature by a key
+  that is revoked or expired is still rejected.
 
 The key is the text of an exported public key, such as the result of `IOStreams::Pgp.export`. When the text holds
 several keys, each of them is imported, but only the last one is trusted and used.
@@ -645,6 +654,10 @@ when reading with `import_and_trust_key`.
 `gpg does not trust the key`.**
 gpg does not consider the key valid. Supply the key with `import_and_trust_key`, or sign it with your own key, see
 [Trust level](#trust-level).
+
+**Reading with a `signer` or `import_and_trust_key` raises `the key that signed it is revoked`, or `is expired`.**
+The file was signed by the right key, but its owner has since revoked it, such as after it was stolen, or it has
+expired. Ask the sender for their new key, or for a new expiry date of the key, and import it.
 
 **Writing raises `error retrieving '<partner@example.org>' via WKD`.**
 The keyring has no key for the recipient, so gpg looked for one on the web, with the Web Key Directory of the email

@@ -241,7 +241,8 @@ end
   database transaction, or supply `verify_first: true`, which checks the file before the block runs. See
   [Verifying a file before processing it](pgp#verifying-a-file-before-processing-it).
 * **Require the sender's signature** with the reader's `signer` option, so that only a file signed by that key is
-  accepted, see [PGP](pgp).
+  accepted, see [PGP](pgp). A signature by a key that has been revoked or has expired is rejected, also for a key
+  supplied with `import_and_trust_key`, so import a partner's revocation as soon as they publish it.
 * **Import and trust only verified keys.** `IOStreams::Pgp.import_and_trust` and the `import_and_trust_key` option
   trust a key at the Ultimate level by default, so only use them for keys from a verified source, or supply a lower
   trust level. See [Trust level](pgp#trust-level).
