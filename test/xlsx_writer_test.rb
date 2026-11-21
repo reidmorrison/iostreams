@@ -629,6 +629,19 @@ class XlsxWriterTest < Minitest::Test
         ], records
       end
 
+      it "is written as the digits of a BigDecimal larger than a double holds, rather than an infinity" do
+        huge = BigDecimal("1#{'0' * 400}.5")
+        path = IOStreams.path(file_name).schema(fields: [{name: "amount", type: "number"}])
+        path.writer(:hash) { |io| io << {"amount" => huge} }
+        xml = worksheet_xml(File.binread(file_name))
+        records = []
+        path.each(:hash) { |record| records << record }
+
+        refute_includes xml, "Infinity"
+        assert_includes xml, "<t>1#{'0' * 400}.5</t>"
+        assert_equal [{"amount" => huge}], records
+      end
+
       it "is written as its text when Excel cannot hold the number, without a format" do
         path = IOStreams.path(file_name).schema(fields: [{name: "id", type: "number", decimals: 0}])
         path.writer(:hash) { |io| io << {"id" => 12_345_678_901_234_567_890} }

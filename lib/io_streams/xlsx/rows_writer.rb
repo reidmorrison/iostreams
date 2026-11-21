@@ -112,11 +112,12 @@ module IOStreams
       # its text when Excel would change it: a whole number of more than 15 digits, such as an identifier, which a
       # contract's `integer` or `number` field reads back whole, and NaN or an infinity, which Excel has no number for,
       # as the text that a number field reads, such as "NaN" or "INF", see `IOStreams::Schema::Field.special_text`. A
-      # BigDecimal with a fraction is the double that Excel holds, as a number that Excel displays to 15 digits.
+      # BigDecimal with a fraction is the double that Excel holds, as a number that Excel displays to 15 digits, or its
+      # text, such as `1.5e400` in plain digits, when it is larger than a double holds.
       def number(value)
         return IOStreams::Schema::Field.special_text(value) unless value.finite?
         return value if value.is_a?(Float)
-        return value.to_f unless value.is_a?(Integer) || value.frac.zero?
+        return fraction(value) unless value.is_a?(Integer) || value.frac.zero?
         return value.to_i.to_s if value.abs >= EXACT
 
         value.is_a?(Integer) ? value : value.to_f
@@ -139,6 +140,13 @@ module IOStreams
       def decimal(number, index)
         decimals = @decimal_columns[index]
         decimals && number.is_a?(Numeric) ? WorksheetWriter::Decimal.new(number, decimals) : number
+      end
+
+      # Returns [Float|String] the double of a BigDecimal with a fraction, or its plain digits when it is larger than a
+      # double holds, rather than an infinity, which Excel has no number for.
+      def fraction(value)
+        float = value.to_f
+        float.finite? ? float : value.to_s("F")
       end
 
       # Returns [Numeric|String] the number of text that looks like one, as #number writes it, or the text itself for a
