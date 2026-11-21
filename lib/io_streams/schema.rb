@@ -420,8 +420,8 @@ module IOStreams
         format = field.to_h[:format]
         next unless format
 
-        "  # The schema of the file reads #{field.name.to_s.inspect} with format #{format.inspect}, which this contract " \
-          "leaves to it\n"
+        "  # The schema of the file reads #{Utils.visible_inspect(field.name.to_s)} with format " \
+          "#{Utils.visible_inspect(format)}, which this contract leaves to it\n"
       end
       [lines.first, *notes, *lines.drop(1)].join
     end

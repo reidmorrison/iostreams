@@ -470,6 +470,20 @@ module IOStreams
       text.scrub { |bytes| bytes.unpack("C*").map { |byte| format("\\x%02X", byte) }.join }
     end
 
+    # Returns [String] the Ruby of the supplied value, as `#inspect` writes it, with each format character of Unicode,
+    # such as a right-to-left override (U+202E), a zero-width space or U+FEFF, written as `\u{202E}`, so that Ruby
+    # written for a person to review, see `IOStreams::Contract.to_dsl`, reads as Ruby parses it (Trojan Source,
+    # CVE-2021-42574). `#inspect` already escapes line and paragraph separators, and leaves other text readable, such
+    # as `€`. A Symbol of a format character is quoted, since `Symbol#inspect` writes it without quotes.
+    def self.visible_inspect(value)
+      text = value.is_a?(Symbol) && FORMAT_CHARACTER.match?(value.to_s) ? ":#{value.to_s.inspect}" : value.inspect
+      text.gsub(FORMAT_CHARACTER) { |char| format("\\u{%X}", char.ord) }
+    end
+
+    # A format character of Unicode, see .visible_inspect.
+    FORMAT_CHARACTER = /\p{Cf}/
+    private_constant :FORMAT_CHARACTER
+
     # Yields the path to a temporary file_name.
     #
     # The file is not created, and is deleted upon completion if present.

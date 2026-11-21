@@ -370,10 +370,69 @@ class ContractTest < Minitest::Test
         end
       end
 
+      it "escapes the characters that end a line in an editor, though not in Ruby, keeping other text readable" do
+        separators = [0x2028, 0x2029].pack("U*")
+        contract   = IOStreams::Contract.new(
+          "a#{separators}b": "c#{separators}€", fields: [{name: "id", description: "d#{separators}€", "e#{separators}": [1]}]
+        )
+        dsl  = contract.to_dsl("Separators")
+        euro = "€".inspect[1..-2] # Ruby escapes it too when its default external encoding is not Unicode
+
+        refute_match(/[#{separators}]/, dsl)
+        assert_includes dsl, %(  # "a\\u2028\\u2029b": "c\\u2028\\u2029#{euro}"\n)
+        assert_includes dsl, %(  # id: {"e\\u2028\\u2029": [1]}\n)
+        assert_includes dsl, %(description: "d\\u2028\\u2029#{euro}")
+        copy = Class.new(IOStreams::Contract) { class_eval(dsl.lines[1..-2].join, __FILE__, __LINE__) }
+
+        assert_equal "d#{separators}€", copy.fields.first.to_h[:description]
+      end
+
+      it "escapes the format characters of Unicode, such as a right-to-left override, so the class reads as Ruby parses it" do
+        codes   = [0x202A, 0x202E, 0x2066, 0x2069, 0x200B, 0xFEFF]
+        hidden  = codes.pack("U*")
+        escaped = codes.map { |code| format("\\u{%X}", code) }.join
+        schema  = IOStreams::Schema.new(
+          "a#{hidden}": "c#{hidden}",
+          fields:       [
+            {name: "id#{hidden}", type: "date", format: "%Y#{hidden}", description: "d#{hidden}", "e#{hidden}": {"f#{hidden}" => [:"g#{hidden}"]}},
+            {name: :"s#{hidden}", constraints: {enum: ["v#{hidden}"]}}
+          ]
+        )
+        dsl = schema.to_dsl("Hidden")
+
+        refute_match(/\p{Cf}/, dsl)
+        assert_includes dsl, %(  # The schema of the file reads "id#{escaped}" with format "%Y#{escaped}")
+        assert_includes dsl, %(  # "a#{escaped}": "c#{escaped}"\n)
+        assert_includes dsl, %(  # id: {"e#{escaped}": {"f#{escaped}" => [:"g#{escaped}"]}}\n)
+        assert_includes dsl, %(description: "d#{escaped}", name: "id#{escaped}")
+        assert_includes dsl, %(constraints: {enum: ["v#{escaped}"]}, name: :"s#{escaped}")
+        copy = Class.new(IOStreams::Contract) { class_eval(dsl.lines.grep_v(/\A\s*#/)[1..-2].join, __FILE__, __LINE__) }
+
+        assert_equal ["id#{hidden}", :"s#{hidden}"], copy.fields.map(&:name)
+        assert_equal "d#{hidden}", copy.fields.first.to_h[:description]
+        assert_equal({enum: ["v#{hidden}"]}, copy.fields.last.to_h[:constraints])
+      end
+
+      it "names the class by the last part of its name when that alone is a constant of Ruby, otherwise Contract" do
+        namespace = Module.new
+        namespace.const_set(:Order, Class.new(IOStreams::Contract) { field :id, :integer })
+        temporary = Class.new(IOStreams::Contract) { field :id, :integer }
+        temporary.set_temporary_name("draft order")
+
+        assert_equal "class Order < IOStreams::Contract\n  field :id, :integer\nend\n", namespace::Order.to_dsl
+        assert_equal "class Contract < IOStreams::Contract\n  field :id, :integer\nend\n", temporary.to_dsl
+        assert_equal "class Contract < IOStreams::Contract\n  field :id, :any\nend\n",
+                     IOStreams::Contract.new(fields: [{name: "id"}]).to_dsl
+      end
+
       it "raises for a class name that is not a constant of Ruby" do
-        assert_equal "class Billing::Order < IOStreams::Contract\n  field :id, :any\nend\n",
-                     IOStreams::Contract.new(fields: [{name: "id"}]).to_dsl("Billing::Order")
-        ["order", "Order; system('true')", "Order\n", :Order].each do |class_name|
+        contract = IOStreams::Contract.new(fields: [{name: "id"}])
+
+        %w[Billing::Order ::Order Prix€ Ärger].each do |class_name|
+          assert_equal "class #{class_name} < IOStreams::Contract\n  field :id, :any\nend\n", contract.to_dsl(class_name)
+        end
+        ["order", "Order; system('true')", "Order\n", :Order, "Order::", "A::::B", "A B", "A#{[0x2028].pack('U')}B",
+         "A#{[0x202E].pack('U')}B"].each do |class_name|
           error = assert_raises(ArgumentError) { IOStreams::Contract.new(fields: [{name: "id"}]).to_dsl(class_name) }
           assert_match(/names a constant of Ruby/, error.message)
         end

@@ -49,8 +49,12 @@ module IOStreams
     # The properties that name fields, which `.to_dsl` writes after them, since the contract checks that the fields
     # that they name are declared.
     KEY_PROPERTIES = %i[primaryKey uniqueKeys].freeze
-    # A name of a constant in Ruby, such as `Billing::Order`, which the class that `.to_dsl` writes must have.
-    CLASS_NAME = /\A(?:::)?[[:upper:]][[:word:]]*(?:::[[:upper:]][[:word:]]*)*\z/
+    # A name of a constant in Ruby, such as `Billing::Order` or `Prix€`, which the class that `.to_dsl` writes must
+    # have: each part starts with an uppercase letter, followed by letters, digits, `_` or other characters that are not
+    # ASCII, but never a space, such as U+2028, a control or a format character, which could make one line look like
+    # two, or reorder the text that a reviewer sees.
+    CLASS_NAME = /\A(?:::)?[[:upper:]](?:[[:word:]]|[^\p{ASCII}\p{Space}\p{Cntrl}\p{Cf}])*
+                  (?:::[[:upper:]](?:[[:word:]]|[^\p{ASCII}\p{Space}\p{Cntrl}\p{Cf}])*)*\z/x
     private_constant :DSL_PROPERTIES, :ACCESSOR, :KEY_PROPERTIES, :CLASS_NAME
 
     # Decides what a contract is for every method of IOStreams that takes one, such as `IOStreams::Stream#as` and
@@ -249,10 +253,12 @@ module IOStreams
       # Parameters:
       #   class_name: [String]
       #     The name of the class, a constant of Ruby, such as "Order" or "Billing::Order".
-      #     Default: the name of this class, or "Contract" for one without a name.
+      #     Default: the name of this class, or the last part of it for a class of a module without a name, such as
+      #     "Order" of "#<Module:0x...>::Order", otherwise "Contract", such as for a class without a name.
       #
       # Raises ArgumentError for a class name that is not the name of a constant of Ruby.
-      def to_dsl(class_name = name || "Contract")
+      def to_dsl(class_name = nil)
+        class_name = default_class_name if class_name.nil?
         unless class_name.is_a?(String) && CLASS_NAME.match?(class_name)
           raise(ArgumentError, "The class name of to_dsl must be a String that names a constant of Ruby, such as " \
                                "\"Order\" or \"Billing::Order\": #{class_name.inspect}")
@@ -306,6 +312,12 @@ module IOStreams
       alias to_s inspect
 
       private
+
+      # Returns [String] the name of the class that .to_dsl writes when it is given none: the name of this class, or its
+      # last part, when that alone is the name of a constant of Ruby, otherwise "Contract".
+      def default_class_name
+        [name, name&.split("::")&.last].find { |text| text && CLASS_NAME.match?(text) } || "Contract"
+      end
 
       # Returns [Class] a new subclass whose fields are the supplied descriptor.
       def build(descriptor, &)
@@ -410,7 +422,7 @@ module IOStreams
       # aligned, after a comment of the properties of the field that `field` does not take, see #dsl_options.
       def dsl_fields
         rows = fields.zip(accessors).map do |field, accessor|
-          [accessor.inspect, field.type.to_sym.inspect, *dsl_options(field, accessor)]
+          [Utils.visible_inspect(accessor), Utils.visible_inspect(field.type.to_sym), *dsl_options(field, accessor)]
         end
         width = rows.map { |row| row[0].size }.max.to_i + 1
         types = rows.map { |row| row[1].size }.max.to_i + 1
@@ -435,28 +447,30 @@ module IOStreams
           properties[:constraints] = constraints.transform_keys { |constraint| ruby_name(constraint).to_sym }
         end
         properties.each { |property, value| options << "#{ruby_name(property)}: #{ruby_literal(value)}" }
-        options << "name: #{field.name.inspect}" unless field.name.to_s == accessor.to_s && field.name.is_a?(String)
+        own_name = field.name.to_s == accessor.to_s && field.name.is_a?(String)
+        options << "name: #{Utils.visible_inspect(field.name)}" unless own_name
         [options.join(", "), others]
       end
 
       # Returns [String] the Ruby of a value of a property, such as `{maximum: 120}`, which writes a Hash as Ruby 3.4
-      # inspects it, `{key: value}`, on every version of Ruby, whose Hash#inspect wrote `{:key=>value}` before 3.4.
+      # inspects it, `{key: value}`, on every version of Ruby, whose Hash#inspect wrote `{:key=>value}` before 3.4, and
+      # every other value as `IOStreams::Utils.visible_inspect` writes it, with no format character of Unicode as it is.
       def ruby_literal(value)
         case value
         when ::Hash
           pairs = value.map { |key, item| "#{ruby_key(key)} #{ruby_literal(item)}" }
           pairs.empty? ? "{}" : "{#{pairs.join(', ')}}"
         when ::Array then "[#{value.map { |item| ruby_literal(item) }.join(', ')}]"
-        else value.inspect
+        else Utils.visible_inspect(value)
         end
       end
 
       # Returns [String] the key of a Hash in Ruby, see #ruby_literal: `key:` for a Symbol, quoted when it is not a name,
       # such as `"my key":`, otherwise `"key" =>`.
       def ruby_key(key)
-        return "#{key.inspect} =>" unless key.is_a?(Symbol)
+        return "#{Utils.visible_inspect(key)} =>" unless key.is_a?(Symbol)
 
-        /\A[a-zA-Z_][a-zA-Z0-9_]*[?!]?\z/.match?(key) ? "#{key}:" : "#{key.to_s.inspect}:"
+        /\A[a-zA-Z_][a-zA-Z0-9_]*[?!]?\z/.match?(key) ? "#{key}:" : "#{Utils.visible_inspect(key.to_s)}:"
       end
 
       # Returns [String] the name in Ruby of a property of a field, such as `true_values` for `trueValues`, see .field.
