@@ -11,12 +11,12 @@ class XlsxRowsTest < Minitest::Test
 
     after { FileUtils.rm_rf(dir) }
 
-    # Writes a workbook with xlsxtream itself, so that its cells are typed as Excel types them.
+    # Writes a workbook whose cells are the rows as they are, each of the type of its value, without a header row or a
+    # schema, which this test reads them with.
     def workbook(*rows)
-      require "xlsxtream"
-      Xlsxtream::Workbook.open(file_name) do |book|
-        book.write_worksheet("Sheet1") do |sheet|
-          rows.each { |row| sheet << row }
+      File.open(file_name, "wb") do |file|
+        IOStreams::Xlsx::Writer.stream(file, rows: true) do |io|
+          rows.each { |row| io << row }
         end
       end
     end
@@ -343,7 +343,7 @@ class XlsxRowsTest < Minitest::Test
       end
 
       describe "of a date or a time" do
-        # A column of each number format, as Excel and xlsxtream write them: Excel's short date, which creek reads as a
+        # A column of each number format, as Excel and IOStreams write them: Excel's short date, which creek reads as a
         # date, custom formats of a date, which creek reads as a time in the time zone of the process, a date and time,
         # with a fraction of a second, times of day, a number without a cell type, and a number of a custom format whose
         # text has a `d`. The dates are those whose midnight, or 02:30, a change to daylight saving time skips in

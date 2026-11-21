@@ -390,7 +390,7 @@ gems of the features that your application uses:
 | bzip2 | `bzip2-ffi` |
 | Zip | `rubyzip` to read, `zip_kit` to write |
 | Zstandard | `zstd-ruby`, or on JRuby the zstd-jni jar, see [Compression and encryption](extensions#zstandard) |
-| Excel spreadsheets | `rubyzip` to read, `xlsxtream` 3.0 or later to write |
+| Excel spreadsheets | `rubyzip` to read, `zip_kit` to write |
 | PGP | The `gpg` program of GnuPG 2.1 or later, see [PGP](pgp#installation) |
 | Symmetric Encryption | `symmetric-encryption` |
 | Parquet | `parquet`, which is not available on JRuby |
@@ -675,7 +675,7 @@ it reads, since a guess could change from one file to the next, so the draft is 
 ## Same records, any format
 
 Each format reads values as it stores them. Copy the file to JSON and to a spreadsheet, and read each one back as a
-Hash. The spreadsheet needs the `rubyzip` and `xlsxtream` gems; without them, leave it out.
+Hash. The spreadsheet needs the `rubyzip` and `zip_kit` gems; without them, leave it out.
 
 ~~~ruby
 IOStreams.path("sample/people.json").copy_from(path, mode: :hash)
@@ -3243,7 +3243,7 @@ written to a store by hand, with `writer(:line)`, do not say that they hold cell
 a file, such as `1234.5` as `12345` with `groupChar: "."`: copy them with `copy_from(path, mode: :line)` instead. A
 `delimiter:` raises `ArgumentError` for the rows and records, which are cells rather than lines.
 
-Writing writes a workbook with one worksheet, with the `xlsxtream` gem. The rows and records are written as the types
+Writing writes a workbook with one worksheet, which needs the `zip_kit` gem. The rows and records are written as the types
 of their values, by the fields of a schema or contract when there is one, so that a number is a number cell, a `Date` a
 date, a `Time` a date and time, holding its clock in UTC, or in the `timeZone` of its field, the value of a `time`
 field a time of day, of Excel's time format `h:mm:ss`, holding its own clock, or that of the `timeZone` of its field,
@@ -3286,16 +3286,16 @@ Notes:
 
 * Reading ignores `auto_format` and `use_shared_strings`, since the workbook records them, and raises for `sheet_name`,
   since it always reads the first worksheet.
-* Writing the value of a `time` field as a time of day needs `xlsxtream` 3.0 or later, below 4, since IOStreams adds
-  the style of a time of day to the styles that `xlsxtream` writes. Another version raises `IOStreams::Errors::Error`
-  before the file is opened, for a schema or contract with a `time` field.
+* Text is written as Excel escapes it, so that it reads back as it was written, including a carriage return, such as
+  the `\r\n` within a value, whitespace at either end, and a character that XML cannot hold, such as a control
+  character.
 * Reading a spreadsheet needs a local file, so one stored elsewhere, or within another stream, is copied into a temp
   file first. Its lines, and its bytes, are converted into CSV in a second temp file, since the rows are returned to a
   block, while its rows and records are read straight from the workbook. Writing streams the workbook, without a temp file, see [When temp files are used](config#when-temp-files-are-used).
 
 ### Limitations {#spreadsheet-limitations}
 
-A `number` field with `decimals` is written as a number cell in Excel's General format, since the `xlsxtream` gem
+A `number` field with `decimals` is written as a number cell in Excel's General format, since IOStreams
 writes only the number formats of dates and times, so Excel shows the digits of its value, such as `12.5`, where CSV
 writes `12.50`, and so do the lines of the spreadsheet, its CSV text. The cell holds the same number, which the field
 reads back:
@@ -6398,7 +6398,7 @@ and how to set the streams of a file whose name has none, is explained in
 | `.zst` | [Zstandard](#zstandard) | The `zstd-ruby` gem, 2.0.0 or later, or on JRuby the zstd-jni jar | None | `level` |
 | `.enc` | [Symmetric Encryption](#symmetric-encryption) | The `symmetric-encryption` gem, with its ciphers configured | `version`, `buffer_size` | `compress`, `version`, `cipher_name`, `header`, `random_key`, `random_iv` |
 | `.pgp`, `.gpg` | [PGP](#pgp) | The `gpg` program of GnuPG | `passphrase`, `signer` and more, see [Reader options](pgp#reader-options) | `recipient`, `signer` and more, see [Writer options](pgp#writer-options) |
-| `.xlsx`, `.xlsm` | [Excel spreadsheets](#excel-spreadsheets) | `rubyzip` to read, and `xlsxtream` 3.0 or later to write | None | `sheet_name`, `auto_format`, `use_shared_strings` |
+| `.xlsx`, `.xlsm` | [Excel spreadsheets](#excel-spreadsheets) | `rubyzip` to read, and `zip_kit` to write | None | `sheet_name`, `auto_format`, `use_shared_strings` |
 
 Only the registered extensions at the end of the name count, after its first `.`, whatever their case, so
 `DATA.CSV.GZ` is compressed with gzip, while `data.gz.csv` and `report.csv.bak` have no streams. `IOStreams.extensions`
@@ -6684,9 +6684,9 @@ reading wrong values, see [Errors](errors#what-each-stream-raises).
 
 ### Writing an Excel spreadsheet
 
-Writing uses the `xlsxtream` gem, which streams the workbook without a temp file. Its options, `sheet_name`,
-`auto_format` and `use_shared_strings`, are described in [Excel spreadsheets](formats#excel-spreadsheets). Writing the
-value of a `time` field as a time of day needs `xlsxtream` 3.0 or later.
+IOStreams writes the XML of the workbook itself, and streams it with the `zip_kit` gem, without a temp file. Its
+options, `sheet_name`, `auto_format` and `use_shared_strings`, are described in
+[Excel spreadsheets](formats#excel-spreadsheets).
 
 ## The stream that a block reads or writes
 
@@ -9873,7 +9873,7 @@ supplied in a `StringIO`.
 | --- | --- | --- | --- |
 | `.gz`, `.gzip`, `.bz2`, `.zst`, `.enc` | No temp file | No temp file | Streamed |
 | `.zip` | No temp file for a local file, otherwise a temp file holding the zip file | No temp file | A zip file lists its contents at its end, so reading one needs the whole file. Writing streams the zip file |
-| `.xlsx`, `.xlsm` | When it is not a local file, a temp file holding the spreadsheet, and in the `:line` mode, or a copy without a mode, a temp file holding the rows as CSV | No temp file | A spreadsheet is a zip file, which lists its parts at its end, so reading one needs the whole file. IOStreams reads its rows from the file and returns them to a block, which its rows and records read as they are, while its lines are converted into CSV for the application to read. Writing streams the spreadsheet with `xlsxtream` |
+| `.xlsx`, `.xlsm` | When it is not a local file, a temp file holding the spreadsheet, and in the `:line` mode, or a copy without a mode, a temp file holding the rows as CSV | No temp file | A spreadsheet is a zip file, which lists its parts at its end, so reading one needs the whole file. IOStreams reads its rows from the file and returns them to a block, which its rows and records read as they are, while its lines are converted into CSV for the application to read. Writing streams the spreadsheet with `zip_kit` |
 | `.pgp`, `.gpg` | No temp file. With `verify_first: true`, a temp file holding the decrypted data | No temp file | `gpg` reads a local file itself, and any other stream through its stdin, and writes through its stdout |
 | `.parquet` | No temp file for a local file, otherwise a temp file holding the Parquet file | A temp file holding the Parquet file, which is copied to the path once the block completes | A Parquet file records its columns at its end, and the `parquet` gem writes the whole file before it can be copied |
 

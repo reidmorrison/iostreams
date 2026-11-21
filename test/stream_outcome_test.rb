@@ -135,14 +135,14 @@ class StreamOutcomeTest < Minitest::Test
     # The test helper loads the gems, so the writers run in a new process, which hides them, as if they were not
     # installed. The zstd library of JRuby is a jar, which cannot be hidden this way.
     let :gems do
-      gems = {bz2: "bzip2-ffi", enc: "symmetric-encryption", xlsx: "xlsxtream", zip: "zip_kit"}
+      gems = {bz2: "bzip2-ffi", enc: "symmetric-encryption", xlsx: "zip_kit", zip: "zip_kit"}
       gems[:zst] = "zstd-ruby" unless defined?(JRuby)
       gems
     end
 
     it "raises LoadError before a local path opens its output, so that an existing file is kept" do
       script = <<~'RUBY'
-        HIDDEN = %w[bzip2/ffi symmetric-encryption xlsxtream zip_kit zstd-ruby].freeze
+        HIDDEN = %w[bzip2/ffi symmetric-encryption zip_kit zstd-ruby].freeze
 
         module Kernel
           alias_method :require_installed, :require

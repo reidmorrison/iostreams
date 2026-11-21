@@ -263,7 +263,7 @@ it reads, since a guess could change from one file to the next, so the draft is 
 ## Same records, any format
 
 Each format reads values as it stores them. Copy the file to JSON and to a spreadsheet, and read each one back as a
-Hash. The spreadsheet needs the `rubyzip` and `xlsxtream` gems; without them, leave it out.
+Hash. The spreadsheet needs the `rubyzip` and `zip_kit` gems; without them, leave it out.
 
 ~~~ruby
 IOStreams.path("sample/people.json").copy_from(path, mode: :hash)

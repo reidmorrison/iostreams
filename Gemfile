@@ -50,7 +50,6 @@ gem "pg", platform: :ruby # A C extension, which JRuby cannot load, so JRuby rea
 gem "rubyzip"
 gem "sqlite3", platform: :ruby # A C extension, which JRuby cannot load, so JRuby reads SQLite with AR-JDBC, see below.
 gem "symmetric-encryption"
-gem "xlsxtream"
 gem "zip_kit"
 gem "zstd-ruby", platform: :ruby # A C extension, so JRuby uses the zstd-jni jar instead, see test/zstd_jni.rb.
 

@@ -7,15 +7,18 @@ module IOStreams
     extend StreamFormat
 
     autoload :Book, "io_streams/xlsx/book"
+    autoload :CellStyles, "io_streams/xlsx/cell_styles"
     autoload :Cells, "io_streams/xlsx/cells"
     autoload :Package, "io_streams/xlsx/package"
     autoload :Reader, "io_streams/xlsx/reader"
     autoload :RowsWriter, "io_streams/xlsx/rows_writer"
+    autoload :SharedStringTable, "io_streams/xlsx/shared_string_table"
     autoload :SharedStrings, "io_streams/xlsx/shared_strings"
     autoload :Styles, "io_streams/xlsx/styles"
     autoload :Text, "io_streams/xlsx/text"
-    autoload :Workbook, "io_streams/xlsx/workbook"
+    autoload :WorkbookWriter, "io_streams/xlsx/workbook_writer"
     autoload :Worksheet, "io_streams/xlsx/worksheet"
+    autoload :WorksheetWriter, "io_streams/xlsx/worksheet_writer"
     autoload :Writer, "io_streams/xlsx/writer"
     autoload :XmlScanner, "io_streams/xlsx/xml_scanner"
 

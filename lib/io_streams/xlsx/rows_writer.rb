@@ -16,7 +16,7 @@ module IOStreams
     # written as the number, date, time or boolean that it looks like, such as "1.5" or "2026-10-09", while the text of
     # a column of a `string` field is written as it is.
     class RowsWriter
-      # The text that `auto_format` writes as a number, a date, a time or a boolean, as `xlsxtream` formats it.
+      # The text that `auto_format` writes as a number, a date, a time or a boolean.
       NUMBER  = /\A-?[0-9]+(\.[0-9]+)?\z/
       DATE    = /\A[0-9]{4}-[0-9]{2}-[0-9]{2}\z/
       TIME    = /\A[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}(?::[0-9]{2}(?:\.[0-9]{1,9})?)?(?:Z|[+-][0-9]{2}:[0-9]{2})?\z/
@@ -26,12 +26,12 @@ module IOStreams
       EXACT = 10**15
 
       # The first date and time that a cell of a date and time holds, Excel's day 1, before which the number of the cell
-      # would be less than 1, as that of a time of day is, see `IOStreams::Xlsx::Workbook`, or negative, which is no
-      # date that Excel shows, so that a date and time before it is written as its text, see #time_cell.
+      # would be less than 1, as that of a time of day is, or negative, which is no date that Excel shows, so that a date
+      # and time before it is written as its text, see #time_cell.
       FIRST_DATE_TIME = Time.utc(1899, 12, 31).freeze
 
       # Parameters
-      #   worksheet: [Xlsxtream::Worksheet]
+      #   worksheet: [IOStreams::Xlsx::WorksheetWriter]
       #     The worksheet that the rows are added to.
       #
       #   auto_format: [true|false]
@@ -42,8 +42,7 @@ module IOStreams
       #
       #   time_columns: [Array<Integer>|nil]
       #     The positions of the columns whose values are times of day by their field, a `time`, whose cells are written
-      #     as times of day, the clock of each value, see `IOStreams::Xlsx::Workbook.time_of_day`, rather than as dates
-      #     and times.
+      #     as times of day, the clock of each value, rather than as dates and times.
       def initialize(worksheet, auto_format: false, text_columns: nil, time_columns: nil)
         @worksheet    = worksheet
         @auto_format  = auto_format
@@ -65,10 +64,11 @@ module IOStreams
 
       private
 
-      # Returns the value of the cell at the supplied position, in a form that `xlsxtream` writes as its type: a time in
-      # UTC, as `IOStreams::Xlsx::Cells` reads the clock of a cell, since `xlsxtream` writes the clock of a time without
-      # its offset, which for a field with a `timeZone` is already the clock of its zone, as the field renders it, see
-      # `IOStreams::Schema::Field#render`, see #time_cell, and a number that a cell cannot hold, see #number, as its text.
+      # Returns the value of the cell at the supplied position, in a form that `IOStreams::Xlsx::WorksheetWriter` writes
+      # as its type: a time in UTC, as `IOStreams::Xlsx::Cells` reads the clock of a cell, since the worksheet writes the
+      # clock of a time without its offset, which for a field with a `timeZone` is already the clock of its zone, as the
+      # field renders it, see `IOStreams::Schema::Field#render`, see #time_cell, and a number that a cell cannot hold, see
+      # #number, as its text.
       def cell(value, index)
         case value
         when DateTime then time_cell(value.to_time, index)
@@ -80,13 +80,13 @@ module IOStreams
         end
       end
 
-      # Returns [Time|String] the cell of a time: of a column of times of day, its clock on Excel's first day, see
-      # `IOStreams::Xlsx::Workbook.time_of_day`, otherwise the time in UTC, or the text of its clock, as the CSV text of
+      # Returns [WorksheetWriter::TimeOfDay|Time|String] the cell of a time: of a column of times of day, its clock,
+      # otherwise the time in UTC, or the text of its clock, as the CSV text of
       # a cell holds it, see `IOStreams::Schema::Field.clock_text`, before FIRST_DATE_TIME, such as 1899-12-30T12:00:00,
       # the zero date of OLE, whose number of days would be that of a time of day, 0.5, so that only a cell of a time of
       # day holds a number of less than 1.
       def time_cell(time, index)
-        return Workbook.time_of_day(time) if @time_columns.key?(index)
+        return time_of_day(time) if @time_columns.key?(index)
 
         time = time.getutc
         time < FIRST_DATE_TIME ? IOStreams::Schema::Field.clock_text(time) : time
@@ -106,7 +106,7 @@ module IOStreams
         value.is_a?(Integer) ? value : value.to_f
       end
 
-      # Returns the number, date, time or boolean that the text looks like, or the text, as `xlsxtream` formats it.
+      # Returns the number, date, time or boolean that the text looks like, or the text.
       def auto_format(text)
         return BOOLEAN[text] if BOOLEAN.key?(text)
         return text.include?(".") ? text.to_f : text.to_i if NUMBER.match?(text)
@@ -116,6 +116,11 @@ module IOStreams
         text
       rescue ArgumentError
         text
+      end
+
+      # Returns [WorksheetWriter::TimeOfDay] the clock of the time, as a time of day.
+      def time_of_day(time)
+        WorksheetWriter::TimeOfDay.new((time.hour * 3600) + (time.min * 60) + time.sec + time.subsec)
       end
 
       # Returns [Time|String] the time of text that looks like one, or the text itself for a time before
