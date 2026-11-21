@@ -133,7 +133,7 @@ class XlsxWriterTest < Minitest::Test
           write { |io| io.write("a\x81\n".b.force_encoding("Windows-1252")) }
         end
 
-        assert_match(/\AIn the CSV text written to a spreadsheet, "\\x81" in WINDOWS-1252 has no UTF-8 character at byte offset 1\z/, error.message)
+        assert_match(/\AIn a String of CSV text written to a spreadsheet, "\\x81" in WINDOWS-1252 has no UTF-8 character at byte offset 1\z/, error.message)
       end
 
       it "returns the number of bytes written" do

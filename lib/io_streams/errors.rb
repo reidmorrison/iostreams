@@ -198,7 +198,9 @@ module IOStreams
     class InvalidEncoding < ::Encoding::UndefinedConversionError
       # Returns [Integer] the offset of the first invalid byte within the data read or written through the encode
       # stream, which is the data after any decompression or decryption, or within the key or value that the JSON
-      # format checks before it writes its line, see `IOStreams::Tabular::Parser::Json.json_text`.
+      # format checks before it writes its line, see `IOStreams::Tabular::Parser::Json.json_text`, or within the value
+      # of a cell, or the String of CSV text, that a spreadsheet converts, see `IOStreams::Xlsx::Text.utf8` and
+      # `IOStreams::Xlsx::Writer#write_data`.
       attr_reader :byte_offset
 
       # Returns [Integer] the number of the line that the invalid data is on, counting from 1,

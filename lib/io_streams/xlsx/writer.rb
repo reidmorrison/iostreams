@@ -190,10 +190,12 @@ module IOStreams
       # #add_row.
       #
       # Raises [IOStreams::Errors::InvalidEncoding] for text in another encoding that UTF-8 cannot hold, such as a
-      # Windows-1252 byte that is no character.
+      # Windows-1252 byte that is no character, at its byte offset within the String written, so each String written in
+      # another encoding must hold whole characters, as a String does. Text in UTF-8 or binary that is not valid UTF-8
+      # raises the error of the CSV parser instead, tagged as a `RowError` on its line, see #add_row.
       def write_data(data)
         unless [Encoding::BINARY, Encoding::UTF_8].include?(data.encoding)
-          data = IOStreams::Encode.utf8(data, place: "the CSV text written to a spreadsheet")
+          data = IOStreams::Encode.utf8(data, place: "a String of CSV text written to a spreadsheet")
         end
         @buffer << data.b
 

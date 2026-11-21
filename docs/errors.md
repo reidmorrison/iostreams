@@ -235,7 +235,12 @@ IOStreams raises these classes itself:
   them from a file would, also for a character that UTF-8 does not have, see [Slices](background_jobs#writing-to-a-store-of-slices).
   The JSON format checks the text of each key and value that it writes, before its line is written, so it raises it
   at the byte offset within that key or value, without a line, such as
-  `In a key or value written to JSON, "\xE9" is not valid UTF-8 at byte offset 3`.
+  `In a key or value written to JSON, "\xE9" is not valid UTF-8 at byte offset 3`. A spreadsheet converts each value
+  of a cell, and each String of CSV text written to it in an encoding other than UTF-8 or binary, such as Windows-1252,
+  so it raises it at the byte offset within that value or String, without a line, such as
+  `In a String of CSV text written to a spreadsheet, "\x81" in WINDOWS-1252 has no UTF-8 character at byte offset 2`,
+  while CSV text in UTF-8 or binary that is not valid UTF-8 raises the error of the CSV parser, tagged as a
+  `RowError` on its line, as reading CSV does.
   For example `"\xE9" is not valid UTF-8 at byte offset 1043 on line 12`. As an `Encoding::UndefinedConversionError`,
   its `#error_char` is the invalid bytes, and its `#source_encoding` and `#destination_encoding` the encodings that
   they were read and checked as.
