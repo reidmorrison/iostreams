@@ -128,6 +128,14 @@ class XlsxWriterTest < Minitest::Test
         assert_equal [["name"], ["caf\u{e9}"], %w[a b]], read_rows(data)
       end
 
+      it "raises InvalidEncoding for text in another encoding that UTF-8 cannot hold" do
+        error = assert_raises(IOStreams::Errors::InvalidEncoding) do
+          write { |io| io.write("a\x81\n".b.force_encoding("Windows-1252")) }
+        end
+
+        assert_match(/\AIn the CSV text written to a spreadsheet, "\\x81" in WINDOWS-1252 has no UTF-8 character at byte offset 1\z/, error.message)
+      end
+
       it "returns the number of bytes written" do
         write { |io| assert_equal "Zoë,é\n".bytesize, io.write("Zoë,é\n") }
       end
