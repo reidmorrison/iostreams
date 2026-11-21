@@ -1685,11 +1685,14 @@ module IOStreams
         raise(ArgumentError, "Field #{name.inspect}: #{property} must be true or false: #{value.inspect}")
       end
 
+      # Returns [Integer|nil] the `decimals` of the field: at most those of the smallest number of the range of
+      # `IOStreams::Schema::NumberRange`, since more would only be zeros, which each value would be written with.
       def check_decimals(decimals)
         return if decimals.nil?
-        return decimals if decimals.is_a?(Integer) && !decimals.negative?
+        return decimals if decimals.is_a?(Integer) && !decimals.negative? && NumberRange.decimals_within?(decimals)
 
-        raise(ArgumentError, "Field #{name.inspect}: decimals must be an Integer of 0 or more: #{decimals.inspect}")
+        raise(ArgumentError, "Field #{name.inspect}: decimals must be an Integer from 0 to " \
+                             "#{NumberRange::MAX_DECIMALS}: #{self.class.message_text(decimals.inspect)}")
       end
 
       # Returns [IOStreams::Schema::NumberText|nil] the text of the numbers of the field, see `groupChar`, `decimalChar`
@@ -1782,10 +1785,15 @@ module IOStreams
         invalid(value, "binary")
       end
 
+      # Raises `IOStreams::Errors::InvalidValue` for a number outside the range of `IOStreams::Schema::NumberRange`,
+      # before it is turned into an Integer, whose digits it would build, such as a billion of them for the BigDecimal
+      # that JSON reads for `1e999999999`.
       def cast_integer(value)
+        return integer_text(value) if value.is_a?(String)
+        return out_of_range(value) if value.is_a?(Numeric) && !NumberRange.within?(value)
+
         case value
         when Integer then value
-        when String then integer_text(value)
         when Float, Rational then value.finite? && value == value.floor ? value.to_i : invalid(value)
         else bigdecimal?(value) && value.finite? && value.frac.zero? ? value.to_i : invalid(value)
         end
@@ -1793,18 +1801,25 @@ module IOStreams
 
       # Returns [Integer] the whole number of the text, which can have a decimal point followed only by zeros, such as
       # "12.0", see WHOLE, once its `groupChar` and `bareNumber` are applied, see `IOStreams::Schema::NumberText`.
+      #
+      # Raises `IOStreams::Errors::InvalidValue` for a number outside the range of `IOStreams::Schema::NumberRange`.
       def integer_text(text)
         plain = @number_text ? @number_text.read(text) : text
         return invalid(text) if plain.nil?
-        return Integer(plain, 10) if INTEGER.match?(plain)
 
-        whole = WHOLE.match(plain)
-        whole ? Integer(whole[1], 10) : invalid(text)
+        digits = INTEGER.match?(plain) ? plain : WHOLE.match(plain)&.[](1)
+        return invalid(text) if digits.nil?
+
+        NumberRange.integer(digits) || out_of_range(text)
       end
 
+      # Raises `IOStreams::Errors::InvalidValue` for a number outside the range of `IOStreams::Schema::NumberRange`, such
+      # as the BigDecimal that JSON reads for `1e999999999`, whose plain text, which IOStreams writes, has a billion
+      # digits.
       def cast_number(value)
         return parse_number(value) if value.is_a?(String)
         return invalid(value) unless value.is_a?(Integer) || value.is_a?(Float) || value.is_a?(Rational) || bigdecimal?(value)
+        return out_of_range(value) unless NumberRange.within?(value)
         return value.to_f if @float
         return rational_number(value) if value.is_a?(Rational)
 
@@ -1849,9 +1864,14 @@ module IOStreams
       end
 
       # Returns [BigDecimal|Float] the number of text that NUMBER matches, naming the text as it was read when it is not
-      # one.
+      # one, or when it is outside the range of `IOStreams::Schema::NumberRange`, such as "1e999999999", whose
+      # BigDecimal is read at once, while the plain text that IOStreams writes for it has a billion digits. A Float has
+      # a smaller range of its own, beyond which it is infinite.
       def number(text, read = text)
-        @float ? Float(text) : BigDecimal(text)
+        return Float(text) if @float
+
+        decimal = BigDecimal(text)
+        NumberRange.within?(decimal) ? decimal : out_of_range(read)
       rescue ArgumentError
         return invalid(read) unless BARE_POINT.match?(text)
 
@@ -2377,6 +2397,15 @@ module IOStreams
 
       def bigdecimal?(value)
         value.is_a?(::BigDecimal)
+      end
+
+      # Raises `IOStreams::Errors::InvalidValue` for a number outside the range of `IOStreams::Schema::NumberRange`,
+      # showing an Integer by its number of bits, rather than building the text of all of its digits, and any other
+      # value by its inspect, such as the text that it was read from.
+      def out_of_range(value)
+        text = value.is_a?(Integer) ? "an Integer of #{value.bit_length} bits" : value.inspect
+        range = type == "integer" ? NumberRange::INTEGER_DESCRIPTION : NumberRange::DESCRIPTION
+        invalid(value, "#{type}, since #{range}", text)
       end
 
       # Returns [true|false] whether the value is the number 1 or 0, an Integer, a Float or a BigDecimal, which a boolean

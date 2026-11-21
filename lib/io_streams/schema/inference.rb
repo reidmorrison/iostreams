@@ -148,9 +148,13 @@ module IOStreams
 
           text = text.strip
           return :text if text.empty?
-          return :integer if INTEGER.match?(text)
+          # An integer outside the range of `IOStreams::Schema::NumberRange`, which a field does not read, is text.
+          return NumberRange.integer(text) ? :integer : :text if INTEGER.match?(text)
 
           if (fraction = NUMBER.match(text))
+            # More digits after the decimal point than a field holds, see `IOStreams::Schema::NumberRange`, are text.
+            return :text unless NumberRange.decimals_within?(fraction[1].length)
+
             @decimals = [@decimals, fraction[1].length].max
             return :number
           end
@@ -163,11 +167,19 @@ module IOStreams
         end
 
         # Returns [Symbol] the kind of a number that is not text: an integer when it is whole, such as the Float that a
-        # spreadsheet holds a whole number as, otherwise a number, counting the digits of its fraction.
+        # spreadsheet holds a whole number as, otherwise a number, counting the digits of its fraction, from the exponent
+        # of its BigDecimal rather than its plain text. A number that a field does not read, since it is outside the
+        # range of `IOStreams::Schema::NumberRange` or has more digits after its decimal point, is text, before it is
+        # compared with its whole part, which `BigDecimal#floor` builds as an Integer.
         def float_kind(number)
+          return :text unless NumberRange.within?(number)
           return :integer if number.finite? && number == number.floor
+          return :number unless number.finite?
 
-          digits = number.finite? ? BigDecimal(number.to_s).to_s("F").split(".").last.length : 0
+          decimal = number.is_a?(::BigDecimal) ? number : BigDecimal(number.to_s)
+          digits  = [decimal.n_significant_digits - decimal.exponent, 0].max
+          return :text unless NumberRange.decimals_within?(digits)
+
           @decimals = [@decimals, digits].max
           :number
         rescue ArgumentError

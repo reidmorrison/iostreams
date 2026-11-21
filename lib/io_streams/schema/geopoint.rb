@@ -114,7 +114,9 @@ module IOStreams
         [lon, lat]
       end
 
-      # Returns [BigDecimal|nil] the number, or of the text of one, or nil when it is neither, or is not finite.
+      # Returns [BigDecimal|nil] the number, or of the text of one, or nil when it is neither, is not finite, or is
+      # outside the range of `IOStreams::Schema::NumberRange`, such as `1e-999999999`, which is within the range of a
+      # coordinate, while its plain text, which #write writes, has a billion digits.
       def decimal(number)
         value =
           case number
@@ -123,7 +125,7 @@ module IOStreams
           when Rational then BigDecimal(number, 17)
           when String then BigDecimal(number.strip) if NUMBER.match?(number)
           end
-        value if value&.finite?
+        value if value&.finite? && NumberRange.within?(value)
       rescue ArgumentError
         nil
       end
