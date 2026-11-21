@@ -1241,8 +1241,15 @@ class SchemaTest < Minitest::Test
         end
 
         describe "a pattern that backtracks without end, such as one with a backreference" do
-          before { @pattern_timeout = IOStreams.pattern_timeout }
-          after { IOStreams.pattern_timeout = @pattern_timeout }
+          before do
+            @pattern_timeout = IOStreams.pattern_timeout
+            @regexp_timeout  = Regexp.timeout
+          end
+
+          after do
+            IOStreams.pattern_timeout = @pattern_timeout
+            Regexp.timeout            = @regexp_timeout
+          end
 
           it "raises InvalidValue once a value takes longer than IOStreams.pattern_timeout to match" do
             IOStreams.pattern_timeout = 0.05
@@ -1265,6 +1272,23 @@ class SchemaTest < Minitest::Test
             IOStreams.pattern_timeout = 60
 
             assert_raises(IOStreams::Errors::InvalidValue) { code.cast("#{'a' * 40}!") }
+          end
+
+          it "takes Regexp.timeout when it is stricter, since a pattern's own timeout would replace it" do
+            IOStreams.pattern_timeout = 60
+            Regexp.timeout            = 0.05
+            code = field(type: "string", constraints: {pattern: "(?:(a+)\\1?)+"})
+
+            error = assert_raises(IOStreams::Errors::InvalidValue) { code.cast("#{'a' * 40}!") }
+            assert_match(/took longer than 0.05 seconds/, error.message)
+          end
+
+          it "names the limit as it was set, such as 1 rather than 1.0" do
+            IOStreams.pattern_timeout = 1
+            code = field(type: "string", constraints: {pattern: "(?:(a+)\\1?)+"})
+
+            error = assert_raises(IOStreams::Errors::InvalidValue) { code.cast("#{'a' * 40}!") }
+            assert_match(/took longer than 1 seconds/, error.message)
           end
 
           it "has no limit of its own once set to nil, taking Regexp.timeout" do

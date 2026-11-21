@@ -203,16 +203,24 @@ So a value that takes longer than `IOStreams.pattern_timeout` to match, 0.1 seco
 `IOStreams::Errors::InvalidValue`, naming the field, such as
 `Field "code": "aaaa...!" took longer than 0.1 seconds to match its pattern, /(?:(a+)\1?)+/`, as any other value that
 does not meet a constraint does, so `on_invalid:` can report it and carry on. With `on_invalid:`, each such row can
-still take that long, so keep the limit short when the values come from a user. Set it once at startup, since a schema
-reads it when it is built:
+still take that long, so keep the limit short when the values come from a user.
+
+The limit is the time that passes while one value is matched, not the time the processor spends on it, so a lawful
+match of a very large value, such as a long text cell, on a busy machine can exceed it too, and be rejected. Raise the
+limit when the values can be that large.
+
+Set it once at startup, before any schema or contract is defined, since each reads it when it is built and keeps the
+limit it was built with. A contract class builds its schema when its body runs, so set it in an initializer that runs
+before the contract classes load, such as before `Bundler.require` loads a gem that defines them:
 
 ~~~ruby
 # config/initializers/iostreams.rb
 IOStreams.pattern_timeout = 0.05
 ~~~
 
-Set it to `nil` to leave the time of a pattern to `Regexp.timeout`, which has no limit by default. It is enforced on
-both CRuby and JRuby.
+When `Regexp.timeout` is also set, the stricter of the two applies, since a pattern's own limit would otherwise replace
+it. Set `IOStreams.pattern_timeout` to `nil` to leave the time of a pattern to `Regexp.timeout`, which has no limit by
+default. The limit is enforced on both CRuby and JRuby.
 
 To reject a slow pattern before reading anything, check a schema that a user supplies with `Regexp.linear_time?`,
 which is true for a pattern that CRuby matches in a time that grows only with the length of the value. JRuby answers

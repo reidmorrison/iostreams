@@ -250,7 +250,7 @@ Each of these applies to the whole process, so set them once, in an initializer,
 | `IOStreams.add_allowed_path(path)` | Restricts IOStreams to the allowed paths | [Allowed paths](security#allowed-paths) |
 | `IOStreams.temp_dir = dir` | Where IOStreams creates its temp files | [temp_dir](#temp_dir) |
 | `IOStreams.logger = logger` | Where IOStreams logs | [logger](#logger) |
-| `IOStreams.pattern_timeout = seconds` | The longest time that the `pattern` of a schema's field may take to match one value, 0.1 seconds by default | [Untrusted schemas and patterns](security#untrusted-schemas-and-patterns) |
+| `IOStreams.pattern_timeout = seconds` | The longest time that the `pattern` of a schema's field may take to match one value, 0.1 seconds by default; set it before any schema or contract is defined | [Untrusted schemas and patterns](security#untrusted-schemas-and-patterns) |
 | `IOStreams.register_extension(extension, format)` | Reads and writes a file name extension with a format | [Extending IOStreams](extending#registering-a-format) |
 | `IOStreams.register_scheme(scheme, path_class)` | Reads and writes the urls of a scheme with a path class | [Extending IOStreams](extending#registering-a-storage-scheme) |
 | `IOStreams::Pgp.executable = "gpg2"` | The name or path of the `gpg` program | [PGP](pgp) |
