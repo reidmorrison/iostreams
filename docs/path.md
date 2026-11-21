@@ -1005,6 +1005,12 @@ end
   `a/b/c.csv`, and each folder object, without its trailing `/`. A pattern that can only match names within the
   directory, such as `*`, lists them by name, with the names of the keys within it, so they have empty attributes,
   while one that lists every key below the directory, such as `**/*`, returns each folder object with its attributes.
+* Every child is within the path, on every store, so `child.relative_path_from(path)` never starts with `..`. S3 holds
+  `.`, `..` and repeated `/` in a key as ordinary characters, so whoever can write below the path could name a key such
+  as `exports/../outside.csv`, which a local path would read as outside `exports`. A key whose name within the path
+  has an empty, `.` or `..` name, such as `../a.csv`, `./a.csv` or `a//b.csv`, is not returned, nor is an entry that an
+  SFTP server lists by a name that is not the name of a file within the directory, such as `a/b` or `..`. Each one is
+  logged as a warning. `Dir.glob` never lists such a name, and the `.` that it lists in each directory is never a child.
 * A path that does not exist, or that is a file, has no children, on every store. A directory that cannot be read
   raises the exception of its store, tagged as `IOStreams::Errors::PermissionDenied`: `Errno::EACCES` for a local
   directory, `Net::SFTP::StatusException` on SFTP, or `Aws::S3::Errors::AccessDenied` on S3. A directory below it that

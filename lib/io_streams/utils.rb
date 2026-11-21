@@ -256,6 +256,26 @@ module IOStreams
         suffix.nil? ? ::File.basename(path) : ::File.basename(path, suffix)
       end
 
+      # Returns [true|false] whether the supplied name is a single name within a directory, such as an entry that SFTP
+      # lists: not empty, `.` or `..`, and without a `/`, or a NUL, which no file system holds in a name. Its bytes are
+      # compared, so a name that is not valid in its encoding is checked too.
+      def self.element?(name)
+        bytes = name.b
+        !(bytes.empty? || bytes == "." || bytes == ".." || bytes.include?("/") || bytes.include?("\0"))
+      end
+
+      # Returns [true|false] whether the supplied relative name, such as an S3 key within the prefix that listed it,
+      # names a file or directory within the directory it is relative to once joined to it: it is not empty, and each
+      # of its names is an .element?, apart from the empty one after a trailing `/`, which names a directory.
+      #
+      # For example `a/b.csv` and `a/` are within their directory, while `../b.csv` is not, and `a/./b.csv`, `a//b.csv`
+      # and `/b.csv` name another file once a path, such as a local one, resolves `.` and repeated or leading `/`.
+      def self.descendant?(name)
+        elements = name.b.split("/", -1)
+        elements.pop if elements.size > 1 && elements.last.empty?
+        !elements.empty? && elements.all? { |element| element?(element) }
+      end
+
       # Returns [String] the bytes of the name that the block returns for the supplied names, which it yields as they
       # are where `::File` keeps the bytes of a name that is not valid UTF-8, see FILE_KEEPS_NAMES, otherwise as valid
       # UTF-8, each byte above 127 replaced with a character of its own, which the bytes of the name that it returns

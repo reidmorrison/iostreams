@@ -25,6 +25,10 @@ module IOStreams
         # A symbolic link is a file or a directory by what it refers to, with its attributes, as for an exact name, see
         # `.remote_attributes`, and a local path. A directory that a link refers to is not listed, like `Dir.glob`.
         #
+        # An entry whose name the server sends is skipped and logged unless it is the name of a file or directory within
+        # the directory it lists, see `IOStreams::Utils::PathName.element?`, such as `..` or `../../etc/passwd` from a
+        # hostile server, so that a child is always within this directory, as for a local path.
+        #
         # Yields nothing when the directory does not exist, or is not a directory.
         def self.each(sftp, directory, matcher, directories:)
           attributes = remote_attributes(sftp, directory)
@@ -50,7 +54,7 @@ module IOStreams
           return unless entries
 
           entries.sort_by(&:name).each do |entry|
-            next if %w[. ..].include?(entry.name)
+            next unless entry_name?(directory, prefix, entry.name)
 
             name = prefix ? IOStreams::Utils::PathName.join(prefix, utf8(entry.name)) : utf8(entry.name)
             yield(name, entry)
@@ -74,12 +78,28 @@ module IOStreams
         # Used by `SFTP#delete_all`.
         def self.remove_tree(sftp, directory)
           sftp.dir.entries(directory).each do |entry|
-            next if %w[. ..].include?(entry.name)
+            next unless entry_name?(directory, nil, entry.name)
 
             name = IOStreams::Utils::PathName.join(directory, utf8(entry.name))
             entry.directory? ? remove_tree(sftp, name) : sftp.remove!(name)
           end
           sftp.rmdir!(directory)
+        end
+
+        # Returns [true|false] whether the name of an entry that the server listed in the remote directory, or in the
+        # sub-directory `prefix` within it, is the name of a file or directory within it, see
+        # `IOStreams::Utils::PathName.element?`. The `.` and `..` that a server lists in every directory are skipped
+        # quietly, and any other name that is not, such as `a/b` or `../x` from a hostile server, is logged.
+        def self.entry_name?(directory, prefix, name)
+          return true if IOStreams::Utils::PathName.element?(name)
+          return false if %w[. ..].include?(name)
+
+          listed = prefix ? IOStreams::Utils::PathName.join(directory, prefix) : directory
+          IOStreams.logger&.warn(
+            "Skipping the entry #{utf8(name).inspect} that the SFTP server listed in #{listed.inspect}, since it is not " \
+            "the name of a file or directory within it"
+          )
+          false
         end
 
         # Returns [String] the name of a remote file as UTF-8. Net::SFTP returns each name as bytes, which servers send
@@ -108,7 +128,7 @@ module IOStreams
           nil
         end
 
-        private_class_method :each_entry, :entries, :utf8, :link_attributes
+        private_class_method :each_entry, :entries, :entry_name?, :utf8, :link_attributes
       end
     end
   end

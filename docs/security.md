@@ -61,6 +61,11 @@ Notes:
 
 * By default there are no allowed paths, and every path can be accessed.
 * `#each_child` skips the children that are not within the allowed paths, such as a symbolic link to a file elsewhere.
+* `#each_child` only returns children within the path that it lists, on every store, so the name that
+  `#relative_path_from` gives each one can be joined to another path, such as to copy a directory, without leaving
+  it: an S3 key or an SFTP entry with a name such as `../a.csv` is skipped and logged, see
+  [Listing files](path#listing-files). Any other name relative to a path can start with `..`, so check it before
+  joining it to another path.
 * The temp files of `IOStreams.temp_file` can always be accessed.
 * `IOStreams.allowed_paths` returns the normalized allowed paths, and `IOStreams.delete_allowed_path` removes one.
 * The paths of a scheme registered with `IOStreams.register_scheme` are denied, unless its path class says where it

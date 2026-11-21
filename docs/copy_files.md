@@ -244,3 +244,7 @@ source.each_child("**/*") do |file|
   target.join(file.relative_path_from(source)).copy_from(file, convert: false)
 end
 ~~~
+
+Each file that `#each_child` lists is within the source, on every store, so the copy stays within the target, even
+with `hidden: true`, and when whoever writes to the source chooses names such as an S3 key `exports/../a.csv`, which
+is skipped, see [Listing files](path#listing-files).

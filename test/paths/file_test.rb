@@ -352,6 +352,20 @@ module Paths
           assert_equal [hidden.to_s], root.children(".hidden/*.csv").collect(&:to_s)
         end
 
+        it "does not take the . that Dir.glob lists in a directory for a directory of hidden children" do
+          root.join("dir/a.csv").write("data")
+          root.join(".b.csv").write("data")
+          root.join("..c.csv").write("data")
+
+          # `*` would match the `.` of the root, so `*/*` would list `./dir` and `./.b.csv`, which are not two levels down.
+          assert_equal [root.join("dir/a.csv").to_s], root.children("*/*", hidden: true, directories: true).collect(&:to_s)
+          assert_equal %w[..c.csv .b.csv dir dir/a.csv].map { |name| root.join(name).to_s },
+                       root.children("**/*", hidden: true, directories: true).collect(&:to_s).sort
+          root.children("**/*", hidden: true, directories: true).each do |child|
+            refute_match %r{(\A|/)\.\.?(/|\z)}, child.relative_path_from(root)
+          end
+        end
+
         it "returns directories only when requested" do
           root.join("dir/data.csv").write("data")
 

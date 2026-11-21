@@ -1172,6 +1172,59 @@ module Paths
         end
       end
 
+      describe "a key whose name within the path has an empty, . or .. name" do
+        let(:path) { IOStreams.path("s3://bucket/p") }
+
+        before do
+          IOStreams::Utils.load_soft_dependency("aws-sdk-s3", "AWS S3")
+          S3Stub.install
+          # S3 holds `.`, `..` and repeated `/` in a key as they are, so whoever can write below `p/` chooses them.
+          %w[p/ok.csv p/.hidden.csv p/..dots.csv p/sub/b.csv p/../x.csv p/./y.csv p//z.csv p/a/../../w.csv p/sub/./v.csv].
+            each { |key| IOStreams.path("s3://bucket").client.put_object(bucket: "bucket", key: key, body: "data") }
+        end
+
+        after do
+          S3Stub.uninstall
+        end
+
+        # `p/a` is a directory, as `p/a/` is a common prefix directly within `p/`, though the only key within it is not.
+        it "lists only the children within the path, with hidden: true" do
+          assert_equal %w[p/..dots.csv p/.hidden.csv p/ok.csv p/sub/b.csv], path.children("**/*", hidden: true).map(&:path).sort
+          assert_equal %w[p/..dots.csv p/.hidden.csv p/a p/ok.csv p/sub p/sub/b.csv],
+                       path.children("**/*", hidden: true, directories: true).map(&:path).sort
+        end
+
+        it "lists only the children and directories directly within the path, with hidden: true" do
+          assert_equal %w[p/..dots.csv p/.hidden.csv p/ok.csv], path.children("*", hidden: true).map(&:path).sort
+          assert_equal %w[p/..dots.csv p/.hidden.csv p/a p/ok.csv p/sub],
+                       path.children("*", hidden: true, directories: true).map(&:path).sort
+        end
+
+        it "names each child within the path, so a mirror of it stays within its directory" do
+          Dir.mktmpdir do |dir|
+            target = IOStreams.path(dir, "backup")
+            path.each_child("**/*", hidden: true) { |child| target.join(child.relative_path_from(path)).copy_from(child) }
+
+            files = Dir.glob("**/*", ::File::FNM_DOTMATCH, base: dir).select { |name| ::File.file?(::File.join(dir, name)) }
+
+            assert_equal %w[backup/..dots.csv backup/.hidden.csv backup/ok.csv backup/sub/b.csv], files.sort
+          end
+        end
+
+        it "logs each key that it skips" do
+          output   = StringIO.new
+          original = IOStreams.logger
+          IOStreams.logger = Logger.new(output, level: :warn)
+          path.children("**/*", hidden: true)
+
+          %w[p/../x.csv p/./y.csv p//z.csv p/a/../../w.csv p/sub/./v.csv].each do |key|
+            assert_includes output.string, "Skipping the key #{key.inspect} since its name within \"p/\""
+          end
+        ensure
+          IOStreams.logger = original
+        end
+      end
+
       describe "listing pages of upto two objects" do
         let(:keys) { %w[d/a.csv d/b.csv d/c.txt d/sub/d.csv d/sub/e.csv d/sub/f.csv d/sub/g.csv d/z/h.csv] }
 

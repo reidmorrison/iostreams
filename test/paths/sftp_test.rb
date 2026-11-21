@@ -420,6 +420,54 @@ module Paths
       end
     end
 
+    # Minimal stand-in for a Net::SFTP session of a hostile server, which lists the supplied entries in each directory,
+    # by name and type (:file or :directory), including names that no file system holds, such as `a/b` or `../x`.
+    class StubListingSession
+      # The [operation, remote name] of each file or directory that was deleted.
+      attr_reader :deleted
+
+      def initialize(directories)
+        @directories = directories
+        @deleted     = []
+      end
+
+      def stat!(name)
+        raise StubStatusException, 2 unless @directories.key?(name)
+
+        StubSFTPSession::Attributes.new({}, :directory)
+      end
+
+      def lstat!(name)
+        stat!(name)
+      end
+
+      def dir
+        self
+      end
+
+      def entries(name)
+        @directories.fetch(name).map do |entry, type|
+          StubSFTPSession::Entry.new(entry.b, StubSFTPSession::Attributes.new({size: 1}, type))
+        end
+      end
+
+      def remove!(name)
+        deleted << [:remove, name]
+      end
+
+      def rmdir!(name)
+        deleted << [:rmdir, name]
+      end
+
+      def session
+        self
+      end
+
+      def shutdown!
+        nil
+      end
+    end
+
     # Minimal stand-in for a Net::SFTP session, for deleting the supplied files and directories.
     # Raises the supplied SFTP status code, when given, instead of deleting.
     class StubDeleteSession
@@ -1980,6 +2028,75 @@ module Paths
           path = new_path(url, username: "jack", ssh_options: {"StrictHostKeyChecking" => "maybe"})
 
           assert_raises(ArgumentError) { net_ssh_options(path) }
+        end
+      end
+
+      describe "entries of a hostile server" do
+        # The entries of each directory: `.` and `..`, as every server lists them, ordinary names, some hidden, and names
+        # that are not within the directory, or are not one name, which a hostile server can list.
+        let(:directories) do
+          {
+            "/data"     => [
+              [".", :directory], ["..", :directory], ["a.csv", :file], [".hidden.csv", :file], ["..dots.csv", :file],
+              ["sub", :directory], ["../outside.csv", :file], ["a/b", :file], ["", :file], ["x\0y", :file],
+              ["../../etc", :directory]
+            ],
+            "/data/sub" => [[".", :directory], ["..", :directory], ["b.csv", :file], ["../../escaped.csv", :file]]
+          }
+        end
+        let(:path) { new_path("sftp://example.org/data", username: "jack") }
+
+        def with_listing_session
+          session   = StubListingSession.new(directories)
+          stub_sftp = Module.new
+          stub_sftp.const_set(:StatusException, StubStatusException)
+          stub_sftp.define_singleton_method(:start) { |*, &block| block.call(session) }
+
+          StubNetSFTP.replace(stub_sftp) { yield(session) }
+        end
+
+        it "lists only the children within the directory, with hidden: true" do
+          with_listing_session do
+            assert_equal %w[/data/..dots.csv /data/.hidden.csv /data/a.csv /data/sub/b.csv],
+                         path.children("**/*", hidden: true).map(&:path).sort
+            assert_equal %w[/data/..dots.csv /data/.hidden.csv /data/a.csv /data/sub],
+                         path.children("*", hidden: true, directories: true).map(&:path).sort
+          end
+        end
+
+        it "names each child within the directory" do
+          with_listing_session do
+            names = path.children("**/*", hidden: true, directories: true).map { |child| child.relative_path_from(path) }
+
+            assert_equal %w[..dots.csv .hidden.csv a.csv sub sub/b.csv], names.sort
+          end
+        end
+
+        it "logs each entry that it skips, but not . and .." do
+          output   = StringIO.new
+          original = IOStreams.logger
+          IOStreams.logger = Logger.new(output, level: :warn)
+          with_listing_session { path.children("**/*", hidden: true) }
+
+          ['"../outside.csv"', '"a/b"', '""', '"x\\u0000y"', '"../../etc"'].each do |name|
+            assert_includes output.string, "Skipping the entry #{name} that the SFTP server listed in \"/data\""
+          end
+          assert_includes output.string, 'Skipping the entry "../../escaped.csv" that the SFTP server listed in "/data/sub"'
+          refute_includes output.string, 'Skipping the entry "."'
+          refute_includes output.string, 'Skipping the entry ".."'
+        ensure
+          IOStreams.logger = original
+        end
+
+        it "deletes only the entries within the directory with #delete_all" do
+          with_listing_session do |session|
+            path.delete_all
+
+            assert_equal [
+              [:remove, "/data/a.csv"], [:remove, "/data/.hidden.csv"], [:remove, "/data/..dots.csv"],
+              [:remove, "/data/sub/b.csv"], [:rmdir, "/data/sub"], [:rmdir, "/data"]
+            ], session.deleted
+          end
         end
       end
 

@@ -11,12 +11,13 @@ module IOStreams
         end
 
         # Yields the name of each directory within the relative key that has not already been yielded,
-        # such as `a` and `a/b` for `a/b/c.csv`, or for the empty folder `a/b/`.
+        # such as `a` and `a/b` for `a/b/c.csv`, or for the empty folder `a/b/`, upto its first name that is empty, `.`
+        # or `..`, such as only `a` for `a/../b/c.csv`, see `IOStreams::Utils::PathName.element?`.
         def each_new(relative)
           elements = relative.split("/")
           elements.pop unless relative.end_with?("/")
           elements.each_index do |index|
-            break if elements[index].empty?
+            break unless Utils::PathName.element?(elements[index])
 
             directory = elements[0..index].join("/")
             next if @listed.key?(directory)
