@@ -141,7 +141,8 @@ module IOStreams
       # keywords of SIGNATURE_RESULTS, then, when the signature matches the data, `VALIDSIG`, whose last field is the
       # fingerprint of the primary key, since the file can be signed by one of its subkeys, then `KEYREVOKED` for a
       # revoked key, and the trust level of the key. A gpg that does not report `NEWSIG` starts each group with its
-      # result instead, so a second result also starts a new signature.
+      # result instead, so a second result also starts a new signature. A line before the first signature starts,
+      # such as a `VALIDSIG` without its result, belongs to no signature.
       #
       # `KEYEXPIRED` is not used, since gpg also reports it for an expired subkey that did not make the signature,
       # which would reject a good signature, while `EXPKEYSIG` reports a signature by an expired key.
@@ -149,7 +150,7 @@ module IOStreams
         @signatures ||= @lines.each_with_object([]) do |(keyword, *fields), signatures|
           result = SIGNATURE_RESULTS.include?(keyword)
           starts = keyword == "NEWSIG" || (result && signatures.last&.key?(:result))
-          signatures << {} if starts || (signatures.empty? && (result || keyword == "VALIDSIG"))
+          signatures << {} if starts || (signatures.empty? && result)
           add_to_signature(signatures.last, keyword, fields) if signatures.last
         end
       end

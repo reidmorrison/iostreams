@@ -178,6 +178,15 @@ class PgpStatusTest < Minitest::Test
         assert_equal [{fingerprint: "A" * 40, key: :revoked}], result.unusable_key_signatures
       end
 
+      it "ignores a fingerprint before the first result, for a gpg that does not report NEWSIG" do
+        result = status("VALIDSIG #{'A' * 40} 2026-11-21 1795301020 0 4 0 22 10 00 #{'A' * 40}",
+                        "GOODSIG 528DF60DBCF1BD8B Good <good@example.org>",
+                        "VALIDSIG #{'B' * 40} 2026-11-21 1795301020 0 4 0 22 10 00 #{'B' * 40}",
+                        "TRUST_ULTIMATE 0 pgp good@example.org").good_signatures
+
+        assert_equal [{fingerprint: "B" * 40, trust: "TRUST_ULTIMATE"}], result
+      end
+
       it "does not ignore a good signature by a key with an expired subkey, for which gpg reports KEYEXPIRED" do
         lines = GOOD.dup.insert(2, "KEYEXPIRED 1577923200")
 

@@ -215,6 +215,11 @@ signed with a stolen key is still rejected once its owner has revoked it and you
 IOStreams::Pgp::Failure: PGP file was signed by sender@example.org, but the key that signed it is revoked, so the signature is not accepted: /home/jack/sample/example.csv.pgp
 ~~~
 
+The check is of the state of the key when the file is read, as gpg reports it, not when the file was signed. So a file
+that was signed while the key was valid is rejected once the key expires or is revoked, including a key revoked as
+"superseded" during a routine key rotation. Read, or at least verify, each file when it is received, and reprocess any
+files that are kept signed, such as an archive, before the sender's old key expires or is revoked.
+
 The signature is only known once the whole file has been read, so the block has already processed the contents when
 the check fails, see [Verifying a file before processing it](#verifying-a-file-before-processing-it).
 
