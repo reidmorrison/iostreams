@@ -1983,8 +1983,10 @@ v2.2 and v3.0. Each still works, and gives the same result, as before. They are,
   directory.
 * [S3](#s3), [SFTP](#sftp) and [HTTP](#http): the methods of the `File` that the block of an S3 or HTTP(S) path
   without streams receives, other than those of an IO that read or write; an S3 option that no S3 request takes, or
-  that the path sets itself, such as `key:`; a name that starts with `/` joined to an S3 bucket; and an SFTP or
-  HTTP(S) url without a path.
+  that the path sets itself, such as `key:`; a name that starts with `/` joined to an S3 bucket; an SFTP or
+  HTTP(S) url without a path; and, from v2.2.1, `IOStreams::Paths::SFTP.sshpass_wait_seconds(=)` and
+  `.before_password_wait_seconds(=)`, which no longer have an effect, since `sshpass` reads the password from its
+  environment: remove the setting.
 * [Extending IOStreams](#extending-iostreams): the methods of a Struct on a built-in extension of
   `IOStreams.extensions`, other than `reader_class` and `writer_class`, and the setters of a registered extension,
   also once it is no longer registered; registering `:encode` or `:none`; deregistering `:encode`; and a name of an
@@ -2114,6 +2116,10 @@ working after an upgrade, apart from the changes that v3.0 makes to every file:
   that it was copied from, and a copy with `convert: false` no longer changes the streams of the source or the target.
   A copy with `convert: false` from a source with options set with `#option` copies it, where v2.1 raised
   `ArgumentError`.
+* From v2.2.1, reading or writing an SFTP path with a password that holds a line feed, a carriage return or a NUL
+  raises `ArgumentError` before the block is called, since `sshpass` gives the `sftp` program the password from its
+  environment, and cannot type such a password at the prompt. Its message does not include the password. Listing,
+  checking and deleting files, which use `net-sftp`, still take any password.
 
 ## Upgrading to v2.1
 

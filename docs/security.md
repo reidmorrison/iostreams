@@ -126,10 +126,10 @@ passphrases. As a precaution, any option whose name contains `passphrase`, `pass
 such as the headers `Authorization` and `X-Api-Key`, including within a Hash option, such as `ssh_options:` or
 `headers:`.
 
-The SFTP password is given to `sshpass` in its environment, which only the same user and root can read, never in its
-arguments, which every user can see in the process list, nor in the input of `sftp`, which runs each line of it as a
-command. A password that holds a control character, such as a line feed, raises `ArgumentError` when the path is
-created.
+The SFTP password is given to `sshpass` in its environment, which the `sftp` and `ssh` processes that it starts can
+inherit, and which only the same user and root can read, never in its arguments, which every user can see in the
+process list, nor in the input of `sftp`, which runs each line of it as a command. Reading or writing with a password that holds a line break
+or a NUL, which `sshpass` cannot type at the prompt, raises `ArgumentError` before `sftp` is started.
 
 ## Untrusted HTTP urls
 

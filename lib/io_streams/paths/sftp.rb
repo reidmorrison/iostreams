@@ -140,12 +140,12 @@ module IOStreams
         @username = username || uri.user
         # A frozen copy, so that the url returned by #to_s cannot be changed in place, nor the String supplied.
         @url      = -Utils::URI.root(url)
-        @password = password || uri.password
+        # A String, so that a password read from configuration as a number, such as from YAML, is the same password.
+        @password = (password || uri.password)&.to_s
         @port     = uri.port || 22
         # A copy of each option, so that a String supplied as an option is not shared, see #ssh_options.
         @ssh_options = Utils.deep_copy(ssh_options.transform_keys(&:to_s))
         validate_username!
-        validate_password!
 
         super(self.class.url_path(uri.path))
       end
@@ -482,12 +482,14 @@ module IOStreams
         raise(ArgumentError, "Invalid SFTP username: it cannot start with '-' or contain control characters")
       end
 
-      # sshpass types the password at the password prompt as one line, so reject a password with a control character,
-      # such as a line feed, which would end it early. The message never includes the password.
-      def validate_password!
-        return unless password&.b&.match?(/[\x00-\x1F\x7F]/n)
+      # Raises ArgumentError for a password that sshpass cannot give the sftp program, which reading and writing run:
+      # sshpass types it at the password prompt as one line, so a line feed or carriage return would end it early, and
+      # an environment variable cannot hold a NUL. Checked before the file is read or written, rather than when the path
+      # is created, since net-sftp, which lists and deletes files, takes any password. The message never includes it.
+      def check_sshpass_password!
+        return unless password&.b&.match?(/[\n\r\0]/n)
 
-        raise(ArgumentError, "Invalid SFTP password: it cannot contain control characters")
+        raise(ArgumentError, "Invalid SFTP password for the sftp program: it cannot contain a line break or a NUL")
       end
 
       # Set the path directly rather than parsing it as part of a URL, since a file name can contain
@@ -507,12 +509,14 @@ module IOStreams
       # The sftp program downloads the whole file into a temp file, which is then read, see
       # `IOStreams::Path#spooled_reader`.
       def stream_reader(&)
+        check_sshpass_password!
         spooled_reader("iostreams-sftp-reader", download: ->(file_name) { sftp_download(remote_path, file_name) }, &)
       end
 
       # The sftp program uploads the whole file from a temp file, once the block returns, see
       # `IOStreams::Path#spooled_writer`.
       def stream_writer(&)
+        check_sshpass_password!
         spooled_writer("iostreams-sftp-writer", upload: ->(file_name) { sftp_upload(file_name, remote_path) }, &)
       end
 
@@ -574,7 +578,8 @@ module IOStreams
       end
 
       # Returns [Hash] the environment of the program that #sftp_args runs: the password for sshpass, when one is
-      # supplied, in that program's environment only.
+      # supplied. sshpass can pass it on to the sftp and ssh processes that it starts, such as a ProxyCommand, so it is
+      # in the environment of those processes too, which only the same user and root can read.
       def sftp_env
         password ? {SSHPASS_ENV => password} : {}
       end
