@@ -125,13 +125,13 @@ module IOStreams
         @mkdir    = false
         @username = username || uri.user
         @url      = url
-        @password = password || uri.password
+        # A String, so that a password read from configuration as a number, such as from YAML, is the same password.
+        @password = (password || uri.password)&.to_s
         @port     = uri.port || 22
         # Not Ruby 2.5 yet: transform_keys(&:to_s)
         @ssh_options = {}
         ssh_options.each_pair { |key, value| @ssh_options[key.to_s] = value }
         validate_username!
-        validate_password!
 
         super(uri.path)
         warn_unusable_url(uri)
@@ -248,12 +248,14 @@ module IOStreams
         raise(ArgumentError, "Invalid SFTP username: it cannot start with '-' or contain control characters")
       end
 
-      # sshpass types the password at the password prompt as one line, so reject a password with a control character,
-      # such as a line feed, which would end it early. The message never includes the password.
-      def validate_password!
-        return unless password&.b&.match?(/[\x00-\x1F\x7F]/n)
+      # Raises ArgumentError for a password that sshpass cannot give the sftp program, which reading and writing run:
+      # sshpass types it at the password prompt as one line, so a line feed or carriage return would end it early, and
+      # an environment variable cannot hold a NUL. Checked before the file is read or written, rather than when the path
+      # is created, since net-sftp, which lists files, takes any password. The message never includes it.
+      def check_sshpass_password!
+        return unless password&.b&.match?(/[\n\r\0]/n)
 
-        raise(ArgumentError, "Invalid SFTP password: it cannot contain control characters")
+        raise(ArgumentError, "Invalid SFTP password for the sftp program: it cannot contain a line break or a NUL")
       end
 
       # Set the path directly rather than parsing it as part of a URL, since a file name can contain
@@ -269,6 +271,7 @@ module IOStreams
       end
 
       def stream_reader(&block)
+        check_sshpass_password!
         Utils.private_temp_file("iostreams-sftp-reader") do |file_name|
           sftp_download(path, file_name)
           ::File.open(file_name, "rb") { |io| builder.reader(io, &block) }
@@ -276,6 +279,7 @@ module IOStreams
       end
 
       def stream_writer(&block)
+        check_sshpass_password!
         Utils.private_temp_file("iostreams-sftp-writer") do |file_name|
           ::File.open(file_name, "wb") { |io| builder.writer(io, &block) }
           sftp_upload(file_name, path)
@@ -372,7 +376,8 @@ module IOStreams
       end
 
       # Returns [Hash] the environment of the program that #sftp_args runs: the password for sshpass, when one is
-      # supplied, in that program's environment only.
+      # supplied. sshpass can pass it on to the sftp and ssh processes that it starts, such as a ProxyCommand, so it is
+      # in the environment of those processes too, which only the same user and root can read.
       def sftp_env
         password ? {SSHPASS_ENV => password} : {}
       end

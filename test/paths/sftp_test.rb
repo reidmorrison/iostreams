@@ -173,18 +173,20 @@ module Paths
           end
         end
 
-        it "raises when the password contains a control character, without including it in the message" do
-          ["secret\n!id", "secret\r", "se\tcret", "secret\x7F", "secret\0", "caf\xE9\n".b].each do |password|
-            error = assert_raises(ArgumentError, password.inspect) { new_path(url, username: "jack", password: password) }
-
-            assert_equal "Invalid SFTP password: it cannot contain control characters", error.message
+        it "accepts a password that is not ASCII, or not valid UTF-8, or holds a tab" do
+          ["pässwörd", "caf\xE9".b, "caf\xE9", "se\tcret"].each do |password|
+            assert_equal password, new_path(url, username: "jack", password: password).send(:password)
           end
         end
 
-        it "accepts a password that is not ASCII, or not valid UTF-8" do
-          ["pässwörd", "caf\xE9".b, "caf\xE9"].each do |password|
-            assert_equal password, new_path(url, username: "jack", password: password).send(:password)
-          end
+        it "takes a password that the sftp program cannot use, since net-sftp lists and deletes files with any password" do
+          path = new_path(url, username: "jack", password: "secret\n!id")
+
+          assert_equal "secret\n!id", path.join("a.csv").send(:password)
+        end
+
+        it "takes a password that is a number, such as from YAML, as its text" do
+          assert_equal "123456", new_path(url, username: "jack", password: 123_456).send(:password)
         end
 
         it "ignores ssh options in the url query string, and reports a deprecation warning for them" do
@@ -452,6 +454,34 @@ module Paths
 
             assert_equal password, recorded["env"]
             refute_includes recorded["stdin"], "!id"
+          end
+        end
+
+        it "is a password with a tab, or a number, as its text" do
+          {"se\tcret" => "se\tcret", 123_456 => "123456"}.each_pair do |password, text|
+            with_fake_sshpass do |recorded|
+              new_path("sftp://example.org/data/file.csv", username: "jack", password: password).write("data")
+
+              assert_equal text, recorded["env"]
+            end
+          end
+        end
+
+        it "raises for a line break or a NUL before reading or writing, without including the password" do
+          ["secret\n!id", "secret\r", "se\0cret", "caf\xE9\n".b].each do |password|
+            path = new_path("sftp://example.org/data/file.csv", username: "jack", password: password)
+
+            with_fake_sshpass do |recorded|
+              written = false
+              [-> { path.read }, -> { path.writer { |_io| written = true } }].each do |action|
+                error = assert_raises(ArgumentError, password.inspect) { action.call }
+
+                assert_equal "Invalid SFTP password for the sftp program: it cannot contain a line break or a NUL",
+                             error.message
+              end
+              refute written, "The block must not be called"
+              assert_raises(Errno::ENOENT, "The sftp program must not be run") { recorded["args"] }
+            end
           end
         end
 

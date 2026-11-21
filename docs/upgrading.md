@@ -86,6 +86,7 @@ Each of these still works as before in v2.2, and reports a deprecation warning:
 | `embedded_within:` with `each(:array)` or `each(:hash)` | `#format`, since the format of the file decides where the lines of its rows and records are split, such as `format(:psv)` for values that are not quoted |
 | `#format_options`, and `format_options:` supplied to each call | `#schema`, which gives the `width` of each field of a fixed width file, see [Moving a layout to a schema](#moving-a-layout-to-a-schema) |
 | `columns:`, `allowed_columns:`, `required_columns:`, `skip_unknown:` and `cleanse_header:`, even when they are nil, since v3.0 raises `ArgumentError` for them whatever their value | `#schema`, which describes the columns of the file on its path, see [Moving the column options to a schema](#moving-the-column-options-to-a-schema) |
+| From v2.2.1, `IOStreams::Paths::SFTP.sshpass_wait_seconds`, `.sshpass_wait_seconds=`, `.before_password_wait_seconds` and `.before_password_wait_seconds=`, which no longer have an effect, since `sshpass` reads the password from its environment | Nothing: remove the setting |
 
 `IOStreams.enforce_column_restrictions=` is deprecated too, see below, since it only applies to the column options.
 v2.2 still follows it, so keep setting it to true, as [v2.1 recommends](#column-restrictions-on-uploaded-files),
@@ -401,6 +402,10 @@ has been checked against the files of the application, since it reads some of th
   that it was copied from, and a copy with `convert: false` no longer changes the streams of the source or the
   target. A copy with `convert: false` from a source with options set with `#option` copies it, where v2.1 raised
   `ArgumentError`.
+- From v2.2.1, reading or writing an SFTP path with a password that holds a line feed, a carriage return or a NUL
+  raises `ArgumentError` before the block is called, since `sshpass` gives the `sftp` program the password from its
+  environment, and cannot type such a password at the prompt. Its message does not include the password. Listing
+  files with `#each_child`, which uses `net-sftp`, still takes any password.
 
 ## Upgrading to v2.1
 

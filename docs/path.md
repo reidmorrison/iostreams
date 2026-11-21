@@ -242,8 +242,9 @@ path = IOStreams.path("sftp://hostname/path/example.csv")
 IOStreams reads and writes SFTP files by shelling out to the `sftp` command line program,
 so it must be installed and on the `PATH`. When a password is supplied the `sshpass`
 program is also required to pass the password to `sftp`. `sshpass` reads the password from its environment, so it is
-never in the arguments that the process list shows, nor in the input of `sftp`, which holds only its commands. A
-password that holds a control character, such as a line feed, raises `ArgumentError`. Additionally the `net-sftp` gem
+never in the arguments that the process list shows, nor in the input of `sftp`, which holds only its commands. Reading
+or writing with a password that holds a line break or a NUL, which `sshpass` cannot type at the prompt, raises
+`ArgumentError` before the block is called. Additionally the `net-sftp` gem
 must be added to the `Gemfile` to use `each_child`. `each_child` lists the files within the path's directory,
 or within the login directory when the url has no path, for example `sftp://hostname`.
 
