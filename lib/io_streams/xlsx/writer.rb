@@ -110,12 +110,12 @@ module IOStreams
       #     With `rows: true`, the positions of the columns whose values are times of day by their field of a schema or
       #     contract, a `time`, whose cells are written as times of day, of Excel's time format `h:mm:ss`, rather than as
       #     dates and times.
+      #     Default: none
       #
       #   decimal_columns: [Hash<Integer, Integer>]
       #     With `rows: true`, the number of decimals of the columns whose values are numbers with decimals by their
       #     field of a schema or contract, by their positions, whose cells show each number with that many, such as
       #     `12.50` in the format `0.00`.
-      #     Default: none
       #     Default: none
       #
       # The stream supplied to the block responds to the methods of an IO that write, see `IOStreams::Writable`, and
