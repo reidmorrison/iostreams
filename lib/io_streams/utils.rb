@@ -279,6 +279,10 @@ module IOStreams
       DOT = ".".ord
       private_constant :DOT
 
+      # The names `.` and `..` as bytes, which name the directory itself and its parent, see .stays_within?.
+      DOT_NAMES = [".".b.freeze, "..".b.freeze].freeze
+      private_constant :DOT_NAMES
+
       # Whether `::File.join`, `::File.dirname`, `::File.extname` and `::File.basename` keep the bytes of a name that is
       # not valid UTF-8, as CRuby does, rather than changing them, as JRuby does, see
       # https://github.com/jruby/jruby/issues/9880, such as the name of a file in Latin-1 that SFTP lists as bytes, or
@@ -325,16 +329,19 @@ module IOStreams
         !(bytes.empty? || bytes == "." || bytes == ".." || bytes.include?("/") || bytes.include?("\0"))
       end
 
-      # Returns [true|false] whether the supplied relative name, such as an S3 key within the path that listed it, names
-      # a file or directory within the directory it is relative to once joined to it: it is not empty, and each of its
-      # names is an .element?, apart from the empty one after a trailing `/`, which names a directory.
+      # Returns [true|false] whether the supplied relative name, such as an S3 key within the prefix that listed it,
+      # stays within any directory that it is joined onto, by `IOStreams::Path#join`, `File.join` or `Pathname#+`, and
+      # names the same file, as a local path does: it is not empty, has no `.` or `..` name and no NUL, and does not
+      # start with `/`, which `Pathname#+` takes as an absolute name. A repeated `/` after its first name, such as in
+      # `2024//a.csv`, stays within the directory, though a local path reads it as `2024/a.csv`.
       #
-      # For example `a/b.csv` and `a/` are within their directory, while `../b.csv` is not, and `a/./b.csv`, `a//b.csv`
-      # and `/b.csv` name another file once a path, such as a local one, resolves `.` and repeated or leading `/`.
-      def self.descendant?(name)
-        elements = name.b.split("/", -1)
-        elements.pop if elements.size > 1 && elements.last.empty?
-        !elements.empty? && elements.all? { |element| element?(element) }
+      # Names are split at `/` only, so a `\` that Windows takes as a separator is not checked, and `File.expand_path`
+      # takes a name that starts with `~` as a home directory, so prefix such a name with `./` before expanding it.
+      def self.stays_within?(name)
+        bytes = name.b
+        return false if bytes.empty? || bytes.start_with?("/") || bytes.include?("\0")
+
+        !bytes.split("/").intersect?(DOT_NAMES)
       end
 
       # Returns [String] the supplied Strings joined into a path, as CRuby's `File.join` joins them on POSIX, by their

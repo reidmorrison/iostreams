@@ -213,11 +213,16 @@ module IOStreams
       attr_reader :password
 
       # Returns [true|false] whether the name, relative to this path, of an entry that the server listed names a file or
-      # directory within this path, logging it when it does not. Net::SFTP joins the names that the server sends, so
-      # a hostile server can list an entry such as `../outside.csv`, which `#each_child` skips, see
-      # `IOStreams::Utils::PathName.descendant?`.
+      # directory within this path: each of its names is the name of a file or directory within the one before it, see
+      # `IOStreams::Utils::PathName.element?`, logging it when it is not. Net::SFTP joins the names that the server
+      # sends, so a hostile server can list an entry such as `../outside.csv`, which `#each_child` skips. The `.` and
+      # `..` that a server lists in each sub-directory, which Net::SFTP's glob names such as `sub/.`, are skipped quietly.
       def listed_name?(name)
-        return true if Utils::PathName.descendant?(name)
+        elements = name.b.split("/", -1)
+        *within, last = elements
+        valid = ->(element) { Utils::PathName.element?(element) }
+        return true if !elements.empty? && elements.all?(&valid)
+        return false if %w[. ..].include?(last) && !within.empty? && within.all?(&valid)
 
         IOStreams.logger&.warn(
           "Skipping the entry #{name.inspect} that the SFTP server listed in #{path.inspect}, since it is not the name " \

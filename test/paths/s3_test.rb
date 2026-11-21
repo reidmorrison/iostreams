@@ -585,21 +585,84 @@ module Paths
           end
         end
 
-        it "lists only the keys whose name within the path has no empty, . or .. name, with hidden: true" do
-          path = IOStreams::Paths::S3.new("s3://bucket/p", client: {stub_responses: true}, region: "us-east-1")
-          # S3 holds `.`, `..` and repeated `/` in a key as they are, so whoever can write below `p/` chooses them.
-          keys = %w[p/ok.csv p/.hidden.csv p/..dots.csv p/sub/b.csv p/../x.csv p/./y.csv p//z.csv p/a/../../w.csv]
-          path.client.stub_responses(:list_objects_v2, {name: "bucket", contents: keys.map { |key| {key: key} }})
-          output   = StringIO.new
-          original = IOStreams.logger
-          IOStreams.logger = Logger.new(output, level: :warn)
-
-          assert_equal %w[p/..dots.csv p/.hidden.csv p/ok.csv p/sub/b.csv], path.children("**/*", hidden: true).map(&:path).sort
-          %w[p/../x.csv p/./y.csv p//z.csv p/a/../../w.csv].each do |key|
-            assert_includes output.string, "Skipping the key #{key.inspect} since its name within \"p\""
+        describe "a key whose name within the path could leave a directory that it is joined onto" do
+          # Returns [IOStreams::Paths::S3] the path, whose listing returns the supplied keys, as S3 lists those that
+          # start with its prefix. S3 holds `.`, `..` and repeated `/` in a key as they are, so whoever can write below
+          # the path chooses them.
+          def listing(url, keys)
+            path = IOStreams::Paths::S3.new(url, client: {stub_responses: true}, region: "us-east-1")
+            path.client.stub_responses(:list_objects_v2, {name: "bucket", contents: keys.map { |key| {key: key} }})
+            path
           end
-        ensure
-          IOStreams.logger = original
+
+          # Returns [String] what IOStreams.logger logs at warn level while the block runs.
+          def warnings
+            output   = StringIO.new
+            original = IOStreams.logger
+            IOStreams.logger = Logger.new(output, level: :warn)
+            yield
+            output.string
+          ensure
+            IOStreams.logger = original
+          end
+
+          # Keys whose names within `p/` stay within a directory that they are joined onto, including a repeated `/` after
+          # the first name, and a name that starts with `~`, which `#join` keeps as it is.
+          let(:kept) { %w[p/ok.csv p/.hidden.csv p/..dots.csv p/sub/b.csv p/2024//d.csv p/sub//e.csv p/~/t.csv p/~u.csv] }
+          # Keys with a `.` or `..` name, or that start with `/` within `p/`, which `Pathname#+` reads as an absolute name.
+          let(:skipped) { %w[p/../x.csv p//z.csv p/a/../../w.csv p/./y.csv p/sub/./v.csv] }
+
+          it "lists only the children whose names stay within the path, with hidden: true, and logs the others" do
+            path   = listing("s3://bucket/p", kept + skipped)
+            output = warnings { assert_equal kept.sort, path.children("**/*", hidden: true).map(&:path).sort }
+
+            skipped.each do |key|
+              assert_includes output, "Skipping the key #{key.inspect} since its name within \"p\" has a '.' or '..' name"
+            end
+            kept.each { |key| refute_includes output, key.inspect }
+          end
+
+          # `File.fnmatch?("**/*", "/z.csv", File::FNM_PATHNAME)` is true, so v2.1 returned `p//z.csv` by default.
+          it "skips a key whose name within the path starts with / without hidden: true" do
+            path = listing("s3://bucket/p", kept + skipped)
+
+            assert_equal %w[p/2024//d.csv p/ok.csv p/sub//e.csv p/sub/b.csv p/~/t.csv p/~u.csv],
+                         path.children("**/*").map(&:path).sort
+          end
+
+          it "skips the same keys whatever the directory of the pattern" do
+            path = listing("s3://bucket/p", %w[p/sub/b.csv p/sub//e.csv p/sub/./v.csv])
+
+            assert_equal %w[p/sub//e.csv p/sub/b.csv], path.children("sub/**/*", hidden: true).map(&:path).sort
+          end
+
+          it "does not log a key that the pattern does not match" do
+            path   = listing("s3://bucket/p", kept + skipped)
+            output = warnings { assert_empty path.children("**/*.txt", hidden: true) }
+
+            assert_empty output
+          end
+
+          it "skips a key whose name starts with / within a path that ends with /" do
+            path   = listing("s3://bucket/p/", %w[p/ok.csv p//z.csv])
+            output = warnings { assert_equal %w[p/ok.csv], path.children("**/*", hidden: true).map(&:path) }
+
+            assert_includes output, 'Skipping the key "p//z.csv" since its name within "p/"'
+          end
+
+          it "skips a key that starts with / or holds .. in the bucket" do
+            path = listing("s3://bucket", %w[top.csv /root.csv ../up.csv])
+
+            assert_equal %w[top.csv], path.children("**/*", hidden: true).map(&:path)
+          end
+
+          it "skips a key that only starts with the same characters as the path, without logging it" do
+            path   = listing("s3://bucket/p", %w[p/ok.csv p../x.csv p_2024/a.csv])
+            output = warnings { assert_equal %w[p/ok.csv], path.children("**/*", hidden: true).map(&:path) }
+
+            refute_includes output, "p../x.csv"
+            refute_includes output, "p_2024/a.csv"
+          end
         end
 
         it "uses the same client for the children" do
