@@ -55,6 +55,32 @@ class NumberRangeTest < Minitest::Test
         end
       end
 
+      it "raises for an exponent beyond those that a BigDecimal holds, which it reads as Infinity or 0" do
+        ["1e99999999999999999999", "-1e99999999999999999999", "1e-99999999999999999999", "-0.5e-99999999999999999999"].each do |text|
+          error = assert_raises(IOStreams::Errors::InvalidValue, text) { read("v\n#{text}\n", :csv, NUMBER) }
+          assert_includes error.message, RANGE, text
+        end
+        assert_equal [BigDecimal(0), BigDecimal(0)], read("v\n0e-99999999999999999999\n-0.000e99999999999999999999\n", :csv, NUMBER)
+      end
+
+      it "raises for a JSON number beyond the exponents of a BigDecimal, which JSON reads as Infinity" do
+        list = {fields: [{name: "v", type: "number"}, {name: "l", type: "list", itemType: "number"}]}
+
+        [%({"v":1e99999999999999999999,"l":[]}), %({"v":1,"l":[2,-1e99999999999999999999]})].each do |json|
+          error = assert_raises(IOStreams::Errors::InvalidValue, json) { read("#{json}\n", :json, list) }
+          assert_includes error.message, "a JSON number whose exponent a BigDecimal does not hold is not a valid number", json
+          assert_equal 1, error.line_number, json
+        end
+      end
+
+      it "reads a value that stands in for an Integer, such as an ActiveSupport::Duration, as before" do
+        require "active_support"
+        require "active_support/core_ext/integer/time"
+
+        assert_equal BigDecimal(3600), field(type: "number").cast(1.hour)
+        assert IOStreams::Schema::NumberRange.within?(1.hour)
+      end
+
       it "raises for a JSON number outside the range, which JSON reads as a BigDecimal, before it is written to CSV" do
         out   = StringIO.new
         error = assert_raises(IOStreams::Errors::InvalidValue) do
@@ -95,7 +121,11 @@ class NumberRangeTest < Minitest::Test
       end
 
       it "is not limited by the range with floatNumber, whose Float has a range of its own" do
-        assert_equal Float::INFINITY, field(type: "number", floatNumber: true).cast("1e6145")
+        float = field(type: "number", floatNumber: true)
+
+        assert_equal Float::INFINITY, float.cast("1e6145")
+        assert_equal Float::INFINITY, float.cast(BigDecimal("1e6145"))
+        assert_equal Float::INFINITY, float.cast(10**7000)
       end
 
       it "raises for decimals of more than those of the smallest number of the range" do
@@ -119,6 +149,29 @@ class NumberRangeTest < Minitest::Test
         assert_includes error.message, "is not a valid integer, since an integer must be below 1e6145 in magnitude"
       end
 
+      it "raises as for any other value that is not an integer for a fraction too small for the range, or not a number" do
+        integer = field(type: "integer")
+
+        [BigDecimal("1e-9999"), Complex(1, 1)].each do |value|
+          error = assert_raises(IOStreams::Errors::InvalidValue, value.inspect) { integer.cast(value) }
+          assert_equal "Field \"v\": #{value.inspect} is not a valid integer", error.message
+        end
+        assert_raises(IOStreams::Errors::InvalidValue) { integer.cast(Rational(1, 10**7000)) }
+      end
+
+      it "names a Rational outside the range by its bits, rather than build the text of all of its digits" do
+        error = assert_raises(IOStreams::Errors::InvalidValue) { field(type: "integer").cast(Rational(10**7000, 3)) }
+
+        assert_equal 'Field "v": a Rational of 23254 bits over 2 bits is not a valid integer, since an integer must be ' \
+                     "below 1e6145 in magnitude", error.message
+      end
+
+      it "raises for a year outside the range without naming the range of an integer" do
+        error = assert_raises(IOStreams::Errors::InvalidValue) { field(type: "year").cast(BigDecimal("1e7000")) }
+
+        assert_equal 'Field "v": 0.1e7001 is not a valid year', error.message
+      end
+
       it "raises for a number outside the range that is not text, before it is turned into an Integer" do
         integer = field(type: "integer")
 
@@ -138,6 +191,7 @@ class NumberRangeTest < Minitest::Test
           assert_raises(IOStreams::Errors::InvalidValue, point) { read("v\n\"#{point}\"\n", :csv, array) }
         end
         assert_raises(IOStreams::Errors::InvalidValue) { field(type: "geopoint").cast([BigDecimal("1e-99999"), 0]) }
+        assert_raises(IOStreams::Errors::InvalidValue) { field(type: "geopoint").cast(%w[1e-99999999999999999999 0]) }
         assert_equal [[BigDecimal("1e-300"), BigDecimal("45.5")]], read("v\n\"[1e-300, 45.5]\"\n", :csv, array)
       end
     end
@@ -177,15 +231,16 @@ class NumberRangeTest < Minitest::Test
 
     describe "inference" do
       it "drafts text for a number with more decimals than a field holds, or an integer outside the range" do
-        csv = "a,b,c\n0.#{'0' * 6176}1,#{'9' * 6146},12.5\n"
+        csv = "a,b,c,d\n0.#{'0' * 6176}1,#{'9' * 6146},12.5,1#{'0' * 7000}.5\n"
 
-        assert_equal [{name: "a", type: "string"}, {name: "b", type: "string"}, {name: "c", type: "number", decimals: 1}],
+        assert_equal [{name: "a", type: "string"}, {name: "b", type: "string"}, {name: "c", type: "number", decimals: 1},
+                      {name: "d", type: "string"}],
                      IOStreams.stream(StringIO.new(csv)).format(:csv).infer_schema(sample: :all).to_h[:fields]
       end
 
-      it "drafts any for a BigDecimal outside the range, without building its digits" do
+      it "drafts any for a BigDecimal or an Integer outside the range, without building its digits" do
         inference = IOStreams::Schema::Inference.new
-        inference << {"v" => BigDecimal("1e-200000000")} << {"v" => BigDecimal("1e200000000")}
+        inference << {"v" => BigDecimal("1e-200000000")} << {"v" => BigDecimal("1e200000000")} << {"v" => 10**7000}
         within = IOStreams::Schema::Inference.new
         within << {"v" => BigDecimal("1e-300")} << {"v" => BigDecimal("12.5")}
 

@@ -130,7 +130,7 @@ module IOStreams
           @text = false
           case value
           when true, false then :boolean
-          when Integer then :integer
+          when Integer then NumberRange.within?(value) ? :integer : :text
           when Float, Rational then float_kind(value)
           when ::Hash then :object
           when ::Array then :array
@@ -152,8 +152,9 @@ module IOStreams
           return NumberRange.integer(text) ? :integer : :text if INTEGER.match?(text)
 
           if (fraction = NUMBER.match(text))
-            # More digits after the decimal point than a field holds, see `IOStreams::Schema::NumberRange`, are text.
-            return :text unless NumberRange.decimals_within?(fraction[1].length)
+            # A number outside the range of `IOStreams::Schema::NumberRange`, or with more digits after its decimal point
+            # than a field holds, which a field does not read, is text.
+            return :text unless NumberRange.decimals_within?(fraction[1].length) && NumberRange.decimal(text)
 
             @decimals = [@decimals, fraction[1].length].max
             return :number

@@ -123,7 +123,7 @@ module IOStreams
           when Integer, ::BigDecimal then BigDecimal(number)
           when Float then BigDecimal(number.to_s)
           when Rational then BigDecimal(number, 17)
-          when String then BigDecimal(number.strip) if NUMBER.match?(number)
+          when String then NumberRange.decimal(number.strip) if NUMBER.match?(number)
           end
         value if value&.finite? && NumberRange.within?(value)
       rescue ArgumentError

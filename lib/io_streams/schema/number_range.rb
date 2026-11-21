@@ -47,16 +47,43 @@ module IOStreams
       # The magnitude of the smallest Rational within the range that is not 0, 1e-6176.
       SMALLEST = Rational(1, 10**-MIN_EXPONENT)
 
+      # A digit other than 0 before the exponent of the text of a number, so that it is not 0.
+      NONZERO_DIGITS = /\A[^eE]*[1-9]/
+
       # Returns [true|false] whether the number is within the range, see above: a BigDecimal by its exponent, without
       # building its digits, an Integer, a Float, which always is, and a Rational, which a field turns into a BigDecimal.
+      # Its class is asked with `is_a?`, as the field asks it, rather than `case`, so that an object that answers it for
+      # a class it stands in for, such as an `ActiveSupport::Duration`, which answers `is_a?(Integer)`, is that class.
       def self.within?(number)
-        case number
-        when Integer then -INTEGER_LIMIT < number && number < INTEGER_LIMIT
-        when Float then true
-        when Rational then number.zero? || (number.abs >= SMALLEST && number.abs < INTEGER_LIMIT)
-        when ::BigDecimal then !number.finite? || number.zero? || number.exponent.between?(MIN_EXPONENT + 1, MAX_EXPONENT + 1)
-        else false
-        end
+        return true if number.is_a?(Float)
+        return -INTEGER_LIMIT < number && number < INTEGER_LIMIT if number.is_a?(Integer)
+        return number.zero? || (number.abs >= SMALLEST && number.abs < INTEGER_LIMIT) if number.is_a?(Rational)
+        return false unless number.is_a?(::BigDecimal)
+
+        !number.finite? || number.zero? || number.exponent.between?(MIN_EXPONENT + 1, MAX_EXPONENT + 1)
+      end
+
+      # Returns [true|false] whether the number is finite and its magnitude is at least that of the smallest number
+      # beyond the range, 1e6145: too large, rather than too small, which an integer field also rejects as a fraction.
+      def self.above?(number)
+        return number <= -INTEGER_LIMIT || number >= INTEGER_LIMIT if number.is_a?(Integer)
+        return number.abs >= INTEGER_LIMIT if number.is_a?(Rational)
+        return false unless number.is_a?(::BigDecimal) && number.finite? && !number.zero?
+
+        number.exponent > MAX_EXPONENT + 1
+      end
+
+      # Returns [BigDecimal|nil] the BigDecimal of the text of a finite number, which `IOStreams::Schema::Field::NUMBER`
+      # matches, or nil when it is outside the range, also when its exponent is beyond those that a BigDecimal holds,
+      # which BigDecimal reads as Infinity, such as "1e99999999999999999999", or as 0, such as
+      # "1e-99999999999999999999", which its digits say it is not.
+      #
+      # Raises ArgumentError for text that BigDecimal does not read, such as "12." before Ruby 3.4.
+      def self.decimal(text)
+        decimal = BigDecimal(text)
+        return if !decimal.finite? || (decimal.zero? && NONZERO_DIGITS.match?(text))
+
+        decimal if within?(decimal)
       end
 
       # Returns [Integer|nil] the Integer of the text of a whole number, an optional sign and at least one digit, see

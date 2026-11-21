@@ -349,7 +349,9 @@ end
   which holds every `Float` and every number of a decimal column of a database, a spreadsheet or a Parquet file. A
   number outside it, such as `1e999999999`, raises `IOStreams::Errors::InvalidValue` when it is read, also from JSON,
   Parquet, a query or a stored slice, since its plain digits, which IOStreams writes, would take a billion characters,
-  while its text takes 11. A `Float` has a smaller range of its own, beyond which it is infinite.
+  while its text takes 11, and for an exponent beyond those that a `BigDecimal` holds, such as
+  `1e99999999999999999999`. A `Float`, with `floatNumber: true`, has a smaller range of its own, beyond which it is
+  infinite.
 * **`decimals`**, which IOStreams adds, gives the digits after the decimal point, at most 6176. It rounds the number
   read, and the number written, half up, so that a record holds the number that its file holds, such as `12.35` for
   `12.345` with `decimals: 2`.

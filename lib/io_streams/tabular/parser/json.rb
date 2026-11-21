@@ -337,6 +337,10 @@ module IOStreams
 
         # Returns the value of the line, with the numbers of each key that is the column of a number field that keeps
         # every digit as BigDecimals, and every other number as a Float, see #parse.
+        #
+        # Raises `IOStreams::Errors::InvalidValue` for a number of such a key, or within its Array, whose exponent is
+        # beyond those that a BigDecimal holds, such as `1e99999999999999999999`, which BigDecimal reads as Infinity,
+        # since JSON holds no number that is not finite, see `IOStreams::Schema::NumberRange`.
         def parse_decimals(line)
           values = JSON.parse(line, decimal_class: ::BigDecimal)
           return values unless values.is_a?(::Hash)
@@ -344,9 +348,29 @@ module IOStreams
           values.each_pair do |key, value|
             next unless value.is_a?(::BigDecimal) || value.is_a?(::Array) || value.is_a?(::Hash)
 
-            values[key] = floats(value) unless decimal_key?(key)
+            if decimal_key?(key)
+              overflow(key, value) if not_finite_within?(value)
+            else
+              values[key] = floats(value)
+            end
           end
           values
+        end
+
+        # Returns [true|false] whether the value is, or its Array holds, a BigDecimal that is not finite.
+        def not_finite_within?(value)
+          return !value.finite? if value.is_a?(::BigDecimal)
+
+          value.is_a?(::Array) && value.any? { |item| item.is_a?(::BigDecimal) && !item.finite? }
+        end
+
+        # Raises `IOStreams::Errors::InvalidValue` for the number of the key that is beyond the exponents of a BigDecimal.
+        def overflow(key, value)
+          raise(IOStreams::Errors::InvalidValue.new(
+                  "Field #{key.inspect}: a JSON number whose exponent a BigDecimal does not hold is not a valid number, " \
+                  "since #{IOStreams::Schema::NumberRange::DESCRIPTION}",
+                  field: key, value: value
+                ))
         end
 
         # Returns [true|false] whether the key is the column of a number field that keeps every digit, worked out once
