@@ -247,6 +247,17 @@ module Paths
           paths&.each(&:delete)
         end
 
+        it "returns the children of a key that holds a # or ?, rather than those of the key before it" do
+          directory = root_path.join("hash_test#2024?q")
+          names     = ["hash_test#2024?q/a.csv", "hash_test/b.csv"]
+          paths     = names.map { |name| root_path.join(name) }
+          paths.each { |path| path.write(raw) }
+
+          assert_equal [paths.first.to_s], directory.children("**/*").map(&:to_s)
+        ensure
+          paths&.each(&:delete)
+        end
+
         it "existing file returns just the file itself" do
           # Glorified exists call
           existing_path
