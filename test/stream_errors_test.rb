@@ -15,7 +15,7 @@ class StreamErrorsTest < Minitest::Test
     gzip: "Zlib::GzipFile::Error",
     # JRuby reads zip files with java.util.zip, so the zip stream raises its own exception there.
     zip:  defined?(JRuby) ? "IOStreams::Errors::StreamFailure" : "Zip::Error",
-    # creek reads spreadsheets with rubyzip on every platform.
+    # Spreadsheets are read with rubyzip on every platform.
     xlsx: "Zip::Error",
     xlsm: "Zip::Error",
     zst:  "RuntimeError",

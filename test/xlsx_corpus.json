@@ -1,0 +1,945 @@
+{
+  "commit": "4ab5464215c616f6d944d2c59717a9856281dac8",
+  "files": {
+    "10x10.xlsx": {
+      "rows": 10,
+      "rows_digest": "72ab82844de07938",
+      "lines_digest": "b8ddc0bed04af2a5"
+    },
+    "10x10000.xlsx": {
+      "rows": 10000,
+      "rows_digest": "e7be38b76d61c1d7",
+      "lines_digest": "f3658175f9faaffb"
+    },
+    "255x10.xlsx": {
+      "rows": 10,
+      "rows_digest": "41f69b87be8d1f46",
+      "lines_digest": "4130c37989574ae2"
+    },
+    "BigFormatted.xlsx": {
+      "rows": 55745,
+      "rows_digest": "c3b4a98aeeaabf40",
+      "lines_digest": "38189c1b65c2b0aa"
+    },
+    "BlankHeader.xlsx": {
+      "rows": 79,
+      "rows_digest": "fa7830677129ed47",
+      "lines_digest": "7ed12d4fb097f131"
+    },
+    "BoolFormula.xlsx": {
+      "rows": 1,
+      "rows_digest": "b2689d64a6254568",
+      "lines_digest": "ffea3709f3a02c83"
+    },
+    "CellComments.xlsx": {
+      "rows": 700,
+      "rows_digest": "182f06f639f1f8b0",
+      "lines_digest": "9c99f34ba7462418"
+    },
+    "Chess.xlsx": {
+      "rows": 4,
+      "rows_digest": "bcda3bcd467caa90",
+      "lines_digest": "dba98614e93b3986"
+    },
+    "CollapsedHide.xlsx": {
+      "rows": 4,
+      "rows_digest": "2106e062ed6c063e",
+      "lines_digest": "becaea6397d5de04"
+    },
+    "ColumnWidthsTest.xlsx": {
+      "rows": 2,
+      "rows_digest": "baee19d8855f68e9",
+      "lines_digest": "831c2526a65568d5"
+    },
+    "DateFormatButNotDate.xlsx": {
+      "rows": 3,
+      "rows_digest": "76a2d934d679b984",
+      "lines_digest": "fd9bec47b0d5cf50"
+    },
+    "Decimal1109.xlsx": {
+      "rows": 1,
+      "rows_digest": "3c82f1f7fdd4ba99",
+      "lines_digest": "8e3bbaf7f8d2a212"
+    },
+    "DecimalLocale.xlsx": {
+      "rows": 4,
+      "rows_digest": "0f2370e80aa6dfdd",
+      "lines_digest": "4a57781d19e890d1"
+    },
+    "DocumentProperties.xlsx": {
+      "rows": 1,
+      "rows_digest": "5a6bf35567d3ff5a",
+      "lines_digest": "721f8b70f6b7fcb1"
+    },
+    "DocumentPropertiesPassword.xlsx": {
+      "failure": "IOStreams::Errors::Corrupt"
+    },
+    "DoublePrecision.xlsx": {
+      "rows": 9,
+      "rows_digest": "c6d11dd29bee63c9",
+      "lines_digest": "2628c5ff5afff678"
+    },
+    "EmptyZipFile.xlsx": {
+      "failure": "IOStreams::Errors::Corrupt"
+    },
+    "EncodingFormulaDate1520.xlsx": {
+      "rows": 9,
+      "rows_digest": "e6e04e3d46f4ee23",
+      "lines_digest": "bf655114216de55b"
+    },
+    "Excel2040.xlsx": {
+      "failure": "IOStreams::Errors::Corrupt"
+    },
+    "ExcelDataset.xlsx": {
+      "rows": 34,
+      "rows_digest": "b0869a874205731a",
+      "lines_digest": "1ae6b06751845c1f"
+    },
+    "ExcelOpenOffice.xlsx": {
+      "rows": 34,
+      "rows_digest": "b0869a874205731a",
+      "lines_digest": "1ae6b06751845c1f"
+    },
+    "Fillreport.xlsx": {
+      "rows": 19,
+      "rows_digest": "5c1e9e029f9c6d70",
+      "lines_digest": "4cde0f58a00c7206"
+    },
+    "Format49_@.xlsx": {
+      "rows": 1,
+      "rows_digest": "e5ae8d0e62ed391c",
+      "lines_digest": "63ad0788d342e299"
+    },
+    "FullWidthSpace.xlsx": {
+      "rows": 3,
+      "rows_digest": "c01c10f27a2b936f",
+      "lines_digest": "833c2254cec347fd"
+    },
+    "Googlesourced.xlsx": {
+      "rows": 5,
+      "rows_digest": "c5ed7ebf1ac9e48f",
+      "lines_digest": "7288ae67226abff1"
+    },
+    "Hashes.xlsx": {
+      "rows": 5,
+      "rows_digest": "c5ed7ebf1ac9e48f",
+      "lines_digest": "7288ae67226abff1"
+    },
+    "Hyperlinks.xlsx": {
+      "rows": 700,
+      "rows_digest": "4b68a94de2dee769",
+      "lines_digest": "ba55a7de399e61e0"
+    },
+    "HyperlinksPassword.xlsx": {
+      "failure": "IOStreams::Errors::Corrupt"
+    },
+    "Issue142.xlsx": {
+      "rows": 3258,
+      "rows_digest": "9de4971368af8820",
+      "lines_digest": "6042ae68876fccc3"
+    },
+    "Issue14_InvalidOADate.xlsx": {
+      "rows": 1,
+      "rows_digest": "8d091ca3097835dd",
+      "lines_digest": "03f04d0530d42f9d"
+    },
+    "Issue221.xlsx": {
+      "rows": 1,
+      "rows_digest": "1cce43727fa1152f",
+      "lines_digest": "ee4d5d021ed2ba1f"
+    },
+    "Issue224_Firstoddeven.xlsx": {
+      "rows": 2,
+      "rows_digest": "f4ea2ab864a5524e",
+      "lines_digest": "3a1c8866442c7184"
+    },
+    "Issue224_Simple.xlsx": {
+      "rows": 0,
+      "rows_digest": "4f53cda18c2baa0c",
+      "lines_digest": "4f53cda18c2baa0c"
+    },
+    "Issue250_Richtext.xlsx": {
+      "rows": 1,
+      "rows_digest": "2c2f1af592bb6717",
+      "lines_digest": "5b1e29b158e2638e"
+    },
+    "Issue270.xlsx": {
+      "rows": 5,
+      "rows_digest": "d247802812c9b3dd",
+      "lines_digest": "a25bbb8623cd668c"
+    },
+    "Issue271_InvalidDimension.xlsx": {
+      "rows": 9,
+      "rows_digest": "dd3be544dbdba169",
+      "lines_digest": "ba5f297bb78baabf"
+    },
+    "Issue283_TimeSpan.xlsx": {
+      "rows": 1001,
+      "rows_digest": "cdb8ddb839191354",
+      "lines_digest": "accb645eec3d75e3"
+    },
+    "Issue289.xlsx": {
+      "failure": "IOStreams::Errors::Corrupt"
+    },
+    "Issue301_IgnoreCase.xlsx": {
+      "rows": 10,
+      "rows_digest": "72ab82844de07938",
+      "lines_digest": "b8ddc0bed04af2a5"
+    },
+    "Issue319.xlsx": {
+      "rows": 1,
+      "rows_digest": "c511e1f05002048b",
+      "lines_digest": "b185beb9207d57c6"
+    },
+    "Issue324.xlsx": {
+      "rows": 290,
+      "rows_digest": "50dfac35b4695321",
+      "lines_digest": "4e30cdcc6ba93ec6"
+    },
+    "Issue329_Error.xlsx": {
+      "rows": 1,
+      "rows_digest": "1d8fc6ceb1f94c63",
+      "lines_digest": "90705178ab03013d"
+    },
+    "Issue341.xlsx": {
+      "rows": 5,
+      "rows_digest": "fd09be48847ecda1",
+      "lines_digest": "028d8181b9fc1108"
+    },
+    "Issue354.xlsx": {
+      "rows": 1,
+      "rows_digest": "fbde7843ffeaff0c",
+      "lines_digest": "27890e8e9e4fb727"
+    },
+    "Issue364.xlsx": {
+      "rows": 1,
+      "rows_digest": "b141e87924f82b7e",
+      "lines_digest": "6f0a857577638dbb"
+    },
+    "Issue385_Backslash.xlsx": {
+      "rows": 10,
+      "rows_digest": "72ab82844de07938",
+      "lines_digest": "b8ddc0bed04af2a5"
+    },
+    "Issue425.xlsx": {
+      "rows": 3,
+      "rows_digest": "cc79309ff2018ab8",
+      "lines_digest": "d8788ee7be855643"
+    },
+    "Issue454.xlsx": {
+      "rows": 1,
+      "rows_digest": "ffbfd3cd60c80386",
+      "lines_digest": "48a83945f4f89b7d"
+    },
+    "Issue461.xlsx": {
+      "rows": 1,
+      "rows_digest": "b55c0aedd5c3433f",
+      "lines_digest": "de386ae505514f47"
+    },
+    "Issue486.xlsx": {
+      "rows": 3,
+      "rows_digest": "2a5203ddc8e0e246",
+      "lines_digest": "e5c5571ffd5ec61b"
+    },
+    "Issue518.xlsx": {
+      "rows": 3,
+      "rows_digest": "402b8133571e746f",
+      "lines_digest": "f17f48fca40de7b7"
+    },
+    "Issue532.xlsx": {
+      "rows": 22,
+      "rows_digest": "78ac887f0812cf7a",
+      "lines_digest": "65f30e0efe097f5f"
+    },
+    "Issue53_CachedFormulaStringType.xlsx": {
+      "rows": 4,
+      "rows_digest": "9cf147e9edaa2311",
+      "lines_digest": "392974605019d12b"
+    },
+    "Issue541.xlsx": {
+      "rows": 1,
+      "rows_digest": "17c4ca7bf7e710f1",
+      "lines_digest": "75b425743d343304"
+    },
+    "Issue574.xlsx": {
+      "rows": 2,
+      "rows_digest": "76a0f6f25df875ac",
+      "lines_digest": "52841354fe54b082"
+    },
+    "Issue578.xlsx": {
+      "rows": 1,
+      "rows_digest": "4a68b4084d7d71d5",
+      "lines_digest": "ece4f5fc4de749cd"
+    },
+    "Issue608.xlsx": {
+      "rows": 5,
+      "rows_digest": "258119f8a979d83e",
+      "lines_digest": "1c665ec1ba6534c2"
+    },
+    "Issue629.xlsx": {
+      "rows": 10,
+      "rows_digest": "d4fdb321210ffdd7",
+      "lines_digest": "094c04e6d7498e06"
+    },
+    "Issue642.xlsx": {
+      "rows": 2,
+      "rows_digest": "a26917e5c0855a37",
+      "lines_digest": "b7063711117da94c"
+    },
+    "Issue642_Onesheet.xlsx": {
+      "rows": 0,
+      "rows_digest": "4f53cda18c2baa0c",
+      "lines_digest": "4f53cda18c2baa0c"
+    },
+    "Issue649_Date1904Parsings.xlsx": {
+      "rows": 1,
+      "rows_digest": "b9f79ddaf673519f",
+      "lines_digest": "0b3c6dae136d0a15"
+    },
+    "Issue682.xlsx": {
+      "rows": 1,
+      "rows_digest": "069a3145d02b0e49",
+      "lines_digest": "05b1fed927d63d59"
+    },
+    "Issue68_NullSheetPath.xlsm": {
+      "rows": 1,
+      "rows_digest": "af8b21b69252d4a1",
+      "lines_digest": "ee2da1080ba910cc"
+    },
+    "Issue694_TimeSpan.xlsx": {
+      "rows": 53,
+      "rows_digest": "42a0756b61cd1e58",
+      "lines_digest": "ce53094358faedad"
+    },
+    "Issue694_TimeSpanFormula.xlsx": {
+      "rows": 15,
+      "rows_digest": "4e77729216f24aec",
+      "lines_digest": "a0970ed736deb2ee"
+    },
+    "Issue700_CellAlignments.xlsx": {
+      "rows": 1,
+      "rows_digest": "441ebd22d1916202",
+      "lines_digest": "70844c8c67d2e63d"
+    },
+    "Issue711_OpenXmlRowHeightParsing.xlsx": {
+      "rows": 18,
+      "rows_digest": "17eaaebecba2bb7a",
+      "lines_digest": "f0ecfcc011dd0eb8"
+    },
+    "Issue711_OpenXmlRowHeightParsingNegativeDefaultHeight.xlsx": {
+      "rows": 18,
+      "rows_digest": "17eaaebecba2bb7a",
+      "lines_digest": "f0ecfcc011dd0eb8"
+    },
+    "Issue764_AbsoluteWorkbookTarget.xlsx": {
+      "rows": 10,
+      "rows_digest": "72ab82844de07938",
+      "lines_digest": "b8ddc0bed04af2a5"
+    },
+    "Issue788_Precision.xlsx": {
+      "rows": 1,
+      "rows_digest": "9ab14a2cb610d174",
+      "lines_digest": "5e4bd49e32445ef9"
+    },
+    "LocaleTime.xlsx": {
+      "rows": 4,
+      "rows_digest": "b90cccda38b600e7",
+      "lines_digest": "1a920ed1c377b8a8"
+    },
+    "LotsOfSheets.xlsx": {
+      "rows": 26,
+      "rows_digest": "7bb9efdfff1d0937",
+      "lines_digest": "725a436980550d1a"
+    },
+    "LowerCaseReferenceAttribute.xlsx": {
+      "rows": 3,
+      "rows_digest": "90b657a72e2d3d11",
+      "lines_digest": "d0db3441ad5aeccc"
+    },
+    "MergedCell.xlsx": {
+      "rows": 7,
+      "rows_digest": "e99adde59be33f26",
+      "lines_digest": "aa4a4b88c3625b3a"
+    },
+    "MultiSheet.xlsx": {
+      "rows": 12,
+      "rows_digest": "c91adede8b274eae",
+      "lines_digest": "0b2404964a138f46"
+    },
+    "NoDimensionOrCellReferenceAttribute.xlsx": {
+      "rows": 7,
+      "rows_digest": "c83e502790153844",
+      "lines_digest": "df32ff98d4ab0312"
+    },
+    "NoStylesNoRAttribute.xlsx": {
+      "rows": 36,
+      "rows_digest": "cc924b97ac50a6dd",
+      "lines_digest": "a82024b20d199d61"
+    },
+    "NumDoubleDateBoolString.xlsx": {
+      "rows": 30,
+      "rows_digest": "0228d306f8a79445",
+      "lines_digest": "bb04cbc04be11cf4"
+    },
+    "OldIssue10725.xlsx": {
+      "rows": 1,
+      "rows_digest": "b8c8c47eecfed3ea",
+      "lines_digest": "2c181a264debb234"
+    },
+    "OldIssue11397.xlsx": {
+      "rows": 6,
+      "rows_digest": "443921eeeb454ffe",
+      "lines_digest": "e7048d6e2c48f241"
+    },
+    "OldIssue11435_Colors.xlsx": {
+      "rows": 8,
+      "rows_digest": "f10d113712a82a9b",
+      "lines_digest": "4462e9d53f564e46"
+    },
+    "OldIssue11479_BlankSheet.xlsx": {
+      "rows": 4,
+      "rows_digest": "a6410e84e655a929",
+      "lines_digest": "c5d2f2c0a6c5a550"
+    },
+    "OldIssue11516_SingleTab.xlsx": {
+      "rows": 260,
+      "rows_digest": "199e01d7501fc24a",
+      "lines_digest": "c0ec0dfd577f6b4b"
+    },
+    "OldIssue11522_OpenXml.xlsx": {
+      "rows": 2,
+      "rows_digest": "b18dde00493124c9",
+      "lines_digest": "9e0d4221ceaf3ce5"
+    },
+    "OldIssue11573_BlankValues.xlsx": {
+      "rows": 220,
+      "rows_digest": "62f70a2c736a45be",
+      "lines_digest": "dd64f675fb8741c4"
+    },
+    "OldIssue11773_Exponential.xlsx": {
+      "rows": 349,
+      "rows_digest": "ad6908f9ec639754",
+      "lines_digest": "615859843eaaf700"
+    },
+    "OldIssue12667_GoogleExportMissingColumns.xlsx": {
+      "rows": 20,
+      "rows_digest": "b606a32fa8faada4",
+      "lines_digest": "f852131da07b213b"
+    },
+    "OldIssue4031_NullColumn.xlsx": {
+      "rows": 8,
+      "rows_digest": "e57577d7650daf29",
+      "lines_digest": "3ef2af1dcd36c3bc"
+    },
+    "OldIssue4145.xlsx": {
+      "rows": 1240,
+      "rows_digest": "9649513da5858887",
+      "lines_digest": "55e09b0523a7a3ad"
+    },
+    "OldIssue7433_IllegalOleAutDate.xlsx": {
+      "rows": 3,
+      "rows_digest": "c503f598eb003925",
+      "lines_digest": "fe9aca4c08b7d5be"
+    },
+    "OldIssue8536.xlsx": {
+      "rows": 7,
+      "rows_digest": "4db7f63b847f0758",
+      "lines_digest": "e2294bf10b043a3a"
+    },
+    "Open.xlsx": {
+      "rows": 7,
+      "rows_digest": "5c4c8d88f66ae8df",
+      "lines_digest": "6927df0aeb1b841a"
+    },
+    "UnicodeChars.xlsx": {
+      "rows": 3,
+      "rows_digest": "6ebe155ccb70756b",
+      "lines_digest": "34014b59f32dbadf"
+    },
+    "agile_AES128_MD5_CBC_pwd_password.xlsx": {
+      "failure": "IOStreams::Errors::Corrupt"
+    },
+    "agile_AES128_SHA1_CBC_pwd_password.xlsx": {
+      "failure": "IOStreams::Errors::Corrupt"
+    },
+    "agile_AES128_SHA384_CBC_pwd_password.xlsx": {
+      "failure": "IOStreams::Errors::Corrupt"
+    },
+    "agile_AES128_SHA512_CBC_pwd_password.xlsx": {
+      "failure": "IOStreams::Errors::Corrupt"
+    },
+    "agile_AES192_SHA512_CBC_pwd_password.xlsx": {
+      "failure": "IOStreams::Errors::Corrupt"
+    },
+    "agile_AES256_SHA512_CBC_pwd_password.xlsx": {
+      "failure": "IOStreams::Errors::Corrupt"
+    },
+    "agile_DES_MD5_CBC_pwd_password.xlsx": {
+      "failure": "IOStreams::Errors::Corrupt"
+    },
+    "agile_DESede_SHA384_CBC_pwd_password.xlsx": {
+      "failure": "IOStreams::Errors::Corrupt"
+    },
+    "agile_RC2_SHA1_CBC_pwd_password.xlsx": {
+      "failure": "IOStreams::Errors::Corrupt"
+    },
+    "roo_1900_base.xlsx": {
+      "rows": 2,
+      "rows_digest": "d36f218cb857b61d",
+      "lines_digest": "a6b871f275d496db"
+    },
+    "roo_1904_base.xlsx": {
+      "rows": 2,
+      "rows_digest": "d36f218cb857b61d",
+      "lines_digest": "a6b871f275d496db"
+    },
+    "standard_AES128_SHA1_ECB_pwd_password.xlsx": {
+      "failure": "IOStreams::Errors::Corrupt"
+    },
+    "standard_AES192_SHA1_ECB_pwd_password.xlsx": {
+      "failure": "IOStreams::Errors::Corrupt"
+    },
+    "standard_AES256_SHA1_ECB_pwd_password.xlsx": {
+      "failure": "IOStreams::Errors::Corrupt"
+    },
+    "strict/10x10.xlsx": {
+      "rows": 10,
+      "rows_digest": "72ab82844de07938",
+      "lines_digest": "b8ddc0bed04af2a5"
+    },
+    "strict/10x10000.xlsx": {
+      "rows": 10000,
+      "rows_digest": "e7be38b76d61c1d7",
+      "lines_digest": "f3658175f9faaffb"
+    },
+    "strict/255x10.xlsx": {
+      "rows": 10,
+      "rows_digest": "41f69b87be8d1f46",
+      "lines_digest": "4130c37989574ae2"
+    },
+    "strict/BigFormatted.xlsx": {
+      "rows": 55745,
+      "rows_digest": "5e5769c9d6c0cdb9",
+      "lines_digest": "ff6b40079a4201f4"
+    },
+    "strict/BlankHeader.xlsx": {
+      "rows": 79,
+      "rows_digest": "fa7830677129ed47",
+      "lines_digest": "7ed12d4fb097f131"
+    },
+    "strict/BoolFormula.xlsx": {
+      "rows": 1,
+      "rows_digest": "b2689d64a6254568",
+      "lines_digest": "ffea3709f3a02c83"
+    },
+    "strict/CellComments.xlsx": {
+      "rows": 700,
+      "rows_digest": "182f06f639f1f8b0",
+      "lines_digest": "9c99f34ba7462418"
+    },
+    "strict/Chess.xlsx": {
+      "rows": 4,
+      "rows_digest": "bcda3bcd467caa90",
+      "lines_digest": "dba98614e93b3986"
+    },
+    "strict/CollapsedHide.xlsx": {
+      "rows": 4,
+      "rows_digest": "2106e062ed6c063e",
+      "lines_digest": "becaea6397d5de04"
+    },
+    "strict/ColumnWidthsTest.xlsx": {
+      "rows": 2,
+      "rows_digest": "baee19d8855f68e9",
+      "lines_digest": "831c2526a65568d5"
+    },
+    "strict/DateFormatButNotDate.xlsx": {
+      "rows": 3,
+      "rows_digest": "4a64bedd43d742f0",
+      "lines_digest": "fd9bec47b0d5cf50"
+    },
+    "strict/Decimal1109.xlsx": {
+      "rows": 1,
+      "rows_digest": "3c82f1f7fdd4ba99",
+      "lines_digest": "8e3bbaf7f8d2a212"
+    },
+    "strict/DecimalLocale.xlsx": {
+      "rows": 4,
+      "rows_digest": "0f2370e80aa6dfdd",
+      "lines_digest": "4a57781d19e890d1"
+    },
+    "strict/DocumentProperties.xlsx": {
+      "rows": 1,
+      "rows_digest": "5a6bf35567d3ff5a",
+      "lines_digest": "721f8b70f6b7fcb1"
+    },
+    "strict/DoublePrecision.xlsx": {
+      "rows": 9,
+      "rows_digest": "c6d11dd29bee63c9",
+      "lines_digest": "2628c5ff5afff678"
+    },
+    "strict/EmptyZipFile.xlsx": {
+      "failure": "IOStreams::Errors::Corrupt"
+    },
+    "strict/EncodingFormulaDate1520.xlsx": {
+      "rows": 9,
+      "rows_digest": "26b2324aacbb9234",
+      "lines_digest": "b6f2b0780cadfff2"
+    },
+    "strict/Excel2040.xlsx": {
+      "rows": 2,
+      "rows_digest": "3e5f4bd1e3a9646e",
+      "lines_digest": "b511e0a863bfd96a"
+    },
+    "strict/ExcelDataset.xlsx": {
+      "rows": 34,
+      "rows_digest": "8361c161eccd5c2c",
+      "lines_digest": "1ae6b06751845c1f"
+    },
+    "strict/ExcelOpenOffice.xlsx": {
+      "rows": 34,
+      "rows_digest": "8361c161eccd5c2c",
+      "lines_digest": "1ae6b06751845c1f"
+    },
+    "strict/Fillreport.xlsx": {
+      "rows": 19,
+      "rows_digest": "5c1e9e029f9c6d70",
+      "lines_digest": "4cde0f58a00c7206"
+    },
+    "strict/Format49_@.xlsx": {
+      "rows": 1,
+      "rows_digest": "e5ae8d0e62ed391c",
+      "lines_digest": "63ad0788d342e299"
+    },
+    "strict/Googlesourced.xlsx": {
+      "rows": 5,
+      "rows_digest": "c5ed7ebf1ac9e48f",
+      "lines_digest": "7288ae67226abff1"
+    },
+    "strict/Hashes.xlsx": {
+      "rows": 5,
+      "rows_digest": "c5ed7ebf1ac9e48f",
+      "lines_digest": "7288ae67226abff1"
+    },
+    "strict/Issue142.xlsx": {
+      "rows": 3258,
+      "rows_digest": "b3f65e58d451fda3",
+      "lines_digest": "6042ae68876fccc3"
+    },
+    "strict/Issue14_InvalidOADate.xlsx": {
+      "rows": 1,
+      "rows_digest": "8d091ca3097835dd",
+      "lines_digest": "03f04d0530d42f9d"
+    },
+    "strict/Issue221.xlsx": {
+      "rows": 1,
+      "rows_digest": "1cce43727fa1152f",
+      "lines_digest": "ee4d5d021ed2ba1f"
+    },
+    "strict/Issue224_Firstoddeven.xlsx": {
+      "rows": 2,
+      "rows_digest": "f4ea2ab864a5524e",
+      "lines_digest": "3a1c8866442c7184"
+    },
+    "strict/Issue224_Simple.xlsx": {
+      "rows": 0,
+      "rows_digest": "4f53cda18c2baa0c",
+      "lines_digest": "4f53cda18c2baa0c"
+    },
+    "strict/Issue250_Richtext.xlsx": {
+      "rows": 1,
+      "rows_digest": "2c2f1af592bb6717",
+      "lines_digest": "5b1e29b158e2638e"
+    },
+    "strict/Issue270.xlsx": {
+      "rows": 5,
+      "rows_digest": "d247802812c9b3dd",
+      "lines_digest": "a25bbb8623cd668c"
+    },
+    "strict/Issue271_InvalidDimension.xlsx": {
+      "rows": 7,
+      "rows_digest": "668c6d08c58a6cbe",
+      "lines_digest": "12fa3486c8fd2b5c"
+    },
+    "strict/Issue283_TimeSpan.xlsx": {
+      "rows": 28,
+      "rows_digest": "fd9eab40cb8a3792",
+      "lines_digest": "9165d8d81a3f878a"
+    },
+    "strict/Issue289.xlsx": {
+      "rows": 1,
+      "rows_digest": "eb6dac4070134820",
+      "lines_digest": "f55c94dd459274dd"
+    },
+    "strict/Issue301_IgnoreCase.xlsx": {
+      "rows": 10,
+      "rows_digest": "72ab82844de07938",
+      "lines_digest": "b8ddc0bed04af2a5"
+    },
+    "strict/Issue319.xlsx": {
+      "rows": 1,
+      "rows_digest": "c511e1f05002048b",
+      "lines_digest": "b185beb9207d57c6"
+    },
+    "strict/Issue324.xlsx": {
+      "rows": 20,
+      "rows_digest": "99e9b0f74f18633c",
+      "lines_digest": "3115873731ee71c5"
+    },
+    "strict/Issue329_Error.xlsx": {
+      "rows": 1,
+      "rows_digest": "1d8fc6ceb1f94c63",
+      "lines_digest": "90705178ab03013d"
+    },
+    "strict/Issue341.xlsx": {
+      "rows": 5,
+      "rows_digest": "fd09be48847ecda1",
+      "lines_digest": "028d8181b9fc1108"
+    },
+    "strict/Issue354.xlsx": {
+      "rows": 1,
+      "rows_digest": "fbde7843ffeaff0c",
+      "lines_digest": "27890e8e9e4fb727"
+    },
+    "strict/Issue364.xlsx": {
+      "rows": 1,
+      "rows_digest": "447b78f6db233af0",
+      "lines_digest": "6f0a857577638dbb"
+    },
+    "strict/Issue385_Backslash.xlsx": {
+      "rows": 10,
+      "rows_digest": "72ab82844de07938",
+      "lines_digest": "b8ddc0bed04af2a5"
+    },
+    "strict/Issue454.xlsx": {
+      "rows": 1,
+      "rows_digest": "ffbfd3cd60c80386",
+      "lines_digest": "48a83945f4f89b7d"
+    },
+    "strict/Issue486.xlsx": {
+      "rows": 3,
+      "rows_digest": "2a5203ddc8e0e246",
+      "lines_digest": "e5c5571ffd5ec61b"
+    },
+    "strict/Issue498.xlsx": {
+      "rows": 2,
+      "rows_digest": "6e28b29d1c4fe658",
+      "lines_digest": "d69eee53850be08f"
+    },
+    "strict/Issue518.xlsx": {
+      "rows": 3,
+      "rows_digest": "402b8133571e746f",
+      "lines_digest": "f17f48fca40de7b7"
+    },
+    "strict/Issue532.xlsx": {
+      "rows": 22,
+      "rows_digest": "78ac887f0812cf7a",
+      "lines_digest": "65f30e0efe097f5f"
+    },
+    "strict/Issue53_CachedFormulaStringType.xlsx": {
+      "rows": 4,
+      "rows_digest": "9cf147e9edaa2311",
+      "lines_digest": "392974605019d12b"
+    },
+    "strict/Issue541.xlsx": {
+      "rows": 1,
+      "rows_digest": "17c4ca7bf7e710f1",
+      "lines_digest": "75b425743d343304"
+    },
+    "strict/Issue574.xlsx": {
+      "rows": 2,
+      "rows_digest": "76a0f6f25df875ac",
+      "lines_digest": "52841354fe54b082"
+    },
+    "strict/Issue578.xlsx": {
+      "rows": 1,
+      "rows_digest": "4a68b4084d7d71d5",
+      "lines_digest": "ece4f5fc4de749cd"
+    },
+    "strict/Issue642.xlsx": {
+      "rows": 2,
+      "rows_digest": "a26917e5c0855a37",
+      "lines_digest": "b7063711117da94c"
+    },
+    "strict/Issue642_Onesheet.xlsx": {
+      "rows": 0,
+      "rows_digest": "4f53cda18c2baa0c",
+      "lines_digest": "4f53cda18c2baa0c"
+    },
+    "strict/Issue682.xlsx": {
+      "rows": 1,
+      "rows_digest": "069a3145d02b0e49",
+      "lines_digest": "05b1fed927d63d59"
+    },
+    "strict/Issue694_TimeSpan.xlsx": {
+      "rows": 53,
+      "rows_digest": "b7dcd31a9478cbe5",
+      "lines_digest": "e2da9853978208ec"
+    },
+    "strict/Issue694_TimeSpanFormula.xlsx": {
+      "rows": 15,
+      "rows_digest": "4e77729216f24aec",
+      "lines_digest": "a0970ed736deb2ee"
+    },
+    "strict/Issue788_Precision.xlsx": {
+      "rows": 1,
+      "rows_digest": "7cc4e698be0e9a1c",
+      "lines_digest": "cfe7b7c436e909bd"
+    },
+    "strict/LocaleTime.xlsx": {
+      "rows": 4,
+      "rows_digest": "5699a33e055d7abd",
+      "lines_digest": "92374e8391b58f3f"
+    },
+    "strict/LotsOfSheets.xlsx": {
+      "rows": 26,
+      "rows_digest": "7bb9efdfff1d0937",
+      "lines_digest": "725a436980550d1a"
+    },
+    "strict/MergedCell.xlsx": {
+      "rows": 7,
+      "rows_digest": "e99adde59be33f26",
+      "lines_digest": "aa4a4b88c3625b3a"
+    },
+    "strict/MultiSheet.xlsx": {
+      "rows": 12,
+      "rows_digest": "c91adede8b274eae",
+      "lines_digest": "0b2404964a138f46"
+    },
+    "strict/NoDimensionOrCellReferenceAttribute.xlsx": {
+      "rows": 7,
+      "rows_digest": "7cc02bae306201d2",
+      "lines_digest": "df32ff98d4ab0312"
+    },
+    "strict/NoStylesNoRAttribute.xlsx": {
+      "rows": 36,
+      "rows_digest": "3f62863f7ea68c01",
+      "lines_digest": "af3cab3d45d69d12"
+    },
+    "strict/NumDoubleDateBoolString.xlsx": {
+      "rows": 30,
+      "rows_digest": "4f2db584895ba47f",
+      "lines_digest": "34ef4e51459e8704"
+    },
+    "strict/OldIssue10725.xlsx": {
+      "rows": 1,
+      "rows_digest": "b8c8c47eecfed3ea",
+      "lines_digest": "2c181a264debb234"
+    },
+    "strict/OldIssue11397.xlsx": {
+      "rows": 6,
+      "rows_digest": "3df26ecfc994cea7",
+      "lines_digest": "e7048d6e2c48f241"
+    },
+    "strict/OldIssue11435_Colors.xlsx": {
+      "rows": 8,
+      "rows_digest": "f10d113712a82a9b",
+      "lines_digest": "4462e9d53f564e46"
+    },
+    "strict/OldIssue11479_BlankSheet.xlsx": {
+      "rows": 4,
+      "rows_digest": "48e618bd520100c1",
+      "lines_digest": "c5d2f2c0a6c5a550"
+    },
+    "strict/OldIssue11516_SingleTab.xlsx": {
+      "rows": 260,
+      "rows_digest": "199e01d7501fc24a",
+      "lines_digest": "c0ec0dfd577f6b4b"
+    },
+    "strict/OldIssue11522_OpenXml.xlsx": {
+      "rows": 2,
+      "rows_digest": "1a361881b3fbb864",
+      "lines_digest": "4711c04f56f99ee5"
+    },
+    "strict/OldIssue11573_BlankValues.xlsx": {
+      "rows": 220,
+      "rows_digest": "62f70a2c736a45be",
+      "lines_digest": "dd64f675fb8741c4"
+    },
+    "strict/OldIssue11773_Exponential.xlsx": {
+      "rows": 349,
+      "rows_digest": "ad6908f9ec639754",
+      "lines_digest": "615859843eaaf700"
+    },
+    "strict/OldIssue12667_GoogleExportMissingColumns.xlsx": {
+      "rows": 1,
+      "rows_digest": "3e4624fc6daeb1de",
+      "lines_digest": "cb8e1383552c9268"
+    },
+    "strict/OldIssue4031_NullColumn.xlsx": {
+      "rows": 8,
+      "rows_digest": "e57577d7650daf29",
+      "lines_digest": "3ef2af1dcd36c3bc"
+    },
+    "strict/OldIssue4145.xlsx": {
+      "rows": 1240,
+      "rows_digest": "9649513da5858887",
+      "lines_digest": "55e09b0523a7a3ad"
+    },
+    "strict/OldIssue7433_IllegalOleAutDate.xlsx": {
+      "rows": 3,
+      "rows_digest": "c503f598eb003925",
+      "lines_digest": "fe9aca4c08b7d5be"
+    },
+    "strict/OldIssue8536.xlsx": {
+      "rows": 8,
+      "rows_digest": "43374e511404986b",
+      "lines_digest": "f15b4139dc93e3a1"
+    },
+    "strict/Open.xlsx": {
+      "rows": 7,
+      "rows_digest": "5857e3834975c110",
+      "lines_digest": "fbd3c48ef93bf811"
+    },
+    "strict/UnicodeChars.xlsx": {
+      "rows": 3,
+      "rows_digest": "6ebe155ccb70756b",
+      "lines_digest": "34014b59f32dbadf"
+    },
+    "strict/agile_AES128_MD5_CBC_pwd_password.xlsx": {
+      "failure": "IOStreams::Errors::Corrupt"
+    },
+    "strict/agile_AES128_SHA1_CBC_pwd_password.xlsx": {
+      "failure": "IOStreams::Errors::Corrupt"
+    },
+    "strict/agile_AES128_SHA384_CBC_pwd_password.xlsx": {
+      "failure": "IOStreams::Errors::Corrupt"
+    },
+    "strict/agile_AES128_SHA512_CBC_pwd_password.xlsx": {
+      "failure": "IOStreams::Errors::Corrupt"
+    },
+    "strict/agile_AES192_SHA512_CBC_pwd_password.xlsx": {
+      "failure": "IOStreams::Errors::Corrupt"
+    },
+    "strict/agile_AES256_SHA512_CBC_pwd_password.xlsx": {
+      "failure": "IOStreams::Errors::Corrupt"
+    },
+    "strict/agile_DES_MD5_CBC_pwd_password.xlsx": {
+      "failure": "IOStreams::Errors::Corrupt"
+    },
+    "strict/agile_DESede_SHA384_CBC_pwd_password.xlsx": {
+      "failure": "IOStreams::Errors::Corrupt"
+    },
+    "strict/agile_RC2_SHA1_CBC_pwd_password.xlsx": {
+      "failure": "IOStreams::Errors::Corrupt"
+    },
+    "strict/roo_1900_base.xlsx": {
+      "rows": 2,
+      "rows_digest": "c788d8f3e45fd7ba",
+      "lines_digest": "a6b871f275d496db"
+    },
+    "strict/roo_1904_base.xlsx": {
+      "rows": 2,
+      "rows_digest": "c788d8f3e45fd7ba",
+      "lines_digest": "a6b871f275d496db"
+    },
+    "strict/standard_AES128_SHA1_ECB_pwd_password.xlsx": {
+      "failure": "IOStreams::Errors::Corrupt"
+    },
+    "strict/standard_AES192_SHA1_ECB_pwd_password.xlsx": {
+      "failure": "IOStreams::Errors::Corrupt"
+    },
+    "strict/standard_AES256_SHA1_ECB_pwd_password.xlsx": {
+      "failure": "IOStreams::Errors::Corrupt"
+    }
+  }
+}

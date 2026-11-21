@@ -632,7 +632,7 @@ format, such as `yyyy-mm-dd`, or of a time, was the text of a `Time` in the loca
 format with a letter in its text, such as `0" items"`, was a date. A number is the digits that Excel displays, its 15
 most significant, such as `1001`, `12.5`, or `0.3` for the `0.30000000000000004` that the workbook holds, where a cell
 with the type of a number was `1001.0`, a format of a whole number, such as `0` or
-`#,##0`, dropped the fraction of `12.5`, and a decimal cell that the `creek` gem returns as a `BigDecimal` was
+`#,##0`, dropped the fraction of `12.5`, and a decimal cell that v2.2 read as a `BigDecimal` was
 `0.125e2`.
 
 Fix: code that parses the text of a date or time cell with `Date.parse` still works, while `Time.parse` reads the clock
@@ -878,6 +878,18 @@ Remove a `delimiter:` or `buffer_size:` supplied to the rows and records of a sp
 text; the `:line` mode still takes them. v2.2 reports reading the rows and records of a spreadsheet without a type for
 each column as deprecated, and `delimiter:` and an encoding set with `#encoding` for them, while it raises for
 `buffer_size:` itself.
+
+#### Spreadsheets are read without the creek gem
+
+IOStreams reads a spreadsheet, `.xlsx` or `.xlsm`, itself, so it no longer needs the `creek` gem, nor `nokogiri`, which
+`creek` uses. It still needs `rubyzip`, which `creek` brought in, to open the spreadsheet, which is a zip file.
+
+Fix: in your Gemfile, replace `gem "creek"` with `gem "rubyzip"`, unless it already lists `rubyzip`. Keep `nokogiri`
+only if your application uses it for something else.
+
+The values are read as before, apart from cells that `creek` lost: a row whose cells do not name their columns, which
+`creek` returned without values, a cell of rich text, of which `creek` kept only the last piece, and on JRuby a cell
+whose text holds a line break or a `]`, which `creek` read only up to it.
 
 #### A date field takes a time only at midnight
 
