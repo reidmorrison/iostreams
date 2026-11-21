@@ -358,7 +358,8 @@ of their values, by the fields of a schema or contract when there is one, so tha
 date, a `Time` a date and time, holding its clock in UTC, or in the `timeZone` of its field, the value of a `time`
 field a time of day, of Excel's time format `h:mm:ss`, holding its own clock, or that of the `timeZone` of its field,
 and text, such as `"01234"`, is text. A date and time before 1899-12-31, which no cell of a date and time holds, is
-written as the text of its clock, such as `1899-12-30T12:00:00`, which a `datetime` field reads back. A `BigDecimal` is written as the `Float` that Excel
+written as the text of its clock, such as `1899-12-30T12:00:00`, which a `datetime` field reads back, and a date before
+1899-12-31, which Excel shows as `####`, as its text, such as `1899-12-30`, which a `date` field reads back. A `BigDecimal` is written as the `Float` that Excel
 holds, shown with the `decimals` of its field, such as `12.50`, see [Limitations](#spreadsheet-limitations). A field whose value is
 not one value, a `list`, `geopoint`, `array` or `object`, a `yearmonth` and a `duration`, is written as its text, as
 CSV writes it, such as `a,b`, `2026-10` or `P1D`, and a `Hash` or an `Array` of a field of type `any`, or without a schema, as its JSON:

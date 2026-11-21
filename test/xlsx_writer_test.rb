@@ -547,6 +547,28 @@ class XlsxWriterTest < Minitest::Test
       end
     end
 
+    describe "a date before Excel's first day" do
+      it "is written as its text, which a date field reads back, from rows and from auto_format alike" do
+        path = IOStreams.path(file_name).schema(fields: [{name: "on", type: "date"}, {name: "any", type: "any"}])
+        path.option(:xlsx, auto_format: true).writer(:array) do |io|
+          io << [Date.new(1899, 12, 30), "1899-12-29"]
+          io << [Date.new(1899, 12, 31), "1899-12-31"]
+          io << [Date.new(1600, 1, 1), "2026-01-02"]
+        end
+        xml = worksheet_xml(File.binread(file_name))
+
+        assert_includes xml, "<t>1899-12-30</t>"
+        assert_includes xml, "<t>1899-12-29</t>"
+        assert_includes xml, "<t>1600-01-01</t>"
+        assert_match(%r{<c r="A3" s="1"><v>1</v></c><c r="B3" s="1"><v>1</v></c>}, xml)
+        refute_match(/<v>-/, xml)
+        records = []
+        path.each(:hash) { |record| records << record.slice("on") }
+
+        assert_equal [Date.new(1899, 12, 30), Date.new(1899, 12, 31), Date.new(1600, 1, 1)].map { |on| {"on" => on} }, records
+      end
+    end
+
     describe "a number field with decimals" do
       it "is written in a number format of that many decimals, and read back as its number" do
         schema = {
