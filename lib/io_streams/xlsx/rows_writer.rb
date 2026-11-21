@@ -7,8 +7,8 @@ module IOStreams
     # Writes rows to a worksheet, each an Array of the values of its cells, which keep their types, see
     # `IOStreams::Xlsx::Writer.stream`'s `rows: true`, so that a number is a number, a Date or Time a date or time, and
     # text is text, such as `01234`, rather than every cell text, or a guess, or nil for a blank row, written as a row
-    # without cells. A time is written in UTC, and as its text before 1899-12-31, the first date and time of a cell, see
-    # #time_cell, as is a date before that day, see FIRST_DATE, a BigDecimal as the Float that Excel holds,
+    # without cells. A time is written in UTC, and a date or time that Excel does not show, before 1899-12-31 or after
+    # 9999-12-31, as its text, see #excel_date?, a BigDecimal as the Float that Excel holds,
     # a whole number of more digits than Excel keeps, or NaN or an infinity, as its text, a Hash or an Array as its
     # JSON, and any other value as its text, see `IOStreams::Schema::Field.any_text`.
     #
@@ -25,15 +25,20 @@ module IOStreams
       # The whole numbers that Excel holds with all of their digits, of at most the 15 significant digits that it keeps.
       EXACT = 10**15
 
-      # The first date and time that a cell of a date and time holds, Excel's day 1, before which the number of the cell
-      # would be less than 1, as that of a time of day is, or negative, which is no date that Excel shows, so that a date
-      # and time before it is written as its text, see #time_cell.
+      # The first date and time that a cell of a date and time holds, the day whose number is 1, before which the number
+      # of the cell would be less than 1, as that of a time of day is, or negative, which is no date that Excel shows, so
+      # that a date and time before it is written as its text, see #excel_date?.
       FIRST_DATE_TIME = Time.utc(1899, 12, 31).freeze
 
-      # The first date that a cell of a date holds, Excel's day 1, before which the number of the cell would be 0, which
-      # Excel shows as 1900-01-00, or negative, which it shows as `####`, so that a date before it is written as its
-      # text, such as `1899-12-30`, which a `date` field reads back.
+      # The first date that a cell of a date holds, the day whose number is 1, before which the number of the cell would
+      # be 0, which Excel shows as 1900-01-00, or negative, which it shows as `####`, so that a date before it is written
+      # as its text, such as `1899-12-30`, which a `date` field reads back, see #excel_date?.
       FIRST_DATE = Date.new(1899, 12, 31).freeze
+
+      # The last date that Excel shows, after which a date, or a date and time from the day after it, is written as its
+      # text, see #excel_date?.
+      LAST_DATE      = Date.new(9999, 12, 31).freeze
+      AFTER_LAST_DAY = Time.utc(10_000, 1, 1).freeze
 
       # Parameters
       #   worksheet: [IOStreams::Xlsx::WorksheetWriter]
@@ -84,7 +89,7 @@ module IOStreams
         when DateTime then time_cell(value.to_time, index)
         when Time then time_cell(value, index)
         when nil, true, false then value
-        when Date then value < FIRST_DATE ? value.iso8601 : value
+        when Date then excel_date?(value) ? value : value.iso8601
         when Integer, Float then decimal(number(value), index)
         when String then @auto_format && !@text_columns.key?(index) ? auto_format(value) : value
         else value.is_a?(::BigDecimal) ? decimal(number(value), index) : IOStreams::Schema::Field.any_text(value)
@@ -100,7 +105,7 @@ module IOStreams
         return time_of_day(time) if @time_columns.key?(index)
 
         time = time.getutc
-        time < FIRST_DATE_TIME ? IOStreams::Schema::Field.clock_text(time) : time
+        excel_date?(time) ? time : IOStreams::Schema::Field.clock_text(time)
       end
 
       # Returns [Numeric|String] the number, as a number of Excel, a double of which it keeps 15 significant digits, or
@@ -121,8 +126,8 @@ module IOStreams
       def auto_format(text)
         return BOOLEAN[text] if BOOLEAN.key?(text)
         return auto_number(text) if NUMBER.match?(text)
-        return early_text(Date.iso8601(text), text) if DATE.match?(text)
-        return early_text(DateTime.iso8601(text).to_time.getutc, text) if TIME.match?(text)
+        return date_or_text(Date.iso8601(text), text) if DATE.match?(text)
+        return date_or_text(DateTime.iso8601(text).to_time.getutc, text) if TIME.match?(text)
 
         text
       rescue ArgumentError
@@ -152,11 +157,23 @@ module IOStreams
         WorksheetWriter::TimeOfDay.new((time.hour * 3600) + (time.min * 60) + time.sec + time.subsec)
       end
 
-      # Returns [Date|Time|String] the date or time of text that looks like one, or the text itself for a date before
-      # FIRST_DATE, or a time before FIRST_DATE_TIME, see #time_cell, which no cell of a date or time holds.
-      def early_text(value, text)
-        first = value.is_a?(Time) ? FIRST_DATE_TIME : FIRST_DATE
-        value < first ? text : value
+      # Returns [Date|Time|String] the date or time of text that looks like one, or the text itself for one that no cell
+      # of a date or time holds, see #excel_date?.
+      def date_or_text(value, text)
+        excel_date?(value) ? value : text
+      end
+
+      # Returns [true|false] whether a cell holds the date, or the date and time in UTC, as one that Excel shows: from
+      # FIRST_DATE, or FIRST_DATE_TIME, to LAST_DATE, the last day of the year 9999. A time is compared to the millisecond
+      # that a cell holds, so that one within half a millisecond of the year 10000 is text, rather than a cell that
+      # holds the year 10000.
+      def excel_date?(value)
+        if value.is_a?(Time)
+          value = value.round(3)
+          value >= FIRST_DATE_TIME && value < AFTER_LAST_DAY
+        else
+          value.between?(FIRST_DATE, LAST_DATE)
+        end
       end
     end
   end
