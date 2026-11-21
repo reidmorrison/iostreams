@@ -147,6 +147,15 @@ jobs:
             echo "SFTP_IDENTITY_FILE=$RUNNER_TEMP/sftp_identity"
             echo "SFTP_HOST_KEY=$host_key"
           } >> "$GITHUB_ENV"
+      # JRuby reads .zst with the zstd-jni jar, which `rake zstd_jni` downloads into the local Maven repository unless
+      # it is there, see test/zstd_jni.rb. Cache it, since Maven Central rate limits the downloads of parallel jobs
+      # with 429 Too Many Requests. The key follows test/zstd_jni.rb, which holds the jar's version and checksum.
+      - name: Cache Maven Repository
+        if: ${{ matrix.ruby == 'jruby' }}
+        uses: actions/cache@v4
+        with:
+          path: ~/.m2/repository
+          key: m2-${{ runner.os }}-${{ hashFiles('test/zstd_jni.rb') }}
       - name: Run Tests
         if: ${{ !matrix.coverage }}
         run: bundle exec rake
