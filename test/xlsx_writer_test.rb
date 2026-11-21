@@ -55,8 +55,6 @@ class XlsxWriterTest < Minitest::Test
       end
 
       it "writes a quoted value that contains a newline" do
-        skip "creek on JRuby reads an inline string only up to its first newline" if defined?(JRuby)
-
         data = write { |io| io.write("a,\"multi\nline \"\"quoted\"\"\"\nb,c\n") }
 
         assert_equal [["a", "multi\nline \"quoted\""], %w[b c]], read_rows(data)
@@ -103,8 +101,6 @@ class XlsxWriterTest < Minitest::Test
       end
 
       it "writes a newline within a quoted value of a record that ends with a carriage return and newline" do
-        skip "creek on JRuby reads an inline string only up to its first newline" if defined?(JRuby)
-
         data = write { |io| io.write("a,\"multi\nline\"\r\nb,c\r\n") }
 
         assert_equal [%W[a multi\nline], %w[b c]], read_rows(data)
@@ -649,8 +645,6 @@ class XlsxWriterTest < Minitest::Test
       end
 
       it "keeps a line break within a cell in its line" do
-        skip "creek on JRuby reads an inline string only up to its first newline" if defined?(JRuby)
-
         IOStreams.path(file_name).writer(:array) do |io|
           io << %w[id note]
           io << ["1", "line one\nline two"]

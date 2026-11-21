@@ -904,9 +904,7 @@ class FrictionlessTypesTest < Minitest::Test
       end
 
       it "writes a spreadsheet, whose cells hold the text of a list and a geopoint, as CSV does, which read back" do
-        # creek on JRuby reads an inline string only up to a `]`, such as that of the JSON text of a geopoint array.
         path = IOStreams.path(dir, "places.xlsx").schema(schema)
-        path = path.option(:xlsx, use_shared_strings: true) if defined?(JRuby)
         path.writer(:hash) { |io| io << record }
 
         assert_equal [record], read(path)

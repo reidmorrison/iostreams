@@ -281,7 +281,7 @@ end
 The rows and records of a spreadsheet are the values of the cells of its first worksheet, each as Excel typed it, so
 that a number is a number and a date is a date, while its lines, and its bytes, are its CSV text, one line for each row,
 so the `:line` mode and a copy without a mode read that text. The `:text` format reads the CSV text of each row as it
-is, see [Text](#text). Reading needs the `creek` gem.
+is, see [Text](#text). Reading needs the `rubyzip` gem.
 
 ~~~ruby
 IOStreams.path("orders.xlsx").each(:hash) do |order|
@@ -400,10 +400,8 @@ Notes:
   the style of a time of day to the styles that `xlsxtream` writes. Another version raises `IOStreams::Errors::Error`
   before the file is opened, for a schema or contract with a `time` field.
 * Reading a spreadsheet needs a local file, so one stored elsewhere, or within another stream, is copied into a temp
-  file first. Its lines, and its bytes, are converted into CSV in a second temp file, since the `creek` gem returns them
-  to a block, while its rows and records are read straight from the workbook. Writing streams the workbook, without a temp file, see [When temp files are used](config#when-temp-files-are-used).
-* On JRuby, `creek` reads a value that holds a line break or a `]` only up to it, such as the JSON text of a `geopoint`
-  of the `array` format, unless the workbook was written with `use_shared_strings: true`, as Excel does.
+  file first. Its lines, and its bytes, are converted into CSV in a second temp file, since the rows are returned to a
+  block, while its rows and records are read straight from the workbook. Writing streams the workbook, without a temp file, see [When temp files are used](config#when-temp-files-are-used).
 
 ### Limitations {#spreadsheet-limitations}
 
@@ -440,7 +438,7 @@ number cell, which does not say what it counts.
 
 Excel counts 1900 as a leap year, so a date before 1900-03-01 is read a day early, in the rows and the lines alike, such
 as `1899-12-31` for the 1900-01-01 that Excel shows, and Excel's 1900-02-29, which does not exist, as `1900-02-28`.
-The `creek` gem reads them the same way. Likewise, a date before 1900-03-01 that IOStreams writes, such as the
+Likewise, a date before 1900-03-01 that IOStreams writes, such as the
 1900-01-01 of a `datetime` whose `format` reads no date, such as `%H:%M`, is a cell that Excel shows a day later, as
 1900-01-02, while IOStreams reads it back as 1900-01-01, so read and write a time of day with a `time` field, rather
 than a `datetime`.

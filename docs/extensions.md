@@ -25,7 +25,7 @@ and how to set the streams of a file whose name has none, is explained in
 | `.zst` | [Zstandard](#zstandard) | The `zstd-ruby` gem, 2.0.0 or later, or on JRuby the zstd-jni jar | None | `level` |
 | `.enc` | [Symmetric Encryption](#symmetric-encryption) | The `symmetric-encryption` gem, with its ciphers configured | `version`, `buffer_size` | `compress`, `version`, `cipher_name`, `header`, `random_key`, `random_iv` |
 | `.pgp`, `.gpg` | [PGP](#pgp) | The `gpg` program of GnuPG | `passphrase`, `signer` and more, see [Reader options](pgp#reader-options) | `recipient`, `signer` and more, see [Writer options](pgp#writer-options) |
-| `.xlsx`, `.xlsm` | [Excel spreadsheets](#excel-spreadsheets) | The `creek` gem to read, and `xlsxtream` 3.0 or later to write | None | `sheet_name`, `auto_format`, `use_shared_strings` |
+| `.xlsx`, `.xlsm` | [Excel spreadsheets](#excel-spreadsheets) | `rubyzip` to read, and `xlsxtream` 3.0 or later to write | None | `sheet_name`, `auto_format`, `use_shared_strings` |
 
 Only the registered extensions at the end of the name count, after its first `.`, whatever their case, so
 `DATA.CSV.GZ` is compressed with gzip, while `data.gz.csv` and `report.csv.bak` have no streams. `IOStreams.extensions`
@@ -299,13 +299,14 @@ for each row. See [Excel spreadsheets](formats#excel-spreadsheets) for the value
 
 ### Reading an Excel spreadsheet
 
-Reading uses the `creek` gem, which reads a local file and returns its rows to a block. Its rows and records are read
-from the worksheet as they are, while its lines are converted into CSV in a temp file for your code to read. A
+Reading needs only the `rubyzip` gem, which opens the spreadsheet, a zip file of XML parts: IOStreams reads the XML of
+the workbook itself, as it streams each part, without an XML gem. It reads a local file and returns its rows to a block.
+Its rows and records are read from the worksheet as they are, while its lines are converted into CSV in a temp file for your code to read. A
 spreadsheet on S3 or HTTP, or within another stream, is first copied into a temp file of its own, see [When temp files are used](config#when-temp-files-are-used). Reading takes no options, and
 raises `ArgumentError` for `sheet_name`, since it always reads the first worksheet.
 
-A spreadsheet is a zip file of parts, such as its worksheets. Before creek reads it, IOStreams checks the size and the
-CRC32 of each part, which creek does not, so that a damaged spreadsheet raises `IOStreams::Errors::Corrupt`, rather than
+A spreadsheet is a zip file of parts, such as its worksheets. Before it reads the rows, IOStreams checks the size and the
+CRC32 of each part, which rubyzip does not, so that a damaged spreadsheet raises `IOStreams::Errors::Corrupt`, rather than
 reading wrong values, see [Errors](errors#what-each-stream-raises).
 
 ### Writing an Excel spreadsheet

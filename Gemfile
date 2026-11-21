@@ -36,7 +36,6 @@ else
 end
 gem "aws-sdk-s3"
 gem "bzip2-ffi"
-gem "creek"
 gem "net-sftp"
 # net-ssh, which SFTP#each_child uses, needs these for ed25519 host and identity keys.
 gem "bcrypt_pbkdf", platform: :ruby # Not needed on JRuby.
@@ -46,7 +45,6 @@ gem "ed25519"
 # after #final before 0.19.4, so that each SFTP connection failed as it authenticated.
 # See https://github.com/jruby/jruby-openssl/issues/392
 gem "jruby-openssl", ">= 0.19.4", platform: :jruby
-gem "nokogiri"
 gem "parquet", platform: :ruby # A Rust extension, which JRuby cannot load.
 gem "pg", platform: :ruby # A C extension, which JRuby cannot load, so JRuby reads PostgreSQL with AR-JDBC, see below.
 gem "rubyzip"
