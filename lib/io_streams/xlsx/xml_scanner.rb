@@ -29,10 +29,15 @@ module IOStreams
     #   text(text)                       text [String], the text between tags, in one or more calls
     class XmlScanner
       # The bytes of a part that are read at a time.
+      CHUNK_SIZE = 65_536
+
       # The byte of a CR, which may be the first of a CR LF.
       CARRIAGE_RETURN = 13
 
-      CHUNK_SIZE = 65_536
+      # Raised by a handler for what the part holds that it cannot read, with what that is as its message, such as
+      # "a cell reference after Excel's last column", which the scanner raises as a failure of the part, see #fail.
+      class Invalid < StandardError
+      end
 
       # The most bytes of a tag, of its name and attributes, so that a part that never closes a tag raises, rather than
       # hold the rest of the part.
@@ -140,6 +145,8 @@ module IOStreams
           end
         end
         nil
+      rescue Invalid => e
+        fail(e.message)
       end
 
       private
@@ -289,8 +296,14 @@ module IOStreams
         chunk.force_encoding(Encoding::BINARY)
       end
 
+      # Returns [String] the bytes of the text as UTF-8, which the XML of a spreadsheet is.
+      #
+      # Raises [IOStreams::Errors::StreamFailure] tagged as `IOStreams::Errors::Corrupt` for bytes that are not UTF-8.
       def utf8(text)
-        text.force_encoding(Encoding::UTF_8)
+        text = text.force_encoding(Encoding::UTF_8)
+        return text if text.valid_encoding?
+
+        fail("bytes that are not UTF-8, #{text.scrub { |bytes| break bytes }.b.dump}")
       end
 
       def fail(reason)

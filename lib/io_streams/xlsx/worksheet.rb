@@ -20,6 +20,9 @@ module IOStreams
       # The value of `A`, from which a column's letters count.
       A = "A".ord - 1
 
+      # The index of Excel's last column, XFD, after which a cell reference is not one of a worksheet.
+      LAST_COLUMN = 16_383
+
       # Parameters:
       #   converter: [#call]
       #     Returns the value of a cell, for its text, its type, its `t` attribute, or nil, and the index of its style,
@@ -107,8 +110,10 @@ module IOStreams
       end
 
       # Returns [Integer] the index of the column of a cell reference, such as 27 for `AB1`, or the next column for a
-      # reference without letters. Its letters are compared without case, as
-      # Excel reads them.
+      # reference without letters. Its letters are compared without case, as Excel reads them.
+      #
+      # Raises [IOStreams::Xlsx::XmlScanner::Invalid] for a column after Excel's last, rather than hold a row of that
+      # many cells.
       def column(reference)
         index = 0
         reference.each_byte do |byte|
@@ -116,6 +121,9 @@ module IOStreams
           break unless byte.between?(65, 90)
 
           index = (index * 26) + byte - A
+          next unless index > LAST_COLUMN + 1
+
+          raise(XmlScanner::Invalid, "the cell reference #{reference.inspect}, after Excel's last column, XFD")
         end
         index.zero? ? @column : index - 1
       end

@@ -172,11 +172,14 @@ class XlsxPartsTest < Minitest::Test
       assert_equal expected, rows(name)
     end
 
-    it "reads a workbook without relationships of its own by the parts that Excel names" do
+    it "reads a workbook without relationships of its own by the parts that Excel names, in the folder of the workbook" do
       name = workbook(
+        "_rels/.rels"                => relationships("officeDocument" => "book/workbook.xml"),
+        "xl/workbook.xml"            => nil,
         "xl/_rels/workbook.xml.rels" => nil,
-        "xl/sharedStrings.xml"       => %(<sst xmlns="#{MAIN}"><si><t>shared</t></si></sst>),
-        "xl/worksheets/sheet1.xml"   => sheet(%(<row><c r="A1" t="s"><v>0</v></c></row>))
+        "book/workbook.xml"          => %(<workbook xmlns="#{MAIN}"><sheets><sheet name="One" sheetId="1"/></sheets></workbook>),
+        "book/sharedStrings.xml"     => %(<sst xmlns="#{MAIN}"><si><t>shared</t></si></sst>),
+        "book/worksheets/sheet1.xml" => sheet(%(<row><c r="A1" t="s"><v>0</v></c></row>))
       )
 
       assert_equal [["shared"]], rows(name)
@@ -213,6 +216,18 @@ class XlsxPartsTest < Minitest::Test
         name = workbook("xl/workbook.xml" => %(<workbook xmlns="#{MAIN}"><sheets/></workbook>))
 
         assert_corrupt name, "has no worksheet"
+      end
+
+      it "for text that is not UTF-8" do
+        xml = sheet(%(<row><c r="A1" t="inlineStr"><is><t>a\xFFb\r\nc &amp;</t></is></c></row>)).b
+
+        assert_corrupt workbook("xl/worksheets/sheet1.xml" => xml), %(bytes that are not UTF-8, "\\xFF")
+      end
+
+      it "for a cell after Excel's last column, rather than hold a row of that many cells" do
+        name = workbook("xl/worksheets/sheet1.xml" => sheet(%(<row><c r="XFD1"><v>1</v></c><c r="ZZZZZZZ1"><v>2</v></c></row>)))
+
+        assert_corrupt name, %(the cell reference "ZZZZZZZ1", after Excel's last column, XFD)
       end
 
       it "for a zip file without a workbook" do

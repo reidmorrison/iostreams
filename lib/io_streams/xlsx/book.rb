@@ -83,11 +83,11 @@ module IOStreams
       end
 
       # Returns [Array<Sheet>] the worksheets of the sheets of a workbook without a relationships part, as some writers
-      # leave out, by the parts that Excel names them, in order, `xl/worksheets/sheet1.xml` for the first, that the
-      # package holds.
+      # leave out, by the parts that Excel names them, in the order of the sheets, as Excel numbers them,
+      # `worksheets/sheet1.xml` for the first, in the folder of the workbook part, that the package holds.
       def named_sheets(sheets)
         sheets.each_with_index.filter_map do |(name, _id), index|
-          part = "xl/worksheets/sheet#{index + 1}.xml"
+          part = "#{folder}worksheets/sheet#{index + 1}.xml"
           Sheet.new(name, part) if @package.part?(part)
         end
       end
@@ -97,8 +97,14 @@ module IOStreams
       # a workbook need not have shared strings nor styles.
       def related_part(relationships, type)
         part = relationships.find { |relationship| relationship.type == type }&.target
-        part ||= "xl/#{type}.xml" if relationships.empty?
+        part ||= "#{folder}#{type}.xml" if relationships.empty?
         part if part && @package.part?(part)
+      end
+
+      # Returns [String] the folder of the workbook part, such as `xl/`, or "" for a part at the root of the package.
+      def folder
+        slash = @part.rindex("/")
+        slash ? @part[0..slash] : ""
       end
 
       # Reads the worksheets of the workbook part, by their names and relationship ids, and its date system.
