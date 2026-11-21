@@ -385,6 +385,7 @@ module IOStreams
         prefix = Utils::URI.new(matcher.path.to_s).path.sub(%r{\A/}, "")
         each_object(prefix) do |name, object|
           next if !directories && object.key.end_with?("/")
+          next unless within_prefix?(object.key, prefix)
 
           file_name = Utils::PathName.join("s3://", name, object.key)
           next unless matcher.match?(file_name)
@@ -544,6 +545,22 @@ module IOStreams
           token = resp.next_continuation_token
           break if token.nil?
         end
+      end
+
+      # Returns [true|false] whether the key names an object or folder within the prefix that listed it, logging the key
+      # when it does not. S3 holds `.`, `..` and repeated `/` in a key as ordinary characters, so whoever can write an
+      # object below the prefix can name a key such as `exports/../outside.csv`, which a local path reads as outside
+      # `exports`, so `#each_child` skips a key whose name within the prefix has an empty, `.` or `..` name, see
+      # `IOStreams::Utils::PathName.descendant?`. The folder of the prefix itself, such as `exports/`, is kept as before.
+      def within_prefix?(key, prefix)
+        relative = key.delete_prefix(prefix).delete_prefix("/")
+        return true if relative.empty? || Utils::PathName.descendant?(relative)
+
+        IOStreams.logger&.warn(
+          "Skipping the key #{key.inspect} since its name within #{prefix.inspect} has an empty, '.' or '..' name, " \
+          "so it does not name an object within it"
+        )
+        false
       end
 
       # Returns [String] the bucket and key, which is compared against the allowed paths.

@@ -585,6 +585,23 @@ module Paths
           end
         end
 
+        it "lists only the keys whose name within the path has no empty, . or .. name, with hidden: true" do
+          path = IOStreams::Paths::S3.new("s3://bucket/p", client: {stub_responses: true}, region: "us-east-1")
+          # S3 holds `.`, `..` and repeated `/` in a key as they are, so whoever can write below `p/` chooses them.
+          keys = %w[p/ok.csv p/.hidden.csv p/..dots.csv p/sub/b.csv p/../x.csv p/./y.csv p//z.csv p/a/../../w.csv]
+          path.client.stub_responses(:list_objects_v2, {name: "bucket", contents: keys.map { |key| {key: key} }})
+          output   = StringIO.new
+          original = IOStreams.logger
+          IOStreams.logger = Logger.new(output, level: :warn)
+
+          assert_equal %w[p/..dots.csv p/.hidden.csv p/ok.csv p/sub/b.csv], path.children("**/*", hidden: true).map(&:path).sort
+          %w[p/../x.csv p/./y.csv p//z.csv p/a/../../w.csv].each do |key|
+            assert_includes output.string, "Skipping the key #{key.inspect} since its name within \"p\""
+          end
+        ensure
+          IOStreams.logger = original
+        end
+
         it "uses the same client for the children" do
           path     = IOStreams::Paths::S3.new("s3://bucket/inbox", client: client)
           children = path.each_child("**/*").to_a.map(&:first)

@@ -194,6 +194,7 @@ module IOStreams
             # Without a path in the url, list the login directory.
             sftp.dir.glob(path.empty? ? "." : path, pattern, flags) do |entry|
               next if !directories && !entry.file?
+              next unless listed_name?(entry.name)
 
               child = child_path(entry.name)
               yield(child, entry.attributes.attributes) if allowed_child?(child)
@@ -210,6 +211,20 @@ module IOStreams
       private
 
       attr_reader :password
+
+      # Returns [true|false] whether the name, relative to this path, of an entry that the server listed names a file or
+      # directory within this path, logging it when it does not. Net::SFTP joins the names that the server sends, so
+      # a hostile server can list an entry such as `../outside.csv`, which `#each_child` skips, see
+      # `IOStreams::Utils::PathName.descendant?`.
+      def listed_name?(name)
+        return true if Utils::PathName.descendant?(name)
+
+        IOStreams.logger&.warn(
+          "Skipping the entry #{name.inspect} that the SFTP server listed in #{path.inspect}, since it is not the name " \
+          "of a file or directory within it"
+        )
+        false
+      end
 
       # Returns [String] the host, port and path, which is compared against the allowed paths.
       # `.` and `..` are resolved the way the sftp server resolves them.
