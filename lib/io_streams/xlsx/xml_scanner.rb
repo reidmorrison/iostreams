@@ -35,7 +35,8 @@ module IOStreams
       CARRIAGE_RETURN = 13
 
       # Raised by a handler for what the part holds that it cannot read, with what that is as its message, such as
-      # "a cell reference after Excel's last column", which the scanner raises as a failure of the part, see #fail.
+      # "a cell reference after Excel's last column", which the scanner raises as a failure of the part, see #fail. Only
+      # a handler raises it, never the block that a handler yields to, since the scan would report it as the part's.
       class Invalid < StandardError
       end
 

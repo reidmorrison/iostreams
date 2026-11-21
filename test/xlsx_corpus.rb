@@ -105,7 +105,10 @@ module XlsxCorpus
         name = entry.full_name.split("/", 2).last
         next unless entry.file? && name.start_with?(TEST_DATA) && name.match?(/\.xls[xm]\z/i)
 
-        target = File.join(partial, name.delete_prefix(TEST_DATA))
+        # A name that leaves the folder, such as by "..", which a damaged or altered archive could hold, is skipped.
+        target = File.expand_path(name.delete_prefix(TEST_DATA), partial)
+        next unless target.start_with?("#{File.expand_path(partial)}/")
+
         FileUtils.mkdir_p(File.dirname(target))
         File.binwrite(target, entry.read)
       end
