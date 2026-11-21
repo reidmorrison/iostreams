@@ -810,7 +810,10 @@ valid in its encoding, raises `IOStreams::Errors::InvalidValue`. Frictionless wr
 which also matches the whole text, and whose patterns are mostly those of Ruby, apart from its classes `\i` and `\c`,
 the characters that start and continue an XML name, and its subtraction of classes, such as `[a-z-[aeiou]]`, which Ruby
 does not have, while Ruby has some that XML Schema does not, such as `\A` and lookahead, so keep to their common syntax
-in a schema that other tools read.
+in a schema that other tools read. A value that takes longer than `IOStreams.pattern_timeout`, 0.1 seconds by default,
+to match raises `IOStreams::Errors::InvalidValue`, so that a pattern that backtracks without end, such as one with a
+backreference, cannot hold up a read or write, see
+[Untrusted schemas and patterns](security#untrusted-schemas-and-patterns).
 
 A `string` or `integer` field can also have `categories`, the values that it can have, each a value or an object of a
 value and a text label, which only describes it to people, such as

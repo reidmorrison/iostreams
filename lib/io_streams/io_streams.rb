@@ -433,6 +433,33 @@ module IOStreams
 
   @temp_dir = nil
 
+  # The longest time, in seconds, that the `pattern` constraint of a schema's field may take to match one value, see
+  # `IOStreams::Schema::Constraints`, so that a pattern that backtracks without end, such as `(?:(a+)\1?)+`, cannot hold
+  # up a read or write when its schema or its values come from a user. A value that takes longer raises
+  # `IOStreams::Errors::InvalidValue`. It applies to the schemas built after it is set.
+  #
+  # Set it to nil for no limit of IOStreams' own, so that a pattern takes `Regexp.timeout`, which is nil, no limit, by
+  # default.
+  #
+  # Raises ArgumentError for a value that is not a number of seconds more than 0, or nil.
+  def self.pattern_timeout=(seconds)
+    unless seconds.nil? || (seconds.is_a?(Numeric) && seconds.real? && seconds.positive? && seconds.finite?)
+      raise(ArgumentError, "IOStreams.pattern_timeout must be a number of seconds more than 0, or nil: #{seconds.inspect}")
+    end
+
+    @pattern_timeout = seconds
+  end
+
+  # Returns [Numeric|nil] the longest time, in seconds, that the `pattern` constraint of a field may take to match one
+  # value, see `IOStreams.pattern_timeout=`.
+  #
+  # Default: 0.1
+  def self.pattern_timeout
+    @pattern_timeout
+  end
+
+  @pattern_timeout = 0.1
+
   # Returns [Logger] the logger used by IOStreams for debug logging.
   #
   # When SemanticLogger is loaded a SemanticLogger instance is used by default,

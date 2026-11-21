@@ -13,7 +13,8 @@ class ShareableTest < Minitest::Test
   # Contract.fields_match.
   CLASS_STATE_WRITERS = %w[
     IOStreams.add_allowed_path IOStreams.add_root IOStreams.delete_allowed_path IOStreams.deregister_extension
-    IOStreams.logger= IOStreams.register_extension IOStreams.register_scheme IOStreams.temp_dir=
+    IOStreams.logger= IOStreams.pattern_timeout= IOStreams.register_extension IOStreams.register_scheme
+    IOStreams.temp_dir=
     IOStreams::Contract.add_field IOStreams::Contract.build IOStreams::Contract.descriptor= IOStreams::Contract.field
     IOStreams::Contract.inherited IOStreams::Contract.set_property
     IOStreams::Paths::SFTP.before_password_wait_seconds= IOStreams::Paths::SFTP.sftp_bin=
@@ -66,6 +67,7 @@ class ShareableTest < Minitest::Test
           IOStreams.temp_dir
           # Each setting, with a String that the caller can still change.
           IOStreams.temp_dir = Dir.tmpdir.dup
+          IOStreams.pattern_timeout = Rational(1, 10)
           IOStreams.add_allowed_path(Dir.tmpdir.dup)
           IOStreams.add_root(:default, Dir.tmpdir.dup)
           IOStreams.add_root(:sftp, +"sftp://example.org/data", username: +"jack", password: +"secret")
