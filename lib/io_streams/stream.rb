@@ -1545,9 +1545,10 @@ module IOStreams
       open_rows_lines(tabular, delimiter, buffer_size, &)
     end
 
-    # Returns [String|nil] the name of the file that the failures of a reader of rows name, such as a damaged Parquet
-    # file, see `IOStreams::Tabular#read_rows`: the file name of the stream, as a stream's reader names it, see
-    # `IOStreams::Builder#reader`, or nil when it has none. A path names itself instead, see `IOStreams::Path`.
+    # Returns [String|nil] the name of the file that the failures of a reader or writer of rows name, such as a damaged
+    # Parquet file, see `IOStreams::Tabular#read_rows` and `IOStreams::Tabular#write_rows`: the file name of the stream,
+    # as a stream's reader names it, see `IOStreams::Builder#reader`, or nil when it has none. A path names itself
+    # instead, see `IOStreams::Path`.
     def failure_name
       builder.file_name
     end
@@ -1580,8 +1581,8 @@ module IOStreams
 
       unless tabular.lines?
         reject_line_options!(tabular, delimiter: delimiter)
-        tabular.check_write_rows
-        return open_writer { |io| tabular.write_rows(io, &) }
+        tabular.check_write_rows(display_name: failure_name)
+        return open_writer { |io| tabular.write_rows(io, display_name: failure_name, &) }
       end
 
       IOStreams::Line::Writer.check(delimiter: delimiter)

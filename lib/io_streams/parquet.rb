@@ -64,6 +64,12 @@ module IOStreams
 
     # Returns [true|false] whether the exception is a panic of the `parquet` gem, which it raises as Ruby's `fatal`, see
     # .within_gem. The class `fatal` has no constant, so it is known by its name.
+    #
+    # Any `fatal` raised while the gem runs is taken as its panic, since magnus gives it nothing else to tell it apart:
+    # its message is that of the panic of the Rust code. Ruby raises `fatal` itself too, such as "No live threads left.
+    # Deadlock?", but only in a thread that waits on another, which the gem does not do while it reads its file, and
+    # Ruby raises it in the main thread, never in the thread of the writer, while what the caller's block raises is
+    # raised as it is, see `IOStreams::Parquet::Reader#each`.
     def self.panic?(exception)
       exception.class.name == "fatal" # rubocop:disable Style/ClassEqualityComparison -- `fatal` has no constant
     end

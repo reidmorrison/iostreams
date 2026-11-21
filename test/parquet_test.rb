@@ -183,6 +183,10 @@ class ParquetTest < Minitest::Test
       end
 
       describe "a damaged file that makes the gem panic" do
+        before do
+          require "parquet"
+        end
+
         # A file of one integer column with one byte changed, which the parquet gem 0.9.0 reads as a panic of its Rust
         # code, raised as Ruby's `fatal`, which `rescue StandardError` does not rescue, while it reads its schema.
         let :damaged do
@@ -194,43 +198,73 @@ class ParquetTest < Minitest::Test
           ObjectSpace.each_object(Class).find { |klass| klass.name == "fatal" }
         end
 
-        # Returns the StandardError that the block raises, with the standard error of the process discarded, where the
-        # Rust code of the gem writes the message of each panic.
+        # Raises the panic as the parquet gem raises a panic of its Rust code, with Ruby's `rb_exc_fatal`, which no
+        # `rescue` rescues until it has passed an `ensure` clause, see `IOStreams::Parquet.within_gem`. A plain
+        # `raise(panic)` would only check that a `fatal` is converted, since Ruby's `raise` can be rescued without
+        # passing an `ensure`, and not that IOStreams rescues the `fatal` that the gem raises.
+        def raise_panic(panic)
+          require "fiddle"
+          # Ruby's C functions must be called with the GVL, which Fiddle otherwise releases.
+          fatal_error = Fiddle::Function.new(Fiddle::Handle::DEFAULT["rb_exc_fatal"], [Fiddle::TYPE_VOIDP], Fiddle::TYPE_VOID,
+                                             need_gvl: true)
+          fatal_error.call(Fiddle.dlwrap(panic))
+        end
+
+        # Returns the StandardError that the block raises, or nil.
         def rescue_standard_error
-          stderr = $stderr.dup
-          $stderr.reopen(File::NULL)
-          begin
-            yield
-            nil
-          ensure
-            $stderr.reopen(stderr)
-            stderr.close
-          end
+          yield
+          nil
         rescue StandardError => e
           e
         end
 
+        # Returns [String] what the block writes to the standard error of the process, where the Rust code of the gem
+        # writes the message of each panic, which is restored once the block returns or raises.
+        def capture_stderr
+          require "tempfile"
+          stderr = $stderr.dup
+          Tempfile.create("iostreams_stderr") do |file|
+            $stderr.reopen(file)
+            begin
+              yield
+            ensure
+              $stderr.reopen(stderr)
+              stderr.close
+            end
+            File.read(file.path)
+          end
+        end
+
         it "raises Corrupt, which rescue StandardError rescues, naming the file" do
-          error = rescue_standard_error { read(damaged) }
+          error  = nil
+          output = capture_stderr { error = rescue_standard_error { read(damaged) } }
 
           assert_kind_of IOStreams::Errors::Corrupt, error
+          assert_instance_of IOStreams::Errors::StreamFailure, error
           assert_equal damaged.display_name, error.display_name
+          assert_equal "#{damaged.display_name}: The parquet gem could not read the file: offset + len out of bounds", error.message
+          assert_equal "fatal", error.cause.class.name
+          # The gem writes the message of the panic itself.
+          assert_includes output, "offset + len out of bounds"
         end
 
         it "raises Corrupt for each mode that reads the rows, also of a compressed file" do
           compressed = path("damaged.parquet.gz")
           compressed.writer(:stream) { |io| io.write(File.binread(damaged.to_s)) }
+          errors = []
+          capture_stderr do
+            errors << rescue_standard_error { damaged.each(:array) { nil } }
+            errors << rescue_standard_error { damaged.each(:slice, size: 10) { nil } }
+            errors << rescue_standard_error { read(compressed) }
+          end
 
-          assert_kind_of(IOStreams::Errors::Corrupt, rescue_standard_error { damaged.each(:array) { nil } })
-          assert_kind_of(IOStreams::Errors::Corrupt, rescue_standard_error { damaged.each(:slice, size: 10) { nil } })
-          error = rescue_standard_error { read(compressed) }
-
-          assert_kind_of IOStreams::Errors::Corrupt, error
-          assert_equal compressed.display_name, error.display_name
+          errors.each { |error| assert_kind_of IOStreams::Errors::Corrupt, error }
+          assert_equal compressed.display_name, errors.last.display_name
         end
 
         it "raises Corrupt in a thread other than the main thread, without stopping the main thread" do
-          error = Thread.new { rescue_standard_error { read(damaged) } }.value
+          error = nil
+          capture_stderr { error = Thread.new { rescue_standard_error { read(damaged) } }.value }
 
           assert_kind_of IOStreams::Errors::Corrupt, error
         end
@@ -241,7 +275,7 @@ class ParquetTest < Minitest::Test
 
         it "reads another file once it panicked" do
           write
-          rescue_standard_error { read(damaged) }
+          capture_stderr { rescue_standard_error { read(damaged) } }
 
           assert_equal expected, read(path.schema(schema))
         end
@@ -250,7 +284,7 @@ class ParquetTest < Minitest::Test
           write
           panic = fatal.new("index out of bounds")
 
-          error = ::Parquet.stub(:each_row, ->(*, **) { raise(panic) }) { rescue_standard_error { read } }
+          error = ::Parquet.stub(:each_row, ->(*, **) { raise_panic(panic) }) { rescue_standard_error { read } }
 
           assert_instance_of IOStreams::Errors::StreamFailure, error
           assert_kind_of IOStreams::Errors::Corrupt, error
@@ -262,7 +296,7 @@ class ParquetTest < Minitest::Test
           write
           panic = fatal.new("index out of bounds")
 
-          error = ::Parquet.stub(:metadata, ->(*) { raise(panic) }) { rescue_standard_error { path.infer_schema } }
+          error = ::Parquet.stub(:metadata, ->(*) { raise_panic(panic) }) { rescue_standard_error { path.infer_schema } }
 
           assert_kind_of IOStreams::Errors::Corrupt, error
           assert_same panic, error.cause
@@ -272,17 +306,17 @@ class ParquetTest < Minitest::Test
           write
           raised = fatal.new("from the block")
 
-          error = assert_raises(fatal) { path.each(:hash) { |record| raise(raised) if record } }
+          error = assert_raises(fatal) { path.each(:hash) { |record| raise_panic(raised) if record } }
           assert_same raised, error
         end
 
-        it "raises a panic of the gem when it writes as a StreamFailure, and writes nothing" do
+        it "raises a panic of the gem when it writes, in the thread of the gem, as a StreamFailure, and writes nothing" do
           panic = fatal.new("index out of bounds")
 
-          error = ::Parquet.stub(:write_rows, ->(*, **) { raise(panic) }) { rescue_standard_error { write } }
+          error = ::Parquet.stub(:write_rows, ->(*, **) { raise_panic(panic) }) { rescue_standard_error { write } }
 
           assert_instance_of IOStreams::Errors::StreamFailure, error
-          assert_equal "The parquet gem could not write the file: index out of bounds", error.message
+          assert_equal "#{path.display_name}: The parquet gem could not write the file: index out of bounds", error.message
           assert_same panic, error.cause
           refute_path_exists path.to_s
         end

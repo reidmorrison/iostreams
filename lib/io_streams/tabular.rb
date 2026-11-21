@@ -382,18 +382,21 @@ module IOStreams
 
     # Yields [#<<] the writer of the rows of a format whose rows are not lines, see #lines?, to the supplied stream of
     # its bytes, which takes the rows that #render returns, with the options of the rows, see #read_rows. It writes the
-    # fields of the schema, which give the type of each column.
+    # fields of the schema, which give the type of each column. A writer that names the file in its failures, such as
+    # Parquet, names it by `display_name:`, as for #read_rows.
     #
     # Returns the result of the block.
-    def write_rows(io, &)
-      parser.class.row_format.open_stream(:writer, io, @row_format_options, name: format, arguments: {schema: schema}, &)
+    def write_rows(io, display_name: nil, &)
+      parser.class.row_format.open_stream(:writer, io, @row_format_options, name: format, display_name: display_name,
+                                                                            arguments: {schema: schema}, &)
     end
 
     # Raises what #write_rows would raise before it writes anything, such as for a schema whose fields the format cannot
     # write, or an option value that it does not accept, so that the caller can check before it opens the output, which
     # would replace an existing file, see `IOStreams::StreamFormat#check_stream`.
-    def check_write_rows
-      parser.class.row_format.check_stream(:writer, @row_format_options, name: format, arguments: {schema: schema})
+    def check_write_rows(display_name: nil)
+      parser.class.row_format.check_stream(:writer, @row_format_options, name: format, display_name: display_name,
+                                                                         arguments: {schema: schema})
     end
 
     # Returns [String] the encoding that the format of the lines reads and writes text in when the caller does not set

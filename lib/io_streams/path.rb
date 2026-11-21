@@ -460,7 +460,7 @@ module IOStreams
 
     private
 
-    # Returns [String] the display name of this path, which the failures of a reader of rows name, see
+    # Returns [String] the display name of this path, which the failures of a reader or writer of rows name, see
     # `IOStreams::Stream#failure_name`, as the readers of its streams do, see `IOStreams::Builder#reader`.
     def failure_name
       display_name

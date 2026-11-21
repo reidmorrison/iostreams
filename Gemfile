@@ -12,6 +12,7 @@ gem "rake"
 # Gems that the tests require themselves, rather than only through the gems that depend on them, such as
 # Active Support, so that the tests do not depend on what those gems happen to depend on.
 gem "base64" # Also required by symmetric-encryption, which does not list it.
+gem "fiddle", platform: :ruby # To raise a panic as the parquet gem raises it, see test/parquet_test.rb.
 gem "logger"
 gem "prism" # To find the methods that set the state of a class, see test/class_state_writers.rb.
 gem "tzinfo" # Loaded by IOStreams::Schema::TimeZone for a named zone.
