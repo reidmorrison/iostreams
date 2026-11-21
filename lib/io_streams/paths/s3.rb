@@ -382,9 +382,12 @@ module IOStreams
           return
         end
 
+        # List within the key as a directory, so that a key that only starts with the same characters, such as
+        # `reports_2024.csv` or `reports_2024/a.csv` for `s3://bucket/reports`, is not a child.
         prefix = Utils::URI.new(matcher.path.to_s).path.sub(%r{\A/}, "")
         # The pattern's directory, such as `sub` in `sub/**/*`, is listed within this path, see #within_prefix?.
         nested = prefix.chomp("/") != path.chomp("/")
+        prefix = "#{prefix}/" unless prefix.empty? || prefix.end_with?("/")
         each_object(prefix) do |name, object|
           next if !directories && object.key.end_with?("/")
 
@@ -571,7 +574,7 @@ module IOStreams
         return true if relative.empty? || Utils::PathName.stays_within?(relative)
 
         IOStreams.logger&.warn(
-          "Skipping the key #{key.inspect} since its name within #{prefix.inspect} has a '.' or '..' name or a NUL, or " \
+          "Skipping the key #{key.inspect} since its name within #{prefix.chomp("/").inspect} has a '.' or '..' name or a NUL, or " \
           "starts with '/', so it could name a file outside a directory that it is joined onto"
         )
         false

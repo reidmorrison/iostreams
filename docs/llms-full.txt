@@ -1456,6 +1456,8 @@ Notes:
   * Names are checked with `/` as the separator, so a target on Windows is not covered. `File.expand_path` reads a
     name that starts with `~`, such as Excel's `~$Q3.xlsx`, as a home directory, so prefix the name with `./` before
     expanding it.
+* On S3, `each_child` lists the keys within the path as a directory, so `s3://bucket/reports` does not list a key
+  that only starts with the same characters, such as `reports_2024.csv` or `reports_2024/a.csv`.
 
 ### Using root paths
 
