@@ -30,6 +30,10 @@ module IOStreams
       # The first day of a time of day, as Active Record holds the value of a `time` column.
       TIME_OF_DAY = [2000, 1, 1].freeze
 
+      # The most bytes of the text of a number of a date or time that is read as it is, see .days: more than the 17
+      # significant digits of a double, with its sign and decimal point.
+      SHORT_NUMBER = 32
+
       # The number of the day after the last date that Excel holds, 9999-12-31, since 1899-12-30.
       LAST_DAY = 2_958_466
 
@@ -254,10 +258,15 @@ module IOStreams
 
       # Returns [Rational|nil] the days since the first day of the workbook of the text of a number, or nil for one
       # outside the dates that Excel holds, from its first day up to 9999-12-31, such as a negative number, or one of a
-      # huge exponent, which is checked as a Float before it becomes a Rational, so that its cost is bounded.
+      # huge exponent, which is checked as a Float before it becomes a Rational. The Rational is of the text only when it
+      # is short and has no exponent, as Excel writes the double that it holds, otherwise of that double's own text, so
+      # that text such as `1e-100000000` or a fraction of a million digits, which a Float reads as a date, does not
+      # become a Rational of a huge denominator, whose arithmetic Ruby cannot interrupt.
       def self.days(text)
         days = Float(text)
-        Rational(text) if days >= 0 && days < LAST_DAY
+        return unless days >= 0 && days < LAST_DAY
+
+        Rational(text.bytesize <= SHORT_NUMBER && !text.match?(/[eE]/) ? text : days.to_s)
       end
 
       # Returns [Time] the time, in UTC, of the clock of the days since the first day of the workbook, to the millisecond

@@ -76,13 +76,14 @@ module IOStreams
         when "row" then end_row
         when "is" then @inline = false
         when "t" then @in_text = false
-        when "rPh" then @phonetic -= 1
+        when "rPh" then @phonetic -= 1 if @phonetic.positive?
         when "v" then @in_value = false
         end
       end
 
+      # Holds the text of the value of the cell, ignoring text that is not within one, such as of tags that do not nest.
       def text(text)
-        @value << text if @in_value || @in_text
+        @value << text if (@in_value || @in_text) && @value
       end
 
       private
@@ -97,15 +98,27 @@ module IOStreams
         end
         @column += 1
         @width   = @column if @column > @width
-        @cell    = false
-        @value   = nil
+        end_value
+      end
+
+      # Forgets the cell and its value, so that a tag of either that a tag that does not nest leaves open, such as a
+      # `<v>` that `</c>` ends, holds no text after it.
+      def end_value
+        @cell     = false
+        @value    = nil
+        @in_value = false
+        @in_text  = false
+        @inline   = false
       end
 
       def end_row
         return unless @row
 
+        # A cell that the row ends, as XML whose tags do not nest leaves one open.
+        end_cell if @cell
         row = @values ? @row.fill(nil, @row.size...@width) : []
         @row = nil
+        end_value
         @block.call(row)
       end
 
@@ -123,7 +136,8 @@ module IOStreams
           index = (index * 26) + byte - A
           next unless index > LAST_COLUMN + 1
 
-          raise(XmlScanner::Invalid, "the cell reference #{reference.inspect}, after Excel's last column, XFD")
+          shown = reference.length > 32 ? "#{reference[0, 32]}..." : reference
+          raise(XmlScanner::Invalid, "the cell reference #{shown.inspect}, after Excel's last column, XFD")
         end
         index.zero? ? @column : index - 1
       end

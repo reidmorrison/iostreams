@@ -126,6 +126,18 @@ class XlsxPartsTest < Minitest::Test
       assert_equal [[Date.new(2023, 9, 1)]], rows(name)
     end
 
+    it "reads the number of a date cell of a tiny exponent or many digits at once, as the double that Excel holds" do
+      name = workbook(
+        related:                   {"styles" => "styles.xml"},
+        "xl/styles.xml"            => %(<styleSheet xmlns="#{MAIN}"><cellXfs count="2"><xf numFmtId="0"/><xf numFmtId="22"/></cellXfs></styleSheet>),
+        "xl/worksheets/sheet1.xml" => sheet(%(<row><c r="A1" s="1"><v>1e-100000000</v></c><c r="B1" s="1"><v>45000.#{'0' * 100_000}1</v></c></row>))
+      )
+      started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+
+      assert_equal [[Time.utc(1899, 12, 30), Time.utc(2023, 3, 15)]], rows(name)
+      assert_operator Process.clock_gettime(Process::CLOCK_MONOTONIC) - started, :<, 5
+    end
+
     it "reads the custom number formats of the styles, and not those of differential formats" do
       name = workbook(
         related:                   {"styles" => "styles.xml"},
@@ -185,6 +197,24 @@ class XlsxPartsTest < Minitest::Test
       assert_equal [["shared"]], rows(name)
     end
 
+    it "reads text after an & that starts no reference as it is, a chunk at a time" do
+      chunk = IOStreams::Xlsx::XmlScanner::CHUNK_SIZE
+      text  = "R&D #{'a' * (chunk * 3)} &amp; &#x41;"
+      name  = workbook("xl/worksheets/sheet1.xml" => sheet(%(<row><c r="A1" t="inlineStr"><is><t>#{text}</t></is></c></row>)))
+
+      assert_equal [["R&D #{'a' * (chunk * 3)} & A"]], rows(name)
+    end
+
+    it "reads cells whose tags do not nest, without the text after them" do
+      name = workbook(
+        "xl/sharedStrings.xml"     => %(<sst xmlns="#{MAIN}"><si><t>a</si><si><t>b</t></si></sst>),
+        "xl/worksheets/sheet1.xml" => sheet(%(<row r="1"><c r="A1"><v>1</c>x</row><row r="2"><c r="A2"><v>2</v></row></c><row r="3"><c r="A3" t="s"><v>1</v></c></row>)),
+        related:                   {"sharedStrings" => "sharedStrings.xml"}
+      )
+
+      assert_equal [[1.0], [2.0], ["b"]], rows(name)
+    end
+
     it "reads a part that starts with a UTF-8 byte order mark" do
       name = workbook("xl/worksheets/sheet1.xml" => "\xEF\xBB\xBF".b + sheet(%(<row><c r="A1"><v>1</v></c></row>)))
 
@@ -228,6 +258,10 @@ class XlsxPartsTest < Minitest::Test
         name = workbook("xl/worksheets/sheet1.xml" => sheet(%(<row><c r="XFD1"><v>1</v></c><c r="ZZZZZZZ1"><v>2</v></c></row>)))
 
         assert_corrupt name, %(the cell reference "ZZZZZZZ1", after Excel's last column, XFD)
+        long = workbook("xl/worksheets/sheet1.xml" => sheet(%(<row><c r="#{'Z' * 1000}1"><v>2</v></c></row>)))
+        error = assert_raises(IOStreams::Errors::Corrupt) { rows(long) }
+        assert_includes error.message, %("#{'Z' * 32}...")
+        refute_includes error.message, "Z" * 33
       end
 
       it "for a zip file without a workbook" do

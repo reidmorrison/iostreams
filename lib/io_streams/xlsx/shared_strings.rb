@@ -30,13 +30,14 @@ module IOStreams
         when "si"
           @strings << Text.decode(@item) if @item
           @item = nil
+          @text = false
         when "t" then @text = false
-        when "rPh" then @phonetic -= 1
+        when "rPh" then @phonetic -= 1 if @phonetic.positive?
         end
       end
 
       def text(text)
-        @item << text if @text
+        @item << text if @text && @item
       end
     end
   end

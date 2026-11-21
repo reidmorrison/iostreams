@@ -10155,6 +10155,14 @@ once, check the columns in the request that accepts the upload with `#contract_e
 [Report invalid rows](contracts#report-invalid-rows-and-carry-on). See also [fieldsMatch](schemas#fieldsmatch) and
 [Required fields](schemas#required-fields).
 
+An uploaded spreadsheet is a zip file of XML, which IOStreams reads without an XML gem. It rejects a document type
+declaration, so a spreadsheet cannot expand entities or read other files, reads only the parts within the zip file,
+checks the size and CRC32 of each part, and holds each row and value as it streams the worksheet, with a row of at
+most Excel's 16,384 columns. What it does not limit is the size of the upload once decompressed: a small zip file can
+hold parts that decompress to gigabytes, which IOStreams reads, including parts that it does not use, as it checks
+them, and its rows, read as lines, are CSV text in a temp file, of up to 16,384 values for each row. Limit the size of
+the upload, and run the job that reads it with a time limit, as for any other upload.
+
 ## PGP
 
 * **Verify a file before processing it.** IOStreams passes the decrypted data of a PGP file to your block as gpg

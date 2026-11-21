@@ -31,6 +31,10 @@ module IOStreams
       # The bytes of a part that are read at a time.
       CHUNK_SIZE = 65_536
 
+      # The most bytes of an entity or character reference that the text of a chunk holds back, see #held_back, such as
+      # `&#x10FFFF;`, or `&#1114111;` with leading zeros.
+      LONGEST_REFERENCE = 32
+
       # The byte of a CR, which may be the first of a CR LF.
       CARRIAGE_RETURN = 13
 
@@ -234,11 +238,13 @@ module IOStreams
       end
 
       # Returns [Integer] the bytes at the end of the text that may continue in the next chunk: from an `&` without its
-      # `;`, the bytes of a UTF-8 character that the chunk cuts short, so that the text read is whole characters, which
-      # .decode can read, and a CR before them, which may be the start of a CR LF.
+      # `;`, when it is close enough to the end to start a reference, see LONGEST_REFERENCE, the bytes of a UTF-8
+      # character that the chunk cuts short, so that the text read is whole characters, which .decode can read, and a CR
+      # before them, which may be the start of a CR LF. An `&` further from the end starts no reference, which .decode
+      # leaves as text, so the text after it is not held back, which would read it again with each chunk.
       def held_back(text)
         amp = text.rindex("&")
-        return text.bytesize - amp if amp && !text.index(";", amp)
+        return text.bytesize - amp if amp && !text.index(";", amp) && text.bytesize - amp <= LONGEST_REFERENCE
 
         held = partial_character(text)
         held += 1 if held < text.bytesize && text.getbyte(text.bytesize - held - 1) == CARRIAGE_RETURN
