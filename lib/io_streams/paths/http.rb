@@ -118,6 +118,8 @@ module IOStreams
         url                  = Utils::URI.root(url)
         # A frozen copy, so that the url returned by #to_s, which is downloaded, cannot be changed in place.
         @url                 = -(parameters ? add_parameters(url, parameters) : url)
+        # Kept, since they can hold an access key, so that `IOStreams::Path#to_h` treats them as a secret.
+        @parameters          = parameters.nil? || parameters.empty? ? nil : Utils.frozen_copy(parameters)
         # Decoded like S3 and SFTP paths, so that for example `#basename` is the file name rather than its url form.
         # Unlike a query string, `+` in a path is not a space. A url without a path is the root path `/`.
         path                 = URI.decode_uri_component(uri.path)
@@ -211,19 +213,25 @@ module IOStreams
 
       protected
 
-      # Returns [Hash] the user name when the url does not hold it, the password, which `IOStreams::Path#to_h` rejects as
-      # a secret, and each other argument that is not its default, see `IOStreams::Path#stored_arguments`. The
-      # `parameters:` are already in the url, which keeps its query, since the query can name the file.
+      # Returns [Hash] the user name when the url does not hold it, the password and the `parameters:`, which
+      # `IOStreams::Path#to_h` rejects as secrets, and each other argument that is not its default, see
+      # `IOStreams::Path#stored_arguments`. The url also holds the parameters in its query, which a path created again
+      # adds to it again, each replacing itself.
       def stored_arguments
         arguments = {}
         arguments[:username]            = username if username && username != Utils::URI.parse(url).user
         arguments[:password]            = password if password
+        arguments[:parameters]          = Utils.deep_copy(@parameters) if @parameters
         arguments[:http_redirect_count] = http_redirect_count unless http_redirect_count == 10
         arguments[:allow_hosts]         = allow_hosts.dup if allow_hosts
         arguments[:maximum_file_size]   = maximum_file_size if maximum_file_size
-        arguments[:headers]             = headers.dup if headers
+        arguments[:headers]             = headers.dup unless headers.empty?
         arguments
       end
+
+      # The query of the url, which #display_name leaves out since it can hold a credential, see
+      # `IOStreams::Path#url_holds_secret?`.
+      def url_holds_secret? = !URI.parse(url).query.to_s.empty?
 
       # Urls with the same scheme, host and port are in the same store, see `IOStreams::Path#same_store?`.
       def store = [original_uri.scheme, original_uri.hostname.to_s.downcase, original_uri.port]

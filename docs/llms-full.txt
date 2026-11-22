@@ -1809,7 +1809,13 @@ IOStreams.path("gs://lake/people.parquet").option(:parquet, compression: "zstd")
 * A Symbol, such as the `compress: :zip` of PGP, is held as its text, and an Encoding as its name, which the option also
   takes. A value that JSON does not hold, such as a Proc `cleaner:` of `#encoding`, or an `Aws::S3::Client` object,
   raises `ArgumentError`.
-* The query of an HTTP url is kept, since it can name the file, so do not put a lasting credential in it.
+* The query of an HTTP url is a secret, as are its `parameters:`, since they can hold a credential, such as the
+  signature of a presigned url, so `#to_h` stores them only with `secrets: true`, see [Secrets](#secrets).
+* A relative local file name is stored as it is, so the path created again is relative to the current directory of
+  the process that creates it, such as the root of a Rails application. Store an absolute name when the processes
+  differ.
+* A path class of your own, registered with `IOStreams.register_scheme`, returns the arguments it was created with from
+  its protected `#stored_arguments` method, `{}` when it takes none; until it does, `#to_h` raises `ArgumentError`.
 
 #### Secrets
 

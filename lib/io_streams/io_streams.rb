@@ -585,6 +585,9 @@ module IOStreams
 
   # Register a URI scheme and the path class that handles it
   #
+  # For its paths to be stored with `IOStreams::Path#to_h`, the class returns the keyword arguments it was created with
+  # from its protected `#stored_arguments` method, `{}` when it takes none, see `IOStreams::Path#stored_arguments`.
+  #
   # Example:
   #   register_scheme(:az, MyAzureBlobStoragePath)
   def self.register_scheme(scheme, klass)

@@ -355,14 +355,17 @@ module IOStreams
     end
 
     # The keys of #to_h, which `IOStreams.path(hash)` takes.
-    STORED_KEYS = %w[url arguments file_name streams rows].freeze
+    STORED_KEYS = %w[url arguments file_name mkpath streams rows].freeze
 
     # Returns [Hash] what it takes to create this path again with `IOStreams.path(hash)`, in a form that JSON holds as
     # it is, with String keys, so that it can be stored, such as by a job that reads the file later, in another process:
-    #   "url"       The url of this path, see #to_s.
+    #   "url"       The url of this path, see #to_s. A relative local file name is kept as it is, so the path created
+    #               again is relative to the current directory of the process that creates it.
     #   "arguments" The arguments that this path was created with, beside its url, such as the `region:` of an S3 path or
     #               the `ssh_options:` of an SFTP path, when it has any.
     #   "file_name" The file name set with #file_name, when it is not the name of this path.
+    #   "mkpath"    true when #mkpath or #mkdir was called on a path, such as on an SFTP server, that creates the
+    #               directories only when the file is written.
     #   "streams"   The streams, options and encoding set with #stream, #option and #encoding, or #raw, when any are set.
     #   "rows"      The format, the schema and the options of the rows set with #format, #schema and #option, when any
     #               are set. The schema is held whole, read from its file or url when it was set as one, so that it is
@@ -376,15 +379,18 @@ module IOStreams
     # encrypted, such as the arguments of a job, which queues store and logs display as they are.
     #
     # Raises ArgumentError, and stores nothing:
-    # - when this path holds a secret, unless `secrets` is true: a password in its url or supplied to it, the secret
-    #   key of an S3 client, an option of a stream that its format declares sensitive, such as a PGP `passphrase`, or any
-    #   other option, or header of an HTTP path, that `#inspect` does not display, see `IOStreams::Utils.redact_options`.
+    # - when this path holds a secret, unless `secrets` is true: a password in its url or supplied to it, the query of an
+    #   HTTP url, which can hold a credential, such as the signature of a presigned url, the secret key of an S3 client,
+    #   an option of a stream that its format declares sensitive, such as a PGP `passphrase`, or any other option, or
+    #   header of an HTTP path, that `#inspect` does not display, see `IOStreams::Utils.redact_options`.
     #   Supply the secret from configuration where the path is created again instead, such as the default credentials
     #   of AWS, or set it on the path that `IOStreams.path(hash)` returns.
     # - when a contract is set with #as, since the contract is a class of the program rather than a setting of the file:
     #   set it again where the path is created again.
     # - for a value that JSON does not hold as it is, such as an `Aws::S3::Client`, a Proc, such as the `cleaner:` of
-    #   #encoding, or a Time.
+    #   #encoding, a Time, or text that is not valid UTF-8, such as a file name in another encoding.
+    # - for a path of a class registered with `IOStreams.register_scheme` that does not return its arguments, see
+    #   #stored_arguments.
     #
     # Raises what reading the schema raises, such as `IOStreams::Errors::NotFound` for a schema file that does not exist.
     #
@@ -395,11 +401,16 @@ module IOStreams
     #   # Elsewhere, later:
     #   IOStreams.path(Run.last.input).as(PersonContract).each(:record) { |person| p person }
     def to_h(secrets: false)
-      hash      = {"url" => to_s}
+      hash      = {"url" => Storable.value(to_s, "The url of a path")}
       arguments = Storable.options(stored_arguments, "The path #{display_name}", self.class.sensitive_option_names,
                                    secrets: secrets)
+      # After the arguments, which name a secret supplied as one, such as the `parameters:` of an HTTP url.
+      message = "The path #{display_name} cannot be stored, since its url holds a query, which can hold a credential"
+      raise(ArgumentError, "#{message}: store it with to_h(secrets: true)") if url_holds_secret? && !secrets
+
       hash["arguments"] = arguments unless arguments.empty?
-      hash["file_name"] = file_name if @builder && file_name != path
+      hash["file_name"] = Storable.value(file_name, "The file name of a path") if @builder && file_name != path
+      hash["mkpath"]    = true if mkpath_pending?
       streams = @builder&.to_h(secrets: secrets)
       hash["streams"] = streams unless streams.nil? || streams.empty?
       rows = @tabular_settings&.to_h(secrets: secrets)
@@ -415,14 +426,12 @@ module IOStreams
     def self.from_h(hash)
       hash = Storable.stored_keys(hash, STORED_KEYS, "The Hash of a path")
 
-      url = hash["url"]
-      unless url.is_a?(String)
-        raise(ArgumentError, "The Hash of a path needs its \"url\" as a String, see IOStreams::Path#to_h")
-      end
+      url = Storable.text(hash["url"], "The \"url\" of a path, see IOStreams::Path#to_h,")
 
       arguments = hash.key?("arguments") ? Storable.keywords(hash["arguments"], "The arguments of a path") : {}
       path      = IOStreams.path(url, **arguments)
-      path.file_name = hash["file_name"] if hash.key?("file_name")
+      path.file_name = Storable.text(hash["file_name"], "The \"file_name\" of a path", optional: true) if hash.key?("file_name")
+      path.mkpath if Storable.flag?(hash["mkpath"], "The \"mkpath\" of a path")
       path.send(:restore, hash["streams"], hash["rows"])
     end
 
@@ -522,7 +531,23 @@ module IOStreams
     # rejects as this class decides, see .sensitive_option_names. Each path class with arguments of its own returns
     # those that are not their default and not in its url. Raises ArgumentError for an argument that cannot be stored,
     # such as an object that holds a connection.
-    def stored_arguments = {}
+    #
+    # A path class registered with `IOStreams.register_scheme` returns its own, `{}` when it takes none, since only it
+    # knows its arguments: until it does, #to_h raises ArgumentError rather than store a path that would be created
+    # again without them.
+    def stored_arguments
+      raise(ArgumentError, "#{self.class.name} paths cannot be stored: the class does not define #stored_arguments")
+    end
+
+    # Returns [true|false] whether #mkpath or #mkdir was called on this path for directories that are created only when
+    # the file is next written, which #to_h stores, so that the path created again creates them too. A path class that
+    # creates them at once, such as a local file, or never needs to, such as S3, returns false.
+    def mkpath_pending? = false
+
+    # Returns [true|false] whether the url of this path, see #to_s, holds a query that #display_name leaves out since it
+    # can hold a credential, as the query of an HTTP url does, which #to_h then stores only when asked to store secrets.
+    # A password in a url is also an argument, see #stored_arguments, so it need not answer true for it.
+    def url_holds_secret? = false
 
     # Raises NotImplementedError for an operation that this storage does not support.
     def raise_not_implemented(operation)

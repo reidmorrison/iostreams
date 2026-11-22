@@ -335,6 +335,10 @@ module IOStreams
         arguments
       end
 
+      # Returns [true|false] whether #mkpath or #mkdir was called, since the directories are created when the file is
+      # next written, see `IOStreams::Path#mkpath_pending?`.
+      def mkpath_pending? = @mkdir
+
       # A copy has its own ssh options, so that changing them does not change this path, see #ssh_options.
       def initialize_copy(source)
         super

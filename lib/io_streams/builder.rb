@@ -284,8 +284,11 @@ module IOStreams
       return {"raw" => true} if raw?
 
       hash = {}
-      hash["streams"]  = Storable.streams(@streams, "stream", secrets: secrets) { |name| stream_format(name) } if @streams
-      hash["options"]  = Storable.streams(@options, "stream", secrets: secrets) { |name| stream_format(name) } if @options
+      hash["streams"] = Storable.streams(@streams, "stream", secrets: secrets) { |name| stream_format(name) } if @streams
+      # Once streams are set, such as by #remove_from_pipeline, they hold the options, which #restore cannot set again.
+      if @options && !@streams
+        hash["options"] = Storable.streams(@options, "stream", secrets: secrets) { |name| stream_format(name) }
+      end
       if @encoding
         hash["encoding"] = Storable.options(@encoding, "The encoding", Encode.sensitive_option_names, secrets: secrets)
       end
@@ -299,7 +302,9 @@ module IOStreams
     def restore(hash)
       hash = Storable.stored_keys(hash, STORED_KEYS, "The streams of a path")
       # Before the others, which then raise, as they do after #raw.
-      raw if hash["raw"]
+      raw if Storable.flag?(hash["raw"], "The \"raw\" of the streams of a path")
+      # No streams at all, such as after #remove_from_pipeline, rather than those of the file name.
+      @streams = {} if hash["streams"] == {} && !raw?
       Storable.each_stream(hash["streams"], "streams") { |name, options| stream(name, **options) }
       Storable.each_stream(hash["options"], "options") { |name, options| option(name, **options) }
       encoding(**Storable.keywords(hash["encoding"], "The encoding of a path")) if hash["encoding"]

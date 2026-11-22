@@ -17,7 +17,8 @@ module IOStreams
     # - for an option that holds a secret, as `IOStreams::Utils.sensitive_option?` decides it with the supplied
     #   `sensitive_names`, also within a Hash or an Array value, such as `ssh_options:` or `headers:`, unless it is nil,
     #   or `secrets` is true;
-    # - for a value that JSON does not hold as it is, such as a Proc, a Time, an object, or a Float that is not finite.
+    # - for a value that JSON does not hold as it is, such as a Proc, a Time, an object, a Float that is not finite, or
+    #   text that is not valid UTF-8.
     def self.options(options, owner, sensitive_names = [], secrets: false)
       option_hash(options, owner, secrets ? nil : sensitive_names)
     end
@@ -34,13 +35,18 @@ module IOStreams
     # a method, but not the keys of the Hashes within it, which the option takes as they were stored, such as the
     # `ssh_options:` of an SFTP path.
     #
-    # Raises ArgumentError, naming the supplied owner, when it is not a Hash with String or Symbol keys.
+    # Raises ArgumentError, naming the supplied owner, when it is not a Hash with String or Symbol keys, or names an option
+    # both as a String and as a Symbol.
     def self.keywords(options, owner)
       unless options.is_a?(Hash) && options.each_key.all? { |key| key.is_a?(String) || key.is_a?(Symbol) }
         raise(ArgumentError, "#{owner} must be a Hash of options by their names, not #{options.class.name}")
       end
 
-      options.transform_keys(&:to_sym)
+      # A plain Hash, since a Hash with indifferent access, such as that of ActiveSupport, keeps its keys as Strings.
+      keywords = options.each_with_object({}) { |(name, value), hash| hash[name.to_sym] = value }
+      raise(ArgumentError, "#{owner} names an option twice, as a String and as a Symbol") if keywords.size < options.size
+
+      keywords
     end
 
     # Returns [Hash] the options of each stream, by the name of the stream, such as those set with
@@ -62,6 +68,26 @@ module IOStreams
       keywords(streams, "The #{kind} of a path").each_pair do |name, options|
         yield(name, keywords(options, "The options of #{name.inspect}"))
       end
+    end
+
+    # Returns [String] the supplied stored text, or nil when it is nil and `optional` is true.
+    #
+    # Raises ArgumentError, naming the supplied owner, when it is not a String.
+    def self.text(value, owner, optional: false)
+      return value if value.nil? && optional
+
+      raise(ArgumentError, "#{owner} must be a String, not #{value.class.name}") unless value.is_a?(String)
+
+      value
+    end
+
+    # Returns [true|false] whether the supplied stored flag is true, false when it is nil.
+    #
+    # Raises ArgumentError, naming the supplied owner, when it is not true, false or nil.
+    def self.flag?(value, owner)
+      raise(ArgumentError, "#{owner} must be true or false, not #{value.inspect}") unless [nil, true, false].include?(value)
+
+      value == true
     end
 
     # Returns [Hash] a copy of the supplied Hash, which an owner of settings stored, with String keys, see `#to_h` of
@@ -96,8 +122,10 @@ module IOStreams
     # is nil.
     def self.stored(value, owner, name, sensitive)
       case value
-      when nil, true, false, Integer, String
+      when nil, true, false, Integer
         value
+      when String
+        utf8?(value) ? value : not_utf8(owner, name)
       when Float
         value.finite? ? value : not_stored(value, owner, name)
       when Symbol, Encoding
@@ -128,12 +156,24 @@ module IOStreams
       stored(element, owner, name, sensitive)
     end
 
+    # Returns [true|false] whether JSON holds the text as it is: valid UTF-8, or only ASCII in another encoding, rather
+    # than text that JSON would convert to other bytes, or cannot write.
+    def self.utf8?(text)
+      text.valid_encoding? && (text.encoding == Encoding::UTF_8 || text.ascii_only?)
+    end
+
+    def self.not_utf8(owner, name)
+      what = name ? "its #{name} option" : "it"
+      raise(ArgumentError, "#{owner} cannot be stored, since #{what} holds text that is not valid UTF-8, which JSON " \
+                           "does not hold as it is")
+    end
+
     def self.not_stored(value, owner, name)
       what = name ? "its #{name} option" : "it"
       raise(ArgumentError, "#{owner} cannot be stored, since #{what} holds a #{value.class.name}, which JSON does not " \
                            "hold as it is: supply a String, a number, true, false, nil, or an Array or Hash of them")
     end
 
-    private_class_method :option_hash, :stored, :plain_hash, :stored_element, :not_stored
+    private_class_method :option_hash, :stored, :plain_hash, :stored_element, :utf8?, :not_utf8, :not_stored
   end
 end

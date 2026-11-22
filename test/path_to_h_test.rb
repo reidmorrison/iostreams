@@ -43,6 +43,20 @@ module IOStreams
           assert_equal({gz: {}}, restored(path).pipeline)
         end
 
+        it "raises for a file name that is not valid UTF-8, which JSON does not hold as it is" do
+          error = assert_raises(ArgumentError) { IOStreams.path("caf\xE9.csv".b).to_h }
+
+          assert_includes error.message, "UTF-8"
+          assert_raises(ArgumentError) { IOStreams.path("tempfile2527").file_name("caf\xE9.csv".b).to_h }
+        end
+
+        it "holds a file name that was cleared" do
+          path = IOStreams.path("people.csv.gz")
+          path.file_name = nil
+
+          assert_nil restored(path).file_name
+        end
+
         it "does not hold the file name when it is the name of the path" do
           path = IOStreams.path("people.csv.gz")
           path.pipeline
@@ -64,6 +78,27 @@ module IOStreams
 
           assert_equal({"streams" => {"gz" => {"level" => 2}}}, path.to_h["streams"])
           assert_equal({gz: {level: 2}}, restored(path).pipeline)
+        end
+
+        it "holds that every stream was removed, rather than those of the file name" do
+          path = IOStreams.path("people.csv.gz")
+          path.remove_from_pipeline(:gz)
+
+          assert_equal({}, restored(path).pipeline)
+        end
+
+        it "holds the options of the streams that remain once a stream is removed" do
+          path = IOStreams.path("people.csv.gz.enc").option(:gz, level: 9)
+          path.remove_from_pipeline(:enc)
+
+          assert_equal({gz: {level: 9}}, restored(path).pipeline)
+        end
+
+        it "holds that every stream was removed after its options were set" do
+          path = IOStreams.path("people.csv.gz").option(:gz, level: 9)
+          path.remove_from_pipeline(:gz)
+
+          assert_equal({}, restored(path).pipeline)
         end
 
         it "holds raw" do
@@ -242,20 +277,67 @@ module IOStreams
         end
       end
 
+      describe "a path whose directories are made when the file is written" do
+        it "holds mkpath, which the path created again makes" do
+          path = IOStreams.path("sftp://example.org/new_dir/people.csv").mkpath
+
+          assert path.to_h["mkpath"]
+          assert_predicate restored(path), :mkpath_pending?
+        end
+
+        it "does not hold mkpath until it is called" do
+          refute IOStreams.path("sftp://example.org/new_dir/people.csv").to_h.key?("mkpath")
+        end
+      end
+
+      describe "a path of a registered scheme" do
+        it "raises when its class does not return its arguments" do
+          klass = Class.new(IOStreams::Path) do
+            def self.name = "ExamplePath"
+          end
+          error = assert_raises(ArgumentError) { klass.new("/people.csv").to_h }
+
+          assert_includes error.message, "ExamplePath"
+          assert_includes error.message, "stored_arguments"
+        end
+      end
+
       describe "an HTTP path" do
-        it "holds the arguments that are not their defaults, and the query of the url" do
-          path = IOStreams.path("https://example.org/people.csv?id=5", http_redirect_count: 2, allow_hosts: "example.org",
+        it "holds the arguments that are not their defaults" do
+          path = IOStreams.path("https://example.org/people.csv", http_redirect_count: 2, allow_hosts: "example.org",
                                 maximum_file_size: 1_000, headers: {"Accept" => "text/csv"})
 
           assert_equal(
             {
-              "url"       => "https://example.org/people.csv?id=5",
+              "url"       => "https://example.org/people.csv",
               "arguments" => {"http_redirect_count" => 2, "allow_hosts" => ["example.org"], "maximum_file_size" => 1_000,
                               "headers" => {"Accept" => "text/csv"}}
             },
             path.to_h
           )
           assert_equal path, restored(path)
+        end
+
+        it "raises for the query of the url, which #inspect does not display, and holds it with secrets: true" do
+          path  = IOStreams.path("https://example.org/people.csv?X-Amz-Signature=abc123")
+          error = assert_raises(ArgumentError) { path.to_h }
+
+          assert_includes error.message, "secrets: true"
+          refute_includes error.message, "abc123"
+          assert_equal path, IOStreams.path(path.to_h(secrets: true))
+        end
+
+        it "holds no headers when none were supplied" do
+          assert_equal({"url" => "https://example.org/people.csv"}, IOStreams.path("https://example.org/people.csv").to_h)
+        end
+
+        it "raises for parameters, which can hold an access key, and holds them with secrets: true" do
+          path  = IOStreams.path("https://example.org/people.csv", parameters: {api_token: "S3cr3t"})
+          error = assert_raises(ArgumentError) { path.to_h }
+
+          assert_includes error.message, "parameters"
+          refute_includes error.message, "S3cr3t"
+          assert_equal path, IOStreams.path(JSON.parse(JSON.generate(path.to_h(secrets: true))))
         end
 
         it "raises for a password" do
@@ -354,6 +436,30 @@ module IOStreams
         assert_equal({"url" => "people.csv"}, stored)
       end
 
+      # A Hash that keeps its keys as Strings, as ActiveSupport::HashWithIndifferentAccess does, which is not loaded here,
+      # since it changes how other tests write JSON.
+      indifferent = Class.new(Hash) do
+        def self.from(hash)
+          hash.each_with_object(new) { |(key, value), copy| copy[key] = value.is_a?(Hash) ? from(value) : value }
+        end
+
+        def []=(key, value)
+          super(key.to_s, value)
+        end
+
+        def transform_keys(...) = self.class.from(super)
+      end
+
+      it "takes a Hash with indifferent access, such as ActiveSupport's" do
+        hash = indifferent.from(url: "people.csv.gz", streams: {options: {gz: {level: 1}}})
+
+        assert_equal({gz: {level: 1}}, IOStreams.path(hash).pipeline)
+      end
+
+      it "raises for a key named both as a String and as a Symbol" do
+        assert_raises(ArgumentError) { IOStreams.path({"url" => "a.csv", url: "b.csv"}) }
+      end
+
       it "raises for a key that a path does not hold" do
         error = assert_raises(ArgumentError) { IOStreams.path({"url" => "people.csv", "_id" => 1}) }
 
@@ -376,6 +482,9 @@ module IOStreams
         end
         assert_raises(ArgumentError) { IOStreams.path({"url" => "people.csv.gz", "streams" => {"raw" => true, "options" => {"gz" => {}}}}) }
         assert_raises(ArgumentError) { IOStreams.path({"url" => "people.csv", "streams" => {"other" => 1}}) }
+        assert_raises(ArgumentError) { IOStreams.path({"url" => "people.csv", "file_name" => 5}) }
+        assert_raises(ArgumentError) { IOStreams.path({"url" => "people.csv", "mkpath" => "true"}) }
+        assert_raises(ArgumentError) { IOStreams.path({"url" => "people.csv.gz", "streams" => {"raw" => "false"}}) }
       end
     end
   end
