@@ -641,6 +641,20 @@ with `Time.parse("#{value}Z")`, or read the column with a `datetime` field, whic
 Read a column of times of day with a `time` field, which reads `09:30:00`, rather than a `datetime` field, which reads
 only a date and time.
 
+#### Spreadsheet dates before 1900-03-01 are the dates that Excel shows
+
+Excel counts 1900-02-29, which was not a day, as Lotus 1-2-3 did, so it numbers each date from 1900-03-01 a day more
+than the days since 1899-12-31. v2.2 read each date cell before 1900-03-01 a day early, such as `1899-12-31` for the
+1900-01-01 that Excel shows, and a date before 1900-03-01 that it wrote was shown a day late. Now a date is read and
+written as the one that Excel shows: Excel's 1900-02-29 is read as `1900-02-28`, the `1900-01-00` that it shows for the
+number 0 as `1899-12-31`, and a date or a date and time before 1900-01-01 is written as its text, which a `date` or
+`datetime` field reads back. A cell of an elapsed time of a day or more, such as `36:00:00`, is on the date that Excel
+shows for its days, `1900-01-01T12:00:00`. A workbook of the 1904 date system, of Excel for the Mac before 2011, is read
+as before.
+
+Fix: none is needed for dates from 1900-03-01. Code that added a day to an earlier date read from a spreadsheet, to
+correct it, no longer needs to.
+
 #### The column options of each call are removed
 
 `columns:`, `cleanse_header:`, `allowed_columns:`, `required_columns:` and `skip_unknown:` raise `ArgumentError`, as

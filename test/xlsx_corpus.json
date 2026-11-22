@@ -18,8 +18,8 @@
     },
     "BigFormatted.xlsx": {
       "rows": 55745,
-      "rows_digest": "c3b4a98aeeaabf40",
-      "lines_digest": "38189c1b65c2b0aa"
+      "rows_digest": "97c114863239a5cd",
+      "lines_digest": "21861e08350bb825"
     },
     "BlankHeader.xlsx": {
       "rows": 79,
@@ -175,8 +175,8 @@
     },
     "Issue283_TimeSpan.xlsx": {
       "rows": 1001,
-      "rows_digest": "cdb8ddb839191354",
-      "lines_digest": "accb645eec3d75e3"
+      "rows_digest": "8a8e9b50b605f9cf",
+      "lines_digest": "37c312af20d91d52"
     },
     "Issue289.xlsx": {
       "failure": "IOStreams::Errors::Corrupt"
@@ -443,8 +443,8 @@
     },
     "OldIssue8536.xlsx": {
       "rows": 7,
-      "rows_digest": "4db7f63b847f0758",
-      "lines_digest": "e2294bf10b043a3a"
+      "rows_digest": "847246df3a11f9c3",
+      "lines_digest": "cf087d475fa77602"
     },
     "Open.xlsx": {
       "rows": 7,

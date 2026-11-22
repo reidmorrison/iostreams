@@ -466,11 +466,11 @@ class XlsxRowsTest < Minitest::Test
                       ["clock", 20, nil, "1.5"]])
         strings = IOStreams.path(file_name).schema(fields: %w[wait short custom clock].map { |name| {name: name, type: "string"} })
 
-        assert_equal "1899-12-31T12:00:00,01:30:00,1899-12-31T12:00:00,12:00:00", read(IOStreams.path(file_name), :line).last
-        assert_equal [Time.utc(1899, 12, 31, 12), Time.utc(2000, 1, 1, 1, 30), Time.utc(1899, 12, 31, 12),
-                      Time.utc(1899, 12, 31, 12)], read(IOStreams.path(file_name), :array).last
-        assert_equal [{"wait" => "1899-12-31T12:00:00", "short" => "01:30:00", "custom" => "1899-12-31T12:00:00",
-                       "clock" => "1899-12-31T12:00:00"}], read(strings)
+        assert_equal "1900-01-01T12:00:00,01:30:00,1900-01-01T12:00:00,12:00:00", read(IOStreams.path(file_name), :line).last
+        assert_equal [Time.utc(1900, 1, 1, 12), Time.utc(2000, 1, 1, 1, 30), Time.utc(1900, 1, 1, 12),
+                      Time.utc(1900, 1, 1, 12)], read(IOStreams.path(file_name), :array).last
+        assert_equal [{"wait" => "1900-01-01T12:00:00", "short" => "01:30:00", "custom" => "1900-01-01T12:00:00",
+                       "clock" => "1900-01-01T12:00:00"}], read(strings)
       end
 
       it "reads a cell of a time or elapsed time format into a duration field as its length, and raises for a number" do

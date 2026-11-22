@@ -1,18 +1,10 @@
 # frozen_string_literal: true
 
-require "date"
-
 module IOStreams
   module Xlsx
     # The workbook part of a spreadsheet, `xl/workbook.xml` as Excel names it: its worksheets in the order that the
     # application shows them, its date system, and the parts that its worksheets share, its shared strings and styles.
     class Book
-      # The first day of each date system of Excel, as the number 0, see .base_date: of the 1900 date system, a day
-      # early, so that the dates from 1900-03-01 are right, since Excel counts 1900-02-29, which was not a day, and of
-      # the 1904 date system, of Excel for the Mac before 2011.
-      DATE_1900 = Date.new(1899, 12, 30).freeze
-      DATE_1904 = Date.new(1904, 1, 1).freeze
-
       # A worksheet of the workbook: its name, and its part.
       Sheet = Data.define(:name, :part)
 
@@ -43,9 +35,9 @@ module IOStreams
                                                   @package.display_name))
       end
 
-      # Returns [Date] the date that the number 0 is in the date system of the workbook, see DATE_1900.
-      def base_date
-        @date1904 ? DATE_1904 : DATE_1900
+      # Returns [IOStreams::Xlsx::DateSystem] how the workbook numbers its days, as its `date1904` records.
+      def date_system
+        @date1904 ? DateSystem::SYSTEM_1904 : DateSystem::SYSTEM_1900
       end
 
       # Returns [Array<String>] the shared strings of the workbook, by their index, as a cell of type `s` names them.

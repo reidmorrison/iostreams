@@ -98,7 +98,7 @@ module IOStreams
       def self.each_text_row(file_name, display_name, &block)
         open_book(file_name, display_name) do |book|
           formats = book.number_formats
-          options = {shared_strings: book.shared_strings, base_date: book.base_date}
+          options = {shared_strings: book.shared_strings, date_system: book.date_system}
           book.each_row(->(text, type, style) { Cells.text(text, type, formats[style], options) }, &block)
         end
       end
@@ -210,7 +210,7 @@ module IOStreams
         # text, a Cell, until #read_cells reads the row.
         def converter(book, times)
           formats = book.number_formats
-          options = {shared_strings: book.shared_strings, base_date: book.base_date}
+          options = {shared_strings: book.shared_strings, date_system: book.date_system}
           lambda do |text, type, style|
             next Cells.text(text, type, formats[style], options) if @text
 

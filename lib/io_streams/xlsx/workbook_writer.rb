@@ -13,6 +13,9 @@ module IOStreams
       WORKSHEET_PART = "xl/worksheets/sheet1.xml"
       WORKBOOK_PART  = "xl/workbook.xml"
 
+      # How the workbook numbers its days: the 1900 date system, of Excel for Windows.
+      DATE_SYSTEM = DateSystem::SYSTEM_1900
+
       XML_DECLARATION = %(<?xml version="1.0" encoding="UTF-8" standalone="yes"?>)
 
       RELATIONSHIPS  = "http://schemas.openxmlformats.org/package/2006/relationships"
@@ -43,7 +46,8 @@ module IOStreams
         @styles         = CellStyles.new
         @zip            = ZipKit::Streamer.new(output_stream)
         @part           = @zip.write_deflated_file(WORKSHEET_PART)
-        @worksheet      = WorksheetWriter.new(@part, styles: @styles, shared_strings: @shared_strings)
+        @worksheet      = WorksheetWriter.new(@part, styles: @styles, shared_strings: @shared_strings,
+                                                     date_system: DATE_SYSTEM)
       end
 
       # Ends the worksheet, writes the other parts, and ends the zip file, without closing the output stream.
@@ -78,7 +82,7 @@ module IOStreams
       def workbook
         name = Text.utf8(@sheet_name, place: "the name of the worksheet").encode(xml: :attr)
         "#{XML_DECLARATION}<workbook xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\" " \
-          "xmlns:r=\"#{RELATIONSHIP}\"><workbookPr date1904=\"false\"/><sheets>" \
+          "xmlns:r=\"#{RELATIONSHIP}\"><workbookPr date1904=\"#{DATE_SYSTEM.date1904?}\"/><sheets>" \
           "<sheet name=#{name} sheetId=\"1\" r:id=\"rId1\"/></sheets></workbook>"
       end
 

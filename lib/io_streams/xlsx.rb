@@ -9,6 +9,7 @@ module IOStreams
     autoload :Book, "io_streams/xlsx/book"
     autoload :CellStyles, "io_streams/xlsx/cell_styles"
     autoload :Cells, "io_streams/xlsx/cells"
+    autoload :DateSystem, "io_streams/xlsx/date_system"
     autoload :Package, "io_streams/xlsx/package"
     autoload :Reader, "io_streams/xlsx/reader"
     autoload :RowsWriter, "io_streams/xlsx/rows_writer"
