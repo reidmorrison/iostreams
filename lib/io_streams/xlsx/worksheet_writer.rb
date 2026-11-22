@@ -32,6 +32,10 @@ module IOStreams
       MOST_ROWS    = 1_048_576
       MOST_COLUMNS = 16_384
 
+      # The most characters of the text of a cell, counted in UTF-16, as Excel limits it, see
+      # `IOStreams::Xlsx::Text.length`, beyond which Excel reports the workbook as corrupt.
+      MOST_CHARACTERS = 32_767
+
       # The size of XML that is collected before it is written to the part, since each write compresses it.
       BUFFER_SIZE = 65_536
 
@@ -65,8 +69,9 @@ module IOStreams
 
       # Writes the row, an Array of the values of its cells, see the class.
       #
-      # Raises [IOStreams::Errors::Error] for a row after Excel's last, or a value of a cell after its last column, which
-      # Excel would report as corrupt, so that the write is discarded rather than leave a workbook that cannot be read.
+      # Raises [IOStreams::Errors::Error] for a row after Excel's last, a value of a cell after its last column, or text
+      # longer than a cell holds, see MOST_CHARACTERS, which Excel would report as corrupt, so that the write is
+      # discarded rather than leave a workbook that cannot be read.
       def <<(row)
         @row_number += 1
         if @row_number > MOST_ROWS
@@ -150,12 +155,27 @@ module IOStreams
       def add_text(xml, text, index)
         return if text.empty?
 
+        # Text of no more bytes than the limit is within it, since each code unit of UTF-16 takes a byte or more.
+        text = check_length(text, index) if text.bytesize > MOST_CHARACTERS
         text = Text.encode(text)
         xml << if @shared_strings
                  %(<c r="#{reference(index)}" t="s"><v>#{@shared_strings.index(text)}</v></c>)
                else
                  %(<c r="#{reference(index)}" t="inlineStr"><is>#{Text.element(text)}</is></c>)
                end
+      end
+
+      # Returns [String] the text in UTF-8, which it counts, so that it is not converted again.
+      #
+      # Raises [IOStreams::Errors::Error] for text longer than a cell holds, see MOST_CHARACTERS, so that the write is
+      # discarded rather than leave a workbook that Excel reports as corrupt.
+      def check_length(text, index)
+        text   = Text.utf8(text)
+        length = Text.length(text)
+        return text if length <= MOST_CHARACTERS
+
+        raise(Errors::Error, "A cell holds at most #{MOST_CHARACTERS} characters, counted in UTF-16, as Excel limits " \
+                             "it, which the text of cell #{reference(index)}, of #{length}, exceeds")
       end
 
       # Returns [String] the reference of the cell of the column at the index in the current row, such as `B2`.

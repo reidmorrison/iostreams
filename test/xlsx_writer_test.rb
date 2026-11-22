@@ -207,24 +207,27 @@ class XlsxWriterTest < Minitest::Test
       end
 
       it "accepts the name of a worksheet that Excel accepts" do
-        ["Sheet1", "Q&A", "it's", "Données", "x" * 31, nil].each do |sheet_name|
+        ["Sheet1", "Q&A", "it's", "Données", "x" * 31, "é" * 31, "#{'x' * 29}\u{1F600}", nil].each do |sheet_name|
           assert_nil IOStreams::Xlsx::Writer.check(sheet_name: sheet_name)
         end
       end
 
       it "raises for the name of a worksheet that Excel rejects" do
         {
-          ""        => "Excel rejects an empty name for a worksheet",
-          "x" * 32  => "Excel rejects the name of a worksheet that is longer than 31 characters",
-          "Q1/Q2"   => "Excel rejects the name of a worksheet that contains any of [ ] : * ? / \\",
-          "a\\b"    => "Excel rejects the name of a worksheet that contains any of [ ] : * ? / \\",
-          "[draft]" => "Excel rejects the name of a worksheet that contains any of [ ] : * ? / \\",
-          "10:30"   => "Excel rejects the name of a worksheet that contains any of [ ] : * ? / \\",
-          "*"       => "Excel rejects the name of a worksheet that contains any of [ ] : * ? / \\",
-          "Why?"    => "Excel rejects the name of a worksheet that contains any of [ ] : * ? / \\",
-          "'quoted" => "Excel rejects the name of a worksheet that starts or ends with an apostrophe",
-          "quoted'" => "Excel rejects the name of a worksheet that starts or ends with an apostrophe",
-          :Totals   => "supply the name of the worksheet as a String"
+          ""               => "Excel rejects an empty name for a worksheet",
+          "x" * 32         => "Excel rejects the name of a worksheet that is longer than 31 characters, counted in UTF-16, " \
+                              "as Excel counts them, so that an emoji counts as two",
+          "\u{1F600}" * 16 => "Excel rejects the name of a worksheet that is longer than 31 characters, counted in " \
+                              "UTF-16, as Excel counts them, so that an emoji counts as two",
+          "Q1/Q2"          => "Excel rejects the name of a worksheet that contains any of [ ] : * ? / \\",
+          "a\\b"           => "Excel rejects the name of a worksheet that contains any of [ ] : * ? / \\",
+          "[draft]"        => "Excel rejects the name of a worksheet that contains any of [ ] : * ? / \\",
+          "10:30"          => "Excel rejects the name of a worksheet that contains any of [ ] : * ? / \\",
+          "*"              => "Excel rejects the name of a worksheet that contains any of [ ] : * ? / \\",
+          "Why?"           => "Excel rejects the name of a worksheet that contains any of [ ] : * ? / \\",
+          "'quoted"        => "Excel rejects the name of a worksheet that starts or ends with an apostrophe",
+          "quoted'"        => "Excel rejects the name of a worksheet that starts or ends with an apostrophe",
+          :Totals          => "supply the name of the worksheet as a String"
         }.each_pair do |sheet_name, problem|
           error = assert_raises(ArgumentError) { IOStreams::Xlsx::Writer.check(sheet_name: sheet_name) }
           assert_equal "Invalid sheet_name #{sheet_name.inspect}: #{problem}", error.message
@@ -538,6 +541,31 @@ class XlsxWriterTest < Minitest::Test
         assert_equal "A worksheet holds at most 16384 columns, to XFD, as Excel limits it, which a value of row 1, in " \
                      "column 16385, exceeds", error.message
         refute_path_exists file_name
+      end
+
+      it "raises for text longer than a cell holds, counted in UTF-16 as Excel counts it, and discards the workbook" do
+        File.write(file_name, "existing")
+        error = assert_raises(IOStreams::Errors::Error) do
+          IOStreams.path(file_name).writer(:array) do |io|
+            io << %w[id text]
+            io << [1, "#{'x' * 32_766}\u{1F600}"]
+          end
+        end
+
+        assert_equal "A cell holds at most 32767 characters, counted in UTF-16, as Excel limits it, which the text of " \
+                     "cell B2, of 32768, exceeds", error.message
+        refute_path_exists file_name
+      end
+
+      it "writes text of as many characters as a cell holds, from rows and from CSV text, also as shared strings" do
+        text = "#{'x' * 32_765}\u{1F600}"
+        data = write(rows: true) { |io| io << [text, "é" * 32_767] }
+
+        assert_equal [[text, "é" * 32_767]], read_rows(data)
+        data = write(use_shared_strings: true) { |io| io << "#{'y' * 32_767}\n" }
+
+        assert_equal [["y" * 32_767]], read_rows(data)
+        assert_raises(IOStreams::Errors::Error) { write(use_shared_strings: true) { |io| io << "#{'y' * 32_768}\n" } }
       end
 
       it "writes a value in the last column, and nils after it" do
