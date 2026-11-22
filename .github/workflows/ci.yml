@@ -147,6 +147,35 @@ jobs:
             echo "SFTP_IDENTITY_FILE=$RUNNER_TEMP/sftp_identity"
             echo "SFTP_HOST_KEY=$host_key"
           } >> "$GITHUB_ENV"
+      # JRuby reads .zst with the zstd-jni jar, which `rake zstd_jni` downloads into the local Maven repository unless
+      # it is there, see test/zstd_jni.rb. Cache it, since Maven Central rate limits the downloads of parallel jobs
+      # with 429 Too Many Requests. The key is the jar's version and checksum, so that only a new jar misses the cache,
+      # and only the jar's directory is cached, so that nothing else in the repository is kept under that key.
+      - name: Find the zstd-jni Jar
+        id: zstd-jni
+        if: ${{ matrix.ruby == 'jruby' }}
+        run: |
+          ruby -r ./test/zstd_jni -e '
+            puts "key=zstd-jni-#{ZstdJni::VERSION}-#{ZstdJni::SHA256}"
+            puts "path=#{File.dirname(ZstdJni.jar_path)}"
+          ' >> "$GITHUB_OUTPUT"
+      - name: Restore the zstd-jni Jar
+        id: zstd-jni-cache
+        if: ${{ matrix.ruby == 'jruby' }}
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ steps.zstd-jni.outputs.path }}
+          key: ${{ runner.os }}-${{ steps.zstd-jni.outputs.key }}
+      # A step of its own, before the tests, so that the jar is saved below even when a test fails.
+      - name: Download the zstd-jni Jar
+        if: ${{ matrix.ruby == 'jruby' && steps.zstd-jni-cache.outputs.cache-hit != 'true' }}
+        run: bundle exec rake zstd_jni
+      - name: Save the zstd-jni Jar
+        if: ${{ matrix.ruby == 'jruby' && steps.zstd-jni-cache.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ steps.zstd-jni.outputs.path }}
+          key: ${{ runner.os }}-${{ steps.zstd-jni.outputs.key }}
       - name: Run Tests
         if: ${{ !matrix.coverage }}
         run: bundle exec rake
