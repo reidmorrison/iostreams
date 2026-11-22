@@ -109,12 +109,6 @@ class TextFormatTest < Minitest::Test
         IOStreams.path(File.join(__dir__, "files", "multiline_cell.xlsx"))
       end
 
-      # Returns the path of a spreadsheet that is written with its text in a table of shared strings, since creek on
-      # JRuby reads an inline string only up to its first newline.
-      def shared(path)
-        path.option(:xlsx, use_shared_strings: true)
-      end
-
       let(:header) { "first column,second column,third column" }
       let(:row) { %(data 1,data 2,"more\ndata") }
 
@@ -155,7 +149,7 @@ class TextFormatTest < Minitest::Test
 
       it "writes the text of each row as a row of CSV, keeping a line break within a quoted value" do
         Dir.mktmpdir do |dir|
-          shared(IOStreams.path(dir, "people.xlsx")).format(:text).writer(:array) do |io|
+          IOStreams.path(dir, "people.xlsx").format(:text).writer(:array) do |io|
             io << ["name,note"]
             io << [%(Jack,"two\nlines")]
             io << ["Jill,one\nline"]
@@ -191,7 +185,7 @@ class TextFormatTest < Minitest::Test
       it "copies its rows to a spreadsheet as :text alike in the :line and :array modes" do
         Dir.mktmpdir do |dir|
           %i[line array].each do |mode|
-            shared(IOStreams.path(dir, "#{mode}.xlsx")).format(:text).copy_from(spreadsheet.format(:text), mode: mode)
+            IOStreams.path(dir, "#{mode}.xlsx").format(:text).copy_from(spreadsheet.format(:text), mode: mode)
           end
 
           expected = read(spreadsheet, :array)
@@ -217,7 +211,7 @@ class TextFormatTest < Minitest::Test
 
       it "writes its slices to a spreadsheet, keeping a line break within a quoted value" do
         Dir.mktmpdir do |dir|
-          target = shared(IOStreams.path(dir, "copy.xlsx")).format(:text)
+          target = IOStreams.path(dir, "copy.xlsx").format(:text)
           target.writer(:slice) { |io| read(spreadsheet.format(:text), :slice, size: 10).each { |slice| io << slice } }
 
           assert_equal read(spreadsheet, :array), read(IOStreams.path(dir, "copy.xlsx"), :array)
@@ -226,7 +220,7 @@ class TextFormatTest < Minitest::Test
 
       it "writes a row of a slice already parsed to a spreadsheet as its lines are, keeping a line break in a quoted value" do
         Dir.mktmpdir do |dir|
-          target = shared(IOStreams.path(dir, "parsed.xlsx")).format(:text)
+          target = IOStreams.path(dir, "parsed.xlsx").format(:text)
           target.writer(:slice) { |io| io << IOStreams::Slice.new([%(a,"b\nc"), [%(a,"b\nc")]], format: :text) }
 
           assert_equal [%W[a b\nc], %W[a b\nc]], read(IOStreams.path(dir, "parsed.xlsx"), :array)

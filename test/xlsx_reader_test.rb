@@ -40,7 +40,7 @@ class XlsxReaderTest < Minitest::Test
 
     describe "a file that is not a spreadsheet" do
       it "raises Corrupt naming the spreadsheet that is read, rather than the temp file that it is copied into" do
-        # creek reads a spreadsheet with rubyzip, whose error is tagged.
+        # IOStreams opens a spreadsheet with rubyzip, whose error is tagged.
         require "zip"
         stream = IOStreams.stream(StringIO.new("not a spreadsheet")).file_name("archive/bad.xlsx")
 
@@ -77,15 +77,15 @@ class XlsxReaderTest < Minitest::Test
       end
     end
 
-    describe "without the creek gem" do
+    describe "without the rubyzip gem" do
       it "raises LoadError asking to install it" do
-        # A new process, since the tests have already loaded creek, which hides it, as if it were not installed.
+        # A new process, since the tests have already loaded rubyzip, which hides it, as if it were not installed.
         script = <<~'RUBY'
           module Kernel
             alias_method :require_installed, :require
 
             def require(name)
-              raise(LoadError, "cannot load such file -- #{name}") if name == "creek"
+              raise(LoadError, "cannot load such file -- #{name}") if name == "zip"
 
               require_installed(name)
             end
@@ -100,7 +100,7 @@ class XlsxReaderTest < Minitest::Test
         lib     = File.expand_path("../lib", __dir__)
         message = IO.popen([RbConfig.ruby, "-I", lib, "-e", script, file_name], err: File::NULL, &:read)
 
-        assert_equal "Please install the gem 'creek' to support Xlsx. cannot load such file -- creek", message
+        assert_equal "Please install the gem 'rubyzip' to support Xlsx. cannot load such file -- zip", message
       end
     end
 
