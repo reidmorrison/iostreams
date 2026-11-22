@@ -666,7 +666,7 @@ class SliceTargetStreamTest < Minitest::Test
 
         it "raises ArgumentError when it is set to a cleaner that is neither a built-in rule nor a Proc" do
           assert_raises(ArgumentError) { stream.encoding(cleaner: :unknown) }
-          assert_raises(ArgumentError) { stream.encoding(cleaner: "printable") }
+          assert_raises(ArgumentError) { stream.encoding(cleaner: 42) }
           assert_nil stream.setting(:encode)
         end
       end

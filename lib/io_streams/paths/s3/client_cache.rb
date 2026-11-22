@@ -23,7 +23,22 @@ module IOStreams
                                  "them. Supply #{names} to Aws::S3::Client.new, or supply client: as a Hash of its options")
           end
 
-          @options = (client || {}).merge(arguments)
+          # By the names of the options of `Aws::S3::Client.new`, also for a Hash with String keys, such as one stored by
+          # `IOStreams::Path#to_h`.
+          @options = (client || {}).transform_keys(&:to_sym).merge(arguments)
+        end
+
+        # Returns [Hash] `client:` as the Hash of the options of the client, which already holds the region and the
+        # credentials supplied with it, or none when there are none, see `IOStreams::Path#stored_arguments`.
+        #
+        # Raises ArgumentError for an `Aws::S3::Client` supplied as `client:`, which holds a connection.
+        def stored_arguments
+          if @options.nil?
+            raise(ArgumentError, "A path with an Aws::S3::Client as client: cannot be stored: supply client: as a Hash of " \
+                                 "its options, or none, so that the path uses the default credentials of AWS")
+          end
+
+          @options.empty? ? {} : {client: @options.dup}
         end
 
         # Returns [Aws::S3::Client] the client, created when first needed. Load the AWS SDK first, see `Sdk.load`.

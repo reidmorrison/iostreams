@@ -354,6 +354,78 @@ module IOStreams
       Utils.redact_options(options, sensitive_option_names)
     end
 
+    # The keys of #to_h, which `IOStreams.path(hash)` takes.
+    STORED_KEYS = %w[url arguments file_name streams rows].freeze
+
+    # Returns [Hash] what it takes to create this path again with `IOStreams.path(hash)`, in a form that JSON holds as
+    # it is, with String keys, so that it can be stored, such as by a job that reads the file later, in another process:
+    #   "url"       The url of this path, see #to_s.
+    #   "arguments" The arguments that this path was created with, beside its url, such as the `region:` of an S3 path or
+    #               the `ssh_options:` of an SFTP path, when it has any.
+    #   "file_name" The file name set with #file_name, when it is not the name of this path.
+    #   "streams"   The streams, options and encoding set with #stream, #option and #encoding, or #raw, when any are set.
+    #   "rows"      The format, the schema and the options of the rows set with #format, #schema and #option, when any
+    #               are set. The schema is held whole, read from its file or url when it was set as one, so that it is
+    #               read once, and the path created again reads by the same schema, even when the file changes later.
+    #
+    # A Symbol is held as its text and an Encoding as its name, which each option that takes one also takes. Its keys are
+    # what the path holds, so store the Hash without depending on them, as for `IOStreams::Slice#to_h`.
+    #
+    # A secret is held only when `secrets` is true. Then the Hash holds it in plain text, so whatever stores the Hash must
+    # encrypt it, such as an Active Record attribute declared with `encrypts`, and never pass it where it is not
+    # encrypted, such as the arguments of a job, which queues store and logs display as they are.
+    #
+    # Raises ArgumentError, and stores nothing:
+    # - when this path holds a secret, unless `secrets` is true: a password in its url or supplied to it, the secret
+    #   key of an S3 client, an option of a stream that its format declares sensitive, such as a PGP `passphrase`, or any
+    #   other option, or header of an HTTP path, that `#inspect` does not display, see `IOStreams::Utils.redact_options`.
+    #   Supply the secret from configuration where the path is created again instead, such as the default credentials
+    #   of AWS, or set it on the path that `IOStreams.path(hash)` returns.
+    # - when a contract is set with #as, since the contract is a class of the program rather than a setting of the file:
+    #   set it again where the path is created again.
+    # - for a value that JSON does not hold as it is, such as an `Aws::S3::Client`, a Proc, such as the `cleaner:` of
+    #   #encoding, or a Time.
+    #
+    # Raises what reading the schema raises, such as `IOStreams::Errors::NotFound` for a schema file that does not exist.
+    #
+    # Example:
+    #   path = IOStreams.path("s3://uploads/people.fixed.gz").schema("config/schemas/people_fixed.json")
+    #   Run.create!(input: path.to_h)
+    #
+    #   # Elsewhere, later:
+    #   IOStreams.path(Run.last.input).as(PersonContract).each(:record) { |person| p person }
+    def to_h(secrets: false)
+      hash      = {"url" => to_s}
+      arguments = Storable.options(stored_arguments, "The path #{display_name}", self.class.sensitive_option_names,
+                                   secrets: secrets)
+      hash["arguments"] = arguments unless arguments.empty?
+      hash["file_name"] = file_name if @builder && file_name != path
+      streams = @builder&.to_h(secrets: secrets)
+      hash["streams"] = streams unless streams.nil? || streams.empty?
+      rows = @tabular_settings&.to_h(secrets: secrets)
+      hash["rows"] = rows unless rows.nil? || rows.empty?
+      hash
+    end
+
+    # Returns [IOStreams::Path] the path that the supplied Hash describes, which #to_h returned, with String or Symbol
+    # keys, see `IOStreams.path`. Each setting is set again as it is when it is first set, so it is checked again.
+    #
+    # Raises ArgumentError when it does not describe a path: a Hash without a "url", or with a key that #to_h does not
+    # return, or a setting that the path does not take.
+    def self.from_h(hash)
+      hash = Storable.stored_keys(hash, STORED_KEYS, "The Hash of a path")
+
+      url = hash["url"]
+      unless url.is_a?(String)
+        raise(ArgumentError, "The Hash of a path needs its \"url\" as a String, see IOStreams::Path#to_h")
+      end
+
+      arguments = hash.key?("arguments") ? Storable.keywords(hash["arguments"], "The arguments of a path") : {}
+      path      = IOStreams.path(url, **arguments)
+      path.file_name = hash["file_name"] if hash.key?("file_name")
+      path.send(:restore, hash["streams"], hash["rows"])
+    end
+
     # Does not create the builder, so that a frozen path can be inspected, for example in a `FrozenError` message.
     # The builder and the tabular settings each display their own fields, see `IOStreams::Builder#inspect_fields` and
     # `IOStreams::Tabular::Settings#inspect_fields`, without the values of sensitive options, such as a passphrase.
@@ -444,6 +516,13 @@ module IOStreams
     # Returns the identity of the store that this path is in, such as the bucket of an S3 path, or the host and
     # port of an SFTP path. Every local file is in the same store.
     def store = nil
+
+    # Returns [Hash] the keyword arguments, other than its url, that create this path again with
+    # `IOStreams.path(url, **arguments)`, see #to_h, as they were supplied, including any that hold a secret, which #to_h
+    # rejects as this class decides, see .sensitive_option_names. Each path class with arguments of its own returns
+    # those that are not their default and not in its url. Raises ArgumentError for an argument that cannot be stored,
+    # such as an object that holds a connection.
+    def stored_arguments = {}
 
     # Raises NotImplementedError for an operation that this storage does not support.
     def raise_not_implemented(operation)

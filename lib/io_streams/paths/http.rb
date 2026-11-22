@@ -211,6 +211,20 @@ module IOStreams
 
       protected
 
+      # Returns [Hash] the user name when the url does not hold it, the password, which `IOStreams::Path#to_h` rejects as
+      # a secret, and each other argument that is not its default, see `IOStreams::Path#stored_arguments`. The
+      # `parameters:` are already in the url, which keeps its query, since the query can name the file.
+      def stored_arguments
+        arguments = {}
+        arguments[:username]            = username if username && username != Utils::URI.parse(url).user
+        arguments[:password]            = password if password
+        arguments[:http_redirect_count] = http_redirect_count unless http_redirect_count == 10
+        arguments[:allow_hosts]         = allow_hosts.dup if allow_hosts
+        arguments[:maximum_file_size]   = maximum_file_size if maximum_file_size
+        arguments[:headers]             = headers.dup if headers
+        arguments
+      end
+
       # Urls with the same scheme, host and port are in the same store, see `IOStreams::Path#same_store?`.
       def store = [original_uri.scheme, original_uri.hostname.to_s.downcase, original_uri.port]
 

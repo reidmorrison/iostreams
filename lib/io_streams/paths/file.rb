@@ -286,6 +286,11 @@ module IOStreams
 
       protected
 
+      # Returns [Hash] `create_path: false` when it was set, see `IOStreams::Path#stored_arguments`.
+      def stored_arguments
+        create_path ? {} : {create_path: false}
+      end
+
       # Returns [String] the name of the file, which identifies it, see `IOStreams::Path#identity`, as it is written,
       # as `Pathname#==` compares it: a relative name is not its absolute name, and the case of each letter counts, even
       # on a file system that ignores it, such as on macOS, since only the file system knows whether it does.

@@ -269,6 +269,43 @@ module IOStreams
       encoding
     end
 
+    # The keys of #to_h, which #restore takes.
+    STORED_KEYS = %w[streams options encoding raw].freeze
+
+    # Returns [Hash] the streams, options and encoding that were set, and whether the data is read and written as it is
+    # stored, see #raw, each one only when it is set, in a form that JSON holds as it is, with String keys, which #restore
+    # sets again, see `IOStreams::Path#to_h`. The file name is not included, since the path that holds this builder
+    # knows its own.
+    #
+    # Raises ArgumentError for an option that holds a secret, as the format of its stream decides, see
+    # `IOStreams::StreamFormat#sensitive_option_names`, such as a PGP passphrase, and for a value that JSON does not hold
+    # as it is, see `IOStreams::Storable.options`. A secret is kept, rather than raising, only when `secrets` is true.
+    def to_h(secrets: false)
+      return {"raw" => true} if raw?
+
+      hash = {}
+      hash["streams"]  = Storable.streams(@streams, "stream", secrets: secrets) { |name| stream_format(name) } if @streams
+      hash["options"]  = Storable.streams(@options, "stream", secrets: secrets) { |name| stream_format(name) } if @options
+      if @encoding
+        hash["encoding"] = Storable.options(@encoding, "The encoding", Encode.sensitive_option_names, secrets: secrets)
+      end
+      hash
+    end
+
+    # Sets the streams, options and encoding, or #raw, that the supplied Hash, which #to_h returned, holds, with String
+    # or Symbol keys, through #stream, #option, #encoding and #raw, which check each one as they do when it is first set.
+    #
+    # Raises ArgumentError for a key that #to_h does not return, or for a value that those methods do not take.
+    def restore(hash)
+      hash = Storable.stored_keys(hash, STORED_KEYS, "The streams of a path")
+      # Before the others, which then raise, as they do after #raw.
+      raw if hash["raw"]
+      Storable.each_stream(hash["streams"], "streams") { |name, options| stream(name, **options) }
+      Storable.each_stream(hash["options"], "options") { |name, options| option(name, **options) }
+      encoding(**Storable.keywords(hash["encoding"], "The encoding of a path")) if hash["encoding"]
+      self
+    end
+
     # Returns [IOStreams::Builder] a copy to display, for example by `#inspect`, with the value of each sensitive
     # option, such as a passphrase, replaced. Each stream's format decides which of its options are sensitive,
     # see `IOStreams::StreamFormat#redact_options`.

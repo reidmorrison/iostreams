@@ -26,6 +26,13 @@ module IOStreams
       redact_hash(options, sensitive_names.map { |name| normalize_option_name(name) })
     end
 
+    # Returns [true|false] whether the option of the supplied name holds a secret, as .redact_options decides it: its name
+    # is one of the supplied `sensitive_names`, or contains one of the words that are always sensitive.
+    def self.sensitive_option?(name, sensitive_names = [])
+      key = normalize_option_name(name)
+      sensitive_names.any? { |sensitive| normalize_option_name(sensitive) == key } || key.match?(SENSITIVE_NAME)
+    end
+
     # Returns [Hash] the options of each stream, by its name, such as those supplied to `IOStreams::Stream#stream`, with
     # the value of each sensitive option replaced with FILTERED, as the format that the block returns for the name of the
     # stream decides, see `IOStreams::StreamFormat#redact_options`.

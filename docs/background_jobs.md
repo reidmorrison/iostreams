@@ -106,6 +106,10 @@ end
   encrypted, in production, see [Paths](path). A CSV file, JSON, a spreadsheet or Parquet names its own columns, while
   a file that cannot, such as fixed width, also needs a [schema](schemas), set with `#schema` beside `#as`, see
   [A source that cannot describe itself](contracts#a-source-that-cannot-describe-itself).
+* To hand a job a path with its settings, such as its schema, rather than a url, send the Hash that `path.to_h`
+  returns, which the job turns back into the path with `IOStreams.path(hash)`, see [Storing a path](path#storing-a-path).
+  It never holds a password or other secret, which the job takes from configuration, since Active Job stores and logs
+  its arguments in plain text; when a secret must travel with the path, see [Secrets](path#secrets).
 * `each(:slice)` checks the header row of the file against the contract before it yields the first slice, so a file
   whose columns do not match raises `IOStreams::Errors::InvalidHeader` before any job is enqueued.
 * Each record is a Hash of its fields, with each value read as its type, such as an Integer or a Date, as `each(:hash)`

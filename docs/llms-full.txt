@@ -1676,6 +1676,186 @@ store, use the methods of the path, rather than passing `#to_s` to `File` or `Di
 and rescue the kind of failure, such as `IOStreams::Errors::NotFound`, rather than the exception of one store, see
 [Errors](errors). See [Paths are configuration](config#paths-are-configuration).
 
+### Storing a path
+
+A path can be stored and created again later, such as by a background job that reads the file in another process.
+`#to_h` returns a Hash of plain data, which JSON holds as it is, and `IOStreams.path(hash)` creates the same path from
+it, with its settings:
+
+~~~ruby
+path = IOStreams.path("s3://uploads/people.fixed.gz").schema("config/schemas/people_fixed.json")
+path.to_h
+# => {"url" => "s3://uploads/people.fixed.gz",
+#     "rows" => {"schema" => {"fields" => [{"name" => "name", "type" => "string", "width" => 30}, ...]}}}
+
+ImportPeopleJob.perform_later(path.to_h)
+~~~
+
+~~~ruby
+class ImportPeopleJob < ApplicationJob
+  def perform(stored_path)
+    path = IOStreams.path(stored_path)
+    path.as(PersonContract).each(:record) do |person|
+      Person.upsert(person.to_h)
+    end
+  end
+end
+~~~
+
+The Hash holds only what is set, under these keys:
+
+| Key           | What it holds                                                                                          |
+|---------------|--------------------------------------------------------------------------------------------------------|
+| `"url"`       | The url of the path.                                                                                   |
+| `"arguments"` | The arguments of the store beside the url, such as the `region:` of an S3 path or the `ssh_options:` of an SFTP path. |
+| `"file_name"` | The file name set with `#file_name`, when it is not the name of the path.                              |
+| `"streams"`   | How the bytes are read and written: the streams set with `#stream`, their options set with `#option`, the encoding set with `#encoding`, or `#raw`. |
+| `"rows"`      | How the rows are read and written: the format, the schema, and the options of the rows, such as those of Parquet. |
+
+The bytes and the rows each have their own key, since each holds its own options: `"streams"` holds those of `gz`
+or `pgp`, and `"rows"` those of a format such as `parquet`. `IOStreams.path(hash)` sets each one again as it is first
+set, so each is checked again. Store the Hash as it is, without depending on its keys, which can grow.
+
+A file whose name is not its format, with options for its streams and an encoding:
+
+~~~ruby
+path = IOStreams.path("s3://uploads/export_2527")
+path.file_name("people.psv.gz.pgp")
+path.option(:pgp, recipient: "receiver@example.org", compress: :zlib)
+path.option(:gz, level: 9)
+path.encoding("Windows-1252", replace: "?", cleaner: :printable)
+path.format(:psv)
+path.to_h
+~~~
+
+~~~json
+{
+  "url": "s3://uploads/export_2527",
+  "file_name": "people.psv.gz.pgp",
+  "streams": {
+    "options": {
+      "pgp": {
+        "recipient": "receiver@example.org",
+        "compress": "zlib"
+      },
+      "gz": {
+        "level": 9
+      }
+    },
+    "encoding": {
+      "encoding": "Windows-1252",
+      "replace": "?",
+      "cleaner": "printable"
+    }
+  },
+  "rows": {
+    "format": "psv"
+  }
+}
+~~~
+
+A fixed width file, whose schema is held whole, with the region of the S3 client:
+
+~~~ruby
+schema = {
+  fields: [
+    {name: "name", type: "string", width: 10},
+    {name: "age", type: "integer", width: 3}
+  ]
+}
+IOStreams.path("s3://uploads/people.fixed.gz", region: "us-east-1").schema(schema).to_h
+~~~
+
+~~~json
+{
+  "url": "s3://uploads/people.fixed.gz",
+  "arguments": {
+    "client": {
+      "region": "us-east-1"
+    }
+  },
+  "rows": {
+    "schema": {
+      "fields": [
+        {"name": "name", "type": "string", "width": 10},
+        {"name": "age", "type": "integer", "width": 3}
+      ]
+    }
+  }
+}
+~~~
+
+A file on an SFTP server whose streams are set, rather than implied by its name, and a Parquet file with an option
+of its rows:
+
+~~~ruby
+path = IOStreams.path("sftp://jack@example.org/drop/inbound.dat", ssh_options: {"IdentityFile" => "~/.ssh/id_ed25519"})
+path.stream(:gz)
+path.format(:json)
+path.to_h
+# => {"url" => "sftp://jack@example.org/drop/inbound.dat",
+#     "arguments" => {"ssh_options" => {"IdentityFile" => "~/.ssh/id_ed25519"}},
+#     "streams" => {"streams" => {"gz" => {}}},
+#     "rows" => {"format" => "json"}}
+
+IOStreams.path("gs://lake/people.parquet").option(:parquet, compression: "zstd").to_h
+# => {"url" => "gs://lake/people.parquet", "rows" => {"options" => {"parquet" => {"compression" => "zstd"}}}}
+~~~
+
+* The schema is held whole. A schema set as the name of a file is read once, by `#to_h`, so the path created again
+  reads by the same schema, even when the file changes later.
+* A contract is not stored, since it is a class of the program rather than a setting of the file, so `#to_h` raises
+  `ArgumentError` for a path with one. Set it with `#as` on the path created again.
+* A Symbol, such as the `compress: :zip` of PGP, is held as its text, and an Encoding as its name, which the option also
+  takes. A value that JSON does not hold, such as a Proc `cleaner:` of `#encoding`, or an `Aws::S3::Client` object,
+  raises `ArgumentError`.
+* The query of an HTTP url is kept, since it can name the file, so do not put a lasting credential in it.
+
+#### Secrets
+
+By default a secret is not stored: `#to_h` raises `ArgumentError`, naming the option but not its value, for a
+password, in the url or as an argument, the secret key of an S3 client, an option of a stream that holds a secret, such
+as the `passphrase` of PGP, or a header that holds a credential, such as `Authorization`. Supply such a secret from
+configuration where the path is created again, such as the default credentials of AWS, or set it on the path that
+`IOStreams.path(hash)` returns, such as with `#option`.
+
+When the secret has to travel with the path, `#to_h(secrets: true)` holds it, in plain text:
+
+~~~ruby
+path = IOStreams.path("sftp://example.org/people.csv", username: "jack", password: "OpenSesame")
+path.to_h(secrets: true)
+# => {"url" => "sftp://example.org/people.csv", "arguments" => {"username" => "jack", "password" => "OpenSesame"}}
+~~~
+
+Whatever stores that Hash must then encrypt it. In Rails, store it in an Active Record attribute declared with
+`encrypts`, see [Active Record Encryption](https://guides.rubyonrails.org/active_record_encryption.html), and pass the
+record to a job, rather than the Hash:
+
+~~~ruby
+class Import < ApplicationRecord
+  serialize :input, coder: JSON
+  encrypts :input
+end
+
+import = Import.create!(input: path.to_h(secrets: true))
+ImportPeopleJob.perform_later(import)
+~~~
+
+~~~ruby
+class ImportPeopleJob < ApplicationJob
+  def perform(import)
+    path = IOStreams.path(import.input)
+    path.as(PersonContract).each(:record) do |person|
+      Person.upsert(person.to_h)
+    end
+  end
+end
+~~~
+
+Never pass a Hash that holds a secret as an argument of a job: Active Job does not encrypt arguments, the queue stores
+them as they are, such as in the tables of Solid Queue, and the log displays them, unless the job sets
+`self.log_arguments = false`.
+
 ## Local files {#file}
 
 A name without a scheme is a local file, relative to the current directory unless it starts with `/`:
@@ -7771,6 +7951,10 @@ end
   encrypted, in production, see [Paths](path). A CSV file, JSON, a spreadsheet or Parquet names its own columns, while
   a file that cannot, such as fixed width, also needs a [schema](schemas), set with `#schema` beside `#as`, see
   [A source that cannot describe itself](contracts#a-source-that-cannot-describe-itself).
+* To hand a job a path with its settings, such as its schema, rather than a url, send the Hash that `path.to_h`
+  returns, which the job turns back into the path with `IOStreams.path(hash)`, see [Storing a path](path#storing-a-path).
+  It never holds a password or other secret, which the job takes from configuration, since Active Job stores and logs
+  its arguments in plain text; when a secret must travel with the path, see [Secrets](path#secrets).
 * `each(:slice)` checks the header row of the file against the contract before it yields the first slice, so a file
   whose columns do not match raises `IOStreams::Errors::InvalidHeader` before any job is enqueued.
 * Each record is a Hash of its fields, with each value read as its type, such as an Integer or a Date, as `each(:hash)`

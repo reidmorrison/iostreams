@@ -325,6 +325,16 @@ module IOStreams
 
       protected
 
+      # Returns [Hash] the user name when the url does not hold it, the password, which `IOStreams::Path#to_h` rejects as
+      # a secret, and the ssh options, see `IOStreams::Path#stored_arguments`.
+      def stored_arguments
+        arguments = {}
+        arguments[:username]    = username if username && username != Utils::URI.new(url).user
+        arguments[:password]    = password if password
+        arguments[:ssh_options] = Utils.deep_copy(ssh_options) unless ssh_options.empty?
+        arguments
+      end
+
       # A copy has its own ssh options, so that changing them does not change this path, see #ssh_options.
       def initialize_copy(source)
         super

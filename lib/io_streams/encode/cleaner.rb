@@ -22,15 +22,17 @@ module IOStreams
       )
 
       # Parameters
-      #   rule: [Symbol|Proc]
-      #     The name of a built-in rule, `:printable` or `:replace_non_printable`, or a Proc that is called with
-      #     the data and the `replace` value, and returns the cleansed data.
+      #   rule: [Symbol|String|Proc]
+      #     The name of a built-in rule, `:printable` or `:replace_non_printable`, also as its text, such as a stored
+      #     path holds it, see `IOStreams::Path#to_h`, or a Proc that is called with the data and the `replace` value,
+      #     and returns the cleansed data.
       #
       #   replace: [String|nil]
       #     The `replace` value supplied to the rule.
       #
-      # Raises [ArgumentError] for an unknown rule name, or a rule that is neither a Symbol nor a Proc.
+      # Raises [ArgumentError] for an unknown rule name, or a rule that is neither a name nor a Proc.
       def initialize(rule, replace:)
+        rule      = rule.to_sym if rule.is_a?(String)
         @built_in = rule.is_a?(Symbol)
         @rule     = resolve(rule)
         @replace  = replace
