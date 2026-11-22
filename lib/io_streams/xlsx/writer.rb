@@ -185,10 +185,18 @@ module IOStreams
       # was written with, such as with `writer(:line, delimiter: "\r")`.
       #
       # The text of a spreadsheet is UTF-8, so text in another encoding is converted to UTF-8, such as a Windows-1252
-      # String written with `#puts`, which writes each object in its own encoding, while binary data, such as the
-      # bytes of a file being copied, is UTF-8 already.
+      # String written with `#puts`, which writes each object in its own encoding, see `IOStreams::Encode.utf8`, while
+      # binary data, such as the bytes of a file being copied, is UTF-8 already, which the CSV parser checks, see
+      # #add_row.
+      #
+      # Raises [IOStreams::Errors::InvalidEncoding] for text in another encoding that UTF-8 cannot hold, such as a
+      # Windows-1252 byte that is no character, at its byte offset within the String written, so each String written in
+      # another encoding must hold whole characters, as a String does. Text in UTF-8 or binary that is not valid UTF-8
+      # raises the error of the CSV parser instead, tagged as a `RowError` on its line, see #add_row.
       def write_data(data)
-        data = data.encode(Encoding::UTF_8) unless [Encoding::BINARY, Encoding::UTF_8].include?(data.encoding)
+        unless [Encoding::BINARY, Encoding::UTF_8].include?(data.encoding)
+          data = IOStreams::Encode.utf8(data, place: "a String of CSV text written to a spreadsheet")
+        end
         @buffer << data.b
 
         record_start = 0
