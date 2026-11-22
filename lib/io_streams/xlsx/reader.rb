@@ -7,19 +7,12 @@ module IOStreams
   module Xlsx
     class Reader < IOStreams::Reader
       def self.option_names
-        []
+        %i[sheet_name]
       end
 
       # Returns [Array<Symbol>] the arguments of the rows that a stream reads, see .file, which are not options.
       def self.argument_names
         %i[rows decimals strings missing times text]
-      end
-
-      # Returns [Array<Symbol>] the options of the writer that reading raises for: `sheet_name`, since a caller could
-      # expect it to read that worksheet, which it does not, since it reads the first. The other options of the writer
-      # are ignored, since the workbook records them.
-      def self.unsupported_option_names
-        %i[sheet_name]
       end
 
       # Returns [Module] `IOStreams::Errors::Corrupt` for an exception that rubyzip raises for a file that is not a zip
@@ -37,8 +30,17 @@ module IOStreams
       end
 
       # Convert a xlsx, or xlsm file into CSV format, or with `rows: true`, see `IOStreams::Xlsx.rows_format`, yield the
-      # rows of its first worksheet, each an Array of the value of each of its cells, typed by Excel, see
+      # rows of one worksheet, each an Array of the value of each of its cells, typed by Excel, see
       # `IOStreams::Xlsx::Cells`.
+      #
+      # Parameters
+      #   sheet_name: [String|nil]
+      #     The name of the worksheet to read, compared without case, as Excel compares them, which the writer takes too,
+      #     so that a path written with it reads that worksheet back.
+      #     Default: nil, the first worksheet.
+      #
+      # Raises `IOStreams::Errors::StreamFailure`, tagged as `IOStreams::Errors::MissingEntry`, for a `sheet_name` that no
+      # worksheet has, see `IOStreams::Xlsx::Book#sheet`, and ArgumentError for one that is not a String.
       #
       # Raises `IOStreams::Errors::StreamFailure`, tagged as `IOStreams::Errors::Corrupt`, for a workbook of Excel 97-2003,
       # `.xls`, or one protected by a password, see `IOStreams::Xlsx::Package.check`, the exception of rubyzip, tagged
@@ -46,19 +48,20 @@ module IOStreams
       # `IOStreams::Errors::StreamFailure`, tagged the same way, for a zip file that is not a spreadsheet, and for a part
       # of the spreadsheet that is damaged, see .verify, naming the spreadsheet by its `display_name`, see
       # .takes_display_name?, otherwise by the name of the local file.
-      def self.file(file_name, display_name: nil, rows: false, decimals: nil, strings: nil, missing: nil, times: nil,
-                    text: false, &block)
+      def self.file(file_name, display_name: nil, sheet_name: nil, rows: false, decimals: nil, strings: nil, missing: nil,
+                    times: nil, text: false, &block)
+        sheet_name = check_sheet_name(sheet_name)
         Utils.load_soft_dependency("rubyzip", "Xlsx", "zip") unless defined?(::Zip::File)
         name = display_name || file_name
         Package.check(file_name, name)
         verify(file_name, name)
-        arguments = {decimals: decimals, strings: strings, missing: missing, times: times, text: text}
+        arguments = {sheet_name: sheet_name, decimals: decimals, strings: strings, missing: missing, times: times, text: text}
         return yield(Rows.new(file_name, name, **arguments)) if rows
 
         # Stream into a temp file as csv
         Utils.private_temp_file("iostreams_csv", purpose: "the rows of the spreadsheet as CSV") do |temp_file_name|
           ::File.open(temp_file_name, "wb") do |io|
-            tag_failure(name) { each_text_row(file_name, name) { |row| io << row.to_csv } }
+            tag_failure(name) { each_text_row(file_name, name, sheet_name) { |row| io << row.to_csv } }
           end
           ::File.open(temp_file_name, "rb", &block)
         end
@@ -94,23 +97,44 @@ module IOStreams
         zip&.close
       end
 
-      # Yields [Array] each row of the first worksheet of the spreadsheet file, with the text of each cell, as
+      # Returns [String|nil] the name of the worksheet to read, as UTF-8, as the workbook holds its names, or nil for the
+      # first.
+      #
+      # Raises ArgumentError for a name that is not a String.
+      def self.check_sheet_name(sheet_name)
+        return if sheet_name.nil?
+        unless sheet_name.is_a?(String)
+          raise(ArgumentError,
+                "Invalid sheet_name #{sheet_name.inspect}: supply the name of the worksheet as a String")
+        end
+
+        Text.utf8(sheet_name, place: "the sheet_name")
+      end
+      private_class_method :check_sheet_name
+
+      # Yields [Array] each row of the worksheet of the spreadsheet file, see `IOStreams::Xlsx::Book#sheet`, the first
+      # without a name, with the text of each cell, as
       # `IOStreams::Xlsx::Cells.text` gives it, the same in every process, so that the lines and the rows of the
       # workbook agree on which cells hold a date or a time, or nil for an empty cell.
-      def self.each_text_row(file_name, display_name, &block)
+      def self.each_text_row(file_name, display_name, sheet_name, &block)
         open_book(file_name, display_name) do |book|
+          sheet   = book.sheet(sheet_name)
           formats = book.number_formats
           options = {shared_strings: book.shared_strings, date_system: book.date_system}
-          book.each_row(->(text, type, style) { Cells.text(text, type, formats[style], options) }, &block)
+          book.each_row(sheet, ->(text, type, style) { Cells.text(text, type, formats[style], options) }, &block)
         end
       end
 
-      # The rows of the first worksheet of a workbook, each an Array of the value of each of its cells, typed by Excel's own
-      # cell type and number format, see `IOStreams::Xlsx::Cells`.
+      # The rows of a worksheet of a workbook, the first unless a `sheet_name` names another, each an Array of the value
+      # of each of its cells, typed by Excel's own cell type and number format, see `IOStreams::Xlsx::Cells`.
       class Rows
         include Enumerable
 
         # Parameters:
+        #   sheet_name: [String|nil]
+        #     The name of the worksheet to read, see `IOStreams::Xlsx::Book#sheet`.
+        #     Default: nil, the first worksheet.
+        #
         #   decimals: [#call|nil]
         #     Returns the positions of the values of the rows that keep the digits of their numbers, such as those of a
         #     `number` field, rather than the Float that Excel holds, so that each number of the column is the BigDecimal
@@ -152,9 +176,11 @@ module IOStreams
         #     the slices of a spreadsheet read without a schema, so that a schema reads them as it reads the slices of the
         #     CSV text, see `IOStreams::Stream#open_slice_rows`.
         #     Default: false
-        def initialize(file_name, display_name, decimals: nil, strings: nil, missing: nil, times: nil, text: false)
+        def initialize(file_name, display_name, sheet_name: nil, decimals: nil, strings: nil, missing: nil, times: nil,
+                       text: false)
           @file_name    = file_name
           @display_name = display_name
+          @sheet_name   = sheet_name
           @decimals     = decimals
           @strings      = strings
           @missing      = missing
@@ -172,10 +198,11 @@ module IOStreams
 
           positions = {}
           Reader.open_book(@file_name, @display_name) do |book|
+            sheet = book.sheet(@sheet_name)
             times = {}.compare_by_identity
             # Reads the styles and the shared strings of the workbook.
             convert = Reader.tag_failure(@display_name) { converter(book, times) }
-            each_row(book, convert) do |row|
+            each_row(book, sheet, convert) do |row|
               read_row(row, positions, times)
               yield(row)
             end
@@ -277,9 +304,9 @@ module IOStreams
 
         # Yields the values of each row of the worksheet, tagging a failure of rubyzip as `.failure_kind` says, but not one
         # that the block raises, which is raised as it is, as the block is called while the worksheet is read.
-        def each_row(book, converter)
+        def each_row(book, sheet, converter)
           in_block = false
-          book.each_row(converter) do |row|
+          book.each_row(sheet, converter) do |row|
             in_block = true
             yield(row)
             # Not reset in an ensure, which would clear it before the exception that the block raised reaches the rescue.

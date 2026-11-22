@@ -660,10 +660,9 @@ for `.enc`, whose header records whether the file was compressed. Writing ignore
 read the file, such as the PGP `passphrase`.
 
 Some options apply to both: `entry_file_name` names the file within a zip file when writing, and chooses the file to
-read. The PGP `signer` signs the file when writing, and when reading requires that the file was signed by that key. An
-option of one direction that the other could seem to use, but does not, such as the `sheet_name` of a spreadsheet,
-which names the worksheet that is written, while reading always reads the first, raises `ArgumentError` in that
-direction.
+read. The PGP `signer` signs the file when writing, and when reading requires that the file was signed by that key.
+The `sheet_name` of a spreadsheet names the worksheet that is written, and the one that is read. An option of one
+direction that the other could seem to use, but does not, raises `ArgumentError` in that direction.
 
 An option that neither direction accepts, such as a misspelled one, raises an `ArgumentError` that lists the valid
 options as soon as it is set, even when the file name does not include that stream. So the same code reports it
