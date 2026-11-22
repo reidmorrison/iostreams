@@ -13,7 +13,8 @@ description: >-
 
 IOStreams reads and writes whatever its paths name, with the access of the process. When any part of a path, url or
 file comes from outside the application, such as from a user, a partner, or a job's configuration, review the
-settings on this page. None of them is on by default, since each one depends on how the application uses IOStreams.
+settings on this page. None of them is on by default, since each one depends on how the application uses IOStreams,
+apart from the time limit of a `pattern`, see [Untrusted schemas and patterns](#untrusted-schemas-and-patterns).
 
 ## Allowed paths
 
@@ -189,6 +190,48 @@ most Excel's 16,384 columns. What it does not limit is the size of the upload on
 hold parts that decompress to gigabytes, which IOStreams reads, including parts that it does not use, as it checks
 them, and its rows, read as lines, are CSV text in a temp file, of up to 16,384 values for each row. Limit the size of
 the upload, and run the job that reads it with a time limit, as for any other upload.
+
+## Untrusted schemas and patterns
+
+The `pattern` constraint of a field is a Ruby regular expression that each value must match, see
+[Constraints](schemas#constraints). Some patterns, such as one with a backreference, `(?:(a+)\1?)+`, can take
+exponentially longer to match as a value grows, so a value of a few dozen characters could hold up a read or write for
+minutes. This matters when a user supplies the schema, such as a Table Schema uploaded with its data, or when a
+developer's pattern has a backreference or lookaround and users supply the values.
+
+So a value that takes longer than `IOStreams.pattern_timeout` to match, 0.1 seconds by default, raises
+`IOStreams::Errors::InvalidValue`, naming the field, such as
+`Field "code": "aaaa...!" took longer than 0.1 seconds to match its pattern, /(?:(a+)\1?)+/`, as any other value that
+does not meet a constraint does, so `on_invalid:` can report it and carry on. With `on_invalid:`, each such row can
+still take that long, so keep the limit short when the values come from a user.
+
+The limit is the time that passes while one value is matched, not the time the processor spends on it, so a lawful
+match of a very large value, such as a long text cell, on a busy machine can exceed it too, and be rejected. Raise the
+limit when the values can be that large.
+
+Set it once at startup, before any schema or contract is defined, since each reads it when it is built and keeps the
+limit it was built with. A contract class builds its schema when its body runs, so set it in an initializer that runs
+before the contract classes load, such as before `Bundler.require` loads a gem that defines them:
+
+~~~ruby
+# config/initializers/iostreams.rb
+IOStreams.pattern_timeout = 0.05
+~~~
+
+When `Regexp.timeout` is also set, the stricter of the two applies, since a pattern's own limit would otherwise replace
+it. Set `IOStreams.pattern_timeout` to `nil` to leave the time of a pattern to `Regexp.timeout`, which has no limit by
+default. The limit is enforced on both CRuby and JRuby.
+
+To reject a slow pattern before reading anything, check a schema that a user supplies with `Regexp.linear_time?`,
+which is true for a pattern that CRuby matches in a time that grows only with the length of the value. JRuby answers
+false for every pattern, so this check rejects them all there:
+
+~~~ruby
+schema["fields"].each do |field|
+  pattern = field.dig("constraints", "pattern")
+  raise(ArgumentError, "Field #{field['name']}: pattern is too slow") if pattern && !Regexp.linear_time?(pattern)
+end
+~~~
 
 ## PGP
 

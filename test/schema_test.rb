@@ -1240,6 +1240,75 @@ class SchemaTest < Minitest::Test
           assert_match(/constraints pattern is not a valid regular expression/, error.message)
         end
 
+        describe "a pattern that backtracks without end, such as one with a backreference" do
+          before do
+            @pattern_timeout = IOStreams.pattern_timeout
+            @regexp_timeout  = Regexp.timeout
+          end
+
+          after do
+            IOStreams.pattern_timeout = @pattern_timeout
+            Regexp.timeout            = @regexp_timeout
+          end
+
+          it "raises InvalidValue once a value takes longer than IOStreams.pattern_timeout to match" do
+            IOStreams.pattern_timeout = 0.05
+            code = field(type: "string", constraints: {pattern: "(?:(a+)\\1?)+"})
+
+            assert_equal "aaaa", code.cast("aaaa")
+            started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+            error   = assert_raises(IOStreams::Errors::InvalidValue) { code.cast("#{'a' * 40}!") }
+            elapsed = Process.clock_gettime(Process::CLOCK_MONOTONIC) - started
+
+            assert_operator elapsed, :<, 2
+            assert_equal "value", error.field
+            assert_match(/\AField "value": "a{40}!" took longer than 0.05 seconds to match its pattern, /, error.message)
+            assert_kind_of Regexp::TimeoutError, error.cause
+          end
+
+          it "is read when the schema is built" do
+            IOStreams.pattern_timeout = 0.05
+            code = field(type: "string", constraints: {pattern: "(?:(a+)\\1?)+"})
+            IOStreams.pattern_timeout = 60
+
+            assert_raises(IOStreams::Errors::InvalidValue) { code.cast("#{'a' * 40}!") }
+          end
+
+          it "takes Regexp.timeout when it is stricter, since a pattern's own timeout would replace it" do
+            IOStreams.pattern_timeout = 60
+            Regexp.timeout            = 0.05
+            code = field(type: "string", constraints: {pattern: "(?:(a+)\\1?)+"})
+
+            error = assert_raises(IOStreams::Errors::InvalidValue) { code.cast("#{'a' * 40}!") }
+            assert_match(/took longer than 0.05 seconds/, error.message)
+          end
+
+          it "names the limit as it was set, such as 1 rather than 1.0" do
+            IOStreams.pattern_timeout = 1
+            code = field(type: "string", constraints: {pattern: "(?:(a+)\\1?)+"})
+
+            error = assert_raises(IOStreams::Errors::InvalidValue) { code.cast("#{'a' * 40}!") }
+            assert_match(/took longer than 1 seconds/, error.message)
+          end
+
+          it "has no limit of its own once set to nil, taking Regexp.timeout" do
+            IOStreams.pattern_timeout = nil
+            code = field(type: "string", constraints: {pattern: "\\d{5}"})
+
+            assert_equal "12345", code.cast("12345")
+            assert_raises(IOStreams::Errors::InvalidValue) { code.cast("1234") }
+          end
+        end
+
+        it "IOStreams.pattern_timeout is 0.1 seconds by default, and must be a number of seconds more than 0, or nil" do
+          assert_in_delta 0.1, IOStreams.pattern_timeout
+          [0, -1, Float::INFINITY, Float::NAN, "1", Complex(1, 1), true].each do |seconds|
+            error = assert_raises(ArgumentError, seconds.inspect) { IOStreams.pattern_timeout = seconds }
+            assert_match(/IOStreams.pattern_timeout must be a number of seconds more than 0, or nil/, error.message)
+          end
+          assert_in_delta 0.1, IOStreams.pattern_timeout
+        end
+
         it "checks each value written too" do
           age = field(type: "integer", constraints: {minimum: 0})
 

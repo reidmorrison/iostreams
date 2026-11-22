@@ -42,6 +42,8 @@ module IOStreams
     #     matches `café`. Frictionless writes the pattern in the syntax of XML Schema, which matches the whole value too,
     #     and whose patterns are mostly those of Ruby, apart from its own classes, such as `\i` and `\c`, and its
     #     subtraction of classes, such as `[a-z-[aeiou]]`, which Ruby does not have.
+    #     A value that takes longer to match than `IOStreams.pattern_timeout` raises `IOStreams::Errors::InvalidValue`,
+    #     so that a pattern that backtracks without end cannot hold up a read or write.
     #
     # Each value of a constraint, such as `minimum: "2026-01-01"` of a date, is read by the field, see
     # `IOStreams::Schema::Field#constraint_value`, as its values are, and raises ArgumentError when it is not one, or when
@@ -234,13 +236,16 @@ module IOStreams
       end
 
       # Raises `IOStreams::Errors::InvalidValue` when the text does not match the pattern, also when it cannot be
-      # compared with it, such as text that is not valid in its encoding.
+      # compared with it, such as text that is not valid in its encoding, or takes longer to match than the pattern's
+      # timeout, see #read_pattern. A value that took too long may match, so it is not said not to.
       def check_pattern(value, read)
         return if @pattern.match?(value)
 
         violated(read, "does not match its pattern, /#{@pattern_text}/")
       rescue ArgumentError, EncodingError => e
         violated(read, "cannot be matched with its pattern, /#{@pattern_text}/: #{e.message}")
+      rescue Regexp::TimeoutError
+        violated(read, "took longer than #{@pattern_timeout} seconds to match its pattern, /#{@pattern_text}/")
       end
 
       def check_lengths(value, read)
@@ -383,7 +388,9 @@ module IOStreams
               "Field #{@name.inspect}: constraints #{property} must be an Integer of 0 or more: #{length.inspect}")
       end
 
-      # Returns [Regexp|nil] the pattern, matched against the whole text, see `pattern` above.
+      # Returns [Regexp|nil] the pattern, matched against the whole text, see `pattern` above, within the stricter of
+      # `IOStreams.pattern_timeout` and `Regexp.timeout`, as they are when the constraints are built, since a Regexp's own
+      # timeout replaces `Regexp.timeout`. The limit is kept as it was set, so that its message shows `2`, not `2.0`.
       def read_pattern(pattern)
         return if pattern.nil?
         unless pattern.is_a?(String)
@@ -395,7 +402,8 @@ module IOStreams
         # Compiled alone first, so that a pattern that closes a group that it did not open, such as "a)|(b", raises
         # rather than change what the anchors around it hold.
         Regexp.new(pattern)
-        Regexp.new("\\A(?u:#{pattern})\\z")
+        @pattern_timeout = [IOStreams.pattern_timeout, Regexp.timeout].compact.min
+        Regexp.new("\\A(?u:#{pattern})\\z", timeout: @pattern_timeout)
       rescue RegexpError => e
         raise(ArgumentError, "Field #{@name.inspect}: constraints pattern is not a valid regular expression: #{e.message}")
       end
