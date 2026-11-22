@@ -43,10 +43,10 @@ module IOStreams
       # The built-in number formats of Excel whose codes depend on the locale of the workbook, by their ids, as ECMA-376
       # Part 1, 18.8.30 lists them for Chinese, Japanese and Korean, from 27 to 58, and for Thai, from 59 to 81, of which
       # those of numbers, such as 59 to 62, are left out. Each is the class of its code in every locale, but for
-      # `:date_or_time`, of 34, 35, 52, 53, 55 and 56, which are dates in Japanese and Korean, such as `yyyy"年"m"月"`, and
-      # times of day in Chinese, such as `上午/下午h"时"mm"分"`, so that a number of less than a day is a time of day, and
-      # any other a date, see .style_of. A workbook that declares the code of one of them is read by that code, see
-      # .number_formats.
+      # `:date_or_time`, of 34, 35, 52, 53, 55 and 56, which are dates in Japanese and Korean, such as `yyyy"年"m"月"`,
+      # and times of day in Chinese, such as `上午/下午h"时"mm"分"`, 52 and 53 only in Traditional Chinese, so that a
+      # number of less than a day is a time of day, and any other a date, see .style_of. A workbook that declares the code
+      # of one of them is read by that code, see .number_formats, unless it is in Thai letters, see .readable_code?.
       LOCALE_FORMATS = {
         27 => :date, 28 => :date, 29 => :date, 30 => :date, 31 => :date, 32 => :time, 33 => :time,
         34 => :date_or_time, 35 => :date_or_time, 36 => :date, 50 => :date, 51 => :date, 52 => :date_or_time,
@@ -54,6 +54,9 @@ module IOStreams
         71 => :date, 72 => :date, 73 => :date, 74 => :date, 75 => :time, 76 => :time, 77 => :date_time, 78 => :time,
         79 => :elapsed, 80 => :time, 81 => :date
       }.freeze
+
+      # A letter of Thai, in which the built-in formats of Thai are written, see .readable_code?.
+      THAI = /\p{Thai}/
 
       # The classes of the number formats of a time, see .number_formats: of a time of day, whose clock Excel shows, and
       # of an elapsed time, whose hours Excel shows, such as `36:00:00` for a day and a half.
@@ -90,7 +93,17 @@ module IOStreams
       #     The id of the number format of each style of the workbook, by its index, or nil for a style without one.
       def self.number_formats(format_codes, format_ids)
         custom = format_codes.transform_values { |code| custom_format(code) }
-        format_ids.map { |id| BUILT_IN_FORMATS.fetch(id) { custom[id] || LOCALE_FORMATS[id] } if id }
+        format_ids.map do |id|
+          next unless id
+
+          BUILT_IN_FORMATS.fetch(id) { readable_code?(format_codes[id]) ? custom[id] : LOCALE_FORMATS[id] }
+        end
+      end
+
+      # Returns [true|false] whether .custom_format reads a code that a workbook declares: not one in Thai letters, such
+      # as `ว/ด/ปปปป`, the built-in date of Thai, whose class LOCALE_FORMATS gives, nor no code at all.
+      def self.readable_code?(code)
+        !code.nil? && !code.match?(THAI)
       end
 
       # Returns [BigDecimal] the number of a finite Float that a cell holds, to the digits that Excel displays, its most
@@ -318,8 +331,8 @@ module IOStreams
       def self.seconds(days)
         ((days - days.floor) * DAY).round(3)
       end
-      private_class_method :time_format?, :style_of, :number, :number_text, :plain_text, :elapsed_text, :duration_text,
-                           :days, :date_time, :time_of_day, :seconds
+      private_class_method :readable_code?, :time_format?, :style_of, :number, :number_text, :plain_text,
+                           :elapsed_text, :duration_text, :days, :date_time, :time_of_day, :seconds
     end
   end
 end

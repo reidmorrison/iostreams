@@ -310,7 +310,8 @@ does:
 
 The date and time formats include Excel's built-in formats of East Asian and Thai locales, such as the Japanese
 `yyyy"年"m"月"d"日"`, which a workbook names by number without declaring their codes, since each locale has its own.
-Six of them, numbered 34, 35, 52, 53, 55 and 56, are a date in Japanese and Korean and a time of day in Chinese, so a
+Six of them, numbered 34, 35, 52, 53, 55 and 56, are a date in Japanese and Korean and a time of day in Chinese, 52
+and 53 only in Traditional Chinese, so a
 cell of one is read as a time of day when it holds less than a day, and otherwise as a date, unless the workbook
 declares the code of its format, which says which it is. A Chinese time of day of a cell that also holds a date is then
 read as its date.

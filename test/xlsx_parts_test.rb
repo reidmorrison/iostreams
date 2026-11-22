@@ -170,6 +170,17 @@ class XlsxPartsTest < Minitest::Test
       assert_equal "06:00:00", text(name).chomp
     end
 
+    it "reads a built-in format of a locale whose declared code is a number as a number, but not one in Thai letters" do
+      thai = "\u0E27/\u0E14/\u0E1B\u0E1B\u0E1B\u0E1B"
+      name = workbook(
+        related:                   {"styles" => "styles.xml"},
+        "xl/styles.xml"            => %(<styleSheet xmlns="#{MAIN}"><numFmts count="2"><numFmt numFmtId="50" formatCode="0.00"/><numFmt numFmtId="71" formatCode="#{thai}"/></numFmts><cellXfs count="3"><xf numFmtId="0"/><xf numFmtId="50"/><xf numFmtId="71"/></cellXfs></styleSheet>),
+        "xl/worksheets/sheet1.xml" => sheet(%(<row><c r="A1" s="1"><v>45000</v></c><c r="B1" s="2"><v>45000</v></c></row>))
+      )
+
+      assert_equal [[45_000.0, Date.new(2023, 3, 15)]], rows(name)
+    end
+
     it "reads a date of the 1904 date system without a leap day" do
       name = workbook(
         related:                   {"styles" => "styles.xml"},
