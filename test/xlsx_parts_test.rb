@@ -142,6 +142,45 @@ class XlsxPartsTest < Minitest::Test
       assert_equal ["1899-12-31,1900-01-01,1900-02-28,1900-02-28,1900-03-01,1899-12-31T12:00:00,1900-02-28T12:00:00"], lines
     end
 
+    it "reads the built-in date and time formats of East Asian and Thai locales, which a workbook does not declare" do
+      ids   = [27, 32, 55, 55, 77, 79, 59]
+      xfs   = ids.map { |id| %(<xf numFmtId="#{id}"/>) }.join
+      days  = %w[45000 0.5 0.25 45000 45000.5 1.5 45000]
+      cells = days.each_with_index.map { |day, i| %(<c r="#{(65 + i).chr}1" s="#{i + 1}"><v>#{day}</v></c>) }
+      name  = workbook(
+        related:                   {"styles" => "styles.xml"},
+        "xl/styles.xml"            => %(<styleSheet xmlns="#{MAIN}"><cellXfs count="#{ids.size + 1}"><xf numFmtId="0"/>#{xfs}</cellXfs></styleSheet>),
+        "xl/worksheets/sheet1.xml" => sheet(%(<row>#{cells.join}</row>))
+      )
+
+      assert_equal [[Date.new(2023, 3, 15), Time.utc(2000, 1, 1, 12), Time.utc(2000, 1, 1, 6), Date.new(2023, 3, 15),
+                     Time.utc(2023, 3, 15, 12), Time.utc(1900, 1, 1, 12), 45_000.0]], rows(name)
+      assert_equal "2023-03-15,12:00:00,06:00:00,2023-03-15,2023-03-15T12:00:00,1900-01-01T12:00:00,45000", text(name).chomp
+    end
+
+    it "reads a built-in format of a locale by the code that the workbook declares for it" do
+      code = "\u4E0A\u5348/\u4E0B\u5348h&quot;\u65F6&quot;mm&quot;\u5206&quot;"
+      name = workbook(
+        related:                   {"styles" => "styles.xml"},
+        "xl/styles.xml"            => %(<styleSheet xmlns="#{MAIN}"><numFmts count="1"><numFmt numFmtId="55" formatCode="#{code}"/></numFmts><cellXfs count="2"><xf numFmtId="0"/><xf numFmtId="55"/></cellXfs></styleSheet>),
+        "xl/worksheets/sheet1.xml" => sheet(%(<row><c r="A1" s="1"><v>45000.25</v></c></row>))
+      )
+
+      assert_equal [[Time.utc(2023, 3, 15, 6)]], rows(name)
+      assert_equal "06:00:00", text(name).chomp
+    end
+
+    it "reads a built-in format of a locale whose declared code is a number as a number, but not one in Thai letters" do
+      thai = "\u0E27/\u0E14/\u0E1B\u0E1B\u0E1B\u0E1B"
+      name = workbook(
+        related:                   {"styles" => "styles.xml"},
+        "xl/styles.xml"            => %(<styleSheet xmlns="#{MAIN}"><numFmts count="2"><numFmt numFmtId="50" formatCode="0.00"/><numFmt numFmtId="71" formatCode="#{thai}"/></numFmts><cellXfs count="3"><xf numFmtId="0"/><xf numFmtId="50"/><xf numFmtId="71"/></cellXfs></styleSheet>),
+        "xl/worksheets/sheet1.xml" => sheet(%(<row><c r="A1" s="1"><v>45000</v></c><c r="B1" s="2"><v>45000</v></c></row>))
+      )
+
+      assert_equal [[45_000.0, Date.new(2023, 3, 15)]], rows(name)
+    end
+
     it "reads a date of the 1904 date system without a leap day" do
       name = workbook(
         related:                   {"styles" => "styles.xml"},

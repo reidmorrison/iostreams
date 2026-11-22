@@ -656,6 +656,17 @@ the 1900 date system, rather than a date of the year 10000.
 Fix: none is needed for dates from 1900-03-01. Code that added a day to an earlier date read from a spreadsheet, to
 correct it, no longer needs to.
 
+#### Spreadsheet cells of East Asian and Thai date formats are dates
+
+Excel's built-in date and time formats of Chinese, Japanese, Korean and Thai, such as the Japanese
+`yyyy"年"m"月"d"日"`, which a workbook names by number without declaring their codes, were read as numbers, such as
+`44211.0`. Now such a cell is a `Date`, a `Time`, or a time of day, and its text in the lines ISO 8601, such as
+`2021-01-15`, as for any other date format. See [Excel spreadsheets](formats#excel-spreadsheets) for the six formats
+that are a date in one locale and a time of day in another.
+
+Fix: code that converted the number of such a cell into a date itself no longer needs to, and a `date` or `datetime`
+field reads the column.
+
 #### The column options of each call are removed
 
 `columns:`, `cleanse_header:`, `allowed_columns:`, `required_columns:` and `skip_unknown:` raise `ArgumentError`, as

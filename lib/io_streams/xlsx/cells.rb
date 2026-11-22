@@ -40,6 +40,24 @@ module IOStreams
         22 => :date_time, 45 => :time, 46 => :elapsed, 47 => :time
       }.freeze
 
+      # The built-in number formats of Excel whose codes depend on the locale of the workbook, by their ids, as ECMA-376
+      # Part 1, 18.8.30 lists them for Chinese, Japanese and Korean, from 27 to 58, and for Thai, from 59 to 81, of which
+      # those of numbers, such as 59 to 62, are left out. Each is the class of its code in every locale, but for
+      # `:date_or_time`, of 34, 35, 52, 53, 55 and 56, which are dates in Japanese and Korean, such as `yyyy"年"m"月"`,
+      # and times of day in Chinese, such as `上午/下午h"时"mm"分"`, 52 and 53 only in Traditional Chinese, so that a
+      # number of less than a day is a time of day, and any other a date, see .style_of. A workbook that declares the code
+      # of one of them is read by that code, see .number_formats, unless it is in Thai letters, see .readable_code?.
+      LOCALE_FORMATS = {
+        27 => :date, 28 => :date, 29 => :date, 30 => :date, 31 => :date, 32 => :time, 33 => :time,
+        34 => :date_or_time, 35 => :date_or_time, 36 => :date, 50 => :date, 51 => :date, 52 => :date_or_time,
+        53 => :date_or_time, 54 => :date, 55 => :date_or_time, 56 => :date_or_time, 57 => :date, 58 => :date,
+        71 => :date, 72 => :date, 73 => :date, 74 => :date, 75 => :time, 76 => :time, 77 => :date_time, 78 => :time,
+        79 => :elapsed, 80 => :time, 81 => :date
+      }.freeze
+
+      # A letter of Thai, in which the built-in formats of Thai are written, see .readable_code?.
+      THAI = /\p{Thai}/
+
       # The classes of the number formats of a time, see .number_formats: of a time of day, whose clock Excel shows, and
       # of an elapsed time, whose hours Excel shows, such as `36:00:00` for a day and a half.
       TIME_FORMATS = %i[time elapsed].freeze
@@ -63,8 +81,10 @@ module IOStreams
       private_constant :TIME_OF_DAY_FIELD
 
       # Returns [Array<Symbol|nil>] the class of the number format of each style of a workbook, by the index of the style,
-      # as a cell names it with its `s` attribute: `:date`, `:time`, `:elapsed` or `:date_time`, or nil for a number,
-      # from Excel's own number formats, see BUILT_IN_FORMATS and .custom_format.
+      # as a cell names it with its `s` attribute: `:date`, `:time`, `:elapsed`, `:date_time` or `:date_or_time`, or nil
+      # for a number, from Excel's own number formats, see BUILT_IN_FORMATS, the code that the workbook declares, see
+      # .custom_format, then the built-in formats of a locale, see LOCALE_FORMATS, whose codes in Thai .custom_format
+      # does not read.
       #
       # Parameters:
       #   format_codes: [Hash<Integer, String>]
@@ -73,7 +93,17 @@ module IOStreams
       #     The id of the number format of each style of the workbook, by its index, or nil for a style without one.
       def self.number_formats(format_codes, format_ids)
         custom = format_codes.transform_values { |code| custom_format(code) }
-        format_ids.map { |id| BUILT_IN_FORMATS.fetch(id) { custom[id] } if id }
+        format_ids.map do |id|
+          next unless id
+
+          BUILT_IN_FORMATS.fetch(id) { readable_code?(format_codes[id]) ? custom[id] : LOCALE_FORMATS[id] }
+        end
+      end
+
+      # Returns [true|false] whether .custom_format reads a code that a workbook declares: not one in Thai letters, such
+      # as `ว/ด/ปปปป`, the built-in date of Thai, whose class LOCALE_FORMATS gives, nor no code at all.
+      def self.readable_code?(code)
+        !code.nil? && !code.match?(THAI)
       end
 
       # Returns [BigDecimal] the number of a finite Float that a cell holds, to the digits that Excel displays, its most
@@ -172,7 +202,7 @@ module IOStreams
       # Parameters are those of .value, with the date system of the workbook, see `IOStreams::Xlsx::DateSystem`, rather
       # than its options.
       def self.clock(text, type, style, date_system)
-        return unless TIME_FORMATS.include?(style) && (type.nil? || type == "n") && text && !text.empty?
+        return unless time_format?(style) && (type.nil? || type == "n") && text && !text.empty?
 
         days = days(text, date_system)
         TIME_OF_DAY_FIELD.render(time_of_day(days), :text) if days && days < 1
@@ -188,10 +218,10 @@ module IOStreams
       #
       # Parameters are those of .clock.
       def self.length(text, type, style, date_system)
-        return unless TIME_FORMATS.include?(style) && (type.nil? || type == "n") && text && !text.empty?
+        return unless time_format?(style) && (type.nil? || type == "n") && text && !text.empty?
 
         days = days(text, date_system)
-        duration_text((days * DAY).round(3)) if days
+        duration_text((days * DAY).round(3)) if days && TIME_FORMATS.include?(style_of(style, days))
       rescue ArgumentError, ZeroDivisionError
         nil
       end
@@ -208,11 +238,27 @@ module IOStreams
         "PT#{parts.join}"
       end
 
+      # Returns [true|false] whether a number format can be that of a time, see TIME_FORMATS, as one of a locale that is a
+      # time of day in some locales can be, see LOCALE_FORMATS.
+      def self.time_format?(style)
+        TIME_FORMATS.include?(style) || style == :date_or_time
+      end
+
+      # Returns [Symbol] the class of a number format for the days of a cell: of one that is a date in some locales and a
+      # time of day in others, see LOCALE_FORMATS, a time of day for less than a day, as no date is, otherwise a date,
+      # and any other as it is.
+      def self.style_of(style, days)
+        return style unless style == :date_or_time
+
+        days < 1 ? :time : :date
+      end
+
       # Returns the number of a cell of a number type, by the class of its number format.
       def self.number(text, style, date_system)
         days = days(text, date_system) if style
         return Float(text) unless days
 
+        style = style_of(style, days)
         case style
         when :date then date_system.date(days.floor)
         when :date_time then date_time(days, date_system)
@@ -227,6 +273,7 @@ module IOStreams
         days = days(text, date_system) if style
         return plain_text(text) unless days
 
+        style = style_of(style, days)
         return elapsed_text(days, date_system) if style == :elapsed
 
         case style
@@ -284,8 +331,8 @@ module IOStreams
       def self.seconds(days)
         ((days - days.floor) * DAY).round(3)
       end
-      private_class_method :number, :number_text, :plain_text, :elapsed_text, :duration_text, :days, :date_time,
-                           :time_of_day, :seconds
+      private_class_method :readable_code?, :time_format?, :style_of, :number, :number_text, :plain_text,
+                           :elapsed_text, :duration_text, :days, :date_time, :time_of_day, :seconds
     end
   end
 end
