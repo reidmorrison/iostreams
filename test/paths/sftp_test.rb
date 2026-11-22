@@ -675,6 +675,22 @@ module Paths
           end
         end
 
+        it "accepts a password that is not ASCII, or not valid UTF-8, or holds a tab" do
+          ["pässwörd", "caf\xE9".b, "caf\xE9", "se\tcret"].each do |password|
+            assert_equal password, new_path(url, username: "jack", password: password).send(:password)
+          end
+        end
+
+        it "takes a password that the sftp program cannot use, since net-sftp lists and deletes files with any password" do
+          path = new_path(url, username: "jack", password: "secret\n!id")
+
+          assert_equal "secret\n!id", path.join("a.csv").send(:password)
+        end
+
+        it "takes a password that is a number, such as from YAML, as its text" do
+          assert_equal "123456", new_path(url, username: "jack", password: 123_456).send(:password)
+        end
+
         it "raises ArgumentError for a part of the url that SFTP does not use, rather than ignore it" do
           {
             "sftp://example.org/path/file.txt?ProxyCommand=id" =>
@@ -828,8 +844,8 @@ module Paths
           path = new_path(url, username: "jack", password: "secret")
           args = path.send(:sftp_args, path.ssh_options)
 
-          assert_equal IOStreams::Paths::SFTP.sshpass_bin, args[0]
-          assert_equal IOStreams::Paths::SFTP.sftp_bin, args[1]
+          assert_equal [IOStreams::Paths::SFTP.sshpass_bin, "-e", IOStreams::Paths::SFTP.sftp_bin], args.first(3)
+          refute_includes args, "secret"
           assert_includes args, "-oBatchMode=no"
           assert_includes args, "-oNumberOfPasswordPrompts=1"
           assert_includes args, "-oPubkeyAuthentication=no"
@@ -1259,6 +1275,131 @@ module Paths
 
           assert_instance_of StubStatusException, error
           refute_kind_of IOStreams::Errors::StorageError, error
+        end
+      end
+
+      describe "the password" do
+        # Runs the block with a stand-in for sshpass, which records its arguments, the SSHPASS variable of its
+        # environment and its input into files in the directory, and exits.
+        def with_fake_sshpass
+          Dir.mktmpdir("iostreams-sshpass") do |dir|
+            script = File.join(dir, "sshpass")
+            File.write(script, <<~SH)
+              #!/bin/sh
+              printf '%s\n' "$@" > "#{dir}/args"
+              printf '%s' "${SSHPASS-unset}" > "#{dir}/env"
+              cat > "#{dir}/stdin"
+            SH
+            File.chmod(0o700, script)
+            original = IOStreams::Paths::SFTP.sshpass_bin
+            begin
+              IOStreams::Paths::SFTP.sshpass_bin = script
+              yield(->(name) { File.binread(File.join(dir, name)) })
+            ensure
+              IOStreams::Paths::SFTP.sshpass_bin = original
+            end
+          end
+        end
+
+        # A password that sftp would run in the local shell, were it read as a batch command.
+        let(:password) { "!touch pwned" }
+
+        it "is supplied to sshpass in its environment when writing, and the input of sftp holds only batch commands" do
+          path = new_path("sftp://example.org/data/file.csv", username: "jack", password: password)
+
+          with_fake_sshpass do |recorded|
+            path.write("data")
+
+            assert_equal password, recorded["env"]
+            args = recorded["args"].lines(chomp: true)
+
+            assert_equal ["-e", IOStreams::Paths::SFTP.sftp_bin], args.first(2)
+            refute(args.any? { |arg| arg.include?(password) })
+            commands = recorded["stdin"].lines(chomp: true)
+
+            assert_match(%r{\Aput ".*" "/data/file.csv"\z}, commands.first)
+            assert_equal "bye", commands.last
+            assert_equal 2, commands.size
+          end
+        end
+
+        it "is supplied to sshpass in its environment when reading, without waiting for it to be read" do
+          path = new_path("sftp://example.org/data/file.csv", username: "jack", password: password)
+
+          with_fake_sshpass do |recorded|
+            started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+            path.read
+
+            assert_operator Process.clock_gettime(Process::CLOCK_MONOTONIC) - started, :<, 1.5
+            assert_equal password, recorded["env"]
+            commands = recorded["stdin"].lines(chomp: true)
+
+            assert_match(%r{\Aget "/data/file.csv" ".*"\z}, commands.first)
+            assert_equal ["bye"], commands.drop(1)
+            refute_includes recorded["stdin"], password
+          end
+        end
+
+        it "is a password of any length, so none of it is left for sftp to read as a batch command" do
+          password = "#{'x' * 39}!id"
+          path     = new_path("sftp://example.org/data/file.csv", username: "jack", password: password)
+
+          with_fake_sshpass do |recorded|
+            path.write("data")
+
+            assert_equal password, recorded["env"]
+            refute_includes recorded["stdin"], "!id"
+          end
+        end
+
+        it "is a password with a tab, or a number, as its text" do
+          {"se\tcret" => "se\tcret", 123_456 => "123456"}.each_pair do |password, text|
+            with_fake_sshpass do |recorded|
+              new_path("sftp://example.org/data/file.csv", username: "jack", password: password).write("data")
+
+              assert_equal text, recorded["env"]
+            end
+          end
+        end
+
+        it "raises for a line break or a NUL before reading or writing, without including the password" do
+          ["secret\n!id", "secret\r", "se\0cret", "caf\xE9\n".b].each do |password|
+            path = new_path("sftp://example.org/data/file.csv", username: "jack", password: password)
+
+            with_fake_sshpass do |recorded|
+              written = false
+              [-> { path.read }, -> { path.writer { |_io| written = true } }].each do |action|
+                error = assert_raises(ArgumentError, password.inspect) { action.call }
+
+                assert_equal "Invalid SFTP password for the sftp program: it cannot contain a line break or a NUL",
+                             error.message
+              end
+              refute written, "The block must not be called"
+              assert_raises(Errno::ENOENT, "The sftp program must not be run") { recorded["args"] }
+            end
+          end
+        end
+
+        it "is not in the environment of sftp without a password" do
+          path = new_path("sftp://example.org/data/file.csv", username: "jack")
+
+          assert_equal({}, path.send(:sftp_env))
+        end
+      end
+
+      describe "the wait settings, which have no effect" do
+        %i[sshpass_wait_seconds before_password_wait_seconds].each do |name|
+          it "reports that .#{name} and .#{name}= are deprecated, and keeps the value" do
+            original = IOStreams::Paths::SFTP.instance_variable_get(:"@#{name}")
+            begin
+              pattern = /IOStreams: IOStreams::Paths::SFTP\.#{name}=? is deprecated and has no effect/
+              assert_deprecated(pattern) { IOStreams::Paths::SFTP.public_send(:"#{name}=", 0) }
+
+              assert_equal 0, assert_deprecated(pattern) { IOStreams::Paths::SFTP.public_send(name) }
+            ensure
+              IOStreams::Paths::SFTP.instance_variable_set(:"@#{name}", original)
+            end
+          end
         end
       end
 

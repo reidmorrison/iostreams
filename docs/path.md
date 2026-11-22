@@ -534,9 +534,10 @@ path = IOStreams.path("sftp://sftp.example.org/inbound/data.csv", username: "jac
 ~~~
 
 Reading and writing run the `sftp` program of OpenSSH, which must be on the `PATH`, and the `sshpass` program, which
-gives `sftp` the password, when a password is supplied. Reading downloads the file into a temp file before the block
-is called, and writing writes into a temp file, which is uploaded once the block completes, see
-[When temp files are used](config#when-temp-files-are-used).
+gives `sftp` the password, when a password is supplied. `sshpass` reads the password from its environment, so it is
+never in the arguments that the process list shows, nor in the input of `sftp`, which holds only its commands. Reading
+downloads the file into a temp file before the block is called, and writing writes into a temp file, which is
+uploaded once the block completes, see [When temp files are used](config#when-temp-files-are-used).
 
 Every other operation, `#each_child`, `#children`, `#exist?`, `#size`, `#size?`, `#mtime`, `#file?`, `#directory?`,
 `#empty?`, `#delete` and `#delete_all`, and so `#move_to` from an SFTP path, which deletes it once it is copied, uses
@@ -593,7 +594,7 @@ gem "jruby-openssl", ">= 0.19.4", platform: :jruby
 | Argument | Meaning | Default |
 |----------|---------|---------|
 | `username:` | The user to log in as. A name that starts with `-`, or holds a control character, raises `ArgumentError` | The user name in the url, otherwise the user of the ssh config, or the current user |
-| `password:` | The password to log in with, which reading and writing give to `sftp` with `sshpass`. With a password, only the password is tried, and without one, only public keys, so that `sftp` never waits for a password | The password in the url, otherwise none |
+| `password:` | The password to log in with, which reading and writing give to `sftp` with `sshpass`. With a password, only the password is tried, and without one, only public keys, so that `sftp` never waits for a password. A password that holds a line break or a NUL, which `sshpass` cannot type at the prompt, raises `ArgumentError` when reading or writing, before the block is called, with a message that does not include it | The password in the url, otherwise none |
 | `ssh_options:` | A Hash of ssh options, by their names in `ssh_config`, as Strings or Symbols, see [ssh options](#ssh-options) | `{}` |
 
 A path answers `#hostname`, `#port`, `#username`, `#ssh_options`, and `#url`, which is `#to_s`.

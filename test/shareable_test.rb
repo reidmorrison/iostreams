@@ -78,8 +78,6 @@ class ShareableTest < Minitest::Test
           IOStreams::Pgp::Writer.audit_recipient = +"audit@example.org"
           IOStreams::Paths::SFTP.sftp_bin = +"sftp"
           IOStreams::Paths::SFTP.sshpass_bin = +"sshpass"
-          IOStreams::Paths::SFTP.sshpass_wait_seconds = 5
-          IOStreams::Paths::SFTP.before_password_wait_seconds = 2
           puts ShareableState.unshareable_class_state(modules)
         RUBY
 
