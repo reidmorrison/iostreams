@@ -439,24 +439,24 @@ class XlsxWriterTest < Minitest::Test
         assert_equal(["00:00:00", "00:00:01", "00:00:00.001"], lines.drop(1).map { |line| line.split(",").first })
       end
 
-      it "writes a date and time before 1899-12-31, whose number would be that of a time of day, as its text" do
+      it "writes a date and time before 1900-01-01, whose number would be that of a time of day, as its text" do
         path = IOStreams.path(file_name).schema(schema.merge(fields: schema[:fields] + [{name: "any", type: "any"}]))
         path.option(:xlsx, auto_format: true).writer(:hash) do |io|
           io << {"starts" => Time.utc(2000, 1, 1, 12), "ny" => nil, "at" => Time.utc(1899, 12, 30, 12),
                  "any" => "1899-12-30T06:00:00"}
-          io << {"starts" => nil, "ny" => nil, "at" => Time.utc(1899, 12, 31), "any" => Time.utc(1899, 12, 29, 6)}
+          io << {"starts" => nil, "ny" => nil, "at" => Time.utc(1900, 1, 1), "any" => Time.utc(1899, 12, 31, 6)}
         end
         xml = worksheet_xml(File.binread(file_name))
 
         assert_match(%r{<c r="A2" s="3"><v>0\.5</v>}, xml)
         assert_includes xml, "<t>1899-12-30T12:00:00</t>"
         assert_includes xml, "<t>1899-12-30T06:00:00</t>"
-        assert_includes xml, "<t>1899-12-29T06:00:00</t>"
+        assert_includes xml, "<t>1899-12-31T06:00:00</t>"
         assert_match(%r{<c r="C3" s="2"><v>1\.0</v>}, xml)
         records = []
         path.each(:hash) { |record| records << record.slice("at") }
 
-        assert_equal [{"at" => Time.utc(1899, 12, 30, 12)}, {"at" => Time.utc(1899, 12, 31)}], records
+        assert_equal [{"at" => Time.utc(1899, 12, 30, 12)}, {"at" => Time.utc(1900, 1, 1)}], records
       end
 
       it "writes the time of day of a time field with shared strings and auto_format" do
@@ -564,18 +564,58 @@ class XlsxWriterTest < Minitest::Test
         assert_match(/<c r="B1" s="2"><v>2958465\.99999/, xml)
       end
 
+      it "is the date before 1900-03-01 that Excel shows, though it counts 1900-02-29, and reads back as written" do
+        dates = (Date.new(1900, 1, 1)..Date.new(1900, 3, 2)).to_a
+        times = dates.map { |date| Time.utc(date.year, date.month, date.day, 18) }
+        data  = write(rows: true) { |io| dates.zip(times).each { |row| io << row } }
+        xml   = worksheet_xml(data)
+
+        assert_includes xml, '<c r="A1" s="1"><v>1</v></c><c r="B1" s="2"><v>1.75</v></c>'
+        assert_includes xml, '<c r="A59" s="1"><v>59</v></c><c r="B59" s="2"><v>59.75</v></c>'
+        assert_includes xml, '<c r="A60" s="1"><v>61</v></c><c r="B60" s="2"><v>61.75</v></c>'
+        expected = dates.map { |date| [date.iso8601, "#{date.iso8601}T18:00:00"] }
+
+        assert_equal expected, read_rows(data)
+      end
+
+      it "is written as its text by the worksheet itself, whoever gives it the value" do
+        output    = StringIO.new(+"")
+        worksheet = IOStreams::Xlsx::WorksheetWriter.new(output, styles:      IOStreams::Xlsx::CellStyles.new,
+                                                                 date_system: IOStreams::Xlsx::DateSystem::SYSTEM_1900)
+        worksheet << [Date.new(1899, 12, 31), Time.utc(1899, 12, 31, 12), Date.new(1800, 1, 1), Date.new(1900, 1, 1)]
+        worksheet.close
+
+        assert_includes output.string, '<c r="A1" t="inlineStr"><is><t>1899-12-31</t></is></c>'
+        assert_includes output.string, '<c r="B1" t="inlineStr"><is><t>1899-12-31T12:00:00</t></is></c>'
+        assert_includes output.string, '<c r="C1" t="inlineStr"><is><t>1800-01-01</t></is></c>'
+        assert_includes output.string, '<c r="D1" s="1"><v>1</v></c>'
+      end
+
+      it "decides by the clock that it writes of a time of another offset, as its cell holds it" do
+        output    = StringIO.new(+"")
+        worksheet = IOStreams::Xlsx::WorksheetWriter.new(output, styles:      IOStreams::Xlsx::CellStyles.new,
+                                                                 date_system: IOStreams::Xlsx::DateSystem::SYSTEM_1900)
+        worksheet << [Time.new(1899, 12, 31, 22, 0, 0, "-05:00"), Time.new(1900, 1, 1, 2, 0, 0, "+05:00"),
+                      Time.new(10_000, 1, 1, 2, 0, 0, "+05:00")]
+        worksheet.close
+
+        assert_includes output.string, '<c r="A1" t="inlineStr"><is><t>1899-12-31T22:00:00</t></is></c>'
+        assert_match(/<c r="B1" s="2"><v>1\.083333/, output.string)
+        assert_includes output.string, '<c r="C1" t="inlineStr"><is><t>10000-01-01T02:00:00</t></is></c>'
+      end
+
       it "is written as its text, which a date field reads back, from rows and from auto_format alike" do
         path = IOStreams.path(file_name).schema(fields: [{name: "on", type: "date"}, {name: "any", type: "any"}])
         path.option(:xlsx, auto_format: true).writer(:array) do |io|
-          io << [Date.new(1899, 12, 30), "1899-12-29"]
-          io << [Date.new(1899, 12, 31), "1899-12-31"]
+          io << [Date.new(1899, 12, 31), "1899-12-29"]
+          io << [Date.new(1900, 1, 1), "1900-01-01"]
           io << [Date.new(1600, 1, 1), "2026-01-02"]
           io << [Date.new(10_000, 1, 1), "9999-12-31"]
           io << [Date.new(9999, 12, 31), "9999-12-31T23:00:00-05:00"]
         end
         xml = worksheet_xml(File.binread(file_name))
 
-        assert_includes xml, "<t>1899-12-30</t>"
+        assert_includes xml, "<t>1899-12-31</t>"
         assert_includes xml, "<t>1899-12-29</t>"
         assert_includes xml, "<t>1600-01-01</t>"
         assert_includes xml, "<t>10000-01-01</t>"
@@ -591,7 +631,7 @@ class XlsxWriterTest < Minitest::Test
           break if records.size == 3
         end
 
-        assert_equal [Date.new(1899, 12, 30), Date.new(1899, 12, 31), Date.new(1600, 1, 1)], records
+        assert_equal [Date.new(1899, 12, 31), Date.new(1900, 1, 1), Date.new(1600, 1, 1)], records
       end
     end
 

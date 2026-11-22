@@ -10,7 +10,8 @@ module IOStreams
     # * true or false is a boolean;
     # * a Decimal is its number, shown with its decimals;
     # * a Date is a date, a Time or DateTime a date and time, of the clock of its offset, since a cell holds no time
-    #   zone, and a TimeOfDay a time of day, each a number of days since Excel's day 0, 1899-12-30, of its style, see
+    #   zone, or the text of one that Excel does not show, see #holds_date?, and a TimeOfDay a time of day, each the
+    #   number of its day in the date system of the workbook, see `IOStreams::Xlsx::DateSystem`, of its style, see
     #   `IOStreams::Xlsx::CellStyles`;
     # * nil, or empty text, is no cell;
     # * anything else is its text, as Excel escapes it, see `IOStreams::Xlsx::Text.encode`, within the cell, or in the
@@ -24,12 +25,6 @@ module IOStreams
 
       # A number shown with its number of decimals, of a style of that many, see `IOStreams::Xlsx::CellStyles#decimals`.
       Decimal = Data.define(:number, :decimals)
-
-      # The day of Excel of the first day of Unix time, 1970-01-01.
-      UNIX_EPOCH_DAY = 25_569
-
-      # The Julian day of Excel's day 0, 1899-12-30.
-      JULIAN_DAY_ZERO = Date.new(1899, 12, 30).jd
 
       SECONDS_PER_DAY = 86_400.0
 
@@ -55,8 +50,12 @@ module IOStreams
       #   shared_strings: [IOStreams::Xlsx::SharedStringTable|nil]
       #     The shared strings of the workbook, which hold the text of its cells, or nil to write the text within each
       #     cell.
-      def initialize(output, styles:, shared_strings: nil)
+      #
+      #   date_system: [IOStreams::Xlsx::DateSystem]
+      #     How the workbook numbers its days, which gives the number of a date or time.
+      def initialize(output, styles:, date_system:, shared_strings: nil)
         @output         = output
+        @date_system    = date_system
         @styles         = styles
         @shared_strings = shared_strings
         @row_number     = 0
@@ -82,6 +81,13 @@ module IOStreams
         self
       end
 
+      # Returns [true|false] whether a cell holds the date or time, in UTC, as one that Excel shows, see
+      # `IOStreams::Xlsx::DateSystem#holds?`, of which the worksheet writes any other as its text, so that
+      # `IOStreams::Xlsx::RowsWriter` keeps the text that `auto_format` reads as one instead.
+      def holds_date?(value)
+        @date_system.holds?(value)
+      end
+
       # Ends the worksheet, once its rows are written.
       def close
         @buffer << FOOTER
@@ -96,9 +102,9 @@ module IOStreams
         when Integer, Float then xml << %(<c r="#{reference(index)}" t="n"><v>#{value}</v></c>)
         when true then xml << %(<c r="#{reference(index)}" t="b"><v>1</v></c>)
         when false then xml << %(<c r="#{reference(index)}" t="b"><v>0</v></c>)
-        when Time then xml << styled(index, CellStyles::DATE_TIME, days(value))
-        when DateTime then xml << styled(index, CellStyles::DATE_TIME, days(value.to_time))
-        when Date then xml << styled(index, CellStyles::DATE, value.jd - JULIAN_DAY_ZERO)
+        when Time then add_time(xml, value, index)
+        when DateTime then add_time(xml, value.to_time, index)
+        when Date then add_date(xml, value, index)
         when TimeOfDay then xml << styled(index, CellStyles::TIME_OF_DAY, value.seconds / SECONDS_PER_DAY)
         when Decimal then xml << styled(index, @styles.decimals(value.decimals), value.number)
         else add_text(xml, value.to_s, index)
@@ -110,9 +116,30 @@ module IOStreams
         %(<c r="#{reference(index)}" s="#{style}"><v>#{number}</v></c>)
       end
 
-      # Returns [Float] the days since Excel's day 0 of the clock of the time, in the time's own offset.
-      def days(time)
-        ((time.to_f + time.utc_offset) / SECONDS_PER_DAY) + UNIX_EPOCH_DAY
+      # Adds the cell of a date that a cell holds, see #holds_date?, otherwise its text, such as `1899-12-31`, rather than
+      # a number that Excel shows as another date, or as `####`.
+      def add_date(xml, date, index)
+        return add_text(xml, date.iso8601, index) unless @date_system.holds?(date)
+
+        xml << styled(index, CellStyles::DATE, @date_system.day(date))
+      end
+
+      # Adds the cell of a date and time that a cell holds, see #holds_date?, of the clock of its offset, otherwise the
+      # text of that clock, see `IOStreams::Schema::Field.clock_text`, such as `1899-12-31T12:00:00`, rather than a number
+      # of less than 1, which is a time of day.
+      def add_time(xml, time, index)
+        clock = clock(time)
+        return add_text(xml, Schema::Field.clock_text(clock), index) unless @date_system.holds?(clock)
+
+        xml << styled(index, CellStyles::DATE_TIME, @date_system.days(clock))
+      end
+
+      # Returns [Time] the clock of the time in UTC, the one that the cell holds, so that whether a cell holds it is
+      # asked of the clock that is written, rather than of the moment of a time of another offset.
+      def clock(time)
+        return time if time.utc_offset.zero?
+
+        Time.utc(time.year, time.month, time.day, time.hour, time.min, time.sec + time.subsec)
       end
 
       def flush

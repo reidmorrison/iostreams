@@ -244,15 +244,17 @@ class XlsxRowsTest < Minitest::Test
       end
 
       it "gives the time of the clock of a cell of a time of day, and nothing for any other cell" do
-        assert_equal "09:30:00", IOStreams::Xlsx::Cells.clock("0.39583333333333331", nil, :time)
-        assert_equal "09:30:00.500", IOStreams::Xlsx::Cells.clock("0.39583912037037035", "n", :time)
-        assert_nil IOStreams::Xlsx::Cells.clock("1.5", nil, :time)
-        assert_nil IOStreams::Xlsx::Cells.clock("-0.5", nil, :time)
-        assert_nil IOStreams::Xlsx::Cells.clock("0.5", nil, :date_time)
-        assert_nil IOStreams::Xlsx::Cells.clock("0.5", nil, nil)
-        assert_nil IOStreams::Xlsx::Cells.clock("0.5", "s", :time)
-        assert_nil IOStreams::Xlsx::Cells.clock("x", nil, :time)
-        assert_nil IOStreams::Xlsx::Cells.clock("", nil, :time)
+        system = IOStreams::Xlsx::DateSystem::SYSTEM_1900
+
+        assert_equal "09:30:00", IOStreams::Xlsx::Cells.clock("0.39583333333333331", nil, :time, system)
+        assert_equal "09:30:00.500", IOStreams::Xlsx::Cells.clock("0.39583912037037035", "n", :time, system)
+        assert_nil IOStreams::Xlsx::Cells.clock("1.5", nil, :time, system)
+        assert_nil IOStreams::Xlsx::Cells.clock("-0.5", nil, :time, system)
+        assert_nil IOStreams::Xlsx::Cells.clock("0.5", nil, :date_time, system)
+        assert_nil IOStreams::Xlsx::Cells.clock("0.5", nil, nil, system)
+        assert_nil IOStreams::Xlsx::Cells.clock("0.5", "s", :time, system)
+        assert_nil IOStreams::Xlsx::Cells.clock("x", nil, :time, system)
+        assert_nil IOStreams::Xlsx::Cells.clock("", nil, :time, system)
       end
 
       it "classifies the number formats of Excel, rather than as the gem that reads them does" do
@@ -466,11 +468,11 @@ class XlsxRowsTest < Minitest::Test
                       ["clock", 20, nil, "1.5"]])
         strings = IOStreams.path(file_name).schema(fields: %w[wait short custom clock].map { |name| {name: name, type: "string"} })
 
-        assert_equal "1899-12-31T12:00:00,01:30:00,1899-12-31T12:00:00,12:00:00", read(IOStreams.path(file_name), :line).last
-        assert_equal [Time.utc(1899, 12, 31, 12), Time.utc(2000, 1, 1, 1, 30), Time.utc(1899, 12, 31, 12),
-                      Time.utc(1899, 12, 31, 12)], read(IOStreams.path(file_name), :array).last
-        assert_equal [{"wait" => "1899-12-31T12:00:00", "short" => "01:30:00", "custom" => "1899-12-31T12:00:00",
-                       "clock" => "1899-12-31T12:00:00"}], read(strings)
+        assert_equal "1900-01-01T12:00:00,01:30:00,1900-01-01T12:00:00,12:00:00", read(IOStreams.path(file_name), :line).last
+        assert_equal [Time.utc(1900, 1, 1, 12), Time.utc(2000, 1, 1, 1, 30), Time.utc(1900, 1, 1, 12),
+                      Time.utc(1900, 1, 1, 12)], read(IOStreams.path(file_name), :array).last
+        assert_equal [{"wait" => "1900-01-01T12:00:00", "short" => "01:30:00", "custom" => "1900-01-01T12:00:00",
+                       "clock" => "1900-01-01T12:00:00"}], read(strings)
       end
 
       it "reads a cell of a time or elapsed time format into a duration field as its length, and raises for a number" do

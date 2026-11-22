@@ -126,6 +126,33 @@ class XlsxPartsTest < Minitest::Test
       assert_equal [[Date.new(2023, 9, 1)]], rows(name)
     end
 
+    it "reads a date before 1900-03-01 as the date that Excel shows, though it counts 1900-02-29" do
+      cells = [0, 1, 59, 60, 61, 0.5, 60.5].each_with_index.map { |day, i| %(<c r="#{(65 + i).chr}1" s="#{i < 5 ? 1 : 2}"><v>#{day}</v></c>) }
+      name  = workbook(
+        related:                   {"styles" => "styles.xml"},
+        "xl/styles.xml"            => %(<styleSheet xmlns="#{MAIN}"><cellXfs count="3"><xf numFmtId="0"/><xf numFmtId="14"/><xf numFmtId="22"/></cellXfs></styleSheet>),
+        "xl/worksheets/sheet1.xml" => sheet(%(<row>#{cells.join}</row>))
+      )
+
+      assert_equal [[Date.new(1899, 12, 31), Date.new(1900, 1, 1), Date.new(1900, 2, 28), Date.new(1900, 2, 28),
+                     Date.new(1900, 3, 1), Time.utc(1899, 12, 31, 12), Time.utc(1900, 2, 28, 12)]], rows(name)
+      lines = []
+      IOStreams.path(name).each(:line) { |line| lines << line }
+
+      assert_equal ["1899-12-31,1900-01-01,1900-02-28,1900-02-28,1900-03-01,1899-12-31T12:00:00,1900-02-28T12:00:00"], lines
+    end
+
+    it "reads a date of the 1904 date system without a leap day" do
+      name = workbook(
+        related:                   {"styles" => "styles.xml"},
+        "xl/workbook.xml"          => %(<workbook xmlns="#{MAIN}" xmlns:r="#{RELS}"><workbookPr date1904="1"/><sheets><sheet name="One" sheetId="1" r:id="rId1"/></sheets></workbook>),
+        "xl/styles.xml"            => %(<styleSheet xmlns="#{MAIN}"><cellXfs count="2"><xf numFmtId="0"/><xf numFmtId="14"/></cellXfs></styleSheet>),
+        "xl/worksheets/sheet1.xml" => sheet(%(<row><c r="A1" s="1"><v>0</v></c><c r="B1" s="1"><v>59</v></c><c r="C1" s="1"><v>2957003</v></c><c r="D1" s="1"><v>2957004</v></c></row>))
+      )
+
+      assert_equal [[Date.new(1904, 1, 1), Date.new(1904, 2, 29), Date.new(9999, 12, 31), 2_957_004.0]], rows(name)
+    end
+
     it "reads the number of a date cell of a tiny exponent or many digits at once, as the double that Excel holds" do
       name = workbook(
         related:                   {"styles" => "styles.xml"},
@@ -134,7 +161,7 @@ class XlsxPartsTest < Minitest::Test
       )
       started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
 
-      assert_equal [[Time.utc(1899, 12, 30), Time.utc(2023, 3, 15)]], rows(name)
+      assert_equal [[Time.utc(1899, 12, 31), Time.utc(2023, 3, 15)]], rows(name)
       assert_operator Process.clock_gettime(Process::CLOCK_MONOTONIC) - started, :<, 5
     end
 

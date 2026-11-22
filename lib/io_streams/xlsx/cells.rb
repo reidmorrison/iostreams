@@ -34,9 +34,6 @@ module IOStreams
       # significant digits of a double, with its sign and decimal point.
       SHORT_NUMBER = 32
 
-      # The number of the day after the last date that Excel holds, 9999-12-31, since 1899-12-30.
-      LAST_DAY = 2_958_466
-
       # The built-in number formats of Excel of dates, times of day, elapsed times, and dates with times, by their ids.
       BUILT_IN_FORMATS = {
         14 => :date, 15 => :date, 16 => :date, 17 => :date, 18 => :time, 19 => :time, 20 => :time, 21 => :time,
@@ -123,8 +120,8 @@ module IOStreams
       end
 
       # Returns the value of a cell of the supplied text of its `<v>` or `<t>` element, cell type, its `t` attribute,
-      # and the class of its number format, see .number_formats, such as `:date`, with the shared strings and the first
-      # day of the workbook, see `IOStreams::Xlsx::Book`. The text of a string has the characters that Excel escapes
+      # and the class of its number format, see .number_formats, such as `:date`, with the shared strings and the date
+      # system of the workbook, see `IOStreams::Xlsx::Book`. The text of a string has the characters that Excel escapes
       # decoded, see `IOStreams::Xlsx::Text`.
       def self.value(text, type, style, options)
         return if text.nil? || text.empty?
@@ -134,7 +131,7 @@ module IOStreams
         when "str", "inlineStr" then text
         when "b" then text == "1" || text.casecmp?("true")
         when "e" then nil
-        else number(text, style, options[:base_date])
+        else number(text, style, options[:date_system])
         end
       end
 
@@ -147,7 +144,7 @@ module IOStreams
       #                            it has any, which a field reads in its `timeZone`, or in UTC without one, as the cell
       #   a time                   the time of its clock, such as "09:30:00", which Excel shows, as a `time` field writes it
       #   an elapsed time          the time of its clock below a day, otherwise the clock of the date and time that .value
-      #                            reads, such as "1899-12-31T12:00:00" for `36:00:00` of the format `[h]:mm:ss`
+      #                            reads, such as "1900-01-01T12:00:00" for `36:00:00` of the format `[h]:mm:ss`
       #   any other number         to the digits that Excel displays, see .displayed_text, such as "1001", "12.5", or
       #                            "0.3" for the 0.30000000000000004 that the workbook holds
       #   text                     as it is
@@ -161,7 +158,7 @@ module IOStreams
       # Parameters are those of .value.
       def self.text(text, type, style, options)
         return if text.nil? || text.empty?
-        return number_text(text, style, options[:base_date]) if type.nil? || type == "n"
+        return number_text(text, style, options[:date_system]) if type.nil? || type == "n"
         return text if type == "e"
 
         value(text, type, style, options).to_s
@@ -172,11 +169,12 @@ module IOStreams
       # a `string` field reads the same text from the rows as from the lines, as IOStreams 2.2 reads it. Returns nil for
       # any other cell, including one of a time format of a day or more, which is a date and time.
       #
-      # Parameters are those of .value, without its options.
-      def self.clock(text, type, style)
+      # Parameters are those of .value, with the date system of the workbook, see `IOStreams::Xlsx::DateSystem`, rather
+      # than its options.
+      def self.clock(text, type, style, date_system)
         return unless TIME_FORMATS.include?(style) && (type.nil? || type == "n") && text && !text.empty?
 
-        days = days(text)
+        days = days(text, date_system)
         TIME_OF_DAY_FIELD.render(time_of_day(days), :text) if days && days < 1
       rescue ArgumentError, ZeroDivisionError
         nil
@@ -188,11 +186,11 @@ module IOStreams
       # as a number, which does not say what it counts, or a number of a time format that is not a date that Excel holds,
       # such as a negative one.
       #
-      # Parameters are those of .value, without its options.
-      def self.length(text, type, style)
+      # Parameters are those of .clock.
+      def self.length(text, type, style, date_system)
         return unless TIME_FORMATS.include?(style) && (type.nil? || type == "n") && text && !text.empty?
 
-        days = days(text)
+        days = days(text, date_system)
         duration_text((days * DAY).round(3)) if days
       rescue ArgumentError, ZeroDivisionError
         nil
@@ -211,29 +209,29 @@ module IOStreams
       end
 
       # Returns the number of a cell of a number type, by the class of its number format.
-      def self.number(text, style, base_date)
-        days = days(text) if style
+      def self.number(text, style, date_system)
+        days = days(text, date_system) if style
         return Float(text) unless days
 
         case style
-        when :date then base_date + days.floor
-        when :date_time then date_time(days, base_date)
-        when :time, :elapsed then days < 1 ? time_of_day(days) : date_time(days, base_date)
+        when :date then date_system.date(days.floor)
+        when :date_time then date_time(days, date_system)
+        when :time, :elapsed then days < 1 ? time_of_day(days) : date_time(days, date_system)
         end
       rescue ArgumentError, ZeroDivisionError
         text
       end
 
       # Returns [String] the text of a cell of a number type, by the class of its number format, see .text.
-      def self.number_text(text, style, base_date)
-        days = days(text) if style
+      def self.number_text(text, style, date_system)
+        days = days(text, date_system) if style
         return plain_text(text) unless days
 
-        return elapsed_text(days, base_date) if style == :elapsed
+        return elapsed_text(days, date_system) if style == :elapsed
 
         case style
-        when :date then (base_date + days.floor).iso8601
-        when :date_time then Schema::Field.clock_text(date_time(days, base_date))
+        when :date then date_system.date(days.floor).iso8601
+        when :date_time then Schema::Field.clock_text(date_time(days, date_system))
         when :time then TIME_OF_DAY_FIELD.render(time_of_day(days), :text)
         end
       rescue ArgumentError, ZeroDivisionError
@@ -250,29 +248,29 @@ module IOStreams
       # Returns [String] the text of a cell of an elapsed time, see .text: the time of its clock below a day, otherwise
       # the date and time that .value reads, rather than the time of its clock without its days, which Excel does not
       # show for an elapsed time.
-      def self.elapsed_text(days, base_date)
+      def self.elapsed_text(days, date_system)
         return TIME_OF_DAY_FIELD.render(time_of_day(days), :text) if days < 1
 
-        Schema::Field.clock_text(date_time(days, base_date))
+        Schema::Field.clock_text(date_time(days, date_system))
       end
 
-      # Returns [Rational|nil] the days since the first day of the workbook of the text of a number, or nil for one
-      # outside the dates that Excel holds, from its first day up to 9999-12-31, such as a negative number, or one of a
+      # Returns [Rational|nil] the days since day 0 of the date system of the text of a number, or nil for one
+      # outside the dates that it shows, see `IOStreams::Xlsx::DateSystem#days?`, such as a negative number, or one of a
       # huge exponent, which is checked as a Float before it becomes a Rational. The Rational is of the text only when it
       # is short and has no exponent, as Excel writes the double that it holds, otherwise of that double's own text, so
       # that text such as `1e-100000000` or a fraction of a million digits, which a Float reads as a date, does not
       # become a Rational of a huge denominator, whose arithmetic Ruby cannot interrupt.
-      def self.days(text)
+      def self.days(text, date_system)
         days = Float(text)
-        return unless days >= 0 && days < LAST_DAY
+        return unless date_system.days?(days)
 
         Rational(text.bytesize <= SHORT_NUMBER && !text.match?(/[eE]/) ? text : days.to_s)
       end
 
-      # Returns [Time] the time, in UTC, of the clock of the days since the first day of the workbook, to the millisecond
+      # Returns [Time] the time, in UTC, of the clock of the days of the date system, to the millisecond
       # that Excel holds.
-      def self.date_time(days, base_date)
-        date = base_date + days.floor
+      def self.date_time(days, date_system)
+        date = date_system.date(days.floor)
         Time.utc(date.year, date.month, date.day) + seconds(days)
       end
 
