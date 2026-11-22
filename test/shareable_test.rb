@@ -40,7 +40,6 @@ class ShareableTest < Minitest::Test
         script = <<~RUBY
           require "shareable_state"
           require "iostreams"
-          require "xlsxtream"
           # test/query/shareable_test.rb checks IOStreams::Query, which needs Active Record.
           puts ShareableState.unshareable_constants(ShareableState.modules(IOStreams, except: ["IOStreams::Query"]))
         RUBY
@@ -52,7 +51,6 @@ class ShareableTest < Minitest::Test
         script = <<~RUBY
           require "shareable_state"
           require "iostreams"
-          require "xlsxtream"
           require "tmpdir"
           modules = ShareableState.modules(IOStreams, except: ["IOStreams::Query"])
           Dir.mktmpdir do |dir|

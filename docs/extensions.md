@@ -25,7 +25,7 @@ and how to set the streams of a file whose name has none, is explained in
 | `.zst` | [Zstandard](#zstandard) | The `zstd-ruby` gem, 2.0.0 or later, or on JRuby the zstd-jni jar | None | `level` |
 | `.enc` | [Symmetric Encryption](#symmetric-encryption) | The `symmetric-encryption` gem, with its ciphers configured | `version`, `buffer_size` | `compress`, `version`, `cipher_name`, `header`, `random_key`, `random_iv` |
 | `.pgp`, `.gpg` | [PGP](#pgp) | The `gpg` program of GnuPG | `passphrase`, `signer` and more, see [Reader options](pgp#reader-options) | `recipient`, `signer` and more, see [Writer options](pgp#writer-options) |
-| `.xlsx`, `.xlsm` | [Excel spreadsheets](#excel-spreadsheets) | `rubyzip` to read, and `xlsxtream` 3.0 or later to write | None | `sheet_name`, `auto_format`, `use_shared_strings` |
+| `.xlsx`, `.xlsm` | [Excel spreadsheets](#excel-spreadsheets) | `rubyzip` to read, and `zip_kit` to write | None | `sheet_name`, `auto_format`, `use_shared_strings` |
 
 Only the registered extensions at the end of the name count, after its first `.`, whatever their case, so
 `DATA.CSV.GZ` is compressed with gzip, while `data.gz.csv` and `report.csv.bak` have no streams. `IOStreams.extensions`
@@ -311,9 +311,9 @@ reading wrong values, see [Errors](errors#what-each-stream-raises).
 
 ### Writing an Excel spreadsheet
 
-Writing uses the `xlsxtream` gem, which streams the workbook without a temp file. Its options, `sheet_name`,
-`auto_format` and `use_shared_strings`, are described in [Excel spreadsheets](formats#excel-spreadsheets). Writing the
-value of a `time` field as a time of day needs `xlsxtream` 3.0 or later.
+IOStreams writes the XML of the workbook itself, and streams it with the `zip_kit` gem, without a temp file. Its
+options, `sheet_name`, `auto_format` and `use_shared_strings`, are described in
+[Excel spreadsheets](formats#excel-spreadsheets).
 
 ## The stream that a block reads or writes
 

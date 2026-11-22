@@ -353,7 +353,7 @@ written to a store by hand, with `writer(:line)`, do not say that they hold cell
 a file, such as `1234.5` as `12345` with `groupChar: "."`: copy them with `copy_from(path, mode: :line)` instead. A
 `delimiter:` raises `ArgumentError` for the rows and records, which are cells rather than lines.
 
-Writing writes a workbook with one worksheet, with the `xlsxtream` gem. The rows and records are written as the types
+Writing writes a workbook with one worksheet, which needs the `zip_kit` gem. The rows and records are written as the types
 of their values, by the fields of a schema or contract when there is one, so that a number is a number cell, a `Date` a
 date, a `Time` a date and time, holding its clock in UTC, or in the `timeZone` of its field, the value of a `time`
 field a time of day, of Excel's time format `h:mm:ss`, holding its own clock, or that of the `timeZone` of its field,
@@ -381,7 +381,7 @@ The writer accepts these options:
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `sheet_name` | `"Sheet1"` | The name of the worksheet: 1 to 31 characters, without any of `[ ] : * ? / \`, and not starting or ending with an apostrophe, as Excel requires. Any other name raises `ArgumentError` before the file is opened. |
+| `sheet_name` | `"Sheet1"` | The name of the worksheet: 1 to 31 characters, without any of `[ ] : * ? / \` or a control character, and not starting or ending with an apostrophe, as Excel requires. Any other name, or one that UTF-8 cannot hold, raises `ArgumentError` before the file is opened. A name in another encoding is written as UTF-8. |
 | `auto_format` | `false` | Write text that looks like a number, date, time or boolean, such as `"1.5"`, `"2026-10-09"` or `"true"`, as an Excel number, date or boolean. Only the text of a column whose type is not known is written so: a field of type `any`, a file without a schema, or a line of CSV text, while the text of a `string` field stays text. Such text may then read back differently, such as `"01234"` as `1234.0`. |
 | `use_shared_strings` | `false` | Store each distinct value once, which makes the workbook smaller when values repeat, but holds every distinct value in memory until the workbook is complete. |
 
@@ -396,16 +396,16 @@ Notes:
 
 * Reading ignores `auto_format` and `use_shared_strings`, since the workbook records them, and raises for `sheet_name`,
   since it always reads the first worksheet.
-* Writing the value of a `time` field as a time of day needs `xlsxtream` 3.0 or later, below 4, since IOStreams adds
-  the style of a time of day to the styles that `xlsxtream` writes. Another version raises `IOStreams::Errors::Error`
-  before the file is opened, for a schema or contract with a `time` field.
+* Text is written as Excel escapes it, so that it reads back as it was written, including a carriage return, such as
+  the `\r\n` within a value, whitespace at either end, and a character that XML cannot hold, such as a control
+  character.
 * Reading a spreadsheet needs a local file, so one stored elsewhere, or within another stream, is copied into a temp
   file first. Its lines, and its bytes, are converted into CSV in a second temp file, since the rows are returned to a
   block, while its rows and records are read straight from the workbook. Writing streams the workbook, without a temp file, see [When temp files are used](config#when-temp-files-are-used).
 
 ### Limitations {#spreadsheet-limitations}
 
-A `number` field with `decimals` is written as a number cell in Excel's General format, since the `xlsxtream` gem
+A `number` field with `decimals` is written as a number cell in Excel's General format, since IOStreams
 writes only the number formats of dates and times, so Excel shows the digits of its value, such as `12.5`, where CSV
 writes `12.50`, and so do the lines of the spreadsheet, its CSV text. The cell holds the same number, which the field
 reads back:

@@ -162,6 +162,43 @@ module IOStreams
     end
     private_class_method :converter?
 
+    # Returns [String] the text as UTF-8: UTF-8 or ASCII text as it is, binary text as the UTF-8 text of its bytes, and
+    # text in another encoding converted, as the formats that hold UTF-8 write text, such as JSON and a spreadsheet.
+    #
+    # Raises [IOStreams::Errors::InvalidEncoding] for text that is not valid UTF-8, or that holds a character that UTF-8
+    # does not have, naming the character and its byte offset, see .utf8_failure, or that is in an encoding that Ruby
+    # cannot convert to UTF-8, such as UTF-7.
+    #
+    # Parameters
+    #   place: [String]
+    #     Where the text is, which the error starts with, such as "a key or value written to JSON".
+    def self.utf8(text, place:)
+      return text if text.ascii_only? || (text.encoding == Encoding::UTF_8 && text.valid_encoding?)
+
+      converted_utf8(text) || raise(utf8_failure(text, place: place).last)
+    rescue Encoding::ConverterNotFoundError
+      raise(Errors::InvalidEncoding.new("In #{place}, Ruby cannot convert text in #{text.encoding} to UTF-8",
+                                        byte_offset: 0, source_encoding: text.encoding,
+                                        destination_encoding: Encoding::UTF_8))
+    end
+
+    # Returns [String|nil] the UTF-8 text of the bytes of binary text, or the text in another encoding converted to
+    # UTF-8, or nil when it holds a character that is not valid, or that UTF-8 does not have, see .utf8.
+    def self.converted_utf8(text)
+      case text.encoding
+      when Encoding::UTF_8
+        nil
+      when Encoding::BINARY
+        utf8 = text.dup.force_encoding(Encoding::UTF_8)
+        utf8 if utf8.valid_encoding?
+      else
+        text.encode(Encoding::UTF_8)
+      end
+    rescue Encoding::InvalidByteSequenceError, Encoding::UndefinedConversionError
+      nil
+    end
+    private_class_method :converted_utf8
+
     # Returns [Array(String, IOStreams::Errors::InvalidEncoding)] for text that UTF-8 cannot hold as it is: the text
     # before its first character that is not valid, or that UTF-8 does not have, as UTF-8, and the error for that
     # character, at the byte offset of that UTF-8 text. Binary text is the UTF-8 text of its bytes, and text in another

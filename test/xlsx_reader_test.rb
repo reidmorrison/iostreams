@@ -126,20 +126,18 @@ class XlsxReaderTest < Minitest::Test
         ENV["TZ"] = original
       end
 
-      # The times are on the hour, since xlsxtream on JRuby, at 3.1.0, leaves out the minutes of a time that it writes.
-
       it "reads the same text whatever the time zone of the process" do
-        path.option(:xlsx, auto_format: true).writer(:array) { |io| io << %w[2026-01-02T09:00:45 1.5] }
+        path.option(:xlsx, auto_format: true).writer(:array) { |io| io << %w[2026-01-02T09:30:45 1.5] }
 
         %w[UTC America/New_York Asia/Tokyo].each do |zone|
-          in_time_zone(zone) { assert_equal "2026-01-02T09:00:45,1.5\n", path.read, zone }
+          in_time_zone(zone) { assert_equal "2026-01-02T09:30:45,1.5\n", path.read, zone }
         end
       end
 
       it "is read by a field of type datetime" do
         path.option(:xlsx, auto_format: true).writer(:array) do |io|
           io << %w[at]
-          io << %w[2026-01-02T09:00:45]
+          io << %w[2026-01-02T09:30:45]
         end
 
         records = []
@@ -147,7 +145,7 @@ class XlsxReaderTest < Minitest::Test
           IOStreams.path(path.to_s).schema(fields: [{name: "at", type: "datetime"}]).each(:hash) { |record| records << record }
         end
 
-        assert_equal [{"at" => Time.utc(2026, 1, 2, 9, 0, 45)}], records
+        assert_equal [{"at" => Time.utc(2026, 1, 2, 9, 30, 45)}], records
       end
     end
   end

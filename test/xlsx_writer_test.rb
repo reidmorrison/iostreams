@@ -28,7 +28,11 @@ class XlsxWriterTest < Minitest::Test
 
     # Returns [Array<Array>] the rows read back from the workbook in the supplied data.
     def read_rows(data)
-      IOStreams::Xlsx::Reader.stream(StringIO.new(data)) { |io| CSV.parse(io.read.force_encoding(Encoding::UTF_8)) }
+      # The CSV text ends each row with a newline, which CSV would otherwise guess from the first line break, such as a
+      # carriage return within a value.
+      IOStreams::Xlsx::Reader.stream(StringIO.new(data)) do |io|
+        CSV.parse(io.read.force_encoding(Encoding::UTF_8), row_sep: "\n")
+      end
     end
 
     def write(output = StringIO.new(+""), **options, &)
@@ -109,8 +113,7 @@ class XlsxWriterTest < Minitest::Test
       it "writes a carriage return within a quoted value of a record that ends with a carriage return" do
         data = write(use_shared_strings: true) { |io| io.write("a,\"multi\rline\"\rb,c\r") }
 
-        # XML reads a line break within a value as a newline.
-        assert_equal [%W[a multi\nline], %w[b c]], read_rows(data)
+        assert_equal [%W[a multi\rline], %w[b c]], read_rows(data)
       end
 
       it "writes binary text as UTF-8" do
@@ -464,113 +467,121 @@ class XlsxWriterTest < Minitest::Test
         assert_equal [{"starts" => Time.utc(2000, 1, 1, 9, 30), "notes" => 1.5}], records
       end
 
-      it "writes a workbook without a time of day with the workbook of xlsxtream, whose styles it leaves as they are" do
+      it "writes the time of day of a time field, whose style every workbook has" do
         IOStreams.path(file_name).schema(fields: [{name: "at", type: "datetime"}]).writer(:array) do |io|
           io << [Time.utc(2026, 7, 1, 9, 30)]
         end
 
-        assert_includes worksheet_xml(File.binread(file_name), "xl/styles.xml"), '<cellXfs count="3">'
-        refute_includes worksheet_xml(File.binread(file_name), "xl/styles.xml"), 'numFmtId="21"'
+        assert_includes worksheet_xml(File.binread(file_name), "xl/styles.xml"), '<cellXfs count="4">'
+        assert_includes worksheet_xml(File.binread(file_name), "xl/styles.xml"), 'numFmtId="21"'
+      end
+    end
+
+    describe "Excel's limits" do
+      it "raises for a value after Excel's last column, and discards the workbook" do
+        File.write(file_name, "existing")
+        error = assert_raises(IOStreams::Errors::Error) do
+          IOStreams.path(file_name).writer(:array) { |io| io << ["a", *Array.new(16_383), "b"] }
+        end
+
+        assert_equal "A worksheet holds at most 16384 columns, to XFD, as Excel limits it, which a value of row 1, in " \
+                     "column 16385, exceeds", error.message
+        refute_path_exists file_name
       end
 
-      describe "a version of xlsxtream whose styles it does not know" do
-        # The gem that each test changes, which IOStreams loads only once it writes a spreadsheet, and the workbook,
-        # which reads xlsxtream's style of a date and time, `Row::TIME_STYLE`, and checks the gem, as its class is
-        # loaded, so that it does so before a test changes the gem.
-        before do
-          require "xlsxtream"
-          IOStreams::Xlsx::Workbook
+      it "writes a value in the last column, and nils after it" do
+        data = write(rows: true) { |io| io << [*Array.new(16_383), "last", nil, nil] }
+
+        assert_includes worksheet_xml(data), '<c r="XFD1" t="inlineStr">'
+      end
+    end
+
+    describe "the text of a cell" do
+      let :texts do
+        ["a\r\nb\rc", " padded ", "_x0041_ stays", "bell\u0007", "<b> & </b>", "tab\tnew\nline"]
+      end
+
+      it "is written as Excel escapes it, and read back as it was" do
+        data = write(rows: true) { |io| io << texts }
+        xml  = worksheet_xml(data)
+
+        assert_includes xml, "a_x000D_\nb_x000D_c"
+        assert_includes xml, '<t xml:space="preserve"> padded </t>'
+        assert_includes xml, "_x005F_x0041_ stays"
+        assert_includes xml, "bell_x0007_"
+        assert_includes xml, "&lt;b&gt; &amp; &lt;/b&gt;"
+        assert_equal [texts], read_rows(data)
+      end
+
+      it "is written once in the shared strings, and read back as it was" do
+        data = write(rows: true, use_shared_strings: true) do |io|
+          io << texts
+          io << texts
         end
 
-        # Checks the version of xlsxtream again within the block, which the workbook otherwise checks once, as it is
-        # loaded.
-        def recheck
-          checked = IOStreams::Xlsx::Workbook.instance_variable_get(:@problem)
-          IOStreams::Xlsx::Workbook.instance_variable_set(:@problem, IOStreams::Xlsx::Workbook.send(:problem))
-          yield
-        ensure
-          IOStreams::Xlsx::Workbook.instance_variable_set(:@problem, checked)
+        assert_includes worksheet_xml(data), '<c r="A2" t="s"><v>0</v></c>'
+        assert_includes worksheet_xml(data, "xl/sharedStrings.xml"), 'count="12" uniqueCount="6"'
+        assert_equal [texts, texts], read_rows(data)
+      end
+
+      it "is written to each workbook on its own" do
+        first  = write(rows: true) { |io| io << ["first"] }
+        second = write(rows: true) { |io| io << ["second"] }
+
+        assert_equal [["first"]], read_rows(first)
+        assert_equal [["second"]], read_rows(second)
+        assert_equal 1, worksheet_xml(second).scan("<worksheet").size
+      end
+
+      it "raises InvalidEncoding for text that is not valid in its encoding, naming the byte" do
+        error = assert_raises(IOStreams::Errors::InvalidEncoding) { write(rows: true) { |io| io << ["caf\xE9"] } }
+
+        assert_equal "In the text of a cell, \"\\xE9\" is not valid UTF-8 at byte offset 3", error.message
+        assert_equal 3, error.byte_offset
+      end
+
+      it "writes binary text of UTF-8 as its text, and text of another encoding converted" do
+        data = write(rows: true) { |io| io << ["café".b, "café".encode("Windows-1252")] }
+
+        assert_equal [%w[café café]], read_rows(data)
+      end
+    end
+
+    describe "auto_format" do
+      it "writes text of a number that Excel cannot hold as text, and the CSV time of an offset in UTC" do
+        big = "9" * 400
+        data = write(auto_format: true) do |io|
+          io.write(["#{big}.5", "0012345678901234567890", "1.5", "2026-01-02T09:30:00+02:00"].to_csv)
         end
 
-        # Writes a time of day to the existing file, which raises before it is opened, so that the file is untouched.
-        def assert_raises_before_writing(pattern)
-          File.write(file_name, "existing")
-          error = assert_raises(IOStreams::Errors::Error) do
-            IOStreams.path(file_name).schema(schema).writer(:hash) { |io| io << {"starts" => Time.utc(2000, 1, 1, 9, 30)} }
-          end
+        refute_includes worksheet_xml(data), "Infinity"
+        assert_equal [["#{big}.5", "0012345678901234567890", "1.5", "2026-01-02T07:30:00"]], read_rows(data)
+      end
+    end
 
-          assert_match(pattern, error.message)
-          assert_equal "existing", File.read(file_name)
+    describe "sheet_name" do
+      it "raises before it opens the output for a name with a control character, or that UTF-8 cannot hold" do
+        ["a\u0001b", "a\uFFFEb", "caf\xE9", "caf\xE9".b, "a\x81".dup.force_encoding("Windows-1252"), "ab".dup.force_encoding("UTF-7")].each do |name|
+          output = StringIO.new(+"")
+          error  = assert_raises(ArgumentError) { write(output, sheet_name: name) { |io| io << "a\n" } }
+
+          assert_match(/Invalid sheet_name .*(control character|the name of the worksheet)/, error.message, name.dump)
+          assert_equal "", output.string
         end
+      end
 
-        it "raises before it writes for a style of a date and time other than 2" do
-          style = ::Xlsxtream::Row::TIME_STYLE
-          ::Xlsxtream::Row.send(:remove_const, :TIME_STYLE)
-          ::Xlsxtream::Row.const_set(:TIME_STYLE, 9)
+      it "counts the characters of a name in another encoding, as UTF-8" do
+        ["é" * 31, ("é" * 31).b, ("é" * 31).encode("UTF-16LE")].each do |name|
+          data = write(sheet_name: name) { |io| io << "a\n" }
 
-          recheck { assert_raises_before_writing(/xlsxtream .* no longer writes the styles of its cells/) }
-        ensure
-          ::Xlsxtream::Row.send(:remove_const, :TIME_STYLE)
-          ::Xlsxtream::Row.const_set(:TIME_STYLE, style)
+          assert_includes worksheet_xml(data, "xl/workbook.xml").force_encoding(Encoding::UTF_8), %(name="#{'é' * 31}")
         end
+      end
 
-        it "raises before it writes for styles of other cells" do
-          ::Xlsxtream::Workbook.alias_method(:iostreams_test_write_styles, :write_styles)
-          ::Xlsxtream::Workbook.define_method(:write_styles) do
-            @writer << %(<styleSheet><cellXfs count="4"><xf/></cellXfs></styleSheet>)
-          end
+      it "writes a name of another encoding as UTF-8" do
+        data = write(sheet_name: "Café & <Co>".encode("Windows-1252")) { |io| io << "a\n" }
 
-          recheck { assert_raises_before_writing(/no longer writes the styles of its cells/) }
-        ensure
-          ::Xlsxtream::Workbook.alias_method(:write_styles, :iostreams_test_write_styles)
-          ::Xlsxtream::Workbook.send(:remove_method, :iostreams_test_write_styles)
-          ::Xlsxtream::Workbook.send(:private, :write_styles)
-        end
-
-        it "raises before it writes without the styles that xlsxtream writes, or its writer" do
-          ::Xlsxtream::Workbook.alias_method(:iostreams_test_write_styles, :write_styles)
-          ::Xlsxtream::Workbook.send(:remove_method, :write_styles)
-
-          recheck { assert_raises_before_writing(/no longer writes the styles of its cells/) }
-          # xlsxtream 2.x names its writer @io.
-          ::Xlsxtream::Workbook.define_method(:write_styles) { @io << %(<cellXfs count="3"></cellXfs>) }
-
-          recheck { assert_raises_before_writing(/no longer writes the styles of its cells/) }
-        ensure
-          ::Xlsxtream::Workbook.alias_method(:write_styles, :iostreams_test_write_styles)
-          ::Xlsxtream::Workbook.send(:remove_method, :iostreams_test_write_styles)
-          ::Xlsxtream::Workbook.send(:private, :write_styles)
-        end
-
-        it "raises before it writes for a version other than 3" do
-          version = ::Xlsxtream::VERSION
-          ::Xlsxtream.send(:remove_const, :VERSION)
-          ::Xlsxtream.const_set(:VERSION, "2.4.0")
-
-          recheck { assert_raises_before_writing(/xlsxtream 2\.4\.0 is not a version .* xlsxtream >= 3\.0, < 4/) }
-        ensure
-          ::Xlsxtream.send(:remove_const, :VERSION)
-          ::Xlsxtream.const_set(:VERSION, version)
-        end
-
-        it "still writes a workbook without a time of day" do
-          version = ::Xlsxtream::VERSION
-          ::Xlsxtream.send(:remove_const, :VERSION)
-          ::Xlsxtream.const_set(:VERSION, "2.4.0")
-          recheck do
-            IOStreams.path(file_name).schema(fields: [{name: "at", type: "datetime"}]).writer(:array) do |io|
-              io << [Time.utc(2026, 7, 1, 9, 30)]
-            end
-          end
-
-          records = []
-          IOStreams.path(file_name).each(:hash) { |record| records << record }
-
-          assert_equal [{"at" => Time.utc(2026, 7, 1, 9, 30)}], records
-        ensure
-          ::Xlsxtream.send(:remove_const, :VERSION)
-          ::Xlsxtream.const_set(:VERSION, version)
-        end
+        assert_includes worksheet_xml(data, "xl/workbook.xml").force_encoding(Encoding::UTF_8), %(name="Café &amp; &lt;Co&gt;")
       end
     end
 
