@@ -75,6 +75,14 @@ module IOStreams
     #   source = IOStreams.path("s3://bucket/exports")
     #   source.each_child("**/*") { |child| IOStreams.path("/backup").join(child.relative_path_from(source)).copy_from(child) }
     #
+    # On every scheme, `#each_child` skips a name that the store lists that could leave a directory it is joined onto,
+    # such as an S3 key `exports/../b.csv`, so the name of each child within the directory that the store lists stays
+    # within the target, when joined with `#join`, `File.join` or `Pathname#+`, see
+    # `IOStreams::Utils::PathName.stays_within?` for Windows and `File.expand_path`. The directory and exact names of
+    # the pattern are the caller's own, such as `../*.csv`. For a path that is not within the base, the name starts
+    # with `..`, as for `Pathname`, such as `../b.csv` for `/data/b.csv` from `/data/a`, so check a name that does not
+    # come from `#each_child` before joining it to a path.
+    #
     # Parameters:
     #   base [IOStreams::Path|String]
     #

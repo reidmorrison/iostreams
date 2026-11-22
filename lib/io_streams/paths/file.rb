@@ -162,8 +162,11 @@ module IOStreams
         glob_flags = matcher.hidden? ? ::File::FNM_DOTMATCH : 0
         candidates = Dir.glob(candidate_pattern(matcher.depth), glob_flags, base: directory)
         # A name that is not valid UTF-8, such as one written in Latin-1, is listed too, see `IOStreams::Utils.matchable`.
+        # With FNM_DOTMATCH a wildcard also matches the `.` that `Dir.glob` lists in each directory, such as `./a` for
+        # `*/*`, which is not a child at that depth, and is skipped, as SFTP never lists it, see
+        # `IOStreams::Utils::PathName.element?`.
         results    = candidates.filter_map do |name|
-          next if %w[. ..].include?(Utils::PathName.basename(name)) || !matcher.match?(name)
+          next if !name.b.split("/").all? { |element| Utils::PathName.element?(element) } || !matcher.match?(name)
 
           full_name = directory ? Utils::PathName.join(directory, name) : name
           # A child of the current directory called `~` is not the home directory.

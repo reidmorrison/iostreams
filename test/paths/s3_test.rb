@@ -1172,6 +1172,145 @@ module Paths
         end
       end
 
+      describe "a key whose name within the path could leave a directory that it is joined onto" do
+        let(:path) { IOStreams.path("s3://bucket/p") }
+        # Keys whose names within `p/` stay within a directory that they are joined onto, including a repeated `/` after
+        # the first name, and a name that starts with `~`, which `#join` keeps as it is.
+        let(:kept) { %w[p/ok.csv p/.hidden.csv p/..dots.csv p/sub/b.csv p/2024//d.csv p/sub//e.csv p/~/t.csv p/~u.csv] }
+        # Keys with a `.` or `..` name, or that start with `/` within `p/`, which `Pathname#+` reads as an absolute name.
+        let(:skipped) { %w[p/../x.csv p//z.csv p/a/../../w.csv p/./y.csv p/sub/./v.csv] }
+
+        before do
+          IOStreams::Utils.load_soft_dependency("aws-sdk-s3", "AWS S3")
+          S3Stub.install
+          # S3 holds `.`, `..` and repeated `/` in a key as they are, so whoever can write below `p/` chooses them.
+          (kept + skipped).each { |key| put_key(key) }
+        end
+
+        after do
+          S3Stub.uninstall
+        end
+
+        def put_key(key)
+          IOStreams.path("s3://bucket").client.put_object(bucket: "bucket", key: key, body: "data")
+        end
+
+        # Returns [String] what IOStreams.logger logs at warn level while the block runs.
+        def warnings
+          output   = StringIO.new
+          original = IOStreams.logger
+          IOStreams.logger = Logger.new(output, level: :warn)
+          yield
+          output.string
+        ensure
+          IOStreams.logger = original
+        end
+
+        it "lists only the children whose names stay within the path, with hidden: true" do
+          assert_equal kept.sort, path.children("**/*", hidden: true).map(&:path).sort
+        end
+
+        it "lists the children without hidden: true, skipping a key whose name within the path starts with /" do
+          assert_equal %w[p/2024//d.csv p/ok.csv p/sub//e.csv p/sub/b.csv p/~/t.csv p/~u.csv],
+                       path.children("**/*").map(&:path).sort
+        end
+
+        it "skips the same keys whatever the directory of the pattern" do
+          assert_equal %w[p/sub//e.csv p/sub/b.csv], path.children("sub/**/*", hidden: true).map(&:path).sort
+        end
+
+        # `p/a` is a directory, as `p/a/` is a common prefix directly within `p/`, though the only key within it is not.
+        it "lists the same directories directly within the path, whether it lists the keys within it or below it" do
+          below = path.children("**/*", hidden: true, directories: true).map(&:path) - kept
+
+          assert_equal %w[p/2024 p/a p/sub p/~], below.sort
+          assert_equal %w[p/..dots.csv p/.hidden.csv p/2024 p/a p/ok.csv p/sub p/~ p/~u.csv],
+                       path.children("*", hidden: true, directories: true).map(&:path).sort
+        end
+
+        it "names each child within the path, so a mirror of it stays within its directory" do
+          Dir.mktmpdir do |dir|
+            target = IOStreams.path(dir, "backup")
+            path.each_child("**/*", hidden: true) { |child| target.join(child.relative_path_from(path)).copy_from(child) }
+
+            files = Dir.glob("**/*", ::File::FNM_DOTMATCH, base: dir).select { |name| ::File.file?(::File.join(dir, name)) }
+
+            assert_equal %w[..dots.csv .hidden.csv 2024/d.csv ok.csv sub/b.csv sub/e.csv ~/t.csv ~u.csv].map { |name| "backup/#{name}" },
+                         files.sort
+          end
+        end
+
+        it "logs each key that it skips" do
+          output = warnings { path.children("**/*", hidden: true) }
+
+          skipped.each do |key|
+            assert_includes output, "Skipping the key #{key.inspect} since its name within \"p/\" has a '.' or '..' name"
+          end
+          kept.each { |key| refute_includes output, key.inspect }
+        end
+
+        it "does not log a key that the pattern does not match" do
+          output = warnings { assert_empty path.children("**/*.txt", hidden: true) }
+
+          assert_empty output
+        end
+
+        it "logs each common prefix that it skips, when it lists the keys directly within the path" do
+          output = warnings { path.children("*", hidden: true, directories: true) }
+
+          %w[p/../ p/./ p//].each { |prefix| assert_includes output, "Skipping the common prefix #{prefix.inspect}" }
+          refute_includes output, "p/a/"
+        end
+
+        it "skips a key that starts with / within a path that ends with /" do
+          assert_equal %w[p/2024//d.csv p/ok.csv p/sub//e.csv p/sub/b.csv p/~/t.csv p/~u.csv],
+                       IOStreams.path("s3://bucket/p/").children("**/*").map(&:path).sort
+        end
+
+        it "skips a key that starts with / or holds .. in the bucket" do
+          %w[/root.csv ../up.csv top.csv].each { |key| put_key(key) }
+          children = IOStreams.path("s3://bucket").children("**/*", hidden: true).map(&:path)
+
+          assert_includes children, "top.csv"
+          refute_includes children, "/root.csv"
+          refute_includes children, "../up.csv"
+        end
+
+        it "is #empty? when it holds only keys that #each_child skips, which #delete_all deletes" do
+          directory = IOStreams.path("s3://bucket/q")
+          put_key("q/")
+          put_key("q/../x.csv")
+          put_key("q//y.csv")
+
+          assert_empty directory.children("**/*", hidden: true)
+          assert_predicate directory, :empty?
+          refute_predicate path, :empty?
+          # Without a folder object, the keys still make it a directory, which is empty, while a missing one is not.
+          put_key("r/../z.csv")
+
+          assert_predicate IOStreams.path("s3://bucket/r"), :empty?
+          refute_predicate IOStreams.path("s3://bucket/missing"), :empty?
+
+          directory.delete_all
+
+          assert_empty IOStreams.path("s3://bucket").client.list_objects_v2(bucket: "bucket", prefix: "q/").contents
+        end
+
+        it "is not #empty? once it has listed five pages of only keys that #each_child skips" do
+          S3Stub.uninstall
+          S3Stub.install(page_size: 2)
+          directory = IOStreams.path("s3://bucket/q")
+          10.times { |index| put_key("q/../#{index}.csv") }
+
+          assert_predicate directory, :empty?
+
+          put_key("q/../10.csv")
+
+          refute_predicate directory, :empty?
+          assert_empty directory.children("**/*", hidden: true)
+        end
+      end
+
       describe "listing pages of upto two objects" do
         let(:keys) { %w[d/a.csv d/b.csv d/c.txt d/sub/d.csv d/sub/e.csv d/sub/f.csv d/sub/g.csv d/z/h.csv] }
 

@@ -213,6 +213,10 @@ module IOStreams
       DOT = ".".ord
       private_constant :DOT
 
+      # The names `.` and `..` as bytes, which name the directory itself and its parent, see .stays_within?.
+      DOT_NAMES = [".".b.freeze, "..".b.freeze].freeze
+      private_constant :DOT_NAMES
+
       # The first of the characters that replace the bytes above 127 of a name, see .keeping_bytes: U+0100 onwards, which
       # are valid UTF-8, and above every byte.
       BYTE_CHARACTERS = 0x100
@@ -254,6 +258,29 @@ module IOStreams
         return basename_of(path, suffix) unless FILE_KEEPS_NAMES
 
         suffix.nil? ? ::File.basename(path) : ::File.basename(path, suffix)
+      end
+
+      # Returns [true|false] whether the supplied name is a single name within a directory, such as an entry that SFTP
+      # lists: not empty, `.` or `..`, and without a `/`, or a NUL, which no file system holds in a name. Its bytes are
+      # compared, so a name that is not valid in its encoding is checked too.
+      def self.element?(name)
+        bytes = name.b
+        !(bytes.empty? || bytes == "." || bytes == ".." || bytes.include?("/") || bytes.include?("\0"))
+      end
+
+      # Returns [true|false] whether the supplied relative name, such as an S3 key within the prefix that listed it,
+      # stays within any directory that it is joined onto, by `IOStreams::Path#join`, `File.join` or `Pathname#+`, and
+      # names the same file, as a local path does: it is not empty, has no `.` or `..` name and no NUL, and does not
+      # start with `/`, which `Pathname#+` takes as an absolute name. A repeated `/` after its first name, such as in
+      # `2024//a.csv`, stays within the directory, though a local path reads it as `2024/a.csv`.
+      #
+      # Names are split at `/` only, so a `\` that Windows takes as a separator is not checked, and `File.expand_path`
+      # takes a name that starts with `~` as a home directory, so prefix such a name with `./` before expanding it.
+      def self.stays_within?(name)
+        bytes = name.b
+        return false if bytes.empty? || bytes.start_with?("/") || bytes.include?("\0")
+
+        !bytes.split("/").intersect?(DOT_NAMES)
       end
 
       # Returns [String] the bytes of the name that the block returns for the supplied names, which it yields as they

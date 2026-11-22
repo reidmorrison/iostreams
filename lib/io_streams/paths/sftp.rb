@@ -212,11 +212,15 @@ module IOStreams
       #
       # Returns self
       #
+      # Raises [IOStreams::Errors::AccessDenied] naming each entry that the server listed by a name that is not the name
+      # of a file or directory within its directory, such as `../x.csv`, which is left as it is, as is each directory
+      # that holds one, once everything else is deleted.
+      #
       # Notes:
       # * No error is raised if the file or directory is not present.
       # * A symbolic link is deleted, not the file or directory that it refers to.
       def delete_all
-        remove("SFTP delete_all capability") { |sftp| Listing.remove_tree(sftp, remote_path) }
+        remove("SFTP delete_all capability") { |sftp| Listing.remove_tree(sftp, remote_path, display_name) }
       end
 
       # Returns [true|false] whether the file or directory exists.

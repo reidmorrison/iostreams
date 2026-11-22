@@ -61,6 +61,14 @@ Notes:
 
 * By default there are no allowed paths, and every path can be accessed.
 * `#each_child` skips the children that are not within the allowed paths, such as a symbolic link to a file elsewhere.
+* `#each_child` skips each name that the store lists that could leave a directory that it is joined onto, on every
+  store, such as an S3 key or an SFTP entry named `../a.csv`, and logs it, see [Listing files](path#listing-files).
+  So when the pattern is the application's own, the name that `#relative_path_from` gives each child can be joined
+  to another path with `#join`, `File.join` or `Pathname#+`, such as to copy a directory, without leaving it. A
+  pattern whose directory or name comes from untrusted input, or any other name relative to a path, can start with
+  `..`, so check it before joining it to another path. Names are checked with `/` as the separator, so a target on
+  Windows is not covered, and `File.expand_path` reads a name that starts with `~` as a home directory, so prefix it
+  with `./` before expanding it.
 * The temp files of `IOStreams.temp_file` can always be accessed.
 * `IOStreams.allowed_paths` returns the normalized allowed paths, and `IOStreams.delete_allowed_path` removes one.
 * The paths of a scheme registered with `IOStreams.register_scheme` are denied, unless its path class says where it

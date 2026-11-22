@@ -209,6 +209,9 @@ implements:
   `#delete`, `#delete_all`, `#each_child`, `#mkpath` and `#mkdir`, each of which behaves as it does for a local file,
   wherever the store allows, so that a path held in configuration can move to the store without a code change. An
   operation that it does not implement raises `NotImplementedError`, and `#respond_to?` returns false for it.
+  `#each_child` skips a name that the store lists that could leave a directory that it is joined onto, such as one
+  with a `.` or `..` name or that starts with `/`, as the stores of IOStreams do, so that the name that
+  `#relative_path_from` gives a child stays within a directory that it is joined onto.
 
 ### Failed writes
 
