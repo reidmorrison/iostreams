@@ -18,6 +18,9 @@ module IOStreams
     # which it checks for each row and record that it reads or writes, once it has converted its values, unless its rows
     # are only a part of the file, such as those of a slice, which cannot tell whether a value is unique within it.
     class Columns
+      # The types of fields whose values are numbers, see #number_fields.
+      NUMBER_TYPES = %w[number integer].freeze
+
       # The most sets of keys whose plans it keeps, see #read_plan and #write_plan, so that records whose keys vary, such
       # as JSON records that leave out the keys without a value, are matched once for each set of keys, while records
       # whose keys are all different do not fill the memory.
@@ -344,11 +347,12 @@ module IOStreams
         @schema.fields.each_index.select { |index| @schema.fields[index].type == "time" }
       end
 
-      # Returns [Hash<Integer, Integer>] the number of decimals of each value of a row rendered whose field is a `number`
-      # with `decimals`, by its position, as #text_positions finds them, which a format that writes numbers themselves,
-      # such as a spreadsheet, shows with that many decimals.
-      def decimals_by_position
-        @schema.fields.each_with_index.filter_map { |field, index| [index, field.decimals] if field.decimals }.to_h
+      # Returns [Hash<Integer, IOStreams::Schema::Field>] the field of each value of a row rendered whose field is a
+      # `number` or an `integer`, by its position, as #text_positions finds them, which a format that writes numbers
+      # themselves, such as a spreadsheet, shows with its `decimals`, and asks for the text of a number that it cannot
+      # hold as a number, see `IOStreams::Schema::Field#render`.
+      def number_fields
+        @schema.fields.each_with_index.filter_map { |field, index| [index, field] if NUMBER_TYPES.include?(field.type) }.to_h
       end
 
       # Returns [Array<Integer>] the position of each value of a row rendered whose field is a `string` of bytes, with

@@ -549,11 +549,12 @@ module IOStreams
       @mapping.time_positions
     end
 
-    # Returns [Hash<Integer, Integer>] the number of decimals of the values of the rows rendered whose field is a
-    # `number` with `decimals`, by their positions, which a format that writes the values themselves, such as a
-    # spreadsheet, shows with that many decimals, see `IOStreams::Xlsx::RowsWriter`, or none without a schema.
-    def decimals_by_position
-      @mapping.decimals_by_position
+    # Returns [Hash<Integer, IOStreams::Schema::Field>] the fields of the values of the rows rendered whose field is a
+    # `number` or an `integer`, by their positions, which a format that writes the values themselves, such as a
+    # spreadsheet, shows with their `decimals`, and asks for the text of a number that it cannot hold, see
+    # `IOStreams::Xlsx::RowsWriter`, or none without a schema.
+    def number_fields
+      @mapping.number_fields
     end
 
     # Raises `IOStreams::Errors::IncompatibleType` for a column of the schema that the block returns, which a source

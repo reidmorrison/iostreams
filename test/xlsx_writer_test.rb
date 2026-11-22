@@ -629,6 +629,63 @@ class XlsxWriterTest < Minitest::Test
         ], records
       end
 
+      it "is written as the digits of a BigDecimal smaller than a double holds, rather than 0" do
+        tiny = BigDecimal("1e-400")
+        path = IOStreams.path(file_name).schema(fields: [{name: "amount", type: "number"}])
+        path.writer(:hash) { |io| io << {"amount" => tiny} }
+        records = []
+        path.each(:hash) { |record| records << record }
+
+        assert_includes worksheet_xml(File.binread(file_name)), "<t>0.#{'0' * 399}1</t>"
+        assert_equal [{"amount" => tiny}], records
+      end
+
+      it "is written as the digits of a number smaller than Excel's smallest, a subnormal double" do
+        tiny = BigDecimal("1.23456789e-310")
+        path = IOStreams.path(file_name).schema(fields: [{name: "amount", type: "number"}])
+        path.writer(:hash) { |io| io << {"amount" => tiny} }
+        records = []
+        path.each(:hash) { |record| records << record }
+
+        refute_match(/<v>1\.2345/, worksheet_xml(File.binread(file_name)))
+        assert_equal [{"amount" => tiny}], records
+      end
+
+      it "is written as the text of its field when Excel cannot hold the number, as CSV writes it, also without decimals" do
+        schema = {fields: [{name: "id", type: "number", groupChar: ","}, {name: "big", type: "integer"}, {name: "tiny"}]}
+        path   = IOStreams.path(file_name).schema(schema)
+        path.writer(:hash) { |io| io << {"id" => 12_345_678_901_234_567, "big" => 2**70, "tiny" => 1.5e-310} }
+        xml = worksheet_xml(File.binread(file_name))
+
+        assert_includes xml, "<t>12,345,678,901,234,567</t>"
+        assert_includes xml, "<t>1180591620717411303424</t>"
+        assert_includes xml, "<t>1.5e-310</t>"
+        refute_includes xml, "<v>1.5e-310</v>"
+      end
+
+      it "is written with the decimals of its field when Excel cannot hold the number, as CSV writes it" do
+        huge = BigDecimal("1#{'0' * 400}.5")
+        path = IOStreams.path(file_name).schema(fields: [{name: "amount", type: "number", decimals: 2}, {name: "id", type: "number", decimals: 2}])
+        path.writer(:hash) { |io| io << {"amount" => huge, "id" => 12_345_678_901_234_567} }
+        xml = worksheet_xml(File.binread(file_name))
+
+        assert_includes xml, "<t>1#{'0' * 400}.50</t>"
+        assert_includes xml, "<t>12345678901234567.00</t>"
+      end
+
+      it "is written as the digits of a BigDecimal larger than a double holds, rather than an infinity" do
+        huge = BigDecimal("1#{'0' * 400}.5")
+        path = IOStreams.path(file_name).schema(fields: [{name: "amount", type: "number"}])
+        path.writer(:hash) { |io| io << {"amount" => huge} }
+        xml = worksheet_xml(File.binread(file_name))
+        records = []
+        path.each(:hash) { |record| records << record }
+
+        refute_includes xml, "Infinity"
+        assert_includes xml, "<t>1#{'0' * 400}.5</t>"
+        assert_equal [{"amount" => huge}], records
+      end
+
       it "is written as its text when Excel cannot hold the number, without a format" do
         path = IOStreams.path(file_name).schema(fields: [{name: "id", type: "number", decimals: 0}])
         path.writer(:hash) { |io| io << {"id" => 12_345_678_901_234_567_890} }
@@ -641,11 +698,11 @@ class XlsxWriterTest < Minitest::Test
       it "writes text of a number that Excel cannot hold as text, and the CSV time of an offset in UTC" do
         big = "9" * 400
         data = write(auto_format: true) do |io|
-          io.write(["#{big}.5", "0012345678901234567890", "1.5", "2026-01-02T09:30:00+02:00"].to_csv)
+          io.write(["#{big}.5", "0012345678901234567890", "1.5", "2026-01-02T09:30:00+02:00", "0.#{'0' * 400}1"].to_csv)
         end
 
         refute_includes worksheet_xml(data), "Infinity"
-        assert_equal [["#{big}.5", "0012345678901234567890", "1.5", "2026-01-02T07:30:00"]], read_rows(data)
+        assert_equal [["#{big}.5", "0012345678901234567890", "1.5", "2026-01-02T07:30:00", "0.#{'0' * 400}1"]], read_rows(data)
       end
     end
 
