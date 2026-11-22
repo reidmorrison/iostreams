@@ -383,11 +383,13 @@ module IOStreams
         end
 
         prefix = Utils::URI.new(matcher.path.to_s).path.sub(%r{\A/}, "")
+        # The pattern's directory, such as `sub` in `sub/**/*`, is listed within this path, see #within_prefix?.
+        nested = prefix.chomp("/") != path.chomp("/")
         each_object(prefix) do |name, object|
           next if !directories && object.key.end_with?("/")
 
           file_name = Utils::PathName.join("s3://", name, object.key)
-          next unless matcher.match?(file_name)
+          next unless matcher.match?(file_name) && within_prefix?(object.key, prefix, nested)
 
           child = child_path(name, object.key)
           next unless allowed_child?(child)
@@ -544,6 +546,35 @@ module IOStreams
           token = resp.next_continuation_token
           break if token.nil?
         end
+      end
+
+      # Returns [true|false] whether the key is a child within the prefix that listed it, whose name within it stays
+      # within a directory that it is joined onto, logging the key when its name does not. S3 holds `.`, `..` and `/` in
+      # a key as ordinary characters, so whoever can write an object below the prefix can name a key such as
+      # `exports/../outside.csv`, or `exports//outside.csv`, whose name within `exports` is `/outside.csv`, so
+      # `#each_child` skips a key whose name within the prefix has a `.` or `..` name or a NUL, or starts with `/`, see
+      # `IOStreams::Utils::PathName.stays_within?`.
+      #
+      # A key that is neither the prefix itself nor within it as a directory, such as `exports../a.csv` or
+      # `exports_2024/a.csv` for the prefix `exports`, is not a child, and is skipped quietly. The prefix can be a
+      # directory within this path, from the directory of a pattern, such as `sub` in `sub/**/*`, the caller's own, so
+      # with `nested`, a `/` that a name within it starts with follows another name, such as in `sub//a.csv`, and
+      # whether a key is skipped does not depend on the pattern.
+      def within_prefix?(key, prefix, nested)
+        return true if key == prefix
+
+        directory = prefix.empty? || prefix.end_with?("/") ? prefix : "#{prefix}/"
+        return false unless key.start_with?(directory)
+
+        relative = key.delete_prefix(directory)
+        relative = relative.sub(%r{\A/+}, "") if nested
+        return true if relative.empty? || Utils::PathName.stays_within?(relative)
+
+        IOStreams.logger&.warn(
+          "Skipping the key #{key.inspect} since its name within #{prefix.inspect} has a '.' or '..' name or a NUL, or " \
+          "starts with '/', so it could name a file outside a directory that it is joined onto"
+        )
+        false
       end
 
       # Returns [String] the bucket and key, which is compared against the allowed paths.

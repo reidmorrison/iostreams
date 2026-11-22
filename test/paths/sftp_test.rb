@@ -1,4 +1,5 @@
 require_relative "../test_helper"
+require "logger"
 
 module Paths
   class SFTPTest < Minitest::Test
@@ -581,6 +582,29 @@ module Paths
             assert_equal "secret", child.send(:password)
             assert_equal({"ServerAliveInterval" => 60}, child.ssh_options)
           end
+        end
+
+        it "lists only the entries within the path, with hidden: true" do
+          path   = new_path("sftp://example.org/data", username: "jack")
+          # Net::SFTP joins the names that the server lists, so a hostile server can list names that leave the path.
+          # Net::SFTP's glob names the `.` and `..` of each sub-directory as `sub/.` and `sub/..`.
+          names  = ["a.csv", ".hidden.csv", "..dots.csv", "sub/b.csv", "sub/.", "sub/..", "../outside.csv", "sub/../../x.csv",
+                    "a//b", "/abs.csv", "x\0y", "", "../../.."]
+          output = StringIO.new
+          original = IOStreams.logger
+          IOStreams.logger = Logger.new(output, level: :warn)
+
+          with_stub_net_sftp(names) do
+            assert_equal %w[/data/..dots.csv /data/.hidden.csv /data/a.csv /data/sub/b.csv],
+                         path.children("**/*", hidden: true).map(&:path).sort
+          end
+          ['"../outside.csv"', '"sub/../../x.csv"', '"a//b"', '"/abs.csv"', '"x\\u0000y"', '""', '"../../.."'].each do |name|
+            assert_includes output.string, "Skipping the entry #{name} that the SFTP server listed in \"/data\""
+          end
+          refute_includes output.string, '"sub/."'
+          refute_includes output.string, '"sub/.."'
+        ensure
+          IOStreams.logger = original
         end
 
         it "lists the path's directory" do

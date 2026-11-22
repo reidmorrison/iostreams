@@ -561,6 +561,19 @@ Notes:
   and HTTP paths are read-only so they do not support any of them.
 * By default `each_child` patterns are case-insensitive and hidden files are excluded.
   Supply `case_sensitive: true` or `hidden: true` to change this behavior.
+* `each_child` skips a name that the store lists that could leave a directory that it is joined onto with `#join`,
+  `File.join` or `Pathname#+`, and logs it as a warning. The directory of the pattern is the caller's own, so
+  `each_child("../*.csv")` lists the parent directory.
+  * S3 holds `.`, `..` and `/` in a key as ordinary characters, so a key whose name within the path has a `.` or `..`
+    name or a NUL, or starts with `/`, such as `exports/../a.csv`, or `exports//a.csv`, whose name within `exports` is
+    `/a.csv`, is skipped, as a local path never lists one. A key with a repeated `/` after its first name, such as
+    `exports/2024//a.csv`, is not: its name stays within a directory, but reads as `2024/a.csv` on a local path, so a
+    copy of it can land on the copy of `exports/2024/a.csv`.
+  * An entry that an SFTP server lists with a name that is not the name of a file or directory within its directory,
+    such as `../a.csv`, `a//b` or an empty name, is skipped too.
+  * Names are checked with `/` as the separator, so a target on Windows is not covered. `File.expand_path` reads a
+    name that starts with `~`, such as Excel's `~$Q3.xlsx`, as a home directory, so prefix the name with `./` before
+    expanding it.
 
 ### Using root paths
 

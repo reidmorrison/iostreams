@@ -189,6 +189,44 @@ class UtilsTest < Minitest::Test
         [latin, latin.dup.force_encoding(Encoding::UTF_8), latin.dup.force_encoding(Encoding::ISO_8859_1)]
       end
 
+      describe ".element?" do
+        it "is a single name within a directory" do
+          ["a.csv", ".hidden", "..dots", "...", "a b"].each { |name| assert IOStreams::Utils::PathName.element?(name), "#{name} is a name" }
+          latin_names.each { |name| assert IOStreams::Utils::PathName.element?(name), "#{name.inspect} is a name" }
+        end
+
+        it "is not empty, . or .., and has no / or NUL" do
+          ["", ".", "..", "a/b", "/a", "a/", "../x", "a\0b"].each do |name|
+            refute IOStreams::Utils::PathName.element?(name), name.inspect
+            refute IOStreams::Utils::PathName.element?(name.b), name.inspect
+          end
+        end
+      end
+
+      describe ".stays_within?" do
+        it "stays within a directory that it is joined onto" do
+          ["a.csv", "a/b.csv", ".a/.b", "a/", "a/b/", "..a/b..", "a/#{latin}", "a//b", "a//", "~", "~/a", "~root/a", "a~/~b"].
+            each { |name| assert IOStreams::Utils::PathName.stays_within?(name), "#{name.inspect} stays within" }
+        end
+
+        it "is not empty, has no . or .. name and no NUL, and does not start with /" do
+          ["", "/", ".", "..", "./a", "a/.", "a/./b", "../a", "a/..", "a/../b", "/a", "//a", "a/b/../../c", "a\0b"].each do |name|
+            refute IOStreams::Utils::PathName.stays_within?(name), name.inspect
+            refute IOStreams::Utils::PathName.stays_within?(name.b), name.inspect
+          end
+        end
+
+        # `File.expand_path` is left out: it reads a name that starts with `~` as a home directory, see the docs.
+        it "is false for each name that Pathname#+ or File.join joins outside the directory" do
+          ["a.csv", "a//b", "../a", "/a", "~/a", "a/../../b", "//a"].each do |name|
+            joined = [(Pathname.new("/backup") + name).cleanpath.to_s, Pathname.new(::File.join("/backup", name)).cleanpath.to_s]
+            next if joined.all? { |full| full.start_with?("/backup/") }
+
+            refute IOStreams::Utils::PathName.stays_within?(name), "#{name.inspect} is joined as #{joined.inspect}"
+          end
+        end
+      end
+
       # Returns [Array<String>] every name of up to four of `a`, `/`, `.`, `é` and a byte that is not valid UTF-8, in
       # UTF-8, as bytes, and in Latin-1, with an empty name.
       def names
