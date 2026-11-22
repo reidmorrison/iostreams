@@ -394,13 +394,20 @@ module IOStreams
           # Returns [Integer] the decimals of a :float column, see #field, as #render writes them: nil or empty text
           # for none.
           #
-          # Raises `IOStreams::Errors::InvalidLayout` for decimals that #render cannot write, such as -1, 2.5 or "abc".
+          # Raises `IOStreams::Errors::InvalidLayout` for decimals that #render cannot write, such as -1, 2.5 or "abc", and
+          # for more than a number field holds, see `IOStreams::Schema::NumberRange`.
           def field_decimals
-            return decimals if decimals.is_a?(Integer) && !decimals.negative?
-            return decimals.to_i if decimals.nil? || (decimals.is_a?(String) && DECIMALS.match?(decimals))
+            whole =
+              if decimals.is_a?(Integer) && !decimals.negative?
+                decimals
+              elsif decimals.nil? || (decimals.is_a?(String) && DECIMALS.match?(decimals))
+                decimals.to_i
+              end
+            return whole if whole && IOStreams::Schema::NumberRange.decimals_within?(whole)
 
             raise(Errors::InvalidLayout, "The decimals of the column #{key.inspect} of the layout must be a whole " \
-                                         "number of 0 or more: #{decimals.inspect}")
+                                         "number of 0 or more, at most #{IOStreams::Schema::NumberRange::MAX_DECIMALS}: " \
+                                         "#{decimals.inspect}")
           end
         end
       end

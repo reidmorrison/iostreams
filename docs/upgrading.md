@@ -406,6 +406,12 @@ has been checked against the files of the application, since it reads some of th
   raises `ArgumentError` before the block is called, since `sshpass` gives the `sftp` program the password from its
   environment, and cannot type such a password at the prompt. Its message does not include the password. Listing
   files with `#each_child`, which uses `net-sftp`, still takes any password.
+- From v2.2.1, a `number` or `integer` field raises `IOStreams::Errors::InvalidValue` for a number outside the range
+  of IEEE 754 decimal128, `1e6145` or more in magnitude, or below `1e-6176` unless it is `0`, such as `1e999999999`,
+  whose plain digits, which IOStreams writes, would take a billion characters, or `1e99999999999999999999`, which
+  v2.2.0 read as `Infinity`, and for an `integer` of more than 6145 digits, which v2.2.0 read. `decimals` of more than
+  6176 raises `ArgumentError` when the schema is read, and `IOStreams::Errors::InvalidLayout` for a `:float` column
+  of a layout. A field with `floatNumber: true` still reads a larger number as `Infinity`. v3.0 has the same change.
 
 ## Upgrading to v2.1
 
