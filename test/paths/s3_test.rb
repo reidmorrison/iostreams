@@ -230,6 +230,34 @@ module Paths
           multiple_paths.each { |path| path.write(raw) unless path.exist? }
         end
 
+        it "returns only the children within the path, not keys that only start with the same characters" do
+          directory = root_path.join("sibling_test")
+          names     = %w[sibling_test/a.csv sibling_test/sub/b.csv sibling_test.csv sibling_test_2024.csv
+                         sibling_test_2024/c.csv sibling_testq/d.csv]
+          paths     = names.map { |name| root_path.join(name) }
+          paths.each { |path| path.write(raw) }
+
+          expected = %w[sibling_test/a.csv sibling_test/sub/b.csv].map { |name| root_path.join(name).to_s }
+
+          assert_equal expected, directory.children("**/*").map(&:to_s).sort
+          assert_equal expected, directory.children("**/*", hidden: true).map(&:to_s).sort
+          assert_equal expected.first(1), directory.children("*").map(&:to_s)
+          assert_equal expected, IOStreams.each_child("#{directory}/**/*").map { |child, _attributes| child.to_s }.sort
+        ensure
+          paths&.each(&:delete)
+        end
+
+        it "returns the children of a key that holds a # or ?, rather than those of the key before it" do
+          directory = root_path.join("hash_test#2024?q")
+          names     = ["hash_test#2024?q/a.csv", "hash_test/b.csv"]
+          paths     = names.map { |name| root_path.join(name) }
+          paths.each { |path| path.write(raw) }
+
+          assert_equal [paths.first.to_s], directory.children("**/*").map(&:to_s)
+        ensure
+          paths&.each(&:delete)
+        end
+
         it "existing file returns just the file itself" do
           # Glorified exists call
           existing_path

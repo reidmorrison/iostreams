@@ -382,10 +382,14 @@ module IOStreams
           return
         end
 
-        prefix = Utils::URI.new(matcher.path.to_s).path.sub(%r{\A/}, "")
+        # The key itself, rather than the url parsed again, which would cut a key that holds a `#` or `?`.
+        prefix = matcher.path.path.sub(%r{\A/}, "")
         # The pattern's directory, such as `sub` in `sub/**/*`, is listed within this path, see #within_prefix?.
         nested = prefix.chomp("/") != path.chomp("/")
-        each_object(prefix) do |name, object|
+        # List within the key as a directory, so that a key that only starts with the same characters, such as
+        # `reports_2024.csv` or `reports_2024/a.csv` for `s3://bucket/reports`, is not a child.
+        listed = prefix.empty? || prefix.end_with?("/") ? prefix : "#{prefix}/"
+        each_object(listed) do |name, object|
           next if !directories && object.key.end_with?("/")
 
           file_name = Utils::PathName.join("s3://", name, object.key)
