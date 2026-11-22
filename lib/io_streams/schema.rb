@@ -122,6 +122,7 @@ module IOStreams
     autoload :Keys,            "io_streams/schema/keys"
     autoload :MissingValues,   "io_streams/schema/missing_values"
     autoload :NearMiss,        "io_streams/schema/near_miss"
+    autoload :NumberRange,     "io_streams/schema/number_range"
     autoload :NumberText,      "io_streams/schema/number_text"
     autoload :Pattern,         "io_streams/schema/pattern"
     autoload :Source,          "io_streams/schema/source"

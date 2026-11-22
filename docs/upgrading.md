@@ -935,6 +935,21 @@ drop it in. v2.2 reports such a time as deprecated, the first one that each fiel
 Give such a column the type `datetime`, or convert its values to dates in your code, by the time zone that they belong
 to, such as `time.in_time_zone("America/New_York").to_date`.
 
+#### A number outside the range of decimal128 raises
+
+A `number` field, an `integer` field, a `list` of numbers and each coordinate of a `geopoint` raise
+`IOStreams::Errors::InvalidValue` for a number outside the range of IEEE 754 decimal128: `1e6145` or more in
+magnitude, or below `1e-6176` unless it is `0`, such as `1e999999999`, whose plain digits, which IOStreams writes,
+would take a billion characters, and an exponent beyond those that a `BigDecimal` holds, such as
+`1e99999999999999999999`, which v2.2.0 read as `Infinity`. So does an `integer` of more than 6145 digits. A field with
+`decimals` of more than 6176 raises `ArgumentError` when the schema is read, and so does a schema whose `minimum`,
+`maximum` or `enum` of a number lies beyond the range, such as one stored with a slice. v2.2.1 has the same change,
+apart from geopoints, slices and inference, which v2.2 does not have.
+
+Every `Float`, and every number of a decimal column of a database, a spreadsheet or a Parquet file, is within the
+range. A field with `floatNumber: true` still reads a larger number as `Infinity`. See
+[`number`](types#number).
+
 ### Reading, writing and options
 
 Options are checked when they are set, and what a write keeps is the same everywhere.
@@ -2120,6 +2135,13 @@ working after an upgrade, apart from the changes that v3.0 makes to every file:
   raises `ArgumentError` before the block is called, since `sshpass` gives the `sftp` program the password from its
   environment, and cannot type such a password at the prompt. Its message does not include the password. Listing,
   checking and deleting files, which use `net-sftp`, still take any password.
+* From v2.2.1, a `number` or `integer` field raises `IOStreams::Errors::InvalidValue` for a number outside the range
+  of IEEE 754 decimal128, `1e6145` or more in magnitude, or below `1e-6176` unless it is `0`, such as `1e999999999`,
+  whose plain digits, which IOStreams writes, would take a billion characters, or `1e99999999999999999999`, which
+  v2.2.0 read as `Infinity`, and for an `integer` of more than 6145 digits, which v2.2.0 read. `decimals` of more than
+  6176 raises `ArgumentError` when the schema is read. A field with `floatNumber: true` still reads a larger number as
+  `Infinity`. v3.0 has the same change, see
+  [A number outside the range of decimal128 raises](#a-number-outside-the-range-of-decimal128-raises).
 
 ## Upgrading to v2.1
 

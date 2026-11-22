@@ -300,6 +300,8 @@ its bytes, and a `pattern` raises `ArgumentError` when the schema is read, since
 * **Also reads** a whole number with a decimal point, such as `12.0`, since a spreadsheet stores every number with
   one. `12.5` raises, as do `1e3` and `1,200`, unless its `groupChar` is `,`, see
   [Numbers written with other characters](#numbers-written-with-other-characters).
+* **Range**: below `1e6145` in magnitude, the same range as a `number`, see [`number`](#number). An integer with more
+  digits raises `IOStreams::Errors::InvalidValue`.
 * **Written as** its digits, such as `42`.
 
 ~~~ruby
@@ -343,9 +345,16 @@ end
   decimal point, such as `3` for `3`, `3.0` or the text `3.000`, unless the field has `decimals`. A number that is not
   finite is written as `NaN`, `INF` or `-INF`. JSON cannot hold those, so writing one to JSON raises
   `IOStreams::Errors::InvalidValue`.
-* **`decimals`**, which IOStreams adds, gives the digits after the decimal point. It rounds the number read, and the
-  number written, half up, so that a record holds the number that its file holds, such as `12.35` for `12.345` with
-  `decimals: 2`.
+* **Range**: below `1e6145` in magnitude, and `1e-6176` or more unless it is `0`, the range of IEEE 754 decimal128,
+  which holds every `Float` and every number of a decimal column of a database, a spreadsheet or a Parquet file. A
+  number outside it, such as `1e999999999`, raises `IOStreams::Errors::InvalidValue` when it is read, also from JSON,
+  Parquet, a query or a stored slice, since its plain digits, which IOStreams writes, would take a billion characters,
+  while its text takes 11, and for an exponent beyond those that a `BigDecimal` holds, such as
+  `1e99999999999999999999`. A `Float`, with `floatNumber: true`, has a smaller range of its own, beyond which it is
+  infinite.
+* **`decimals`**, which IOStreams adds, gives the digits after the decimal point, at most 6176. It rounds the number
+  read, and the number written, half up, so that a record holds the number that its file holds, such as `12.35` for
+  `12.345` with `decimals: 2`.
 
 ~~~ruby
 IOStreams.path("prices.csv").write(<<~CSV)
@@ -409,6 +418,8 @@ puts path.read
   the digits after the point. Either way, each is the same number.
 * `decimals` is a property that IOStreams adds. `floatNumber` is not in the spec either: IOStreams reads it as
   frictionless-py does.
+* The spec and frictionless-py give a number no range. IOStreams raises for a number outside the range above, see
+  **Range**.
 
 ### Numbers written with other characters
 
@@ -928,7 +939,8 @@ end
 ## Geographic points
 
 A `geopoint` is a point on the earth, read as `[lon, lat]`, two `BigDecimal`s: its longitude, from -180 to 180, then
-its latitude, from -90 to 90. Its `format` says how the text holds them:
+its latitude, from -90 to 90, each within the range of a [`number`](#number), so that `1e-999999999` raises. Its
+`format` says how the text holds them:
 
 | `format` | Text |
 |----------|------|
