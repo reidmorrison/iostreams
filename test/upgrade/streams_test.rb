@@ -155,8 +155,8 @@ class UpgradeStreamsTest < Minitest::Test
         assert_match(/option :replacement\b/, error.message)
         error = assert_raises(ArgumentError) { IOStreams.path("people.csv").encoding("NO-SUCH-ENCODING") }
         assert_match(/NO-SUCH-ENCODING/, error.message)
-        error = assert_raises(ArgumentError) { IOStreams.path("people.csv").encoding("UTF-8", cleaner: "printable") }
-        assert_match(/\AInvalid cleaner "printable"/, error.message)
+        error = assert_raises(ArgumentError) { IOStreams.path("people.csv").encoding("UTF-8", cleaner: 42) }
+        assert_match(/\AInvalid cleaner 42\b/, error.message)
       end
 
       it "raises Encoding::UndefinedConversionError for text that is not valid in it, when it reads the whole file" do
