@@ -13,6 +13,8 @@ module ZstdJni
   ARTIFACT_ID = "zstd-jni"
   VERSION     = "1.5.7-3"
   SHA256      = "a38a4a97f1b43b878c91e0dd7f1e3d17f0e70beec71d95bacaf56a2f207624a3"
+  # How many times to request the jar while Maven Central rate limits or fails the request.
+  ATTEMPTS    = 5
 
   def self.jar_name
     "#{ARTIFACT_ID}-#{VERSION}.jar"
@@ -30,12 +32,26 @@ module ZstdJni
     return if File.exist?(jar_path) && Digest::SHA256.file(jar_path).hexdigest == SHA256
 
     url  = URI("https://repo1.maven.org/maven2/#{GROUP_ID.tr('.', '/')}/#{ARTIFACT_ID}/#{VERSION}/#{jar_name}")
-    data = Net::HTTP.get_response(url).tap(&:value).body
+    data = fetch(url)
     raise "SHA-256 of #{url} does not match #{SHA256}" unless Digest::SHA256.hexdigest(data) == SHA256
 
     FileUtils.mkdir_p(File.dirname(jar_path))
     File.binwrite(jar_path, data)
   end
+
+  # Returns [String] the body of url, retrying with a backoff when Maven Central rate limits the request
+  # with 429 Too Many Requests, or fails with a server error.
+  def self.fetch(url)
+    (1..ATTEMPTS).each do |attempt|
+      response = Net::HTTP.get_response(url)
+      retry_later = response.is_a?(Net::HTTPTooManyRequests) || response.is_a?(Net::HTTPServerError)
+      return response.tap(&:value).body if !retry_later || attempt == ATTEMPTS
+
+      warn "#{url} answered #{response.code}, retrying in #{attempt * 10} seconds..."
+      sleep(attempt * 10)
+    end
+  end
+  private_class_method :fetch
 
   # Adds the jar to the classpath with jar-dependencies, as an application would.
   def self.load
