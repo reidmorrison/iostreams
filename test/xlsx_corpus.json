@@ -258,8 +258,8 @@
     },
     "Issue541.xlsx": {
       "rows": 1,
-      "rows_digest": "17c4ca7bf7e710f1",
-      "lines_digest": "75b425743d343304"
+      "rows_digest": "1b2dbda51bf094df",
+      "lines_digest": "c1368d32da43726e"
     },
     "Issue574.xlsx": {
       "rows": 2,
@@ -742,8 +742,8 @@
     },
     "strict/Issue541.xlsx": {
       "rows": 1,
-      "rows_digest": "17c4ca7bf7e710f1",
-      "lines_digest": "75b425743d343304"
+      "rows_digest": "1b2dbda51bf094df",
+      "lines_digest": "c1368d32da43726e"
     },
     "strict/Issue574.xlsx": {
       "rows": 2,
