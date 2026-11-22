@@ -4053,6 +4053,11 @@ The name of each field in Ruby is its name when that is a name of a method in Ru
 header row is, with `name:` its name in the schema, such as `field :ordered_at, :datetime, name: "Ordered At"`. A
 contract writes its own class the same way with `Order.to_dsl`.
 
+A property that the class cannot declare, such as the `title` of the schema, or a property of another tool, is written
+as a comment of one line, a field's on the line before its `field`, such as `# weight: {unit: "kg"}`. Every name and
+value is written as a Ruby literal, so a schema document from anyone writes a class that only declares its contract.
+The class name must be a Ruby constant, such as `"Order"` or `"Billing::Order"`, otherwise `ArgumentError` is raised.
+
 The draft is a schema, an `IOStreams::Schema`: `#to_contract` returns its contract, without the `format` of a date,
 which describes how one file writes its text, and so stays in the schema of that file, and `#to_dsl` writes a comment
 for each `format` that it leaves out. It keeps the `timeZone` of a `datetime` or `time`, see
