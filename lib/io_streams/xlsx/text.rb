@@ -19,6 +19,9 @@ module IOStreams
       # says to preserve it.
       EDGE_SPACE = /\A\s|\s\z/
 
+      # The characters outside the Basic Multilingual Plane, each two code units of UTF-16, see .length.
+      SUPPLEMENTARY = "\u{10000}-\u{10FFFF}"
+
       # Returns [String] the element of XML that holds the text of a cell, `<t>`, of text that .encode escaped, saying
       # to preserve its whitespace when it starts or ends with any.
       def self.element(text)
@@ -41,6 +44,13 @@ module IOStreams
       # Raises [IOStreams::Errors::InvalidEncoding] for text that UTF-8 cannot hold, starting with where the text is.
       def self.utf8(text, place: "the text of a cell")
         IOStreams::Encode.utf8(text, place: place)
+      end
+
+      # Returns [Integer] the length of text in UTF-8 as Excel counts it, in UTF-16 code units, so that a character
+      # outside the Basic Multilingual Plane, such as an emoji, counts as two, as Excel counts it against its limits of
+      # the text of a cell and the name of a worksheet.
+      def self.length(text)
+        text.length + text.count(SUPPLEMENTARY)
       end
 
       # Returns [String] the text with the characters that Excel escapes decoded, keeping an escape of a code that is not

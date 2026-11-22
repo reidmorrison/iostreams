@@ -33,8 +33,8 @@ module IOStreams
       # and LoadError when the `zip_kit` gem, which writes the zip file, is not installed, so that they raise before a
       # path opens its output, which would replace an existing file, see `IOStreams::StreamFormat#check_stream`.
       #
-      # Excel rejects a name that is empty, longer than 31 characters, contains any of `[ ] : * ? / \`, or starts or
-      # ends with an apostrophe.
+      # Excel rejects a name that is empty, longer than 31 characters of UTF-16, see `IOStreams::Xlsx::Text.length`,
+      # contains any of `[ ] : * ? / \`, or starts or ends with an apostrophe.
       # rubocop:disable-next Lint/UnusedMethodArgument -- takes the arguments of .stream, which only it uses
       def self.check(sheet_name: "Sheet1", auto_format: false, use_shared_strings: false, rows: false, text_columns: nil,
                      time_columns: nil, number_columns: nil, macro_enabled: false)
@@ -53,7 +53,9 @@ module IOStreams
         elsif (sheet_name = Text.utf8(sheet_name)).empty? then "Excel rejects an empty name for a worksheet"
         elsif sheet_name.match?(CONTROL_CHARACTER)
           "Excel rejects the name of a worksheet with a control character, or one that XML cannot hold"
-        elsif sheet_name.length > 31 then "Excel rejects the name of a worksheet that is longer than 31 characters"
+        elsif Text.length(sheet_name) > 31
+          "Excel rejects the name of a worksheet that is longer than 31 characters, counted in UTF-16, as Excel counts " \
+            "them, so that an emoji counts as two"
         elsif sheet_name.match?(INVALID_SHEET_NAME_CHARACTERS)
           "Excel rejects the name of a worksheet that contains any of [ ] : * ? / \\"
         elsif sheet_name.start_with?("'") || sheet_name.end_with?("'")
