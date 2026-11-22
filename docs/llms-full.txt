@@ -3479,6 +3479,12 @@ A value that its column cannot hold raises `IOStreams::Errors::InvalidValue`, na
 written: an integer outside the range of an `int64`, or a number with more digits before its decimal point than its
 `decimal(38, decimals)` holds, that is `38 - decimals`.
 
+A file that is not Parquet, or is damaged or cut short, raises `IOStreams::Errors::Corrupt`, naming the file, also a
+damaged file that makes the `parquet` gem panic, see [Errors](errors). A small Parquet file can hold very large
+values, since its columns are compressed, such as a 10 KB file compressed with zstd that holds a value of 300 MB, so a
+limit on the size of an upload does not limit the memory that reading it needs: decide how large a Parquet file, and
+its values, an application accepts from those who send it one.
+
 A Parquet file has no lines, so the `:line` mode, and the `delimiter:` and `buffer_size:` options, raise
 `ArgumentError`, and so does `#encoding`, since its values are not text, which the `parquet` gem reads and writes as
 UTF-8. Like JSON, it has no header row, so the first row that `each(:array)` yields is a header row of its columns,
@@ -9020,7 +9026,7 @@ The exception that each stream raises when it cannot read the data, which is tag
 | `.enc` | `OpenSSL::Cipher::CipherError`, or the exceptions of `.gz` for compressed data, or `IOStreams::Errors::StreamFailure` for empty data | Never | `SymmetricEncryption::CipherError` for a version of the cipher that is not configured |
 | `.xlsx`, `.xlsm` | `IOStreams::Errors::StreamFailure` for a workbook of Excel 97-2003 (`.xls`) or one protected by a password, whose message says so; `Zip::Error` from rubyzip, which opens the spreadsheet, for any other file that is not a zip file; `IOStreams::Errors::StreamFailure` tagged as `MissingEntry` for a `sheet_name` that no worksheet has; or `IOStreams::Errors::StreamFailure` for a zip file without the parts of a spreadsheet, a part whose size or CRC32 is not the one that the spreadsheet records, a part whose XML is not well formed, is not UTF-8, or declares a document type, or a cell after Excel's last column, XFD | Never | Never |
 | `.pgp`, `.gpg` | `IOStreams::Pgp::Failure` for data that is not PGP data, is cut short, including a signature that is cut short, which gpg itself does not report, or was changed, such as integrity protection or a signature that does not match it, or for data without integrity protection, unless `ignore_mdc_error: true` is supplied | Never | `IOStreams::Pgp::Failure` for a secret key that is not in the keyring, a passphrase that is missing or wrong, or the public key of a signature that is not in the keyring |
-| `.parquet` | `RuntimeError` from the parquet gem, which raises it for a file that is not Parquet, or is damaged or cut short | Never | Never |
+| `.parquet` | `RuntimeError` from the parquet gem, which raises it for a file that is not Parquet, or is damaged or cut short, or `IOStreams::Errors::StreamFailure` for a damaged file that makes the gem panic | Never | Never |
 
 The PGP stream tells why gpg failed from gpg's status, which does not depend on the locale. A PGP file that was not
 signed by the `signer`, or that gpg does not trust, raises `IOStreams::Pgp::Failure` without a kind of failure, since
@@ -9191,8 +9197,11 @@ also rescue an attempt to access a path that the application does not allow, suc
   within the data pages of a Parquet file, which the parquet gem reads as other values.
 * The parquet gem raises a plain `RuntimeError` for every failure, without a class of its own, so IOStreams tags only a
   `RuntimeError` that the gem raised while the block was not running, and that is not an operating system error. Some
-  damaged Parquet files make the parquet gem 0.9 stop with Ruby's `fatal`, which no `rescue` can catch, and which ends
-  the process when it is raised in its main thread, until the gem catches the panics of the Rust library that it uses.
+  damaged Parquet files, such as one with a single byte changed, make the Rust code of the parquet gem 0.9 panic,
+  which it raises as Ruby's `fatal`, which `rescue StandardError` does not rescue, and which can stop the process. So
+  IOStreams raises `IOStreams::Errors::StreamFailure`, tagged with `Corrupt`, instead, whose `cause` is the panic, and
+  whose message ends with that of the panic, which the gem also writes to the standard error of the process. Such a
+  file can still have a schema that `#infer_schema` reads without error, so checking its schema does not screen it.
 
 ## Storage registered with `IOStreams.register_scheme`
 

@@ -46,12 +46,16 @@ module IOStreams
       #     file, so reading ignores it.
       #     Default: "snappy"
       #
+      #   display_name: [String]
+      #     The name of the file in its failures, see .takes_display_name?.
+      #     Default: nil, which does not name it.
+      #
       # Returns the result of the block.
-      def self.file(file_name, schema:, compression: "snappy")
+      def self.file(file_name, schema:, compression: "snappy", display_name: nil)
         columns     = columns_of(schema)
         compression = compression_of(compression)
         Parquet.load_dependency
-        writer = new(file_name, columns, compression)
+        writer = new(file_name, columns, compression, display_name)
         Utils.finish_or_abort(finish: -> { writer.finish }, abort: -> { writer.abort }) { yield(writer) }
       end
 
@@ -59,8 +63,9 @@ module IOStreams
       # existing file, when the records cannot be written to it, see `IOStreams::StreamFormat#check_stream`.
       #
       # Raises ArgumentError without a schema, for a field that has no Parquet type, see `IOStreams::Parquet::Column`, or
-      # an unknown compression, and LoadError when the `parquet` gem is not installed.
-      def self.check(schema:, compression: "snappy")
+      # an unknown compression, and LoadError when the `parquet` gem is not installed. It takes the arguments of .file,
+      # including `display_name:`, which it does not need.
+      def self.check(schema:, compression: "snappy", display_name: nil) # rubocop:disable Lint/UnusedMethodArgument -- as .file
         columns_of(schema)
         compression_of(compression)
         Parquet.load_dependency
@@ -90,11 +95,26 @@ module IOStreams
       end
       private_class_method :compression_of
 
-      def initialize(file_name, columns, compression)
+      # Returns [true] its failures name the file that is written, see `IOStreams::Reader.takes_display_name?`, rather
+      # than the temp file that a stream is written through.
+      def self.takes_display_name?
+        true
+      end
+
+      # Returns [IOStreams::Errors::StreamFailure] the failure for a panic of the gem while it writes the file, see
+      # `IOStreams::Parquet.within_gem`, whose cause is the panic, with a message that starts with the display name of
+      # the file, when it is known. Not tagged with a kind of failure, which describes the data of a file that is read.
+      def self.panic_failure(panic, display_name)
+        message = "The parquet gem could not write the file: #{panic.message}"
+        Errors::StreamFailure.new(display_name ? "#{display_name}: #{message}" : message)
+      end
+
+      def initialize(file_name, columns, compression, display_name = nil)
         super(nil)
-        @columns = columns
-        @queue   = SizedQueue.new(QUEUE_SIZE)
-        @thread  = start(file_name, {type: :struct, fields: columns.map(&:descriptor)}, compression)
+        @columns      = columns
+        @display_name = display_name
+        @queue        = SizedQueue.new(QUEUE_SIZE)
+        @thread       = start(file_name, {type: :struct, fields: columns.map(&:descriptor)}, compression)
       end
 
       # Writes a record, whose values are those of the fields, in their order, by their names, and of their types, see
@@ -144,7 +164,12 @@ module IOStreams
               yielder << row
             end
           end
-          ::Parquet.write_rows(rows, schema: schema, write_to: file_name, compression: compression)
+          # A panic of the gem ends this thread with an exception that `rescue StandardError` rescues, see .panic_failure,
+          # rather than `fatal`, which #<< and #finish raise in the thread of the caller, as they raise any other error
+          # of the gem, so that the file is not completed.
+          Parquet.within_gem(on_panic: ->(panic) { self.class.panic_failure(panic, @display_name) }) do
+            ::Parquet.write_rows(rows, schema: schema, write_to: file_name, compression: compression)
+          end
         ensure
           # So that #<< raises rather than waits for a thread that will not take its row.
           queue.close
