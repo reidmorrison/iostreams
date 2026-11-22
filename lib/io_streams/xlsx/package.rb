@@ -49,10 +49,10 @@ module IOStreams
       def self.check(file_name, display_name)
         return unless ::File.binread(file_name, COMPOUND_FILE.bytesize) == COMPOUND_FILE
 
-        raise(Zip::Reader.failure(Errors::Corrupt, "The spreadsheet #{display_name} is a workbook of Excel 97-2003 " \
-                                                   "(.xls), or one protected by a password, which IOStreams does not " \
-                                                   "read: save it in Excel as an Excel Workbook (.xlsx) without a " \
-                                                   "password", display_name))
+        raise(Zip::Reader.failure(Errors::Corrupt, "The spreadsheet #{display_name} is a compound file, such as a " \
+                                                   "workbook of Excel 97-2003 (.xls) or one protected by a password, " \
+                                                   "which IOStreams does not read: save it in Excel as an Excel " \
+                                                   "Workbook (.xlsx) without a password", display_name))
       end
 
       # Returns [String] the name of a part as the package names it, without a leading `/`, with `/` between segments,

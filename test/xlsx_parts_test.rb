@@ -258,8 +258,9 @@ class XlsxPartsTest < Minitest::Test
       it "for a workbook of Excel 97-2003 or one protected by a password, a compound file, saying so" do
         name = File.join(dir, "protected.xlsx")
         File.binwrite(name, "\xD0\xCF\x11\xE0\xA1\xB1\x1A\xE1".b + ("\0" * 4096))
-        message = "The spreadsheet #{name} is a workbook of Excel 97-2003 (.xls), or one protected by a password, " \
-                  "which IOStreams does not read: save it in Excel as an Excel Workbook (.xlsx) without a password"
+        message = "The spreadsheet #{name} is a compound file, such as a workbook of Excel 97-2003 (.xls) or one " \
+                  "protected by a password, which IOStreams does not read: save it in Excel as an Excel Workbook " \
+                  "(.xlsx) without a password"
 
         [-> { text(name) }, -> { IOStreams.path(name).each(:array) { nil } }].each do |read|
           error = assert_raises(IOStreams::Errors::Corrupt) { read.call }

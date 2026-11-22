@@ -282,8 +282,8 @@ The rows and records of a spreadsheet are the values of the cells of its first w
 that a number is a number and a date is a date, while its lines, and its bytes, are its CSV text, one line for each row,
 so the `:line` mode and a copy without a mode read that text. The `:text` format reads the CSV text of each row as it
 is, see [Text](#text). Reading needs the `rubyzip` gem. A workbook of Excel 97-2003, `.xls`, and one protected by a
-password are not read: each raises `IOStreams::Errors::Corrupt`, saying so, so save it in Excel as an Excel Workbook
-(`.xlsx`) without a password.
+password are not read: each raises `IOStreams::Errors::StreamFailure`, tagged as `IOStreams::Errors::Corrupt`, whose
+message says what it is. Save it in Excel as an Excel Workbook (`.xlsx`) without a password.
 
 ~~~ruby
 IOStreams.path("orders.xlsx").each(:hash) do |order|
