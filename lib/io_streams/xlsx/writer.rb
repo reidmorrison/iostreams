@@ -23,7 +23,8 @@ module IOStreams
         %i[sheet_name auto_format use_shared_strings]
       end
 
-      # Returns [Array<Symbol>] the arguments of the rows that a stream writes, see .stream, which are not options.
+      # Returns [Array<Symbol>] the arguments that a stream supplies, rather than a caller, which are not options: those
+      # of the rows that it writes, see .stream, and that of its extension, see `IOStreams::Xlsx.extension_arguments`.
       def self.argument_names
         %i[rows text_columns time_columns number_columns macro_enabled]
       end

@@ -354,7 +354,8 @@ a file, such as `1234.5` as `12345` with `groupChar: "."`: copy them with `copy_
 `delimiter:` raises `ArgumentError` for the rows and records, which are cells rather than lines.
 
 Writing writes a workbook with one worksheet, which needs the `zip_kit` gem. A `.xlsm` file is a macro-enabled workbook, as
-Excel requires of that extension, without macros. The rows and records are written as the types
+Excel requires of that extension, without macros, by the extension in its file name, or `stream(:xlsm)`, while
+`stream(:xlsx)` writes a workbook that Excel opens only as `.xlsx`, whatever the file name. The rows and records are written as the types
 of their values, by the fields of a schema or contract when there is one, so that a number is a number cell, a `Date` a
 date, a `Time` a date and time, holding its clock in UTC, or in the `timeZone` of its field, the value of a `time`
 field a time of day, of Excel's time format `h:mm:ss`, holding its own clock, or that of the `timeZone` of its field,
