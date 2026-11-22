@@ -35,6 +35,19 @@ module IOStreams
                                                   @package.display_name))
       end
 
+      # Returns [Sheet] the worksheet of the supplied name, the one of exactly that name, otherwise compared without case,
+      # as Excel compares the names of the worksheets of a workbook, which it does not let differ only in case, or the
+      # first worksheet without a name, see #first_sheet. A worksheet that the workbook does not name matches none.
+      #
+      # Raises [IOStreams::Errors::StreamFailure] tagged as `IOStreams::Errors::MissingEntry` for a name that no
+      # worksheet has, naming those that it has, as for a zip file without the file of an `entry_file_name`.
+      def sheet(name = nil)
+        return first_sheet if name.nil?
+
+        sheets.find { |sheet| sheet.name == name } || sheets.find { |sheet| sheet.name&.casecmp?(name) } ||
+          raise(missing_sheet(name))
+      end
+
       # Returns [IOStreams::Xlsx::DateSystem] how the workbook numbers its days, as its `date1904` records.
       def date_system
         @date1904 ? DateSystem::SYSTEM_1904 : DateSystem::SYSTEM_1900
@@ -57,14 +70,21 @@ module IOStreams
           end
       end
 
-      # Yields [Array] each row of the first worksheet, see `IOStreams::Xlsx::Worksheet`, with the value of each cell
-      # that the block returns for its text, type and style.
-      def each_row(converter, &)
-        @package.scan(first_sheet.part, Worksheet.new(converter, &))
+      # Yields [Array] each row of the worksheet, see #sheet, see `IOStreams::Xlsx::Worksheet`, with the value of each
+      # cell that the block returns for its text, type and style.
+      def each_row(sheet, converter, &)
+        @package.scan(sheet.part, Worksheet.new(converter, &))
         nil
       end
 
       private
+
+      def missing_sheet(name)
+        names   = sheets.map { |sheet| sheet.name.inspect }.join(", ")
+        message = "The spreadsheet #{@package.display_name} has no worksheet named #{name.inspect}"
+        message = "#{message}: its worksheets are #{names}" unless names.empty?
+        Zip::Reader.failure(Errors::MissingEntry, message, @package.display_name)
+      end
 
       # Returns [Array<Sheet>] the worksheets of the sheets of the workbook, by their relationships.
       def related_sheets(sheets)

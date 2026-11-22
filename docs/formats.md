@@ -278,7 +278,8 @@ end
 
 ## Excel spreadsheets
 
-The rows and records of a spreadsheet are the values of the cells of its first worksheet, each as Excel typed it, so
+The rows and records of a spreadsheet are the values of the cells of its first worksheet, or of the one that
+`sheet_name` names, see below, each as Excel typed it, so
 that a number is a number and a date is a date, while its lines, and its bytes, are its CSV text, one line for each row,
 so the `:line` mode and a copy without a mode read that text. The `:text` format reads the CSV text of each row as it
 is, see [Text](#text). Reading needs the `rubyzip` gem. A workbook of Excel 97-2003, `.xls`, and one protected by a
@@ -391,7 +392,7 @@ The writer accepts these options:
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `sheet_name` | `"Sheet1"` | The name of the worksheet: 1 to 31 characters, counted in UTF-16 as Excel counts them, so that an emoji counts as two, without any of `[ ] : * ? / \` or a control character, and not starting or ending with an apostrophe, as Excel requires. Any other name, or one that UTF-8 cannot hold, raises `ArgumentError` before the file is opened. A name in another encoding is written as UTF-8. |
+| `sheet_name` | `"Sheet1"` when writing, the first worksheet when reading | The name of the worksheet to write, or to read. When writing: 1 to 31 characters, counted in UTF-16 as Excel counts them, so that an emoji counts as two, without any of `[ ] : * ? / \` or a control character, and not starting or ending with an apostrophe, as Excel requires; any other name raises `ArgumentError` before the file is opened. When reading, a name that no worksheet has raises `IOStreams::Errors::MissingEntry`, naming those that it has. In either direction, a name that UTF-8 cannot hold raises `ArgumentError`, and one in another encoding is read and written as UTF-8. |
 | `auto_format` | `false` | Write text that looks like a number, date, time or boolean, such as `"1.5"`, `"2026-10-09"` or `"true"`, as an Excel number, date or boolean. Only the text of a column whose type is not known is written so: a field of type `any`, a file without a schema, or a line of CSV text, while the text of a `string` field stays text. Such text may then read back differently, such as `"01234"` as `1234.0`. |
 | `use_shared_strings` | `false` | Store each distinct value once, which makes the workbook smaller when values repeat, but holds every distinct value in memory until the workbook is complete. |
 
@@ -404,8 +405,17 @@ end
 
 Notes:
 
-* Reading ignores `auto_format` and `use_shared_strings`, since the workbook records them, and raises for `sheet_name`,
-  since it always reads the first worksheet.
+* Reading reads the worksheet that `sheet_name` names, compared without case, as Excel compares them, or the first
+  without it, so that a path whose options write a worksheet reads it back. A name that no worksheet has raises
+  `IOStreams::Errors::MissingEntry`, whose message lists the worksheets. Reading ignores `auto_format` and
+  `use_shared_strings`, since the workbook records them.
+
+  ~~~ruby
+  IOStreams.path("report.xlsx").option(:xlsx, sheet_name: "Totals").each(:hash) do |row|
+    p row
+  end
+  # {"region" => "West", "total" => 1250.75}
+  ~~~
 * Text is written as Excel escapes it, so that it reads back as it was written, including a carriage return, such as
   the `\r\n` within a value, whitespace at either end, and a character that XML cannot hold, such as a control
   character.

@@ -305,13 +305,17 @@ class XlsxWriterTest < Minitest::Test
         assert_equal "precious", File.read(file_name)
       end
 
-      it "raises for sheet_name when reading" do
-        IOStreams.path(file_name).writer(:array) { |io| io << %w[a] }
+      it "reads back the worksheet that sheet_name names, as the same option of the path writes it" do
+        path = IOStreams.path(file_name).option(:xlsx, sheet_name: "Totals")
+        path.writer(:array) { |io| io << %w[a] }
+        rows = []
+        path.each(:array) { |row| rows << row }
 
-        error = assert_raises(ArgumentError) do
-          IOStreams.path(file_name).option(:xlsx, sheet_name: "Totals").each(:array) { |_row| nil }
+        assert_equal [%w[a]], rows
+        error = assert_raises(IOStreams::Errors::MissingEntry) do
+          IOStreams.path(file_name).option(:xlsx, sheet_name: "Sheet1").each(:array) { |_row| nil }
         end
-        assert_match(/:sheet_name only applies when writing a :xlsx stream/, error.message)
+        assert_includes error.message, 'its worksheets are "Totals"'
       end
 
       it "writes lines delimited by a carriage return" do

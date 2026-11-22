@@ -1522,10 +1522,9 @@ for `.enc`, whose header records whether the file was compressed. Writing ignore
 read the file, such as the PGP `passphrase`.
 
 Some options apply to both: `entry_file_name` names the file within a zip file when writing, and chooses the file to
-read. The PGP `signer` signs the file when writing, and when reading requires that the file was signed by that key. An
-option of one direction that the other could seem to use, but does not, such as the `sheet_name` of a spreadsheet,
-which names the worksheet that is written, while reading always reads the first, raises `ArgumentError` in that
-direction.
+read. The PGP `signer` signs the file when writing, and when reading requires that the file was signed by that key.
+The `sheet_name` of a spreadsheet names the worksheet that is written, and the one that is read. An option of one
+direction that the other could seem to use, but does not, raises `ArgumentError` in that direction.
 
 An option that neither direction accepts, such as a misspelled one, raises an `ArgumentError` that lists the valid
 options as soon as it is set, even when the file name does not include that stream. So the same code reports it
@@ -3168,7 +3167,8 @@ end
 
 ## Excel spreadsheets
 
-The rows and records of a spreadsheet are the values of the cells of its first worksheet, each as Excel typed it, so
+The rows and records of a spreadsheet are the values of the cells of its first worksheet, or of the one that
+`sheet_name` names, see below, each as Excel typed it, so
 that a number is a number and a date is a date, while its lines, and its bytes, are its CSV text, one line for each row,
 so the `:line` mode and a copy without a mode read that text. The `:text` format reads the CSV text of each row as it
 is, see [Text](#text). Reading needs the `rubyzip` gem. A workbook of Excel 97-2003, `.xls`, and one protected by a
@@ -3281,7 +3281,7 @@ The writer accepts these options:
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `sheet_name` | `"Sheet1"` | The name of the worksheet: 1 to 31 characters, counted in UTF-16 as Excel counts them, so that an emoji counts as two, without any of `[ ] : * ? / \` or a control character, and not starting or ending with an apostrophe, as Excel requires. Any other name, or one that UTF-8 cannot hold, raises `ArgumentError` before the file is opened. A name in another encoding is written as UTF-8. |
+| `sheet_name` | `"Sheet1"` when writing, the first worksheet when reading | The name of the worksheet to write, or to read. When writing: 1 to 31 characters, counted in UTF-16 as Excel counts them, so that an emoji counts as two, without any of `[ ] : * ? / \` or a control character, and not starting or ending with an apostrophe, as Excel requires; any other name raises `ArgumentError` before the file is opened. When reading, a name that no worksheet has raises `IOStreams::Errors::MissingEntry`, naming those that it has. In either direction, a name that UTF-8 cannot hold raises `ArgumentError`, and one in another encoding is read and written as UTF-8. |
 | `auto_format` | `false` | Write text that looks like a number, date, time or boolean, such as `"1.5"`, `"2026-10-09"` or `"true"`, as an Excel number, date or boolean. Only the text of a column whose type is not known is written so: a field of type `any`, a file without a schema, or a line of CSV text, while the text of a `string` field stays text. Such text may then read back differently, such as `"01234"` as `1234.0`. |
 | `use_shared_strings` | `false` | Store each distinct value once, which makes the workbook smaller when values repeat, but holds every distinct value in memory until the workbook is complete. |
 
@@ -3294,8 +3294,17 @@ end
 
 Notes:
 
-* Reading ignores `auto_format` and `use_shared_strings`, since the workbook records them, and raises for `sheet_name`,
-  since it always reads the first worksheet.
+* Reading reads the worksheet that `sheet_name` names, compared without case, as Excel compares them, or the first
+  without it, so that a path whose options write a worksheet reads it back. A name that no worksheet has raises
+  `IOStreams::Errors::MissingEntry`, whose message lists the worksheets. Reading ignores `auto_format` and
+  `use_shared_strings`, since the workbook records them.
+
+  ~~~ruby
+  IOStreams.path("report.xlsx").option(:xlsx, sheet_name: "Totals").each(:hash) do |row|
+    p row
+  end
+  # {"region" => "West", "total" => 1250.75}
+  ~~~
 * Text is written as Excel escapes it, so that it reads back as it was written, including a carriage return, such as
   the `\r\n` within a value, whitespace at either end, and a character that XML cannot hold, such as a control
   character.
@@ -6480,9 +6489,8 @@ path.read
 # => "name,login\nJack Jones,jjones\n"
 ~~~
 
-An option of the writer that a reader could seem to use, but does not, raises when reading, rather than being ignored:
-the `sheet_name` of a spreadsheet, since reading always reads the first worksheet. See
-[Options for reading and writing](streams#options-for-reading-and-writing).
+An option that a caller could expect to apply in the other direction, but does not, raises there, rather than being
+ignored. See [Options for reading and writing](streams#options-for-reading-and-writing).
 
 ## Compression {#compression-options}
 
@@ -6680,7 +6688,8 @@ See [PGP Encryption](pgp) for creating and importing keys, signing and verifying
 
 ## Excel spreadsheets
 
-A spreadsheet, `.xlsx` or `.xlsm`, is read from its first worksheet, and written into a workbook with one worksheet.
+A spreadsheet, `.xlsx` or `.xlsm`, is read from its first worksheet, or the one that `sheet_name` names, and written
+into a workbook with one worksheet.
 Its rows and records, in the `:array`, `:hash`, `:record` and `:slice` modes, are the values of its cells, as Excel
 typed them, while its lines, in the `:line` mode, and its bytes, such as a copy without a mode, are CSV text, one line
 for each row. See [Excel spreadsheets](formats#excel-spreadsheets) for the values that each cell is read as.
@@ -6690,8 +6699,8 @@ for each row. See [Excel spreadsheets](formats#excel-spreadsheets) for the value
 Reading needs only the `rubyzip` gem, which opens the spreadsheet, a zip file of XML parts: IOStreams reads the XML of
 the workbook itself, as it streams each part, without an XML gem. It reads a local file and returns its rows to a block.
 Its rows and records are read from the worksheet as they are, while its lines are converted into CSV in a temp file for your code to read. A
-spreadsheet on S3 or HTTP, or within another stream, is first copied into a temp file of its own, see [When temp files are used](config#when-temp-files-are-used). Reading takes no options, and
-raises `ArgumentError` for `sheet_name`, since it always reads the first worksheet.
+spreadsheet on S3 or HTTP, or within another stream, is first copied into a temp file of its own, see [When temp files are used](config#when-temp-files-are-used). Reading takes one option,
+`sheet_name`, the worksheet to read, the first without it.
 
 A spreadsheet is a zip file of parts, such as its worksheets. Before it reads the rows, IOStreams checks the size and the
 CRC32 of each part, which rubyzip does not, so that a damaged spreadsheet raises `IOStreams::Errors::Corrupt`, rather than
@@ -8909,7 +8918,7 @@ The exception that each stream raises when it cannot read the data, which is tag
 | `.zst` | `RuntimeError` | Never | Never |
 | `.zip` | `IOStreams::Errors::StreamFailure` for a file whose size or CRC32 is not the one that the zip file records. For a file that is not a zip file, or data that cannot be decompressed, `Zip::Error` from rubyzip on MRI, such as `Zip::DecompressionError`, or, from rubyzip 3.7, `NoMethodError`, `TypeError` or `ArgumentError` for a zip file whose end record is cut short, and `IOStreams::Errors::StreamFailure` on JRuby, which reads zip files with Java | `IOStreams::Errors::StreamFailure` | Never |
 | `.enc` | `OpenSSL::Cipher::CipherError`, or the exceptions of `.gz` for compressed data, or `IOStreams::Errors::StreamFailure` for empty data | Never | `SymmetricEncryption::CipherError` for a version of the cipher that is not configured |
-| `.xlsx`, `.xlsm` | `IOStreams::Errors::StreamFailure` for a workbook of Excel 97-2003 (`.xls`) or one protected by a password, whose message says so; `Zip::Error` from rubyzip, which opens the spreadsheet, for any other file that is not a zip file; or `IOStreams::Errors::StreamFailure` for a zip file without the parts of a spreadsheet, a part whose size or CRC32 is not the one that the spreadsheet records, a part whose XML is not well formed, is not UTF-8, or declares a document type, or a cell after Excel's last column, XFD | Never | Never |
+| `.xlsx`, `.xlsm` | `IOStreams::Errors::StreamFailure` for a workbook of Excel 97-2003 (`.xls`) or one protected by a password, whose message says so; `Zip::Error` from rubyzip, which opens the spreadsheet, for any other file that is not a zip file; `IOStreams::Errors::StreamFailure` tagged as `MissingEntry` for a `sheet_name` that no worksheet has; or `IOStreams::Errors::StreamFailure` for a zip file without the parts of a spreadsheet, a part whose size or CRC32 is not the one that the spreadsheet records, a part whose XML is not well formed, is not UTF-8, or declares a document type, or a cell after Excel's last column, XFD | Never | Never |
 | `.pgp`, `.gpg` | `IOStreams::Pgp::Failure` for data that is not PGP data, is cut short, including a signature that is cut short, which gpg itself does not report, or was changed, such as integrity protection or a signature that does not match it, or for data without integrity protection, unless `ignore_mdc_error: true` is supplied | Never | `IOStreams::Pgp::Failure` for a secret key that is not in the keyring, a passphrase that is missing or wrong, or the public key of a signature that is not in the keyring |
 | `.parquet` | `RuntimeError` from the parquet gem, which raises it for a file that is not Parquet, or is damaged or cut short | Never | Never |
 

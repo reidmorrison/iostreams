@@ -248,6 +248,67 @@ class XlsxPartsTest < Minitest::Test
       assert_equal [[1.0]], rows(name)
     end
 
+    describe "sheet_name" do
+      let :two_sheets do
+        workbook(
+          "xl/_rels/workbook.xml.rels" => relationships("worksheet" => "worksheets/sheet1.xml").sub(
+            "</Relationships>", %(<Relationship Id="rId2" Type="#{RELS}/worksheet" Target="worksheets/sheet2.xml"/></Relationships>)
+          ),
+          "xl/workbook.xml"            => %(<workbook xmlns="#{MAIN}" xmlns:r="#{RELS}"><sheets><sheet name="Summary" sheetId="1" r:id="rId1"/><sheet name="Données" sheetId="2" r:id="rId2"/></sheets></workbook>),
+          "xl/worksheets/sheet1.xml"   => sheet(%(<row><c r="A1" t="inlineStr"><is><t>summary</t></is></c></row>)),
+          "xl/worksheets/sheet2.xml"   => sheet(%(<row><c r="A1" t="inlineStr"><is><t>detail</t></is></c><c r="B1"><v>2</v></c></row>))
+        )
+      end
+
+      def read(name, **options)
+        rows = []
+        IOStreams.path(name).option(:xlsx, **options).each(:array) { |row| rows << row }
+        lines = []
+        IOStreams.path(name).option(:xlsx, **options).each(:line) { |line| lines << line }
+        [rows, lines]
+      end
+
+      it "reads the first worksheet without one" do
+        assert_equal [[%w[summary]], %w[summary]], read(two_sheets)
+      end
+
+      it "reads the worksheet that it names, compared without case, as Excel compares them, rows and lines alike" do
+        assert_equal [[["detail", 2.0]], ["detail,2"]], read(two_sheets, sheet_name: "Données")
+        assert_equal [[["detail", 2.0]], ["detail,2"]], read(two_sheets, sheet_name: "DONNÉES")
+        assert_equal [[["detail", 2.0]], ["detail,2"]], read(two_sheets, sheet_name: "Données".encode("Windows-1252"))
+      end
+
+      it "raises MissingEntry for a name that no worksheet has, naming those that it has" do
+        error = assert_raises(IOStreams::Errors::MissingEntry) { read(two_sheets, sheet_name: "Totals") }
+
+        assert_instance_of IOStreams::Errors::StreamFailure, error
+        assert_equal "The spreadsheet #{two_sheets} has no worksheet named \"Totals\": its worksheets are " \
+                     "\"Summary\", \"Données\"", error.message
+      end
+
+      it "raises ArgumentError for a name that is not a String, or that UTF-8 cannot hold, as writing does" do
+        error = assert_raises(ArgumentError) { read(two_sheets, sheet_name: :Summary) }
+
+        assert_equal "Invalid sheet_name :Summary: supply the name of the worksheet as a String", error.message
+        error = assert_raises(ArgumentError) { read(two_sheets, sheet_name: "\xFF".b) }
+        assert_match(/\AInvalid sheet_name "\\xFF": /, error.message)
+      end
+
+      it "prefers the worksheet of exactly the name, and skips a worksheet that the workbook does not name" do
+        name = workbook(
+          "xl/_rels/workbook.xml.rels" => relationships("worksheet" => "worksheets/sheet1.xml").sub(
+            "</Relationships>", %(<Relationship Id="rId2" Type="#{RELS}/worksheet" Target="worksheets/sheet2.xml"/></Relationships>)
+          ),
+          "xl/workbook.xml"            => %(<workbook xmlns="#{MAIN}" xmlns:r="#{RELS}"><sheets><sheet sheetId="1" r:id="rId1"/><sheet name="Straße" sheetId="2" r:id="rId2"/></sheets></workbook>),
+          "xl/worksheets/sheet1.xml"   => sheet(%(<row><c r="A1" t="inlineStr"><is><t>unnamed</t></is></c></row>)),
+          "xl/worksheets/sheet2.xml"   => sheet(%(<row><c r="A1" t="inlineStr"><is><t>street</t></is></c></row>))
+        )
+
+        assert_equal [[%w[street]], %w[street]], read(name, sheet_name: "Straße")
+        assert_raises(IOStreams::Errors::MissingEntry) { read(name, sheet_name: "Totals") }
+      end
+    end
+
     describe "raises Corrupt" do
       def assert_corrupt(name, message)
         error = assert_raises(IOStreams::Errors::Corrupt) { rows(name) }
