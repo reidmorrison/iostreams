@@ -71,6 +71,8 @@ Metrics/ClassLength:
     - "test/**/*"
     # Holds the public API of every path and stream, see CLAUDE.md, so it has a method for each setting.
     - "lib/io_streams/stream.rb"
+    # Holds the public API of every path, see CLAUDE.md, including storing a path and creating it again.
+    - "lib/io_streams/path.rb"
     # Checks and converts each property and type of a Frictionless field, and the values of type any.
     - "lib/io_streams/schema/field.rb"
     # Checks each property of a Frictionless schema, matches columns to its fields, and is an object of the public API.
