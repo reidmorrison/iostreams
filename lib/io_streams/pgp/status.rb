@@ -50,6 +50,14 @@ module IOStreams
         178  # GPG_ERR_NO_PIN
       ].freeze
 
+      # Keywords of the result of checking a signature, of which gpg reports exactly one for each signature: good
+      # (`GOODSIG`), good but expired (`EXPSIG`), good but made by an expired key (`EXPKEYSIG`) or a revoked key
+      # (`REVKEYSIG`), not matching the data (`BADSIG`), and not checked, such as for a missing public key (`ERRSIG`).
+      SIGNATURE_RESULTS = %w[GOODSIG EXPSIG EXPKEYSIG REVKEYSIG BADSIG ERRSIG].freeze
+
+      # The state of the key of a signature that matches the data, by the keyword of its result.
+      UNUSABLE_KEY_RESULTS = {"EXPKEYSIG" => :expired, "REVKEYSIG" => :revoked}.freeze
+
       # Parameters
       #   text: [String]
       #     What gpg wrote to its status file descriptor.
@@ -73,20 +81,26 @@ module IOStreams
         keyword?("NODATA")
       end
 
-      # Returns [Array<Hash>] the fingerprint of the primary key, and the trust level, of each good signature.
-      #
-      # For each good signature gpg reports `VALIDSIG`, whose last field is the fingerprint of the primary key, since
-      # the file can be signed by one of its subkeys, followed by the trust level of the key.
+      # Returns [Array<Hash>] the fingerprint of the primary key, and the trust level, of each good signature: one that
+      # gpg reports with `GOODSIG`, by a key that is neither expired nor revoked.
       def good_signatures
-        signatures = []
-        @lines.each do |keyword, *fields|
-          if keyword == "VALIDSIG"
-            signatures << {fingerprint: (fields[9] || fields[0]).upcase}
-          elsif keyword.start_with?("TRUST_") && signatures.last
-            signatures.last[:trust] ||= keyword
-          end
+        signatures.filter_map do |signature|
+          next unless signature[:result] == "GOODSIG" && !signature[:revoked] && signature[:fingerprint]
+
+          signature.slice(:fingerprint, :trust)
         end
-        signatures
+      end
+
+      # Returns [Array<Hash>] the fingerprint of the primary key, and whether the key is `:revoked` or `:expired`, of
+      # each signature that matches the data, but was made by a key that can no longer be used.
+      #
+      # gpg reports such a signature with `REVKEYSIG` or `EXPKEYSIG` instead of `GOODSIG`, followed by `VALIDSIG` as for
+      # a good one, and still exits successfully, and for a revoked key it even reports the trust that it had.
+      def unusable_key_signatures
+        signatures.filter_map do |signature|
+          state = signature[:revoked] ? :revoked : UNUSABLE_KEY_RESULTS[signature[:result]]
+          {fingerprint: signature[:fingerprint], key: state} if state && signature[:fingerprint]
+        end
       end
 
       # Returns [Module] the kind of failure that the status of a gpg that failed reports: `IOStreams::Errors::Corrupt`
@@ -117,6 +131,37 @@ module IOStreams
         return true if keyword?("NO_SECKEY") && !keyword?("BEGIN_DECRYPTION")
 
         keyword?("INQUIRE_MAXLEN") && (keyword?("NEED_PASSPHRASE") || keyword?("NEED_PASSPHRASE_SYM"))
+      end
+
+      # Returns [Array<Hash>] each signature that gpg checked, with the keyword of its result (`:result`), the
+      # fingerprint of its primary key (`:fingerprint`), the trust level of the key (`:trust`), and whether gpg reported
+      # the key as revoked (`:revoked`).
+      #
+      # gpg reports each signature in a group of lines that starts with `NEWSIG`, followed by exactly one of the
+      # keywords of SIGNATURE_RESULTS, then, when the signature matches the data, `VALIDSIG`, whose last field is the
+      # fingerprint of the primary key, since the file can be signed by one of its subkeys, then `KEYREVOKED` for a
+      # revoked key, and the trust level of the key. A gpg that does not report `NEWSIG` starts each group with its
+      # result instead, so a second result also starts a new signature. A line before the first signature starts,
+      # such as a `VALIDSIG` without its result, belongs to no signature.
+      #
+      # `KEYEXPIRED` is not used, since gpg also reports it for an expired subkey that did not make the signature,
+      # which would reject a good signature, while `EXPKEYSIG` reports a signature by an expired key.
+      def signatures
+        @signatures ||= @lines.each_with_object([]) do |(keyword, *fields), signatures|
+          result = SIGNATURE_RESULTS.include?(keyword)
+          starts = keyword == "NEWSIG" || (result && signatures.last&.key?(:result))
+          signatures << {} if starts || (signatures.empty? && result)
+          add_to_signature(signatures.last, keyword, fields) if signatures.last
+        end
+      end
+
+      def add_to_signature(signature, keyword, fields)
+        case keyword
+        when *SIGNATURE_RESULTS then signature[:result] = keyword
+        when "VALIDSIG" then signature[:fingerprint] ||= (fields[9] || fields[0]).upcase
+        when "KEYREVOKED" then signature[:revoked] = true
+        when /\ATRUST_/ then signature[:trust] ||= keyword
+        end
       end
 
       def keyword?(keyword)

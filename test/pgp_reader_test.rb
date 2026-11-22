@@ -612,6 +612,8 @@ class PgpReaderTest < Minitest::Test
         def read_signed(trust, signed_by: fingerprint)
           script = <<~SCRIPT
             echo "[GNUPG:] PLAINTEXT 62 0" >&3
+            echo "[GNUPG:] NEWSIG" >&3
+            echo "[GNUPG:] GOODSIG #{'B' * 16} Jack <jack@example.org>" >&3
             echo "[GNUPG:] VALIDSIG #{'B' * 40} 2026-10-10 1791590400 0 4 0 1 10 00 #{signed_by}" >&3
             echo "[GNUPG:] #{trust} 0 pgp" >&3
             cat
@@ -962,6 +964,121 @@ class PgpReaderTest < Minitest::Test
           path = IOStreams.path(temp_file.path).stream(:pgp, passphrase: "receiver_passphrase", import_and_trust_key: key)
 
           assert_equal decrypted, path.read
+        end
+      end
+
+      # gpg reports a signature by a revoked or an expired key as one that matches the data, and exits successfully.
+      # The keys are made in a throwaway keyring, so that the test keyring keeps no revoked or expired keys.
+      describe "a key that is revoked or expired" do
+        # Returns [String] what gpg wrote to stdout, run in the throwaway keyring with an empty passphrase.
+        def gpg(*args, stdin: "")
+          out, err, status = Open3.capture3(IOStreams::Pgp.executable, "--batch", "--yes", "--pinentry-mode", "loopback",
+                                            "--passphrase", "", *args, stdin_data: stdin, binmode: true)
+          raise("gpg #{args.join(' ')} failed: #{err}") unless status.success?
+
+          out
+        end
+
+        # Returns [String] the data, signed by each of the signers.
+        def signed(*signers, faked_time: nil)
+          time = faked_time ? ["--faked-system-time", faked_time] : []
+          gpg(*time, "--sign", *signers.flat_map { |signer| ["-u", signer] }, "-o", "-", stdin: decrypted)
+        end
+
+        def read_signed(data, **options, &block)
+          IOStreams::Pgp::Reader.stream(StringIO.new(data), **options, &block || :read)
+        end
+
+        def fingerprint(email)
+          IOStreams::Pgp::Gpg.primary_fingerprints(email).first
+        end
+
+        before do
+          skip("Needs gpg v2.1 or later") unless IOStreams::Pgp::Gpg.version_at_least?("2.1")
+
+          @test_gnupg_home = ENV.fetch("GNUPGHOME")
+          @gnupg_home      = Dir.mktmpdir("gpg")
+          ENV["GNUPGHOME"] = @gnupg_home
+          gpg("--quick-gen-key", "Good <good@example.org>", "ed25519", "sign", "never")
+          gpg("--quick-gen-key", "Revoked <revoked@example.org>", "ed25519", "sign", "never")
+          # A key made long ago, to last a day, has expired.
+          past = "20200101T000000"
+          gpg("--faked-system-time", past, "--quick-gen-key", "Expired <expired@example.org>", "ed25519", "sign", "1d")
+          @by_revoked = signed("revoked@example.org")
+          @by_both    = signed("good@example.org", "revoked@example.org")
+          @by_expired = signed("expired@example.org", faked_time: past)
+          @revoked    = fingerprint("revoked@example.org")
+          # gpg writes a revocation certificate for each key that it makes, with its armor commented out.
+          certificate = File.read(File.join(@gnupg_home, "openpgp-revocs.d", "#{@revoked}.rev"))
+          gpg("--import", stdin: certificate.sub(/^:-----BEGIN/, "-----BEGIN"))
+        end
+
+        after do
+          next unless @gnupg_home
+
+          system("gpgconf", "--homedir", @gnupg_home, "--kill", "gpg-agent", out: File::NULL, err: File::NULL)
+          ENV["GNUPGHOME"] = @test_gnupg_home
+          FileUtils.rm_rf(@gnupg_home)
+        end
+
+        it "rejects a signature by a revoked key, which gpg still trusts, for the signer" do
+          error = assert_raises(IOStreams::Pgp::Failure) { read_signed(@by_revoked, signer: "revoked@example.org") }
+
+          assert_equal "PGP stream was signed by revoked@example.org, but the key that signed it is revoked, " \
+                       "so the signature is not accepted", error.message
+          refute_kind_of IOStreams::Errors::StreamError, error
+        end
+
+        it "rejects a signature by a revoked key, for the signer's fingerprint" do
+          error = assert_raises(IOStreams::Pgp::Failure) { read_signed(@by_revoked, signer: @revoked) }
+
+          assert_match(/\APGP stream was signed by #{@revoked}, but the key that signed it is revoked/, error.message)
+        end
+
+        it "rejects a signature by a revoked key before the block reads it, with verify_first" do
+          called = false
+          assert_raises(IOStreams::Pgp::Failure) do
+            read_signed(@by_revoked, signer: "revoked@example.org", verify_first: true) { |_io| called = true }
+          end
+
+          refute called
+        end
+
+        it "rejects a signature by a revoked key, for import_and_trust_key" do
+          key   = gpg("--armor", "--export", "revoked@example.org")
+          error = assert_raises(IOStreams::Pgp::Failure) { read_signed(@by_revoked, import_and_trust_key: key) }
+
+          assert_equal "PGP stream was signed by the imported key, but the key that signed it is revoked, " \
+                       "so the signature is not accepted", error.message
+        end
+
+        it "rejects a signature by an expired key, for the signer" do
+          error = assert_raises(IOStreams::Pgp::Failure) { read_signed(@by_expired, signer: "expired@example.org") }
+
+          assert_equal "PGP stream was signed by expired@example.org, but the key that signed it is expired, " \
+                       "so the signature is not accepted", error.message
+        end
+
+        it "rejects a signature by an expired key, for import_and_trust_key" do
+          key   = gpg("--armor", "--export", "expired@example.org")
+          error = assert_raises(IOStreams::Pgp::Failure) do
+            read_signed(@by_expired, import_and_trust_key: key, import_and_trust_level: 5)
+          end
+
+          assert_equal "PGP stream was signed by the imported key, but the key that signed it is expired, " \
+                       "so the signature is not accepted", error.message
+        end
+
+        it "accepts the good signature of a file also signed by a revoked key" do
+          assert_equal decrypted, read_signed(@by_both, signer: "good@example.org")
+          assert_raises(IOStreams::Pgp::Failure) { read_signed(@by_both, signer: "revoked@example.org") }
+        end
+
+        it "accepts a signature by a key that is neither revoked nor expired" do
+          by_good = signed("good@example.org")
+
+          assert_equal decrypted, read_signed(by_good, signer: "good@example.org")
+          assert_equal decrypted, read_signed(by_good, import_and_trust_key: gpg("--armor", "--export", "good@example.org"))
         end
       end
     end

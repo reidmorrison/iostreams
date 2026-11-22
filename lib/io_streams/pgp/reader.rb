@@ -262,22 +262,37 @@ module IOStreams
       #
       # A key found from the `signer` must be trusted by gpg, since another key in the keyring could have the same
       # email address. A key supplied via `import_and_trust_key` is identified by its fingerprint, so it need not be.
+      #
+      # A signature by a key that is revoked or expired is never accepted, whatever the trust of the key, such as a
+      # signing key that was stolen and then revoked, see `Pgp::Status#unusable_key_signatures`.
       def self.verify_signers(gpg, signers, status)
-        signatures = status.good_signatures
-        matches    = signers.flat_map do |signer|
+        matches = signed_by(signers, status.good_signatures)
+        return if matches.any? { |signer, signature| !signer.trusted || TRUSTED.include?(signature[:trust]) }
+
+        unless matches.empty?
+          raise(Pgp::Failure,
+                gpg.describe("was signed by #{matches.first.first.name}, but gpg does not trust the key, " \
+                             "see IOStreams::Pgp.set_trust"))
+        end
+
+        signer, signature = signed_by(signers, status.unusable_key_signatures).first
+        if signer
+          raise(Pgp::Failure, gpg.describe("was signed by #{signer.name}, but the key that signed it is " \
+                                           "#{signature[:key]}, so the signature is not accepted"))
+        end
+
+        raise(Pgp::Failure, gpg.describe("was not signed by #{signers.map(&:name).join(' or ')}"))
+      end
+      private_class_method :verify_signers
+
+      # Returns [Array<Array>] each pair of a signer and a signature whose primary key is one of the signer's.
+      def self.signed_by(signers, signatures)
+        signers.flat_map do |signer|
           signatures.select { |signature| signer.fingerprints.include?(signature[:fingerprint]) }.
             map { |signature| [signer, signature] }
         end
-        return if matches.any? { |signer, signature| !signer.trusted || TRUSTED.include?(signature[:trust]) }
-
-        names = signers.map(&:name).join(" or ")
-        raise(Pgp::Failure, gpg.describe("was not signed by #{names}")) if matches.empty?
-
-        raise(Pgp::Failure,
-              gpg.describe("was signed by #{matches.first.first.name}, but gpg does not trust the key, " \
-                           "see IOStreams::Pgp.set_trust"))
       end
-      private_class_method :verify_signers
+      private_class_method :signed_by
     end
   end
 end
