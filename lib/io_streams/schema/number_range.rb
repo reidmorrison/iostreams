@@ -47,6 +47,9 @@ module IOStreams
       # A digit other than 0 before the exponent of the text of a number, so that it is not 0.
       NONZERO_DIGITS = /\A[^eE]*[1-9]/
 
+      # The exponent of the text of a number, from its "e" or "E".
+      EXPONENT = /[eE].*\z/
+
       # Returns [true|false] whether the number is within the range, see above: a BigDecimal by its exponent, without
       # building its digits, an Integer, a Float, which always is, and a Rational, which a field turns into a BigDecimal.
       # Its class is asked with `is_a?`, as the field asks it, rather than `case`, so that an object that answers it for
@@ -73,14 +76,15 @@ module IOStreams
       # Returns [BigDecimal|nil] the BigDecimal of the text of a finite number, which `IOStreams::Schema::Field::NUMBER`
       # matches, or nil when it is outside the range, also when its exponent is beyond those that a BigDecimal holds,
       # which BigDecimal reads as Infinity, such as "1e99999999999999999999", or as 0, such as
-      # "1e-99999999999999999999", which its digits say it is not.
+      # "1e-99999999999999999999", which its digits say it is not. Text whose digits are all 0 is 0 whatever its
+      # exponent, so it is read without it: JRuby reads "-0.0e99999999999999999999" as -Infinity.
       #
       # Raises ArgumentError for text that BigDecimal does not read, such as "12." before Ruby 3.4.
       def self.decimal(text)
-        decimal = BigDecimal(text)
-        return if !decimal.finite? || (decimal.zero? && NONZERO_DIGITS.match?(text))
+        return BigDecimal(text.sub(EXPONENT, "")) unless NONZERO_DIGITS.match?(text)
 
-        decimal if within?(decimal)
+        decimal = BigDecimal(text)
+        decimal if decimal.finite? && !decimal.zero? && within?(decimal)
       end
 
       # Returns [true|false] whether the value is a BigDecimal. The bigdecimal gem is loaded only for a number field, so
