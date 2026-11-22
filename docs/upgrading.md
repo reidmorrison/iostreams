@@ -649,8 +649,9 @@ than the days since 1899-12-31. v2.2 read each date cell before 1900-03-01 a day
 written as the one that Excel shows: Excel's 1900-02-29 is read as `1900-02-28`, the `1900-01-00` that it shows for the
 number 0 as `1899-12-31`, and a date or a date and time before 1900-01-01 is written as its text, which a `date` or
 `datetime` field reads back. A cell of an elapsed time of a day or more, such as `36:00:00`, is on the date that Excel
-shows for its days, `1900-01-01T12:00:00`. A workbook of the 1904 date system, of Excel for the Mac before 2011, is read
-as before.
+shows for its days, `1900-01-01T12:00:00`. A workbook of the 1904 date system, of Excel for the Mac before 2011, counts
+no such day, so its dates are read as before, except that a cell after its last date, 9999-12-31, is its number, as in
+the 1900 date system, rather than a date of the year 10000.
 
 Fix: none is needed for dates from 1900-03-01. Code that added a day to an earlier date read from a spreadsheet, to
 correct it, no longer needs to.

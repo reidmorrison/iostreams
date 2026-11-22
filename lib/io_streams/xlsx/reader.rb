@@ -215,8 +215,8 @@ module IOStreams
             next Cells.text(text, type, formats[style], options) if @text
 
             value  = Cells.value(text, type, formats[style], options)
-            length = @times && Cells.length(text, type, formats[style])
-            times[value] = TimeCell.new(Cells.clock(text, type, formats[style]), length) if length
+            length = @times && Cells.length(text, type, formats[style], options[:date_system])
+            times[value] = TimeCell.new(Cells.clock(text, type, formats[style], options[:date_system]), length) if length
             @missing ? Cell.new(value, Cells.text(text, type, formats[style], options)) : value
           end
         end

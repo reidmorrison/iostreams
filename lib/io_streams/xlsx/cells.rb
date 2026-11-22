@@ -169,11 +169,12 @@ module IOStreams
       # a `string` field reads the same text from the rows as from the lines, as IOStreams 2.2 reads it. Returns nil for
       # any other cell, including one of a time format of a day or more, which is a date and time.
       #
-      # Parameters are those of .value, without its options.
-      def self.clock(text, type, style)
+      # Parameters are those of .value, with the date system of the workbook, see `IOStreams::Xlsx::DateSystem`, rather
+      # than its options.
+      def self.clock(text, type, style, date_system)
         return unless TIME_FORMATS.include?(style) && (type.nil? || type == "n") && text && !text.empty?
 
-        days = days(text)
+        days = days(text, date_system)
         TIME_OF_DAY_FIELD.render(time_of_day(days), :text) if days && days < 1
       rescue ArgumentError, ZeroDivisionError
         nil
@@ -185,11 +186,11 @@ module IOStreams
       # as a number, which does not say what it counts, or a number of a time format that is not a date that Excel holds,
       # such as a negative one.
       #
-      # Parameters are those of .value, without its options.
-      def self.length(text, type, style)
+      # Parameters are those of .clock.
+      def self.length(text, type, style, date_system)
         return unless TIME_FORMATS.include?(style) && (type.nil? || type == "n") && text && !text.empty?
 
-        days = days(text)
+        days = days(text, date_system)
         duration_text((days * DAY).round(3)) if days
       rescue ArgumentError, ZeroDivisionError
         nil
@@ -259,7 +260,7 @@ module IOStreams
       # is short and has no exponent, as Excel writes the double that it holds, otherwise of that double's own text, so
       # that text such as `1e-100000000` or a fraction of a million digits, which a Float reads as a date, does not
       # become a Rational of a huge denominator, whose arithmetic Ruby cannot interrupt.
-      def self.days(text, date_system = DateSystem::SYSTEM_1900)
+      def self.days(text, date_system)
         days = Float(text)
         return unless date_system.days?(days)
 

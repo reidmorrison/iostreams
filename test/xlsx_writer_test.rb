@@ -578,6 +578,32 @@ class XlsxWriterTest < Minitest::Test
         assert_equal expected, read_rows(data)
       end
 
+      it "is written as its text by the worksheet itself, whoever gives it the value" do
+        output    = StringIO.new(+"")
+        worksheet = IOStreams::Xlsx::WorksheetWriter.new(output, styles:      IOStreams::Xlsx::CellStyles.new,
+                                                                 date_system: IOStreams::Xlsx::DateSystem::SYSTEM_1900)
+        worksheet << [Date.new(1899, 12, 31), Time.utc(1899, 12, 31, 12), Date.new(1800, 1, 1), Date.new(1900, 1, 1)]
+        worksheet.close
+
+        assert_includes output.string, '<c r="A1" t="inlineStr"><is><t>1899-12-31</t></is></c>'
+        assert_includes output.string, '<c r="B1" t="inlineStr"><is><t>1899-12-31T12:00:00</t></is></c>'
+        assert_includes output.string, '<c r="C1" t="inlineStr"><is><t>1800-01-01</t></is></c>'
+        assert_includes output.string, '<c r="D1" s="1"><v>1</v></c>'
+      end
+
+      it "decides by the clock that it writes of a time of another offset, as its cell holds it" do
+        output    = StringIO.new(+"")
+        worksheet = IOStreams::Xlsx::WorksheetWriter.new(output, styles:      IOStreams::Xlsx::CellStyles.new,
+                                                                 date_system: IOStreams::Xlsx::DateSystem::SYSTEM_1900)
+        worksheet << [Time.new(1899, 12, 31, 22, 0, 0, "-05:00"), Time.new(1900, 1, 1, 2, 0, 0, "+05:00"),
+                      Time.new(10_000, 1, 1, 2, 0, 0, "+05:00")]
+        worksheet.close
+
+        assert_includes output.string, '<c r="A1" t="inlineStr"><is><t>1899-12-31T22:00:00</t></is></c>'
+        assert_match(/<c r="B1" s="2"><v>1\.083333/, output.string)
+        assert_includes output.string, '<c r="C1" t="inlineStr"><is><t>10000-01-01T02:00:00</t></is></c>'
+      end
+
       it "is written as its text, which a date field reads back, from rows and from auto_format alike" do
         path = IOStreams.path(file_name).schema(fields: [{name: "on", type: "date"}, {name: "any", type: "any"}])
         path.option(:xlsx, auto_format: true).writer(:array) do |io|

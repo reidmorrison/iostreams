@@ -7,8 +7,8 @@ module IOStreams
     # Writes rows to a worksheet, each an Array of the values of its cells, which keep their types, see
     # `IOStreams::Xlsx::Writer.stream`'s `rows: true`, so that a number is a number, a Date or Time a date or time, and
     # text is text, such as `01234`, rather than every cell text, or a guess, or nil for a blank row, written as a row
-    # without cells. A time is written in UTC, and a date or time that Excel does not show, before 1900-01-01 or after
-    # 9999-12-31, as its text, see `IOStreams::Xlsx::WorksheetWriter#holds_date?`, a BigDecimal as the Float that Excel
+    # without cells. A time is written in UTC, which the worksheet writes as its text when Excel does not show it, as it
+    # does a date, see `IOStreams::Xlsx::WorksheetWriter#holds_date?`, a BigDecimal as the Float that Excel
     # holds, or its digits when a double cannot hold it,
     # a whole number of more digits than Excel keeps, or NaN or an infinity, as its text, a Hash or an Array as its
     # JSON, and any other value as its text, see `IOStreams::Schema::Field.any_text`.
@@ -75,24 +75,21 @@ module IOStreams
         case value
         when DateTime then time_cell(value.to_time, index)
         when Time then time_cell(value, index)
-        when nil, true, false then value
-        when Date then @worksheet.holds_date?(value) ? value : value.iso8601
+        when nil, true, false, Date then value
         when Integer, Float then number_cell(value, index)
         when String then @auto_format && !@text_columns.key?(index) ? auto_format(value) : value
         else value.is_a?(::BigDecimal) ? number_cell(value, index) : IOStreams::Schema::Field.any_text(value)
         end
       end
 
-      # Returns [WorksheetWriter::TimeOfDay|Time|String] the cell of a time: of a column of times of day, its clock,
-      # otherwise the time in UTC, or the text of its clock, as the CSV text of a cell holds it, see
-      # `IOStreams::Schema::Field.clock_text`, for one that no cell of a date and time holds, see
+      # Returns [WorksheetWriter::TimeOfDay|Time] the cell of a time: of a column of times of day, its clock, otherwise
+      # the time in UTC, whose clock the worksheet writes, or its text for one that no cell holds, see
       # `IOStreams::Xlsx::WorksheetWriter#holds_date?`, such as 1899-12-31T12:00:00, whose number of days would be that
-      # of a time of day, 0.5, so that only a cell of a time of day holds a number of less than 1.
+      # of a time of day, 0.5.
       def time_cell(time, index)
         return time_of_day(time) if @time_columns.key?(index)
 
-        time = time.getutc
-        @worksheet.holds_date?(time) ? time : IOStreams::Schema::Field.clock_text(time)
+        time.getutc
       end
 
       # Returns [Numeric|String] the number, as a number of Excel, a double of which it keeps 15 significant digits, or
