@@ -16,6 +16,9 @@ module IOStreams
     # others that a registered format must respond to.
     FORMAT_METHODS = %i[reader_class writer_class compressed? encrypted?].freeze
 
+    # The arguments of an extension whose data is the same as that of the other extensions of its format.
+    NO_ARGUMENTS = {}.freeze
+
     # Returns [Array<Symbol>] the methods that a format registered with `IOStreams.register_extension` must respond to,
     # but the supplied format does not: those that it answers itself, see `FORMAT_METHODS`, and those that extending
     # this module gives it.
@@ -161,6 +164,14 @@ module IOStreams
       klass.check(**arguments) if klass.respond_to?(:check)
     end
 
+    # Returns [Hash] the arguments that the class of the direction is opened with for the extension that names the
+    # stream, such as `:xlsm`, which are not options, see #open_stream: none, since the data of a format is the same
+    # whichever of its extensions names it. A format whose data differs by its extension answers them, see
+    # `IOStreams::Xlsx.extension_arguments`.
+    def extension_arguments(_type, _name)
+      NO_ARGUMENTS
+    end
+
     private
 
     # Returns [true|false] whether the class names the file that it reads in its failures, so that it takes
@@ -182,6 +193,7 @@ module IOStreams
       options  = options.slice(*accepted) if accepted
       options  = klass.file_name_options(file_name, **options) if file_name && klass.respond_to?(:file_name_options)
       options  = options.merge(display_name: display_name) if display_name && takes_display_name?(klass)
+      options  = options.merge(extension_arguments(type, name))
       options  = options.merge(arguments) if arguments
       options
     end

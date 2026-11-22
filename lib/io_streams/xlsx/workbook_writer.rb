@@ -22,6 +22,10 @@ module IOStreams
       RELATIONSHIP   = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
       SPREADSHEET_ML = "application/vnd.openxmlformats-officedocument.spreadsheetml"
 
+      # The content types of the workbook part: of a workbook, and of a macro-enabled one, as Excel requires of `.xlsm`.
+      WORKBOOK               = "#{SPREADSHEET_ML}.sheet.main+xml".freeze
+      MACRO_ENABLED_WORKBOOK = "application/vnd.ms-excel.sheet.macroEnabled.main+xml"
+
       # The relationships of the package, which name its main part, the workbook.
       ROOT_RELATIONSHIPS = "#{XML_DECLARATION}<Relationships xmlns=\"#{RELATIONSHIPS}\">" \
                            "<Relationship Id=\"rId1\" Type=\"#{RELATIONSHIP}/officeDocument\" " \
@@ -40,8 +44,13 @@ module IOStreams
       #   use_shared_strings: [true|false]
       #     Whether to write the text of the cells once each in the shared strings of the workbook, rather than within
       #     each cell.
-      def initialize(output_stream, sheet_name:, use_shared_strings: false)
+      #
+      #   macro_enabled: [true|false]
+      #     Whether the workbook is macro-enabled, as Excel requires of a `.xlsm` file, which has the content type of one,
+      #     without macros.
+      def initialize(output_stream, sheet_name:, use_shared_strings: false, macro_enabled: false)
         @sheet_name     = sheet_name
+        @workbook_type  = macro_enabled ? MACRO_ENABLED_WORKBOOK : WORKBOOK
         @shared_strings = SharedStringTable.new if use_shared_strings
         @styles         = CellStyles.new
         @zip            = ZipKit::Streamer.new(output_stream)
@@ -100,7 +109,7 @@ module IOStreams
         xml = "#{XML_DECLARATION}<Types xmlns=\"http://schemas.openxmlformats.org/package/2006/content-types\">" \
               "<Default Extension=\"xml\" ContentType=\"application/xml\"/>" \
               "<Default Extension=\"rels\" ContentType=\"application/vnd.openxmlformats-package.relationships+xml\"/>" \
-              "<Override PartName=\"/#{WORKBOOK_PART}\" ContentType=\"#{SPREADSHEET_ML}.sheet.main+xml\"/>" \
+              "<Override PartName=\"/#{WORKBOOK_PART}\" ContentType=\"#{@workbook_type}\"/>" \
               "<Override PartName=\"/#{CellStyles::PART}\" ContentType=\"#{SPREADSHEET_ML}.styles+xml\"/>" \
               "<Override PartName=\"/#{WORKSHEET_PART}\" ContentType=\"#{SPREADSHEET_ML}.worksheet+xml\"/>"
         if shared_strings?

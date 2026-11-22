@@ -379,6 +379,49 @@ class XlsxWriterTest < Minitest::Test
       end
     end
 
+    describe "a macro-enabled workbook" do
+      let :xlsm_name do
+        file_name.sub(/\.xlsx\z/, ".xlsm")
+      end
+
+      after do
+        FileUtils.rm_f(xlsm_name)
+      end
+
+      it "is written as .xlsm with the content type of one, which Excel requires of that extension, and read back" do
+        IOStreams.path(xlsm_name).writer(:array) do |io|
+          io << %w[name amount]
+          io << ["Jack", 12.5]
+        end
+        content_types = worksheet_xml(File.binread(xlsm_name), "[Content_Types].xml")
+
+        assert_includes content_types, '<Override PartName="/xl/workbook.xml" ContentType="application/vnd.ms-excel.sheet.macroEnabled.main+xml"/>'
+        refute_includes content_types, "sheet.main+xml"
+        rows = []
+        IOStreams.path(xlsm_name).each(:array) { |row| rows << row }
+
+        assert_equal [%w[name amount], ["Jack", 12.5]], rows
+      end
+
+      it "is written for a stream of the .xlsm format, while .xlsx is a workbook, whose options apply to both" do
+        xlsm = StringIO.new(+"")
+        IOStreams.stream(xlsm).stream(:xlsm, sheet_name: "Data").writer(:line) { |io| io << "a,b" }
+        xlsx = StringIO.new(+"")
+        IOStreams.stream(xlsx).stream(:xlsx).writer(:line) { |io| io << "a,b" }
+
+        assert_includes worksheet_xml(xlsm.string, "[Content_Types].xml"), "sheet.macroEnabled.main+xml"
+        assert_includes worksheet_xml(xlsm.string, "xl/workbook.xml"), 'name="Data"'
+        assert_includes worksheet_xml(xlsx.string, "[Content_Types].xml"),
+                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"
+      end
+
+      it "is not an option that a call can set" do
+        error = assert_raises(ArgumentError) { IOStreams.path(file_name).option(:xlsx, macro_enabled: true) }
+
+        assert_includes error.message, "macro_enabled"
+      end
+    end
+
     describe "a time of day" do
       let(:schema) do
         {

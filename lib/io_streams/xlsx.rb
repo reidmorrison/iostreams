@@ -65,6 +65,17 @@ module IOStreams
       :scalar
     end
 
+    # The arguments of the writer of a `.xlsm` file, a macro-enabled workbook, see .extension_arguments.
+    MACRO_ENABLED = {macro_enabled: true}.freeze
+
+    # Returns [Hash] the arguments that the class of the direction is opened with for the extension that names the
+    # stream, see `IOStreams::StreamFormat#extension_arguments`: a workbook written as `.xlsm` is macro-enabled, whose
+    # workbook part has the content type of one, which Excel requires of a file of that extension, and refuses to open
+    # otherwise, while a workbook of either extension is read the same way.
+    def self.extension_arguments(type, name)
+      type == :writer && name == :xlsm ? MACRO_ENABLED : StreamFormat::NO_ARGUMENTS
+    end
+
     # Returns [true] since the cells of a workbook hold typed values, whose CSV text is the default text of each, see
     # `IOStreams::Xlsx::Cells.text`, such as `1234.5` for a number cell, see `IOStreams::StreamFormat#cell_text?`.
     def self.cell_text?
