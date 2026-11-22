@@ -906,6 +906,13 @@ The values are read as before, apart from cells that `creek` lost: a row whose c
 `creek` returned without values, a cell of rich text, of which `creek` kept only the last piece, and on JRuby a cell
 whose text holds a line break or a `]`, which `creek` read only up to it.
 
+A workbook of Excel 97-2003 (`.xls`), or one protected by a password, which is not a zip file, raises
+`IOStreams::Errors::StreamFailure`, tagged as `IOStreams::Errors::Corrupt`, whose message says what it is, rather than
+the `Zip::Error` of rubyzip, which said only that it is not a zip file.
+
+Fix: rescue `IOStreams::Errors::Corrupt`, which catches it and any other file that is not a spreadsheet, rather than
+`Zip::Error`.
+
 #### A date field takes a time only at midnight
 
 A `date` field of a schema reads and writes a `Time` or `DateTime` at midnight, by its own clock, as its date, such as

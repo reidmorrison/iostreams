@@ -255,6 +255,29 @@ class XlsxPartsTest < Minitest::Test
         assert_raises(IOStreams::Errors::Corrupt) { text(name) }
       end
 
+      it "for a workbook of Excel 97-2003 or one protected by a password, a compound file, saying so" do
+        name = File.join(dir, "protected.xlsx")
+        File.binwrite(name, "\xD0\xCF\x11\xE0\xA1\xB1\x1A\xE1".b + ("\0" * 4096))
+        message = "The spreadsheet #{name} is a compound file, such as a workbook of Excel 97-2003 (.xls) or one " \
+                  "protected by a password, which IOStreams does not read: save it in Excel as an Excel Workbook " \
+                  "(.xlsx) without a password"
+
+        [-> { text(name) }, -> { IOStreams.path(name).each(:array) { nil } }].each do |read|
+          error = assert_raises(IOStreams::Errors::Corrupt) { read.call }
+
+          assert_instance_of IOStreams::Errors::StreamFailure, error
+          assert_equal message, error.message
+        end
+      end
+
+      it "for a file that is neither a zip file nor a compound file, as rubyzip finds it, keeping its exception" do
+        name = File.join(dir, "short.xlsx")
+        File.binwrite(name, "\xD0\xCF".b)
+
+        error = assert_raises(IOStreams::Errors::Corrupt) { text(name) }
+        assert_kind_of Zip::Error, error
+      end
+
       it "for a document type declaration, rather than expand its entities" do
         xml = "<!DOCTYPE worksheet [<!ENTITY a \"aaaaaaaaaa\"><!ENTITY b \"&a;&a;&a;\">]>#{sheet(%(<row><c r="A1" t="inlineStr"><is><t>&b;</t></is></c></row>))}"
 

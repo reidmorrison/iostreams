@@ -3171,7 +3171,9 @@ end
 The rows and records of a spreadsheet are the values of the cells of its first worksheet, each as Excel typed it, so
 that a number is a number and a date is a date, while its lines, and its bytes, are its CSV text, one line for each row,
 so the `:line` mode and a copy without a mode read that text. The `:text` format reads the CSV text of each row as it
-is, see [Text](#text). Reading needs the `rubyzip` gem.
+is, see [Text](#text). Reading needs the `rubyzip` gem. A workbook of Excel 97-2003, `.xls`, and one protected by a
+password are not read: each raises `IOStreams::Errors::StreamFailure`, tagged as `IOStreams::Errors::Corrupt`, whose
+message says what it is. Save it in Excel as an Excel Workbook (`.xlsx`) without a password.
 
 ~~~ruby
 IOStreams.path("orders.xlsx").each(:hash) do |order|
@@ -8907,7 +8909,7 @@ The exception that each stream raises when it cannot read the data, which is tag
 | `.zst` | `RuntimeError` | Never | Never |
 | `.zip` | `IOStreams::Errors::StreamFailure` for a file whose size or CRC32 is not the one that the zip file records. For a file that is not a zip file, or data that cannot be decompressed, `Zip::Error` from rubyzip on MRI, such as `Zip::DecompressionError`, or, from rubyzip 3.7, `NoMethodError`, `TypeError` or `ArgumentError` for a zip file whose end record is cut short, and `IOStreams::Errors::StreamFailure` on JRuby, which reads zip files with Java | `IOStreams::Errors::StreamFailure` | Never |
 | `.enc` | `OpenSSL::Cipher::CipherError`, or the exceptions of `.gz` for compressed data, or `IOStreams::Errors::StreamFailure` for empty data | Never | `SymmetricEncryption::CipherError` for a version of the cipher that is not configured |
-| `.xlsx`, `.xlsm` | `Zip::Error` from rubyzip, which opens the spreadsheet, for a file that is not a zip file, or `IOStreams::Errors::StreamFailure` for a zip file without the parts of a spreadsheet, a part whose size or CRC32 is not the one that the spreadsheet records, a part whose XML is not well formed, is not UTF-8, or declares a document type, or a cell after Excel's last column, XFD | Never | Never |
+| `.xlsx`, `.xlsm` | `IOStreams::Errors::StreamFailure` for a workbook of Excel 97-2003 (`.xls`) or one protected by a password, whose message says so; `Zip::Error` from rubyzip, which opens the spreadsheet, for any other file that is not a zip file; or `IOStreams::Errors::StreamFailure` for a zip file without the parts of a spreadsheet, a part whose size or CRC32 is not the one that the spreadsheet records, a part whose XML is not well formed, is not UTF-8, or declares a document type, or a cell after Excel's last column, XFD | Never | Never |
 | `.pgp`, `.gpg` | `IOStreams::Pgp::Failure` for data that is not PGP data, is cut short, including a signature that is cut short, which gpg itself does not report, or was changed, such as integrity protection or a signature that does not match it, or for data without integrity protection, unless `ignore_mdc_error: true` is supplied | Never | `IOStreams::Pgp::Failure` for a secret key that is not in the keyring, a passphrase that is missing or wrong, or the public key of a signature that is not in the keyring |
 | `.parquet` | `RuntimeError` from the parquet gem, which raises it for a file that is not Parquet, or is damaged or cut short | Never | Never |
 
@@ -11373,6 +11375,13 @@ only if your application uses it for something else.
 The values are read as before, apart from cells that `creek` lost: a row whose cells do not name their columns, which
 `creek` returned without values, a cell of rich text, of which `creek` kept only the last piece, and on JRuby a cell
 whose text holds a line break or a `]`, which `creek` read only up to it.
+
+A workbook of Excel 97-2003 (`.xls`), or one protected by a password, which is not a zip file, raises
+`IOStreams::Errors::StreamFailure`, tagged as `IOStreams::Errors::Corrupt`, whose message says what it is, rather than
+the `Zip::Error` of rubyzip, which said only that it is not a zip file.
+
+Fix: rescue `IOStreams::Errors::Corrupt`, which catches it and any other file that is not a spreadsheet, rather than
+`Zip::Error`.
 
 #### A date field takes a time only at midnight
 
