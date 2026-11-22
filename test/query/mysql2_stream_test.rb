@@ -211,6 +211,44 @@ class Mysql2StreamTest < Minitest::Test
         assert_equal 2_500, count
       end
 
+      it "raises ArgumentError for a database that the caller uses, as for a database of each tenant, which pluck reads" do
+        original = db.record.with_connection(&:current_database)
+        tenant   = "#{original}_tenant"
+        execute("CREATE DATABASE `#{tenant}`")
+        execute("CREATE TABLE `#{tenant}`.orders LIKE orders")
+        execute("INSERT INTO `#{tenant}`.orders (name, amount, status) VALUES ('tenant', 1, 0)")
+        db.record.with_connection do |connection|
+          connection.execute("USE `#{tenant}`")
+
+          assert_equal ["tenant"], db.order.pluck(:name)
+          error = assert_raises(ArgumentError) { each(IOStreams.stream(orders)) }
+          assert_match(/\A#{db.order.name} query is read on a connection of its own, whose session differs from that of the caller in its database, /, error.message)
+          assert_equal(["tenant"], each(IOStreams.stream(orders.in_batches(of: 2))).map { |order| order["name"] })
+        ensure
+          connection.execute("USE `#{original}`")
+        end
+      ensure
+        execute("DROP DATABASE IF EXISTS `#{tenant}`")
+      end
+
+      it "raises ArgumentError for a role that the caller set, whose privileges the read would not apply" do
+        role = QueryDatabase::MysqlDatabase.user("tenant_role")
+        name = db.record.with_connection(&:current_database)
+        execute("CREATE ROLE '#{role}'")
+        execute("GRANT SELECT ON `#{name}`.* TO '#{role}'")
+        execute("GRANT '#{role}' TO CURRENT_USER")
+        db.record.with_connection do |connection|
+          connection.execute("SET ROLE '#{role}'")
+          error = assert_raises(ArgumentError) { each(IOStreams.stream(orders)) }
+
+          assert_match(/\A#{db.order.name} query is read on a connection of its own, whose session differs from that of the caller in its current_role, /, error.message)
+        ensure
+          connection.execute("SET ROLE DEFAULT")
+        end
+      ensure
+        execute("DROP ROLE IF EXISTS '#{role}'")
+      end
+
       it "reads the query on a connection of its own, so that the block queries the database on that of the caller" do
         sessions = []
         counts   = []

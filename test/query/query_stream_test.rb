@@ -333,6 +333,66 @@ class QueryStreamTest < Minitest::Test
           end
         end
 
+        # Yields with the `.session` of every source answering the supplied callable, given the connection.
+        def with_session(callable, sources = sources_defining(:session), &)
+          return yield if sources.empty?
+
+          sources.first.stub(:session, callable) { with_session(callable, sources.drop(1), &) }
+        end
+
+        # A session of each connection of its own, so that those of the caller and of the read always differ.
+        let(:own_session) { ->(connection) { {"tenant" => connection.object_id.to_s, "role" => "reader"} } }
+
+        it "raises ArgumentError before a copy opens its target, when the session of the read differs from the caller's" do
+          Dir.mktmpdir do |dir|
+            path = IOStreams.path(dir, "orders.csv")
+            path.write("existing\n")
+            error = nil
+            with_session(own_session) do
+              db.record.with_connection { error = assert_raises(ArgumentError) { path.copy_from(orders, mode: :hash) } }
+            end
+
+            assert_equal "#{db.order.name} query is read on a connection of its own, whose session differs from that " \
+                         "of the caller in its tenant, so it would read other rows than the caller: set them for every " \
+                         "connection of the pool, such as in a checkout callback, or #{IOStreams::Query::IN_BATCHES}, " \
+                         "whose batches are read on the connection of the caller", error.message
+            assert_equal "existing\n", path.read
+            assert_equal 0, db.pool.stat[:busy]
+          end
+        end
+
+        it "reads the batches of a relation on the connection of the caller, whatever the session of another" do
+          with_session(own_session) do
+            db.record.with_connection { assert_equal 3, each(IOStreams.stream(orders.in_batches(of: 2))).size }
+          end
+        end
+
+        it "reads when the session of the read is the caller's, as when a checkout callback sets it for each connection" do
+          asked = []
+          with_session(->(connection) { asked << connection and {"tenant" => "a"} }) do
+            db.record.with_connection do |connection|
+              assert_equal 3, each(IOStreams.stream(orders)).size
+              assert_equal 2, asked.uniq.size
+              assert_includes asked, connection
+            end
+          end
+        end
+
+        it "asks no session when the caller has no connection leased, or the read shares it, as in transactional tests" do
+          with_session(->(_connection) { flunk "A session was asked" }) do
+            db.pool.release_connection
+
+            assert_equal 3, each(IOStreams.stream(orders)).size
+
+            db.pool.pin_connection!(false)
+            begin
+              db.record.with_connection { assert_equal 3, each(IOStreams.stream(orders)).size }
+            ensure
+              db.pool.unpin_connection!
+            end
+          end
+        end
+
         it "reads each row once while the block updates the rows that it reads, which moves them later in its order" do
           db.record.with_connection { |connection| connection.add_index(:orders, :amount) }
           expected = db.order.order(:amount).pluck(:id)

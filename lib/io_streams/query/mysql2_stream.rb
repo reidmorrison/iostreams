@@ -28,6 +28,16 @@ module IOStreams
       #   `relation.optimizer_hints("MAX_EXECUTION_TIME(3600000)")`, whose hint MySQL takes over that of the session.
       LIMITS = {"net_write_timeout" => NET_WRITE_TIMEOUT, "max_execution_time" => 0}.freeze
 
+      # The query of the settings of the session that decide which rows a query reads, see .session, on a server
+      # without roles.
+      SESSION = "SELECT DATABASE() AS `database`"
+
+      # The query of SESSION, with the roles of the session too, on a server that has them, see ROLE_VERSIONS.
+      SESSION_WITH_ROLES = "SELECT DATABASE() AS `database`, CURRENT_ROLE() AS `current_role`"
+
+      # The earliest version of MySQL, and of MariaDB, that has roles, and so `CURRENT_ROLE()`, see .session.
+      ROLE_VERSIONS = {mysql: "8.0.0", mariadb: "10.0.5"}.freeze
+
       # The query options of mysql2 that stream a result, rather than load all of it, as Arrays of the raw values of its
       # columns, on top of those of the connection, which Active Record sets, so that the values are those that `pluck`
       # casts.
@@ -81,6 +91,18 @@ module IOStreams
       # mysql2 casts, such as to an Integer.
       def self.unknown_type
         "any"
+      end
+
+      # Returns [Hash<String, String>] the settings of the session of the connection that decide which rows a query
+      # reads, see `IOStreams::Query#check_session`: `database`, in which the names of the tables are found, which `USE`
+      # changes, such as for a database of each tenant, and `current_role`, the roles whose privileges apply, which
+      # `SET ROLE` changes, on MySQL 8.0 and MariaDB 10.0.5 or later, which have roles, see ROLE_VERSIONS, as Active
+      # Record answers the version, which it asks once for each pool. Not a variable of the session, such as
+      # `@tenant_id`, since MySQL lists them only to a user that may read the Performance Schema.
+      def self.session(connection)
+        version = ROLE_VERSIONS.fetch(connection.mariadb? ? :mariadb : :mysql)
+        sql     = connection.database_version >= version ? SESSION_WITH_ROLES : SESSION
+        connection.uncached(dirties: false) { connection.select_all(sql, "IOStreams Session").first }
       end
 
       # Parameters:

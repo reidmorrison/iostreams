@@ -233,6 +233,21 @@ schema["fields"].each do |field|
 end
 ~~~
 
+## Exporting the rows of a tenant
+
+A query that `IOStreams.stream(relation)` or `copy_from(relation)` reads as one query runs on a connection of its own,
+checked out of the pool, rather than on the connection of the caller. So state that the application set on its own
+connection with a statement, such as PostgreSQL's `SET search_path` for a schema of each tenant, `SET ROLE`, a setting
+such as `app.tenant_id` that a row-level security policy reads, or MySQL's `USE`, does not apply to the rows read, which
+could then be those of another tenant. IOStreams raises `ArgumentError` when the `current_user` or `search_path` of
+PostgreSQL, or the database or `CURRENT_ROLE()` of MySQL 8.0 or MariaDB 10.0.5 and later, differs between the
+connection of the read and the one that the caller leases. It cannot see a setting of the application, a session
+variable, or state set on a connection that the caller no longer holds, such as within a `with_connection` that has
+returned it, which stays on that connection of the pool for the next query, such as the read. Set state for one task
+with `SET LOCAL` within a transaction, or for every connection in a checkout callback of Active Record, put the tenant
+into the query as a condition, or read the relation in batches, which run on the connection of the caller. See
+[Session state, tenants and row security](queries#session-state).
+
 ## PGP
 
 * **Verify a file before processing it.** IOStreams passes the decrypted data of a PGP file to your block as gpg

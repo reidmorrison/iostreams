@@ -36,6 +36,10 @@ that an export takes does not grow with the number of its rows. Active Record 7.
 MySQL with the `mysql2` gem, and SQLite stream the rows of a query, also on JRuby with the adapters of AR-JDBC, and any
 database can read them in batches, see [Each database](#each-database).
 
+A query is read on a connection of its own, so what the application set on its own connection with a statement, such as
+a `search_path` or role for a tenant, does not apply to the rows that it reads, see
+[Session state, tenants and row security](#session-state).
+
 ## Exporting a query
 
 Copy a relation into a path with `#copy_from`, in the `:hash` mode, which copies each row as a record, or the
@@ -498,6 +502,84 @@ back vacuum on the primary for as long as the export runs, as an export on the p
 `max_standby_streaming_delay` on a standby that exports, which delays its replay instead, or read the query in batches,
 whose snapshots each last for one batch. On MySQL, an export on a replica holds back the purge of that replica only.
 
+### Session state, tenants and row security {#session-state}
+
+The connection that reads a relation as one query is not the connection of the caller, so what the caller set on its
+own connection with a statement, rather than for every connection of the pool, does not apply to the rows that it
+reads, while it does apply to `pluck`, to the queries of the block, and to batches. Applications use such state for
+tenancy and authorization:
+
+* PostgreSQL's `search_path`, such as a schema for each tenant, which the Apartment gem sets with `SET search_path`.
+* PostgreSQL's `SET ROLE`, whose privileges and row-level security policies then apply.
+* A setting of the application that a row-level security policy reads, such as `app.tenant_id`, set with
+  `set_config('app.tenant_id', ...)` and read with `current_setting('app.tenant_id')`.
+* MySQL's `USE`, such as a database for each tenant, and the variables of a session, such as `@tenant_id`.
+
+Read without that state, a query could export the rows of another tenant, or rows that a policy would hide. So, before
+it runs the query, the read compares the session of its connection with that of the connection that the caller leased,
+when it leased one:
+
+| Database | What is compared |
+|----------|------------------|
+| PostgreSQL | `current_user`, which `SET ROLE` changes, and `search_path` |
+| MySQL 8.0 and later, MariaDB 10.0.5 and later | the database, which `USE` changes, and `CURRENT_ROLE()`, which `SET ROLE` changes |
+| Earlier MySQL and MariaDB, which have no roles | the database |
+| SQLite | nothing |
+
+When they differ it raises `ArgumentError`, before a copy opens its target:
+
+~~~ruby
+Order.connection.execute("SET search_path TO tenant_42")
+
+IOStreams.path("orders.csv").copy_from(Order.all, mode: :hash)
+# raises ArgumentError: Order query is read on a connection of its own, whose session differs from that of the
+# caller in its search_path, ...
+~~~
+
+It also raises `ArgumentError`, whose cause is the failure, when the connection of the caller cannot run the query of
+its session, such as within a PostgreSQL transaction that a failed statement aborted, rather than read without the
+check. Each read sends two small queries of the session, one on each connection, which Active Record reports as
+`IOStreams Session`; the one on the connection of the caller starts a transaction that the caller opened but has not
+used yet, as any query does, since Active Record begins a transaction only at its first query.
+
+That check cannot see a setting of the application, such as `app.tenant_id`, which PostgreSQL does not list, a
+variable of a MySQL session, or a temporary table or attached database of a SQLite connection. It compares only the
+connection that the caller leases, so it cannot see state that was set without a lease either: a statement within a
+`with_connection` that has since returned its connection, or on a connection of the pool that the caller checked out
+itself, leaves the state on that connection, for whichever query the pool gives it to next, such as the read. Set
+state for one task with `SET LOCAL`, or `set_config(..., true)`, within a transaction, which ends with it, or for every
+connection, as below. Nothing raises for state that the check cannot see, so apply it in one of these ways instead:
+
+* **Set it for every connection** that the pool checks out, with a checkout callback of Active Record, from where the
+  application keeps the tenant, such as `Current`. The pool runs it, in the thread of the caller, for the connection
+  that the read checks out too, so set the tenant before the export starts. Set the setting at every checkout, and
+  reset it when there is no tenant, so that a connection never keeps the tenant of an earlier checkout:
+
+  ~~~ruby
+  # config/initializers/tenant.rb
+  ActiveSupport.on_load(:active_record_postgresqladapter) do
+    set_callback(:checkout, :after) do
+      if (tenant_id = Current.tenant_id)
+        execute("SELECT set_config('app.tenant_id', #{quote(tenant_id.to_s)}, false)")
+      else
+        # Unset, so that a policy that reads it fails, or matches no row, rather than read another tenant's.
+        execute("RESET app.tenant_id")
+      end
+    end
+  end
+  ~~~
+
+  The `variables` of the configuration of the database apply to every connection of the pool too.
+* **Put the tenant into the query**, as a condition, such as `Order.where(account_id: Current.account_id)`, or the
+  default scope of a gem such as acts_as_tenant, or choose a pool of its own for it, such as a shard with
+  `connected_to(shard: :tenant_42)`, both of which the read applies as any query does.
+* **Read it in batches**, `IOStreams.stream(relation.in_batches(of: 10_000))`, whose queries run on the connection of
+  the caller, at the cost of a query for each batch, see [One query or batches](#one-query-or-batches).
+
+In the transactional tests of Rails the read shares the connection of the test, see above, so it sees the state that
+the test set on it: test an export of the rows of a tenant without transactional tests, or with the state set as the
+application sets it.
+
 ## Each database
 
 | Database | How a query is read |
@@ -672,4 +754,6 @@ A stream of a query is only read, so writing, `#read`, the `:stream` and `:line`
 `ArgumentError`, as for a slice: copy its rows to a path instead, such as with `copy_to("orders.csv", mode: :hash)`.
 So does a file name, which would have no effect on rows that are always in the `:array` format: name the file that the
 rows are copied to instead. So do `includes`, `preload` and `eager_load`, which load the associations of models rather
-than rows: join their tables with `joins`, and select their columns, instead.
+than rows: join their tables with `joins`, and select their columns, instead. So does a read whose connection's
+session differs from that of the caller, such as in its `search_path`, see
+[Session state, tenants and row security](#session-state).
