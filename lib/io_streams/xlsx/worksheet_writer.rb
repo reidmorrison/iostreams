@@ -156,7 +156,7 @@ module IOStreams
         return if text.empty?
 
         # Text of no more bytes than the limit is within it, since each code unit of UTF-16 takes a byte or more.
-        check_length(text, index) if text.bytesize > MOST_CHARACTERS
+        text = check_length(text, index) if text.bytesize > MOST_CHARACTERS
         text = Text.encode(text)
         xml << if @shared_strings
                  %(<c r="#{reference(index)}" t="s"><v>#{@shared_strings.index(text)}</v></c>)
@@ -165,11 +165,14 @@ module IOStreams
                end
       end
 
+      # Returns [String] the text in UTF-8, which it counts, so that it is not converted again.
+      #
       # Raises [IOStreams::Errors::Error] for text longer than a cell holds, see MOST_CHARACTERS, so that the write is
       # discarded rather than leave a workbook that Excel reports as corrupt.
       def check_length(text, index)
-        length = Text.length(Text.utf8(text))
-        return if length <= MOST_CHARACTERS
+        text   = Text.utf8(text)
+        length = Text.length(text)
+        return text if length <= MOST_CHARACTERS
 
         raise(Errors::Error, "A cell holds at most #{MOST_CHARACTERS} characters, counted in UTF-16, as Excel limits " \
                              "it, which the text of cell #{reference(index)}, of #{length}, exceeds")
