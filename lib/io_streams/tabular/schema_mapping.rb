@@ -245,6 +245,12 @@ module IOStreams
         @columns.time_positions
       end
 
+      # Returns [Hash<Integer, Integer>] the decimals of the values of the rows rendered whose field has them, by their
+      # positions, see `IOStreams::Schema::Columns#decimals_by_position`.
+      def decimals_by_position
+        @columns.decimals_by_position
+      end
+
       # Returns [Array<IOStreams::Errors::InvalidValue>] an error for each field whose value of the line is not valid, see
       # `IOStreams::Tabular#value_errors`, or none for a blank line.
       def value_errors(line)

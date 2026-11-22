@@ -215,6 +215,12 @@ module IOStreams
         []
       end
 
+      # Returns [Hash<Integer, Integer>] the decimals of the values of the rows rendered whose field has them, by their
+      # positions, see `IOStreams::Tabular#decimals_by_position`: none without a schema, whose values have no type.
+      def decimals_by_position
+        {}
+      end
+
       private
 
       # Returns [Array|Hash] the values of the line, which the parser parses, or a row already read, as it is.

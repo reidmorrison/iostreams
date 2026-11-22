@@ -359,7 +359,7 @@ date, a `Time` a date and time, holding its clock in UTC, or in the `timeZone` o
 field a time of day, of Excel's time format `h:mm:ss`, holding its own clock, or that of the `timeZone` of its field,
 and text, such as `"01234"`, is text. A date and time before 1899-12-31, which no cell of a date and time holds, is
 written as the text of its clock, such as `1899-12-30T12:00:00`, which a `datetime` field reads back. A `BigDecimal` is written as the `Float` that Excel
-holds, shown without the `decimals` of its field, see [Limitations](#spreadsheet-limitations). A field whose value is
+holds, shown with the `decimals` of its field, such as `12.50`, see [Limitations](#spreadsheet-limitations). A field whose value is
 not one value, a `list`, `geopoint`, `array` or `object`, a `yearmonth` and a `duration`, is written as its text, as
 CSV writes it, such as `a,b`, `2026-10` or `P1D`, and a `Hash` or an `Array` of a field of type `any`, or without a schema, as its JSON:
 
@@ -405,17 +405,17 @@ Notes:
 
 ### Limitations {#spreadsheet-limitations}
 
-A `number` field with `decimals` is written as a number cell in Excel's General format, since IOStreams
-writes only the number formats of dates and times, so Excel shows the digits of its value, such as `12.5`, where CSV
-writes `12.50`, and so do the lines of the spreadsheet, its CSV text. The cell holds the same number, which the field
-reads back:
+The lines of a spreadsheet, its CSV text, hold the digits of each number, such as `12.5`, rather than the text that
+its number format shows, so a `number` field with `decimals`, which Excel shows as `12.50` in the format of that many
+decimals, `0.00`, is `12.5` in the lines, where CSV writes `12.50`. The cell holds the number, which the field reads
+back:
 
 ~~~ruby
 # Order is a contract whose amount field has 2 decimals, see Contracts.
 IOStreams.path("report.xlsx").as(Order).writer(:hash) do |io|
   io << {"id" => 1001, "amount" => BigDecimal("12.5"), "ordered_at" => Time.utc(2026, 10, 25, 9, 30), "zip" => "01234"}
 end
-# Excel shows 12.5 as the amount, where report.csv holds 12.50.
+# Excel shows 12.50 as the amount, as report.csv holds it.
 
 IOStreams.path("report.xlsx").as(Order).each(:hash) do |order|
   p order

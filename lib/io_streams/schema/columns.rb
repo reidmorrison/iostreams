@@ -344,6 +344,13 @@ module IOStreams
         @schema.fields.each_index.select { |index| @schema.fields[index].type == "time" }
       end
 
+      # Returns [Hash<Integer, Integer>] the number of decimals of each value of a row rendered whose field is a `number`
+      # with `decimals`, by its position, as #text_positions finds them, which a format that writes numbers themselves,
+      # such as a spreadsheet, shows with that many decimals.
+      def decimals_by_position
+        @schema.fields.each_with_index.filter_map { |field, index| [index, field.decimals] if field.decimals }.to_h
+      end
+
       # Returns [Array<Integer>] the position of each value of a row rendered whose field is a `string` of bytes, with
       # `format: "binary"`, see `IOStreams::Schema::Field#binary?`, as #text_positions finds them.
       def binary_positions

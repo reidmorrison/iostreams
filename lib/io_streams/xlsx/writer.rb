@@ -25,7 +25,7 @@ module IOStreams
 
       # Returns [Array<Symbol>] the arguments of the rows that a stream writes, see .stream, which are not options.
       def self.argument_names
-        %i[rows text_columns time_columns]
+        %i[rows text_columns time_columns decimal_columns]
       end
 
       # Raises ArgumentError for a `sheet_name` that Excel rejects, which would make it report the workbook as corrupt,
@@ -36,7 +36,7 @@ module IOStreams
       # ends with an apostrophe.
       # rubocop:disable-next Lint/UnusedMethodArgument -- takes the arguments of .stream, which only it uses
       def self.check(sheet_name: "Sheet1", auto_format: false, use_shared_strings: false, rows: false, text_columns: nil,
-                     time_columns: nil)
+                     time_columns: nil, decimal_columns: nil)
         Utils.load_soft_dependency("zip_kit", "Xlsx") unless defined?(ZipKit::Streamer)
 
         problem = sheet_name_problem(sheet_name)
@@ -112,6 +112,12 @@ module IOStreams
       #     dates and times.
       #     Default: none
       #
+      #   decimal_columns: [Hash<Integer, Integer>]
+      #     With `rows: true`, the number of decimals of the columns whose values are numbers with decimals by their
+      #     field of a schema or contract, by their positions, whose cells show each number with that many, such as
+      #     `12.50` in the format `0.00`.
+      #     Default: none
+      #
       # The stream supplied to the block responds to the methods of an IO that write, see `IOStreams::Writable`, and
       # expects CSV text in UTF-8. Each CSV record is parsed into a row, so a quoted value can contain a newline. A record
       # whose quoting is not valid raises the csv gem's `CSV::MalformedCSVError`, tagged as an
@@ -123,7 +129,7 @@ module IOStreams
       # what was written is a complete workbook. It is not ended when the block raises, or its thread is killed, so
       # that the output is not a workbook that can be read.
       def self.stream(output_stream, sheet_name: "Sheet1", auto_format: false, use_shared_strings: false, rows: false,
-                      text_columns: nil, time_columns: nil)
+                      text_columns: nil, time_columns: nil, decimal_columns: nil)
         check(sheet_name: sheet_name, auto_format: auto_format, use_shared_strings: use_shared_strings,
               time_columns: time_columns)
 
@@ -132,7 +138,7 @@ module IOStreams
         # Rows hold their types, so only the values of the columns whose type is not known are formatted, while each
         # value of the CSV text is text, which `auto_format` formats, see RowsWriter.
         rows_writer = RowsWriter.new(workbook.worksheet, auto_format: auto_format, text_columns: text_columns,
-                                                         time_columns: time_columns)
+                                                         time_columns: time_columns, decimal_columns: decimal_columns)
         writer      = rows ? rows_writer : new(rows_writer)
         finish      = lambda do
           writer.finish

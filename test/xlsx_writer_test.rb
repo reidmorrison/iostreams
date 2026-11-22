@@ -547,6 +547,48 @@ class XlsxWriterTest < Minitest::Test
       end
     end
 
+    describe "a number field with decimals" do
+      it "is written in a number format of that many decimals, and read back as its number" do
+        schema = {
+          fields: [
+            {name: "amount", type: "number", decimals: 2},
+            {name: "rate", type: "number", decimals: 4},
+            {name: "count", type: "number", decimals: 0},
+            {name: "plain", type: "number"},
+            {name: "note", type: "string"}
+          ]
+        }
+        path = IOStreams.path(file_name).schema(schema)
+        path.writer(:hash) do |io|
+          io << {"amount" => BigDecimal("12.5"), "rate" => 0.03, "count" => 7, "plain" => 1.5, "note" => "a"}
+          io << {"amount" => nil, "rate" => 1, "count" => 3.0, "plain" => 2, "note" => "12"}
+        end
+        data   = File.binread(file_name)
+        styles = worksheet_xml(data, "xl/styles.xml")
+
+        assert_includes styles, '<numFmt numFmtId="166" formatCode="0.00"/>'
+        assert_includes styles, '<numFmt numFmtId="167" formatCode="0.0000"/>'
+        assert_includes styles, '<numFmt numFmtId="168" formatCode="0"/>'
+        assert_includes styles, '<cellXfs count="7">'
+        assert_includes worksheet_xml(data), '<c r="A2" s="4"><v>12.5</v></c><c r="B2" s="5"><v>0.03</v></c>'
+        assert_includes worksheet_xml(data), '<c r="D2" t="n"><v>1.5</v></c>'
+        records = []
+        path.each(:hash) { |record| records << record }
+
+        assert_equal [
+          {"amount" => BigDecimal("12.5"), "rate" => BigDecimal("0.03"), "count" => 7, "plain" => 1.5, "note" => "a"},
+          {"amount" => nil, "rate" => 1, "count" => 3, "plain" => 2, "note" => "12"}
+        ], records
+      end
+
+      it "is written as its text when Excel cannot hold the number, without a format" do
+        path = IOStreams.path(file_name).schema(fields: [{name: "id", type: "number", decimals: 0}])
+        path.writer(:hash) { |io| io << {"id" => 12_345_678_901_234_567_890} }
+
+        assert_includes worksheet_xml(File.binread(file_name)), "<t>12345678901234567890</t>"
+      end
+    end
+
     describe "auto_format" do
       it "writes text of a number that Excel cannot hold as text, and the CSV time of an offset in UTC" do
         big = "9" * 400

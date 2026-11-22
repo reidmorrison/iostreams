@@ -8,6 +8,7 @@ module IOStreams
     # by the type of each value, which `IOStreams::Xlsx::RowsWriter` gives it:
     # * an Integer or a Float is a number;
     # * true or false is a boolean;
+    # * a Decimal is its number, shown with its decimals;
     # * a Date is a date, a Time or DateTime a date and time, of the clock of its offset, since a cell holds no time
     #   zone, and a TimeOfDay a time of day, each a number of days since Excel's day 0, 1899-12-30, of its style, see
     #   `IOStreams::Xlsx::CellStyles`;
@@ -20,6 +21,9 @@ module IOStreams
       # A time of day, by its number of seconds since midnight, which is written as a cell of a time of day, rather
       # than as a date and time.
       TimeOfDay = Data.define(:seconds)
+
+      # A number shown with its number of decimals, of a style of that many, see `IOStreams::Xlsx::CellStyles#decimals`.
+      Decimal = Data.define(:number, :decimals)
 
       # The day of Excel of the first day of Unix time, 1970-01-01.
       UNIX_EPOCH_DAY = 25_569
@@ -45,11 +49,15 @@ module IOStreams
       #   output: [#<<]
       #     The part of the worksheet, which receives its XML.
       #
+      #   styles: [IOStreams::Xlsx::CellStyles]
+      #     The styles of the workbook, which give the style of a number of decimals.
+      #
       #   shared_strings: [IOStreams::Xlsx::SharedStringTable|nil]
       #     The shared strings of the workbook, which hold the text of its cells, or nil to write the text within each
       #     cell.
-      def initialize(output, shared_strings: nil)
+      def initialize(output, styles:, shared_strings: nil)
         @output         = output
+        @styles         = styles
         @shared_strings = shared_strings
         @row_number     = 0
         @columns        = ["A"]
@@ -92,6 +100,7 @@ module IOStreams
         when DateTime then xml << styled(index, CellStyles::DATE_TIME, days(value.to_time))
         when Date then xml << styled(index, CellStyles::DATE, value.jd - JULIAN_DAY_ZERO)
         when TimeOfDay then xml << styled(index, CellStyles::TIME_OF_DAY, value.seconds / SECONDS_PER_DAY)
+        when Decimal then xml << styled(index, @styles.decimals(value.decimals), value.number)
         else add_text(xml, value.to_s, index)
         end
       end
