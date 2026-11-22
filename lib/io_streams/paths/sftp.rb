@@ -24,13 +24,14 @@ module IOStreams
     #     end
     class SFTP < IOStreams::Path
       class << self
-        attr_accessor :sshpass_bin, :sftp_bin, :sshpass_wait_seconds, :before_password_wait_seconds
+        attr_accessor :sshpass_bin, :sftp_bin
       end
 
-      @sftp_bin                     = "sftp"
-      @sshpass_bin                  = "sshpass"
-      @before_password_wait_seconds = 2
-      @sshpass_wait_seconds         = 5
+      @sftp_bin    = "sftp"
+      @sshpass_bin = "sshpass"
+
+      # The environment variable from which `sshpass -e` reads the password.
+      SSHPASS_ENV = "SSHPASS".freeze
 
       autoload :NetSSH, "io_streams/paths/sftp/net_ssh"
 
@@ -124,7 +125,8 @@ module IOStreams
         @mkdir    = false
         @username = username || uri.user
         @url      = url
-        @password = password || uri.password
+        # A String, so that a password read from configuration as a number, such as from YAML, is the same password.
+        @password = (password || uri.password)&.to_s
         @port     = uri.port || 22
         # Not Ruby 2.5 yet: transform_keys(&:to_s)
         @ssh_options = {}
@@ -246,6 +248,16 @@ module IOStreams
         raise(ArgumentError, "Invalid SFTP username: it cannot start with '-' or contain control characters")
       end
 
+      # Raises ArgumentError for a password that sshpass cannot give the sftp program, which reading and writing run:
+      # sshpass types it at the password prompt as one line, so a line feed or carriage return would end it early, and
+      # an environment variable cannot hold a NUL. Checked before the file is read or written, rather than when the path
+      # is created, since net-sftp, which lists files, takes any password. The message never includes it.
+      def check_sshpass_password!
+        return unless password&.b&.match?(/[\n\r\0]/n)
+
+        raise(ArgumentError, "Invalid SFTP password for the sftp program: it cannot contain a line break or a NUL")
+      end
+
       # Set the path directly rather than parsing it as part of a URL, since a file name can contain
       # characters such as `?`, `#`, `+` or `%` that a URL parser would treat as a query or as escapes.
       #
@@ -259,6 +271,7 @@ module IOStreams
       end
 
       def stream_reader(&block)
+        check_sshpass_password!
         Utils.private_temp_file("iostreams-sftp-reader") do |file_name|
           sftp_download(path, file_name)
           ::File.open(file_name, "rb") { |io| builder.reader(io, &block) }
@@ -266,6 +279,7 @@ module IOStreams
       end
 
       def stream_writer(&block)
+        check_sshpass_password!
         Utils.private_temp_file("iostreams-sftp-writer") do |file_name|
           ::File.open(file_name, "wb") { |io| builder.writer(io, &block) }
           sftp_upload(file_name, path)
@@ -273,20 +287,14 @@ module IOStreams
         end
       end
 
-      # Use the sftp executable to download to a local file, via sshpass when a password is supplied
+      # Use the sftp executable to download to a local file, via sshpass when a password is supplied.
+      #
+      # The input of sftp holds only the batch commands, since sftp runs each line of it, including a `!command`, which
+      # runs in the local shell. So sshpass reads the password from its environment (`-e`), see #sftp_env, never from
+      # that input, and never from its arguments, which other users can see in the process list.
       def sftp_download(remote_file_name, local_file_name)
         with_sftp_args do |args|
-          Open3.popen2e(*args) do |writer, reader, waith_thr|
-            if password
-              # Give time for remote sftp server to get ready to accept the password.
-              sleep self.class.before_password_wait_seconds
-
-              writer.puts password
-
-              # Give time for password to be processed and stdin to be passed to sftp process.
-              sleep self.class.sshpass_wait_seconds
-            end
-
+          Open3.popen2e(sftp_env, *args) do |writer, reader, waith_thr|
             writer.puts "get #{remote_file_name.inspect} #{local_file_name.inspect}"
             writer.puts "bye"
             writer.close
@@ -307,12 +315,7 @@ module IOStreams
 
       def sftp_upload(local_file_name, remote_file_name)
         with_sftp_args do |args|
-          Open3.popen2e(*args) do |writer, reader, waith_thr|
-            if password
-              writer.puts(password)
-              # Give time for password to be processed and stdin to be passed to sftp process.
-              sleep self.class.sshpass_wait_seconds
-            end
+          Open3.popen2e(sftp_env, *args) do |writer, reader, waith_thr|
             writer.puts "put #{local_file_name.inspect} #{remote_file_name.inspect}"
             writer.puts "bye"
             writer.close
@@ -331,8 +334,7 @@ module IOStreams
         end
       end
 
-      # When the server does not prompt for a password, sftp reads the password line as a command
-      # and echoes it in its output, so remove it before the output is included in the error.
+      # The password is removed from the output before it is included in the error, should sftp or ssh ever echo it.
       def raise_failure(action, out)
         out = out.gsub(password.to_s, "[FILTERED]") if out && !password.to_s.empty?
         raise(
@@ -373,9 +375,17 @@ module IOStreams
         end
       end
 
+      # Returns [Hash] the environment of the program that #sftp_args runs: the password for sshpass, when one is
+      # supplied. sshpass can pass it on to the sftp and ssh processes that it starts, such as a ProxyCommand, so it is
+      # in the environment of those processes too, which only the same user and root can read.
+      def sftp_env
+        password ? {SSHPASS_ENV => password} : {}
+      end
+
       def sftp_args(ssh_options)
         # sshpass is only needed to supply the password to sftp.
-        args = password ? [self.class.sshpass_bin, self.class.sftp_bin] : [self.class.sftp_bin]
+        # It reads the password from the environment, see #sftp_env.
+        args = password ? [self.class.sshpass_bin, "-e", self.class.sftp_bin] : [self.class.sftp_bin]
         # Force sftp to use the password when supplied,
         # and stop sftp from prompting for a password when none was supplied.
         if password
@@ -416,3 +426,5 @@ module IOStreams
     end
   end
 end
+
+require_relative "sftp/deprecated_settings"
