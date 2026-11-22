@@ -40,15 +40,17 @@ module IOStreams
       # rows of its first worksheet, each an Array of the value of each of its cells, typed by Excel, see
       # `IOStreams::Xlsx::Cells`.
       #
-      # Raises the exception of rubyzip, tagged as `IOStreams::Errors::Corrupt`, for a file that is not a zip file, see
-      # .failure_kind, and `IOStreams::Errors::StreamFailure`, tagged the same way, for a zip file that is not a
-      # spreadsheet, and `IOStreams::Errors::StreamFailure`, tagged the same way, for a part of the spreadsheet that is
-      # damaged, see .verify, naming the spreadsheet by its `display_name`, see .takes_display_name?, otherwise by the name
-      # of the local file.
+      # Raises `IOStreams::Errors::StreamFailure`, tagged as `IOStreams::Errors::Corrupt`, for a workbook of Excel 97-2003,
+      # `.xls`, or one protected by a password, see `IOStreams::Xlsx::Package.check`, the exception of rubyzip, tagged
+      # the same way, for any other file that is not a zip file, see .failure_kind, and
+      # `IOStreams::Errors::StreamFailure`, tagged the same way, for a zip file that is not a spreadsheet, and for a part
+      # of the spreadsheet that is damaged, see .verify, naming the spreadsheet by its `display_name`, see
+      # .takes_display_name?, otherwise by the name of the local file.
       def self.file(file_name, display_name: nil, rows: false, decimals: nil, strings: nil, missing: nil, times: nil,
                     text: false, &block)
         Utils.load_soft_dependency("rubyzip", "Xlsx", "zip") unless defined?(::Zip::File)
         name = display_name || file_name
+        Package.check(file_name, name)
         verify(file_name, name)
         arguments = {decimals: decimals, strings: strings, missing: missing, times: times, text: text}
         return yield(Rows.new(file_name, name, **arguments)) if rows

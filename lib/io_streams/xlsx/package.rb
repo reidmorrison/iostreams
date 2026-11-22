@@ -17,6 +17,10 @@ module IOStreams
       # and Strict OOXML, and the name of the part that it targets.
       Relationship = Data.define(:id, :type, :target)
 
+      # The first bytes of a compound file, the format of a workbook of Excel 97-2003, `.xls`, and of a workbook that
+      # Excel encrypts with a password, which holds the encrypted package within one, rather than a zip file.
+      COMPOUND_FILE = "\xD0\xCF\x11\xE0\xA1\xB1\x1A\xE1".b.freeze
+
       # Returns [String] the name of the workbook, as failures name it.
       attr_reader :display_name
 
@@ -31,6 +35,24 @@ module IOStreams
         zip.each do |entry|
           @entries[self.class.normalize(entry.name).downcase] ||= entry if entry.file?
         end
+      end
+
+      # Raises [IOStreams::Errors::StreamFailure] tagged as `IOStreams::Errors::Corrupt` for a file that is a compound
+      # file, see COMPOUND_FILE, rather than a package, saying what it is, since both are what a user of Excel most often
+      # supplies in place of a workbook that IOStreams reads, while rubyzip would say only that it is not a zip file.
+      #
+      # Parameters:
+      #   file_name: [String]
+      #     The local file of the workbook.
+      #   display_name: [String]
+      #     The name of the workbook, which failures name.
+      def self.check(file_name, display_name)
+        return unless ::File.binread(file_name, COMPOUND_FILE.bytesize) == COMPOUND_FILE
+
+        raise(Zip::Reader.failure(Errors::Corrupt, "The spreadsheet #{display_name} is a workbook of Excel 97-2003 " \
+                                                   "(.xls), or one protected by a password, which IOStreams does not " \
+                                                   "read: save it in Excel as an Excel Workbook (.xlsx) without a " \
+                                                   "password", display_name))
       end
 
       # Returns [String] the name of a part as the package names it, without a leading `/`, with `/` between segments,
