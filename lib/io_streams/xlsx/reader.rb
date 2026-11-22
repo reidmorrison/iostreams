@@ -100,7 +100,7 @@ module IOStreams
       # Returns [String|nil] the name of the worksheet to read, as UTF-8, as the workbook holds its names, or nil for the
       # first.
       #
-      # Raises ArgumentError for a name that is not a String.
+      # Raises ArgumentError for a name that is not a String, or that UTF-8 cannot hold, as writing does.
       def self.check_sheet_name(sheet_name)
         return if sheet_name.nil?
         unless sheet_name.is_a?(String)
@@ -109,6 +109,8 @@ module IOStreams
         end
 
         Text.utf8(sheet_name, place: "the sheet_name")
+      rescue Errors::InvalidEncoding => e
+        raise(ArgumentError, "Invalid sheet_name #{sheet_name.inspect}: #{e.message}")
       end
       private_class_method :check_sheet_name
 

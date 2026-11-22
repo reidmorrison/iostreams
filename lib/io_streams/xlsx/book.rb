@@ -35,16 +35,17 @@ module IOStreams
                                                   @package.display_name))
       end
 
-      # Returns [Sheet] the worksheet of the supplied name, compared without case, as Excel compares the names of the
-      # worksheets of a workbook, which it does not let differ only in case, or the first worksheet without a name, see
-      # #first_sheet.
+      # Returns [Sheet] the worksheet of the supplied name, the one of exactly that name, otherwise compared without case,
+      # as Excel compares the names of the worksheets of a workbook, which it does not let differ only in case, or the
+      # first worksheet without a name, see #first_sheet. A worksheet that the workbook does not name matches none.
       #
       # Raises [IOStreams::Errors::StreamFailure] tagged as `IOStreams::Errors::MissingEntry` for a name that no
       # worksheet has, naming those that it has, as for a zip file without the file of an `entry_file_name`.
       def sheet(name = nil)
         return first_sheet if name.nil?
 
-        sheets.find { |sheet| sheet.name.casecmp?(name) } || raise(missing_sheet(name))
+        sheets.find { |sheet| sheet.name == name } || sheets.find { |sheet| sheet.name&.casecmp?(name) } ||
+          raise(missing_sheet(name))
       end
 
       # Returns [IOStreams::Xlsx::DateSystem] how the workbook numbers its days, as its `date1904` records.

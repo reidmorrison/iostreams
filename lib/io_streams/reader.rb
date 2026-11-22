@@ -49,8 +49,8 @@ module IOStreams
     # One option hash is shared by the reader and the writer for a stream, so that the same path can be
     # written and then read. So by default the writer's options are also valid when reading, and are
     # ignored, since only `option_names` are passed to the reader. List an option of the writer here when a
-    # caller could expect it to have an effect when reading, such as the name of the worksheet to write, which
-    # must raise until the reader supports it.
+    # caller could expect it to have an effect when reading, such as a PGP `signer` before the reader checked it,
+    # which must raise until the reader supports it.
     def self.unsupported_option_names
       []
     end
