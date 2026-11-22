@@ -547,6 +547,46 @@ class XlsxWriterTest < Minitest::Test
       end
     end
 
+    describe "a date that Excel cannot show" do
+      it "is written as its text, for a time within half a millisecond of the year 10000, which a cell would round to it" do
+        data = write(rows: true) { |io| io << [Time.utc(9999, 12, 31, 23, 59, 59.9999r), Time.utc(9999, 12, 31, 23, 59, 59.999r)] }
+        xml  = worksheet_xml(data)
+
+        assert_includes xml, '<c r="A1" t="inlineStr"><is><t>9999-12-31T23:59:59.999900</t></is></c>'
+        assert_match(/<c r="B1" s="2"><v>2958465\.99999/, xml)
+      end
+
+      it "is written as its text, which a date field reads back, from rows and from auto_format alike" do
+        path = IOStreams.path(file_name).schema(fields: [{name: "on", type: "date"}, {name: "any", type: "any"}])
+        path.option(:xlsx, auto_format: true).writer(:array) do |io|
+          io << [Date.new(1899, 12, 30), "1899-12-29"]
+          io << [Date.new(1899, 12, 31), "1899-12-31"]
+          io << [Date.new(1600, 1, 1), "2026-01-02"]
+          io << [Date.new(10_000, 1, 1), "9999-12-31"]
+          io << [Date.new(9999, 12, 31), "9999-12-31T23:00:00-05:00"]
+        end
+        xml = worksheet_xml(File.binread(file_name))
+
+        assert_includes xml, "<t>1899-12-30</t>"
+        assert_includes xml, "<t>1899-12-29</t>"
+        assert_includes xml, "<t>1600-01-01</t>"
+        assert_includes xml, "<t>10000-01-01</t>"
+        assert_includes xml, "<t>9999-12-31T23:00:00-05:00</t>"
+        assert_includes xml, '<c r="A6" s="1"><v>2958465</v></c>'
+
+        assert_match(%r{<c r="A3" s="1"><v>1</v></c><c r="B3" s="1"><v>1</v></c>}, xml)
+        refute_match(/<v>-/, xml)
+        # A date field reads the text of a date of the year 10000 no more than CSV holds it, so only the rows before it.
+        records = []
+        path.each(:hash) do |record|
+          records << record["on"]
+          break if records.size == 3
+        end
+
+        assert_equal [Date.new(1899, 12, 30), Date.new(1899, 12, 31), Date.new(1600, 1, 1)], records
+      end
+    end
+
     describe "a number field with decimals" do
       it "is written in a number format of that many decimals, and read back as its number" do
         schema = {
