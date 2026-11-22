@@ -541,8 +541,8 @@ class BuilderTest < Minitest::Test
       end
 
       it "raises for a cleaner or a replace that the encode stream cannot use, when it is set" do
-        error = assert_raises(ArgumentError) { streams.encoding("UTF-8", cleaner: "printable") }
-        assert_includes error.message, %(Invalid cleaner "printable")
+        error = assert_raises(ArgumentError) { streams.encoding("UTF-8", cleaner: 42) }
+        assert_includes error.message, "Invalid cleaner 42"
 
         error = assert_raises(ArgumentError) { streams.encoding("UTF-8", replace: 5) }
         assert_equal "Invalid replace 5: supply the String that replaces each invalid character", error.message

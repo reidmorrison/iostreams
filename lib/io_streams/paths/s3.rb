@@ -462,6 +462,12 @@ module IOStreams
 
       protected
 
+      # Returns [Hash] the options of the client, see `ClientCache#stored_arguments`, and of the requests, see #options,
+      # including those of the query of the url, which #to_s does not include, see `IOStreams::Path#stored_arguments`.
+      def stored_arguments
+        @client_cache.stored_arguments.merge(Utils.deep_copy(options))
+      end
+
       # A copy has its own options, so that changing them does not change this path, see #options.
       def initialize_copy(source)
         super

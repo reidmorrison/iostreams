@@ -65,8 +65,16 @@ class EncodeCleanerTest < Minitest::Test
       assert_equal "Invalid cleansing rule :bogus", error.message
     end
 
-    it "raises for a rule that is neither a Symbol nor a Proc" do
-      assert_raises(ArgumentError) { IOStreams::Encode::Cleaner.new("printable", replace: nil) }
+    it "takes the name of a built-in rule as its text, as a stored path holds it" do
+      cleaner = IOStreams::Encode::Cleaner.new("printable", replace: nil)
+
+      assert_equal "abc", cleaner.call("a\x00b\x01c")
+    end
+
+    it "raises for a rule that is neither a name nor a Proc" do
+      error = assert_raises(ArgumentError) { IOStreams::Encode::Cleaner.new("bogus", replace: nil) }
+
+      assert_equal "Invalid cleansing rule :bogus", error.message
       assert_raises(ArgumentError) { IOStreams::Encode::Cleaner.new(Object.new, replace: nil) }
     end
   end

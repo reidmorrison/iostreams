@@ -208,6 +208,53 @@ module IOStreams
                                **)
       end
 
+      # The keys of #to_h, which #restore takes.
+      STORED_KEYS = %w[format schema options].freeze
+
+      # Returns [Hash] the format, the schema and the options of the rows that were set, each one only when it is set, in a
+      # form that JSON holds as it is, with String keys, which #restore sets again, see `IOStreams::Path#to_h`. The schema
+      # is the Hash of the schema, see `IOStreams::Schema#to_h`, read from its file or url when it was set as one, see
+      # #file_schema, so that it is read once, and the path created again reads by the same schema, even when the file
+      # changes later.
+      #
+      # Raises ArgumentError when a contract is set, see #contract=, which is a class of the program rather than a setting
+      # of the file, so set it again where the path is created again; for an option of the rows that holds a secret, as
+      # the format of the rows decides, see `IOStreams::StreamFormat#sensitive_option_names`; and for a value that JSON
+      # does not hold as it is, see `IOStreams::Storable.options`. Raises what reading the schema raises, such as
+      # `IOStreams::Errors::NotFound` for a schema file that does not exist. A secret is kept, rather than raising, only
+      # when `secrets` is true.
+      def to_h(secrets: false)
+        if @contract
+          raise(ArgumentError, "A path with a contract cannot be stored, since the contract is a class of the program " \
+                               "rather than a setting of the file: store the path without it, and set it with #as " \
+                               "where the path is created again")
+        end
+
+        hash = {}
+        hash["format"]  = @format.name if @format
+        hash["schema"]  = Storable.value(file_schema.to_h, "The schema") if @schema_source
+        if @row_options
+          hash["options"] = Storable.streams(@row_options, "rows", secrets: secrets) do |name|
+            IOStreams::Tabular.row_format(name)
+          end
+        end
+        hash
+      end
+
+      # Sets the format, the schema and the options of the rows that the supplied Hash, which #to_h returned, holds, with
+      # String or Symbol keys, through #format=, #schema= and #merge_row_options, which check each one as they do when it
+      # is first set.
+      #
+      # Raises ArgumentError for a key that #to_h does not return, or for a value that those methods do not take.
+      def restore(hash)
+        hash = Storable.stored_keys(hash, STORED_KEYS, "The rows of a path")
+
+        self.format = hash["format"] if hash.key?("format")
+        self.schema = hash["schema"] if hash.key?("schema")
+        Storable.each_stream(hash["options"], "options of the rows") { |name, options| merge_row_options(name, options) }
+        self
+      end
+
       # Returns [String] these settings for `#inspect` on a path, see `IOStreams::Path#inspect`, each one only when it is
       # set, with the value of each sensitive option replaced, as the format of the rows that they were set for decides,
       # see `IOStreams::StreamFormat#redact_options`.

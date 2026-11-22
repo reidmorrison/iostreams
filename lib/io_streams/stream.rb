@@ -1325,6 +1325,15 @@ module IOStreams
       self
     end
 
+    # Sets again the streams and the settings of the rows that `IOStreams::Path#to_h` stored, each of which restores its
+    # own, see `IOStreams::Builder#restore` and `IOStreams::Tabular::Settings#restore`. Returns self.
+    def restore(streams, rows)
+      raise_if_frozen!
+      builder.restore(streams) if streams
+      tabular_settings.restore(rows) if rows
+      self
+    end
+
     # Raises [FrozenError] when this stream is frozen, since the methods that change its builder, such as
     # #option and #file_name=, would otherwise change it even though this stream is frozen,
     # see `IOStreams::Path#freeze`.

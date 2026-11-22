@@ -31,8 +31,26 @@ module IOStreams
   #
   # A path supplied on its own is copied, keeping its streams and options, so that changing the
   # returned path, for example with `#option`, does not change the path supplied.
+  #
+  # A Hash supplied on its own is what `IOStreams::Path#to_h` returned, such as one that a job stored, with String or
+  # Symbol keys, which creates that path again, with its arguments, streams, options, encoding, format, schema and the
+  # options of its rows, each of which is checked again as it is set:
+  #   stored = IOStreams.path("s3://uploads/people.fixed.gz").schema("config/schemas/people_fixed.json").to_h
+  #   IOStreams.path(stored).each(:hash) { |person| p person }
+  #
+  # Raises ArgumentError for a Hash that does not describe a path, see `IOStreams::Path.from_h`, or that is supplied
+  # with other elements or arguments.
   def self.path(*elements, **args)
     return elements.first.dup if (elements.size == 1) && args.empty? && elements.first.is_a?(IOStreams::Path)
+
+    if elements.any?(Hash)
+      unless elements.size == 1 && args.empty?
+        raise(ArgumentError, "A Hash of a path, see IOStreams::Path#to_h, is supplied on its own, without other elements " \
+                             "or arguments")
+      end
+
+      return Path.from_h(elements.first)
+    end
 
     elements = elements.collect(&:to_s)
     path     = Utils::PathName.join(*elements)
@@ -598,6 +616,9 @@ module IOStreams
   end
 
   # Register a URI scheme and the path class that handles it
+  #
+  # For its paths to be stored with `IOStreams::Path#to_h`, the class returns the keyword arguments it was created with
+  # from its protected `#stored_arguments` method, `{}` when it takes none, see `IOStreams::Path#stored_arguments`.
   #
   # Example:
   #   register_scheme(:az, MyAzureBlobStoragePath)

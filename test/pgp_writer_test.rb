@@ -602,6 +602,11 @@ class PgpWriterTest < Minitest::Test
         assert_empty compressed_packets(compress: :none)
       end
 
+      it "takes the algorithm as its text, as a stored path holds it" do
+        assert_equal [":compressed packet: algo=2"], compressed_packets(compress: "zlib")
+        assert_empty compressed_packets(compress: "none")
+      end
+
       it "does not compress with compress_level: 0" do
         assert_empty compressed_packets(compress_level: 0)
       end

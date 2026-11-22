@@ -311,10 +311,10 @@ class EncodeWriterTest < Minitest::Test
         assert_equal "Invalid cleansing rule :unknown_rule", error.message
       end
 
-      it "raises for a cleaner that is neither a Symbol nor a Proc, rather than ignoring it" do
-        error = assert_raises(ArgumentError) { IOStreams::Encode::Writer.stream(StringIO.new, cleaner: "printable") { |_io| flunk } }
+      it "raises for a cleaner that is neither a name nor a Proc, rather than ignoring it" do
+        error = assert_raises(ArgumentError) { IOStreams::Encode::Writer.stream(StringIO.new, cleaner: 42) { |_io| flunk } }
 
-        assert_includes error.message, %(Invalid cleaner "printable")
+        assert_includes error.message, "Invalid cleaner 42"
       end
     end
 

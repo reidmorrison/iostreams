@@ -106,6 +106,7 @@ module IOStreams
       #   Default: default_signer_passphrase
       #
       # compress: [:none|:zip|:zlib|:bzip2]
+      #   Also as its text, such as "zip", as a stored path holds it, see `IOStreams::Path#to_h`.
       #   Note: Standard PGP only supports :zip.
       #   :zlib is better than zip.
       #   :bzip2 is best, but uses a lot of memory and is much slower.
@@ -133,6 +134,7 @@ module IOStreams
                       compress_level: 6,
                       &block)
         check(encrypt: encrypt, recipient: recipient, import_and_trust_key: import_and_trust_key, signer: signer)
+        compress       = compress.to_sym if compress.is_a?(String)
         compress_level = 0 if compress == :none
 
         recipients, imported = encrypt ? collect_recipients(recipient, import_and_trust_key, import_and_trust_level) : [[], []]
